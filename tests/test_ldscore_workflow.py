@@ -45,13 +45,13 @@ try:
     from ldsc._ldscore import compute as kernel_ldscore
     from ldsc._annotation.overlap import compute_overlap
     from ldsc._refpanel import plink as plink_bed
-    from ldsc._refpanel import r2_format, windows as ld_windows
+    from ldsc._refpanel import adapters as ref_panel_adapters, r2_format, windows as ld_windows
     from ldsc._refpanel.prepared import ChromosomeAnnotations
     from ldsc._refpanel.r2_format import validate_ldscore_window_within_r2_panel_window
     from ldsc._refpanel.windows import (
         assert_cm_usable,
-        ldscore_window_coordinates,
         validate_window_positions_sorted,
+        window_coordinates,
     )
     from ldsc._core.snp_identity import RestrictionIdentityKeys, empty_identity_drop_frame
 except ImportError:
@@ -3045,23 +3045,41 @@ def test_assert_canonical_maf_passes_for_minor():
     ldscore_workflow._assert_canonical_maf(ok)  # no raise
 
 
-def test_cm_window_consistent_across_backends():
-    """Both backends feed reference CM into the same window builder, so identical
-    reference CM yields identical block-lefts (the headline cross-backend invariant)."""
-    import argparse
-    cm = pd.Series([0.0, 0.4, 0.9, 1.6])
-    md = pd.DataFrame({"CM": cm, "POS": [1, 2, 3, 4]})
-    args = argparse.Namespace(ld_wind_snps=None, ld_wind_kb=None, ld_wind_cm=1.0)
-    coords_a, dist_a = ldscore_window_coordinates(md, args)
-    coords_b, dist_b = ldscore_window_coordinates(md.copy(), args)
-    np.testing.assert_array_equal(
-        ld_windows.get_block_lefts(coords_a, dist_a),
-        ld_windows.get_block_lefts(coords_b, dist_b),
+def test_window_coordinates_select_each_window_mode():
+    """One window builder serves ldscore and build-r2-panel for every mode."""
+    positions = np.array([100, 250, 900, 2_000])
+    cm = np.array([0.0, 0.4, 0.9, 1.6])
+
+    coords, dist = window_coordinates(positions, cm, ld_wind_snps=None, ld_wind_kb=None, ld_wind_cm=1.0)
+    np.testing.assert_array_equal(coords, cm)
+    assert dist == 1.0
+    np.testing.assert_array_equal(ld_windows.get_block_lefts(coords, dist), [0, 0, 0, 2])
+
+    coords, dist = window_coordinates(positions, None, ld_wind_snps=None, ld_wind_kb=1.0, ld_wind_cm=None)
+    np.testing.assert_array_equal(coords, positions.astype(float))
+    assert dist == 1000.0
+
+    coords, dist = window_coordinates(positions, None, ld_wind_snps=2, ld_wind_kb=None, ld_wind_cm=None)
+    np.testing.assert_array_equal(coords, [0.0, 1.0, 2.0, 3.0])
+    assert dist == 2.0
+
+
+def test_window_coordinates_count_panel_rows_when_given():
+    """``--ld-wind-snps`` counts R2 panel sidecar rows, not retained rows."""
+    coords, dist = window_coordinates(
+        np.array([10, 20, 30]), None, ld_wind_snps=1, ld_wind_kb=None, ld_wind_cm=None,
+        snp_positions=np.array([0, 5, 6]),
     )
-    # The kb window over the same physical positions is likewise deterministic.
-    args_kb = argparse.Namespace(ld_wind_snps=None, ld_wind_kb=1.0, ld_wind_cm=None)
-    coords_kb, dist_kb = ldscore_window_coordinates(md, args_kb)
-    np.testing.assert_array_equal(coords_kb, md["POS"].to_numpy(dtype=float))
+    np.testing.assert_array_equal(coords, [0.0, 5.0, 6.0])
+    np.testing.assert_array_equal(ld_windows.get_block_lefts(coords, dist), [0, 1, 1])
+
+
+def test_ldscore_window_rejects_missing_cm():
+    metadata = pd.DataFrame({"CHR": ["22"] * 3, "POS": [1, 2, 3], "SNP": ["rs1", "rs2", "rs3"],
+                             "CM": [0.0, np.nan, 0.2]})
+    config = SimpleNamespace(ld_wind_snps=None, ld_wind_kb=None, ld_wind_cm=1.0, whole_chromosome_ok=True)
+    with pytest.raises(LDSCInputError, match="ldscore cannot use `--ld-wind-cm`.*missing CM"):
+        ref_panel_adapters._prepare_window(metadata, "22", config, "rsid")
 
 
 def test_assert_cm_usable_rejects_all_zero():

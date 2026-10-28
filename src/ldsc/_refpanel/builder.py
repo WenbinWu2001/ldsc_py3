@@ -86,7 +86,7 @@ from .r2_format import (
     write_r2_parquet,
     write_runtime_metadata_sidecar,
 )
-from .windows import compute_block_left, r2_panel_window_coordinates
+from .windows import get_block_lefts, window_coordinates
 from .._genome.liftover import (
     duplicate_coordinate_drop_result,
     liftover_drop_report,
@@ -999,22 +999,7 @@ class ReferencePanelBuilder:
             if cm_values is not None:
                 # Window on the CM the sidecar will store, which ldscore reads back.
                 cm_values = round_to_sidecar_precision(cm_values)
-            if cm_values is None and config.ld_wind_cm is not None:
-                raise LDSCUsageError(
-                    f"build-r2-panel cannot compute cM LD windows for chromosome {chrom} "
-                    f"in {build}: no genetic map values are available. Most likely the "
-                    f"{build} genetic map is missing this chromosome or was not supplied. "
-                    "Pass the matching genetic map or use an SNP/kb LD window. "
-                    f"Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
-                )
-            coords, max_dist = r2_panel_window_coordinates(
-                metadata=_metadata_with_build_positions(metadata, build_positions),
-                cm_values=cm_values,
-                ld_wind_snps=config.ld_wind_snps,
-                ld_wind_kb=config.ld_wind_kb,
-                ld_wind_cm=config.ld_wind_cm,
-            )
-            block_left = compute_block_left(coords, max_dist)
+            block_left = _r2_panel_block_left(chrom, build, build_positions, cm_values, config)
             r2_path = Path(config.output_dir) / build / f"chr{chrom}_r2.parquet"
             meta_path = Path(config.output_dir) / build / f"chr{chrom}_meta.tsv.gz"
 
@@ -1272,6 +1257,37 @@ def _position_lookup_for_build(
 ) -> dict[int, int]:
     """Return the retained-position lookup for one genome build."""
     return hg19_lookup if genome_build == "hg19" else hg38_lookup
+
+
+def _r2_panel_block_left(
+    chrom: str,
+    build: str,
+    positions: np.ndarray,
+    cm_values: np.ndarray | None,
+    config: ReferencePanelBuildConfig,
+) -> np.ndarray:
+    """Return one emitted build's LD-window block-left array."""
+    if config.ld_wind_cm is not None:
+        if cm_values is None:
+            raise LDSCUsageError(
+                f"build-r2-panel cannot compute cM LD windows for chromosome {chrom} "
+                f"in {build}: no genetic map values are available. Most likely the "
+                f"{build} genetic map is missing this chromosome or was not supplied. "
+                "Pass the matching genetic map or use an SNP/kb LD window. "
+                f"Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
+            )
+        if np.isnan(np.asarray(cm_values, dtype=float)).any():
+            raise LDSCInputError(
+                "build-r2-panel cannot use cM LD windows because interpolated CM values "
+                "are missing for retained SNPs. Most likely the genetic map does not cover "
+                "all retained positions. Provide a complete genetic map or use an SNP/kb "
+                f"LD window. Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
+            )
+    coords, max_dist = window_coordinates(
+        positions, cm_values,
+        ld_wind_snps=config.ld_wind_snps, ld_wind_kb=config.ld_wind_kb, ld_wind_cm=config.ld_wind_cm,
+    )
+    return get_block_lefts(coords, max_dist)
 
 
 def _metadata_with_build_positions(metadata: pd.DataFrame, positions: np.ndarray) -> pd.DataFrame:

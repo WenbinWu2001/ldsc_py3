@@ -49,8 +49,8 @@ from .windows import (
     assert_cm_usable,
     check_whole_chromosome_window,
     get_block_lefts,
-    ldscore_window_coordinates,
     validate_window_positions_sorted,
+    window_coordinates,
 )
 from .prepared import MappedAnnotations
 from .._core.identifiers import (
@@ -862,7 +862,18 @@ def _prepare_window(metadata, chrom, config, snp_identifier, *, snp_positions=No
     """Validate retained reference metadata and derive one LD-window traversal."""
     validate_retained_identifier_uniqueness(metadata, snp_identifier, chrom)
     validate_window_positions_sorted(metadata, chrom)
-    coords, distance = ldscore_window_coordinates(metadata, config, snp_positions=snp_positions)
+    if config.ld_wind_cm is not None and metadata["CM"].isna().any():
+        raise LDSCInputError(
+            "ldscore cannot use `--ld-wind-cm` because retained SNP metadata contains "
+            "missing CM values. Most likely the annotation or frequency sidecar lacks "
+            "genetic-map positions for at least one retained SNP. Provide complete CM "
+            "metadata or use `--ld-wind-kb` / `--ld-wind-snps`."
+        )
+    coords, distance = window_coordinates(
+        metadata["POS"], metadata["CM"] if config.ld_wind_cm is not None else None,
+        ld_wind_snps=config.ld_wind_snps, ld_wind_kb=config.ld_wind_kb, ld_wind_cm=config.ld_wind_cm,
+        snp_positions=snp_positions,
+    )
     block_left = get_block_lefts(coords, distance)
     check_whole_chromosome_window(
         block_left, SimpleNamespace(yes_really=config.whole_chromosome_ok), chrom,

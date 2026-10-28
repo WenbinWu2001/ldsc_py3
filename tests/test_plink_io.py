@@ -62,6 +62,9 @@ class LDScoreHelpersTest(unittest.TestCase):
         for coords, max_dist, expected in cases:
             assert_array_equal(get_block_lefts(coords, max_dist), expected)
 
+    def test_get_block_lefts_returns_integer_indices(self):
+        self.assertTrue(np.issubdtype(get_block_lefts(np.arange(3), 1).dtype, np.integer))
+
 
 @unittest.skipIf(ld is None or ba is None, "bitarray dependency is not installed")
 class PlinkBedFileTest(unittest.TestCase):

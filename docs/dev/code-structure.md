@@ -109,7 +109,7 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 | `ldsc._annotation.outputs` | `AnnotationDirectoryWriter` for the `ldsc annotate` result directory |
 | `ldsc._refpanel.plink` | PLINK genotype reader (`PlinkBEDFile` and its `__GenotypeArrayInMemory__` base): selective SNP reads with fused individual filtering retain only selected packed genotypes; unrestricted panel builds opt into disk streaming instead |
 | `ldsc._refpanel.r2_format` | the R² panel format: schema constants, Parquet and sidecar writers, contract readers and checks, sidecar binding, `SortedR2BlockReader` and the pair lookup used by `query-r2` |
-| `ldsc._refpanel.windows` | LD-window geometry: `get_block_lefts`, `ldscore_window_coordinates` for `ldscore`, `r2_panel_window_coordinates` and `compute_block_left` for `build-r2-panel`, and window checks |
+| `ldsc._refpanel.windows` | LD-window geometry shared by `ldscore` and `build-r2-panel`: `window_coordinates`, `get_block_lefts`, and window checks |
 | `ldsc._refpanel.prepared` | the `PreparedChromosome` contract, the chromosome annotation input `ChromosomeAnnotations`, and the `ArrayAnnotations`/`MappedAnnotations` accessors |
 | `ldsc._refpanel.adapters` | runtime PLINK/R²-panel adapters; `RefPanel.prepare_chromosome` owns reference filtering, annotation alignment, window/bias policy, and reader lifetime |
 | `ldsc._refpanel.builder`, `ldsc._refpanel.build_kernel` | R²-panel build workflow (source-build inference, optional liftover, explicit SNP/sample restrictions, optional `min_r2` threshold) and its kernel (genetic maps, pairwise R² emission, restriction masks) |

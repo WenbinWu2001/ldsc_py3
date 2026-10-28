@@ -2,8 +2,8 @@
 
 Window coordinates in SNPs, kilobases or centimorgans, the block-left index
 of each SNP's window, and the checks that a window fits the reference data.
-``ldscore_window_coordinates`` serves ``ldscore``; ``r2_panel_window_coordinates``
-and ``compute_block_left`` serve ``build-r2-panel``.
+``window_coordinates`` and ``get_block_lefts`` serve both ``ldscore`` and
+``build-r2-panel``; each command checks its own CM values first.
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from .build_kernel import _BUILD_REF_PANEL_LIFTOVER_DOC
 from ..errors import LDSCInputError, LDSCInternalError, LDSCUsageError
 
 
@@ -27,7 +26,7 @@ def get_block_lefts(coords: np.ndarray, max_dist: float) -> np.ndarray:
     """
     M = len(coords)
     j = 0
-    block_left = np.zeros(M)
+    block_left = np.zeros(M, dtype=np.int64)
     for i in range(M):
         while j < M and abs(coords[j] - coords[i]) > max_dist:
             j += 1
@@ -84,41 +83,30 @@ def assert_cm_usable(cm: pd.Series, chrom: str) -> None:
         )
 
 
-def ldscore_window_coordinates(
-    metadata: pd.DataFrame,
-    args: argparse.Namespace,
+def window_coordinates(
+    positions: np.ndarray,
+    cm: np.ndarray | None,
     *,
+    ld_wind_snps: int | None,
+    ld_wind_kb: float | None,
+    ld_wind_cm: float | None,
     snp_positions: np.ndarray | None = None,
 ) -> tuple[np.ndarray, float]:
     """Build the coordinate array and maximum distance for the active LD window mode.
 
+    Exactly one window value is set; the configuration objects enforce this.
     ``--ld-wind-snps`` counts retained rows unless ``snp_positions`` gives each
-    retained SNP's row in a larger SNP set (the R2 panel sidecar),
-    in which case it counts rows of that set. ``snp_positions`` must be
-    increasing; parquet preparation orders retained SNPs by panel row.
+    retained SNP's row in a larger SNP set (the R2 panel sidecar), in which case
+    it counts rows of that set. ``snp_positions`` must be increasing; parquet
+    preparation orders retained SNPs by panel row. ``cm`` must be complete when
+    ``ld_wind_cm`` is set; callers raise their own command-specific error first.
     """
-    selectors = np.array([args.ld_wind_snps is not None, args.ld_wind_kb is not None, args.ld_wind_cm is not None], dtype=bool)
-    if selectors.sum() != 1:
-        raise LDSCUsageError(
-            "ldscore could not choose an LD-window mode. Most likely zero or multiple "
-            "LD-window options were supplied. Specify exactly one of `--ld-wind-snps`, "
-            "`--ld-wind-kb`, or `--ld-wind-cm`."
-        )
-
-    if args.ld_wind_snps is not None:
-        if snp_positions is None:
-            return np.arange(len(metadata), dtype=float), float(args.ld_wind_snps)
-        return np.asarray(snp_positions, dtype=float), float(args.ld_wind_snps)
-    if args.ld_wind_kb is not None:
-        return metadata["POS"].to_numpy(dtype=float), float(args.ld_wind_kb) * 1000.0
-    if metadata["CM"].isna().any():
-        raise LDSCInputError(
-            "ldscore cannot use `--ld-wind-cm` because retained SNP metadata contains "
-            "missing CM values. Most likely the annotation or frequency sidecar lacks "
-            "genetic-map positions for at least one retained SNP. Provide complete CM "
-            "metadata or use `--ld-wind-kb` / `--ld-wind-snps`."
-        )
-    return metadata["CM"].to_numpy(dtype=float), float(args.ld_wind_cm)
+    if ld_wind_snps is not None:
+        rows = np.arange(len(positions)) if snp_positions is None else snp_positions
+        return np.asarray(rows, dtype=float), float(ld_wind_snps)
+    if ld_wind_kb is not None:
+        return np.asarray(positions, dtype=float), float(ld_wind_kb) * 1000.0
+    return np.asarray(cm, dtype=float), float(ld_wind_cm)
 
 
 def check_whole_chromosome_window(block_left: np.ndarray, args: argparse.Namespace, chrom: str) -> None:
@@ -168,42 +156,3 @@ def _requested_ld_window_spec(args: argparse.Namespace) -> _LDWindowSpec:
         "bypassed. Specify exactly one of `--ld-wind-snps`, `--ld-wind-kb`, or "
         "`--ld-wind-cm`."
     )
-
-
-def r2_panel_window_coordinates(
-    *,
-    metadata: pd.DataFrame,
-    cm_values: np.ndarray,
-    ld_wind_snps: int | None,
-    ld_wind_kb: float | None,
-    ld_wind_cm: float | None,
-) -> tuple[np.ndarray, float]:
-    """Build the coordinate vector used to define block-left windows."""
-
-    if ld_wind_snps is not None:
-        return np.arange(len(metadata), dtype=float), float(ld_wind_snps)
-    if ld_wind_kb is not None:
-        return metadata["POS"].to_numpy(dtype=float), float(ld_wind_kb) * 1000.0
-    cm_values = np.asarray(cm_values, dtype=float)
-    if np.isnan(cm_values).any():
-        raise LDSCInputError(
-            "build-r2-panel cannot use cM LD windows because interpolated CM values "
-            "are missing for retained SNPs. Most likely the genetic map does not cover "
-            "all retained positions. Provide a complete genetic map or use an SNP/kb "
-            f"LD window. Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
-        )
-    return cm_values, float(ld_wind_cm)
-
-
-def compute_block_left(coords: np.ndarray, max_dist: float) -> np.ndarray:
-    """Compute the standard LDSC block-left window array."""
-
-    coords = np.asarray(coords, dtype=float)
-    m = len(coords)
-    block_left = np.zeros(m, dtype=int)
-    j = 0
-    for i in range(m):
-        while j < m and abs(coords[j] - coords[i]) > max_dist:
-            j += 1
-        block_left[i] = j
-    return block_left

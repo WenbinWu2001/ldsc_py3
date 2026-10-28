@@ -20,7 +20,7 @@ import pandas as pd
 from ldsc._refpanel import build_kernel as kernel_builder
 from ldsc._refpanel import r2_format
 from ldsc._refpanel.r2_format import build_runtime_metadata_table
-from ldsc._refpanel.windows import r2_panel_window_coordinates
+from ldsc._refpanel.windows import window_coordinates
 from ldsc._core.snp_identity import IDENTITY_DROP_COLUMNS, RestrictionIdentityKeys, empty_identity_drop_frame
 from ldsc.config import GlobalConfig, ReferencePanelBuildConfig
 from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
@@ -427,25 +427,28 @@ class RetainedSnpOrderingTest(unittest.TestCase):
         self.assertEqual(sorted_snps.tolist(), [20, 10, 30])
 
     def test_kb_window_coordinates_use_requested_build_positions(self):
-        metadata = pd.DataFrame(
-            {
-                "CHR": ["1", "1"],
-                "POS": [1_000, 2_000],
-                "SNP": ["rs1", "rs2"],
-            }
-        )
         build_positions = np.array([100, 250], dtype=np.int64)
 
-        coords, max_dist = r2_panel_window_coordinates(
-            metadata=ref_panel_builder._metadata_with_build_positions(metadata, build_positions),
-            cm_values=None,
-            ld_wind_snps=None,
-            ld_wind_kb=1.0,
-            ld_wind_cm=None,
+        coords, max_dist = window_coordinates(
+            build_positions, None, ld_wind_snps=None, ld_wind_kb=1.0, ld_wind_cm=None,
         )
 
         np.testing.assert_array_equal(coords, np.array([100.0, 250.0]))
         self.assertEqual(max_dist, 1000.0)
+
+    def test_cm_window_rejects_missing_interpolated_cm(self):
+        config = ReferencePanelBuildConfig(plink_prefix="plink/panel.@", output_dir="out", ld_wind_cm=1.0,
+                                           genetic_map_hg19_sources="map.txt")
+        with self.assertRaisesRegex(LDSCInputError, "build-r2-panel cannot use cM LD windows"):
+            ref_panel_builder._r2_panel_block_left(
+                "1", "hg19", np.array([100, 250]), np.array([0.1, np.nan]), config,
+            )
+
+    def test_cm_window_requires_genetic_map_values(self):
+        config = ReferencePanelBuildConfig(plink_prefix="plink/panel.@", output_dir="out", ld_wind_cm=1.0,
+                                           genetic_map_hg19_sources="map.txt")
+        with self.assertRaisesRegex(LDSCUsageError, "no genetic map values are available"):
+            ref_panel_builder._r2_panel_block_left("1", "hg19", np.array([100, 250]), None, config)
 
 
 class StandardTableFormattingTest(unittest.TestCase):

@@ -15,16 +15,16 @@ from ldsc.errors import LDSCUsageError
 from ldsc._annotation import builder as annotation_builder
 from ldsc._ldscore import calculator as ldscore_calculator
 from ldsc._regression import runner as regression_runner
-from ldsc._refpanel import builder as ref_panel_builder
+from ldsc._refpanel import builder as r2_matrix_builder
 from ldsc._ldscore.calculator import LDScoreResult
-from ldsc._refpanel.builder import ReferencePanelBuildConfig, ReferencePanelBuilder
+from ldsc._refpanel.builder import R2MatrixBuildConfig, R2MatrixBuilder
 from ldsc._regression.runner import RegressionRunner
 from ldsc._sumstats.munger import SumstatsTable
 from tests.runtime.test_path_resolution import _write_plink_trio
 
 
-def _make_build_config(tmpdir: Path) -> ReferencePanelBuildConfig:
-    return ReferencePanelBuildConfig(
+def _make_build_config(tmpdir: Path) -> R2MatrixBuildConfig:
+    return R2MatrixBuildConfig(
         plink_prefix=tmpdir / "panel.@",
         source_genome_build="hg19",
         genetic_map_hg19_sources=tmpdir / "hg19.map",
@@ -158,7 +158,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
                 ldscore_calculator.run_ldscore(
                     output_dir="results/example",
                     baseline_annot_sources="baseline.annot.gz",
-                    r2_dir="reference_panel/hg38",
+                    r2_matrix_dir="reference_panel/hg38",
                     ld_wind_cm=1.0,
                 )
 
@@ -167,7 +167,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             ldscore_calculator.run_ldscore(
                 output_dir="results/example",
                 baseline_annot_sources="baseline.annot.gz",
-                r2_dir="reference_panel/hg38",
+                r2_matrix_dir="reference_panel/hg38",
                 ld_wind_cm=1.0,
                 snp_identifier="rsid",
             )
@@ -181,9 +181,9 @@ class GlobalConfigRegistryTest(unittest.TestCase):
                 ld_wind_snps=10,
             )
 
-    def test_run_build_ref_panel_rejects_removed_shared_kwargs(self):
+    def test_run_build_r2_matrix_rejects_removed_shared_kwargs(self):
         with self.assertRaisesRegex(LDSCUsageError, "set_global_config"):
-            ref_panel_builder.run_build_ref_panel(
+            r2_matrix_builder.run_build_r2_matrix(
                 plink_prefix="plink/panel",
                 source_genome_build="hg19",
                 genetic_map_hg19_sources="maps/hg19.txt",
@@ -194,9 +194,9 @@ class GlobalConfigRegistryTest(unittest.TestCase):
                 log_level="DEBUG",
             )
 
-    def test_run_build_ref_panel_rejects_retired_io_kwargs(self):
+    def test_run_build_r2_matrix_rejects_retired_io_kwargs(self):
         with self.assertRaisesRegex(LDSCUsageError, "plink_path"):
-            ref_panel_builder.run_build_ref_panel(
+            r2_matrix_builder.run_build_r2_matrix(
                 plink_path="plink/panel",
                 source_genome_build="hg19",
                 genetic_map_hg19_path="maps/hg19.txt",
@@ -213,7 +213,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             config = _make_build_config(Path(tmpdir))
             Path(config.genetic_map_hg19_sources).write_text("CHR POS CM\n1 100 0.1\n")
             Path(config.genetic_map_hg38_sources).write_text("CHR POS CM\n1 100 0.1\n")
-            builder = ReferencePanelBuilder()
+            builder = R2MatrixBuilder()
             _write_plink_trio(Path(tmpdir) / "panel.1", ["1"])
 
             with mock.patch.object(

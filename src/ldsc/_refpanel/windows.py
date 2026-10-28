@@ -1,9 +1,9 @@
-"""LD-window geometry for LD-score calculation and R2 panel building.
+"""LD-window geometry for LD-score calculation and R2 matrix building.
 
 Window coordinates in SNPs, kilobases or centimorgans, the block-left index
 of each SNP's window, and the checks that a window fits the reference data.
 ``window_coordinates`` and ``get_block_lefts`` serve both ``ldscore`` and
-``build-r2-panel``; each command checks its own CM values first.
+``build-r2-matrix``; each command checks its own CM values first.
 """
 
 from __future__ import annotations
@@ -96,7 +96,7 @@ def window_coordinates(
 
     Exactly one window value is set; the configuration objects enforce this.
     ``--ld-wind-snps`` counts retained rows unless ``snp_positions`` gives each
-    retained SNP's row in a larger SNP set (the R2 panel sidecar), in which case
+    retained SNP's row in a larger SNP set (the R2 matrix sidecar), in which case
     it counts rows of that set. ``snp_positions`` must be increasing; parquet
     preparation orders retained SNPs by panel row. ``cm`` must be complete when
     ``ld_wind_cm`` is set; callers raise their own command-specific error first.
@@ -151,7 +151,7 @@ def _requested_ld_window_spec(args: argparse.Namespace) -> _LDWindowSpec:
     if args.ld_wind_cm is not None:
         return _LDWindowSpec("cm", float(args.ld_wind_cm))
     raise LDSCUsageError(
-        "ldscore could not validate the R2 panel LD window because no "
+        "ldscore could not validate the R2 matrix LD window because no "
         "user LD-window option was set. Most likely argument validation was "
         "bypassed. Specify exactly one of `--ld-wind-snps`, `--ld-wind-kb`, or "
         "`--ld-wind-cm`."

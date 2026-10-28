@@ -124,7 +124,7 @@ statuses and diagnostic paths without writing directly to its caller's console.
 
 ## Direct query chromosome scope
 
-For both direct PLINK and R² panel runs:
+For both direct PLINK and R² matrix runs:
 
 - `@` requires all autosomes 1–22. Missing, unreadable, or invalid required chromosome inputs fail the run.
 - Ordinary globs select their actual matches; validated file contents establish the chromosome set. A filename such as `*.22.annot.gz` does not prove chr22-only contents. Additional chromosomes in matched files participate in scope.
@@ -158,7 +158,7 @@ ldsc ldscore \
   --padding-bp 100000 \
   --control-gene-list-file gene-lists/assay-background.txt \
   --gene-exclude-regions mhc \
-  --r2-dir ref-panel/hg38 \
+  --r2-matrix-dir ref-panel/hg38 \
   --snp-identifier chr_pos_allele_aware \
   --genome-build auto \
   --ld-wind-cm 1.0

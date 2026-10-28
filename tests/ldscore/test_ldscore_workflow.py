@@ -47,7 +47,7 @@ try:
     from ldsc._refpanel import plink as plink_bed
     from ldsc._refpanel import adapters as ref_panel_adapters, r2_format, windows as ld_windows
     from ldsc._refpanel.prepared import ChromosomeAnnotations
-    from ldsc._refpanel.r2_format import validate_ldscore_window_within_r2_panel_window
+    from ldsc._refpanel.r2_format import validate_ldscore_window_within_r2_matrix_window
     from ldsc._refpanel.windows import (
         assert_cm_usable,
         validate_window_positions_sorted,
@@ -135,7 +135,7 @@ def _write_legacy_r2_parquet(path: Path) -> None:
 class R2AutoLoadCLITest(unittest.TestCase):
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
     def test_package_parquet_metadata_duplicates_remain_invariant_failures(self):
-        from ldsc._refpanel.adapters import ParquetR2RefPanel
+        from ldsc._refpanel.adapters import R2MatrixRefPanel
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -143,7 +143,7 @@ class R2AutoLoadCLITest(unittest.TestCase):
                 root / "chr1_r2.parquet",
                 {
                     b"ldsc:schema_version": b"1",
-                    b"ldsc:artifact_type": b"ref_panel_r2",
+                    b"ldsc:artifact_type": b"r2_matrix",
                     b"ldsc:snp_identifier": b"chr_pos",
                     b"ldsc:genome_build": b"hg19",
                 },
@@ -159,9 +159,9 @@ class R2AutoLoadCLITest(unittest.TestCase):
                     "1\t10\trs2\t0.2\t0.3\n"
                     "1\t20\trs3\t0.3\t0.4\n"
                 )
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(root)),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(root)),
             )
 
             with self.assertRaisesRegex(LDSCInputError, "non-unique SNP identifiers"):
@@ -177,23 +177,23 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertIn("direct gene-list runs default to auto", help_text)
         self.assertIn("Gene-list runs also use this build for --regr-snps-exclude-regions", help_text)
 
-    def test_build_parser_accepts_r2_dir(self):
+    def test_build_parser_accepts_r2_matrix_dir(self):
         args = ldscore_workflow.build_parser().parse_args(
             [
                 "--output-dir",
                 "out",
-                "--r2-dir",
+                "--r2-matrix-dir",
                 "panel/hg38",
             ]
         )
 
-        self.assertEqual(args.r2_dir, "panel/hg38")
+        self.assertEqual(args.r2_matrix_dir, "panel/hg38")
 
     def test_build_parser_rejects_removed_r2_bias_flags(self):
         parser = ldscore_workflow.build_parser()
         for flag in (["--r2-bias-mode", "raw"], ["--r2-sample-size", "100"]):
             with self.assertRaises(SystemExit):
-                parser.parse_args(["--output-dir", "out", "--r2-dir", "panel/hg38", *flag])
+                parser.parse_args(["--output-dir", "out", "--r2-matrix-dir", "panel/hg38", *flag])
 
     def test_format_ldscore_start_message_describes_synthetic_base(self):
         bundle = SimpleNamespace(
@@ -223,10 +223,10 @@ class LDScoreWorkflowTest(unittest.TestCase):
             "Starting LD-score calculation for 22 chromosomes with 2 baseline columns and 1 query columns.",
         )
 
-    def test_build_parser_help_exposes_only_r2_dir_for_parquet_input(self):
+    def test_build_parser_help_exposes_only_r2_matrix_dir_for_parquet_input(self):
         help_text = ldscore_workflow.build_parser().format_help()
 
-        self.assertIn("--r2-dir", help_text)
+        self.assertIn("--r2-matrix-dir", help_text)
         self.assertNotIn("--r2-ref-panel-dir", help_text)
         self.assertNotIn("--ref-panel-dir", help_text)
         self.assertNotIn("--r2-sources", help_text)
@@ -275,16 +275,16 @@ class LDScoreWorkflowTest(unittest.TestCase):
         with self.assertRaisesRegex(LDSCUsageError, "coordinate-family SNP identifier mode.*genome build"):
             ldscore_workflow._normalize_run_args(args)
 
-    def test_auto_genome_build_does_not_infer_from_r2_directory_name_without_parquet_metadata(self):
+    def test_auto_genome_build_does_not_infer_from_r2_matrix_directory_name_without_parquet_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            r2_dir = Path(tmpdir) / "hg38"
-            r2_dir.mkdir()
+            r2_matrix_dir = Path(tmpdir) / "hg38"
+            r2_matrix_dir.mkdir()
             args = Namespace(
                 output_dir="out",
                 query_annot_sources=None,
                 baseline_annot_sources=None,
                 plink_prefix=None,
-                r2_dir=str(r2_dir),
+                r2_matrix_dir=str(r2_matrix_dir),
                 snp_identifier="chr_pos",
                 genome_build="auto",
                 keep_indivs_file=None,
@@ -299,9 +299,9 @@ class LDScoreWorkflowTest(unittest.TestCase):
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
     def test_auto_genome_build_uses_r2_schema_metadata_not_directory_name(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            r2_dir = Path(tmpdir) / "hg38"
+            r2_matrix_dir = Path(tmpdir) / "hg38"
             _write_minimal_r2_parquet(
-                r2_dir / "chr1_r2.parquet",
+                r2_matrix_dir / "chr1_r2.parquet",
                 {b"ldsc:sorted_by_build": b"hg19"},
             )
             args = Namespace(
@@ -309,7 +309,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 query_annot_sources=None,
                 baseline_annot_sources=None,
                 plink_prefix=None,
-                r2_dir=str(r2_dir),
+                r2_matrix_dir=str(r2_matrix_dir),
                 snp_identifier="chr_pos",
                 genome_build="auto",
                 keep_indivs_file=None,
@@ -336,7 +336,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 query_annot_sources=None,
                 baseline_annot_sources=None,
                 plink_prefix=None,
-                r2_dir=str(r2_parent),
+                r2_matrix_dir=str(r2_parent),
                 snp_identifier="chr_pos",
                 genome_build="auto",
                 keep_indivs_file=None,
@@ -367,7 +367,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 query_annot_sources=None,
                 baseline_annot_sources=None,
                 plink_prefix=None,
-                r2_dir=str(r2_parent),
+                r2_matrix_dir=str(r2_parent),
                 snp_identifier="chr_pos",
                 genome_build="auto",
                 keep_indivs_file=None,
@@ -1405,7 +1405,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             inputs = write_r2_inputs(root)
             regression = root/'regression.txt'
             regression.write_text('SNP\nrs1\nrs2\nrs3\n')
-            argv = ['--output-dir',str(root/'out'),'--r2-dir',inputs.r2_dir,
+            argv = ['--output-dir',str(root/'out'),'--r2-matrix-dir',inputs.r2_matrix_dir,
                     '--baseline-annot-sources',inputs.baseline_annot_sources,
                     '--regr-snps-file',str(regression),'--regr-snps-exclude-regions','none',
                     '--snp-identifier','rsid','--ld-wind-snps','2','--yes-really']
@@ -1775,7 +1775,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             inputs = write_r2_inputs(root)
             regression = root/'regression.txt'
             regression.write_text('SNP\nrs1\nrs2\nrs3\n')
-            argv = ['--output-dir',str(root/'out'),'--r2-dir',inputs.r2_dir,
+            argv = ['--output-dir',str(root/'out'),'--r2-matrix-dir',inputs.r2_matrix_dir,
                     '--baseline-annot-sources',inputs.baseline_annot_sources,
                     '--regr-snps-file',str(regression),'--regr-snps-exclude-regions','none',
                     '--snp-identifier','rsid','--ld-wind-snps','2','--yes-really']
@@ -2100,7 +2100,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             inputs = write_r2_inputs(root)
             regression = root/'regression.txt'
             regression.write_text('SNP\nrs1\nrs2\nrs3\n')
-            argv = ['--output-dir',str(root/'out'),'--r2-dir',inputs.r2_dir,
+            argv = ['--output-dir',str(root/'out'),'--r2-matrix-dir',inputs.r2_matrix_dir,
                     '--baseline-annot-sources',inputs.baseline_annot_sources,
                     '--regr-snps-file',str(regression),'--regr-snps-exclude-regions','none',
                     '--snp-identifier','rsid','--ld-wind-snps','2','--yes-really']
@@ -2132,14 +2132,14 @@ class LDScoreWorkflowTest(unittest.TestCase):
             np.testing.assert_allclose(result.baseline_table.base,1,rtol=0,atol=1e-6)
 
 
-    def test_run_ldscore_from_args_resolves_r2_directory(self):
+    def test_run_ldscore_from_args_resolves_r2_matrix_directory(self):
         from tests.ldscore.test_ldscore_chromosome_scope import write_r2_inputs
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             inputs = write_r2_inputs(root)
             regression = root/'regression.txt'
             regression.write_text('SNP\nrs1\nrs2\nrs3\n')
-            argv = ['--output-dir',str(root/'out'),'--r2-dir',inputs.r2_dir,
+            argv = ['--output-dir',str(root/'out'),'--r2-matrix-dir',inputs.r2_matrix_dir,
                     '--baseline-annot-sources',inputs.baseline_annot_sources,
                     '--regr-snps-file',str(regression),'--regr-snps-exclude-regions','none',
                     '--snp-identifier','rsid','--ld-wind-snps','2','--yes-really']
@@ -2148,16 +2148,16 @@ class LDScoreWorkflowTest(unittest.TestCase):
             np.testing.assert_array_equal(result.baseline_table.base,np.array([1+16384/32767,1+24576/32767,1+8192/32767],dtype=np.float32))
 
 
-    def test_normalize_run_args_chr_pos_auto_infers_matching_annotation_and_r2_dir_builds(self):
+    def test_normalize_run_args_chr_pos_auto_infers_matching_annotation_and_r2_matrix_dir_builds(self):
         from ldsc._genome.build_inference import load_packaged_reference_table
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            baseline, r2_dir = root / 'baseline.annot', root / 'panel'
+            baseline, r2_matrix_dir = root / 'baseline.annot', root / 'panel'
             rows = load_packaged_reference_table().head(500)
             rows[['CHR', 'hg19_POS']].rename(columns={'hg19_POS': 'POS'}).assign(base=1).to_csv(baseline, sep='\t', index=False)
-            _write_minimal_r2_parquet(r2_dir / 'chr1_r2.parquet', {b'ldsc:sorted_by_build': b'hg19'})
+            _write_minimal_r2_parquet(r2_matrix_dir / 'chr1_r2.parquet', {b'ldsc:sorted_by_build': b'hg19'})
             args = Namespace(output_dir='out', baseline_annot_sources=str(baseline), query_annot_sources=None,
-                             plink_prefix=None, r2_dir=str(r2_dir), snp_identifier='chr_pos', genome_build='auto',
+                             plink_prefix=None, r2_matrix_dir=str(r2_matrix_dir), snp_identifier='chr_pos', genome_build='auto',
                              keep_indivs_file=None, ref_panel_snps_file=None, regr_snps_file=None, log_level='INFO')
             normalized, config = ldscore_workflow._normalize_run_args(args)
             self.assertEqual(config.genome_build, 'hg19')
@@ -2173,7 +2173,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 query_annot_sources=None,
                 baseline_annot_sources=None,
                 plink_prefix=None,
-                r2_dir=str(root),
+                r2_matrix_dir=str(root),
                 snp_identifier="chr_pos",
                 genome_build="auto",
                 keep_indivs_file=None,
@@ -2210,12 +2210,12 @@ class LDScoreWorkflowTest(unittest.TestCase):
         from ldsc._genome.build_inference import load_packaged_reference_table
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            baseline, r2_dir = root / 'baseline.annot', root / 'panel'
+            baseline, r2_matrix_dir = root / 'baseline.annot', root / 'panel'
             rows = load_packaged_reference_table().head(500)
             rows[['CHR', 'hg19_POS']].rename(columns={'hg19_POS': 'POS'}).assign(base=1).to_csv(baseline, sep='\t', index=False)
-            _write_minimal_r2_parquet(r2_dir / 'chr1_r2.parquet', {b'ldsc:sorted_by_build': b'hg38'})
+            _write_minimal_r2_parquet(r2_matrix_dir / 'chr1_r2.parquet', {b'ldsc:sorted_by_build': b'hg38'})
             args = Namespace(output_dir='out', baseline_annot_sources=str(baseline), query_annot_sources=None,
-                             plink_prefix=None, r2_dir=str(r2_dir), snp_identifier='chr_pos', genome_build='auto',
+                             plink_prefix=None, r2_matrix_dir=str(r2_matrix_dir), snp_identifier='chr_pos', genome_build='auto',
                              keep_indivs_file=None, ref_panel_snps_file=None, regr_snps_file=None, log_level='INFO')
             with self.assertRaisesRegex(LDSCInputError, 'Conflicting genome-build evidence') as caught:
                 ldscore_workflow._normalize_run_args(args)
@@ -2231,7 +2231,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             baseline_annot_chr=None,
             plink_prefix=None,
             bfile_chr=None,
-            r2_dir="panel/hg38",
+            r2_matrix_dir="panel/hg38",
             r2_table_chr=None,
             snp_identifier="rsid",
             genome_build=None,
@@ -2250,7 +2250,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             log_level="INFO",
         )
 
-        with self.assertRaisesRegex(LDSCUsageError, "keep-indivs-file.*R2 panel"):
+        with self.assertRaisesRegex(LDSCUsageError, "keep-indivs-file.*R2 matrix"):
             ldscore_workflow.run_ldscore_from_args(args)
 
     def test_run_ldscore_from_args_fails_when_the_grid_misses_a_whole_chromosome(self):
@@ -2260,12 +2260,12 @@ class LDScoreWorkflowTest(unittest.TestCase):
             inputs = write_r2_inputs(root)
             regression = root/'regression.txt'
             regression.write_text('SNP\nrs1\nrs2\nrs3\n')
-            argv = ['--output-dir',str(root/'out'),'--r2-dir',inputs.r2_dir,
+            argv = ['--output-dir',str(root/'out'),'--r2-matrix-dir',inputs.r2_matrix_dir,
                     '--baseline-annot-sources',inputs.baseline_annot_sources,
                     '--regr-snps-file',str(regression),'--regr-snps-exclude-regions','none',
                     '--snp-identifier','rsid','--ld-wind-snps','2','--yes-really']
             from tests.refpanel.test_reference_preparation import write_panel
-            write_panel(Path(inputs.r2_dir),chrom='1')
+            write_panel(Path(inputs.r2_matrix_dir),chrom='1')
             metadata = pd.read_csv(inputs.baseline_annot_sources,sep='\t')
             missing = metadata.iloc[[0]].assign(CHR='1',SNP='absent')
             pd.concat([missing,metadata],ignore_index=True).to_csv(inputs.baseline_annot_sources,sep='\t',index=False)
@@ -2561,9 +2561,9 @@ class IndexReaderDecodeTest(unittest.TestCase):
             self.assertAlmostEqual(seen[(1, 2)], 0.4, delta=2e-5)
 
 
-class R2PanelWindowValidationTest(unittest.TestCase):
+class R2MatrixWindowValidationTest(unittest.TestCase):
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
-    def test_ldscore_accepts_equal_recorded_r2_panel_window(self):
+    def test_ldscore_accepts_equal_recorded_r2_matrix_window(self):
         from ldsc._refpanel import build_kernel as kb
         from ldsc._refpanel import r2_format
         from ldsc._core.snp_identity import sidecar_identity_sha256
@@ -2603,14 +2603,14 @@ class R2PanelWindowValidationTest(unittest.TestCase):
                 snp_identifier="chr_pos",
             )
 
-            validate_ldscore_window_within_r2_panel_window(
+            validate_ldscore_window_within_r2_matrix_window(
                 args,
                 parquet_paths=[str(r2)],
                 chrom="1",
             )
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
-    def test_ldscore_rejects_window_wider_than_recorded_r2_panel_window(self):
+    def test_ldscore_rejects_window_wider_than_recorded_r2_matrix_window(self):
         from ldsc._refpanel import build_kernel as kb
         from ldsc._refpanel import r2_format
         from ldsc._core.snp_identity import sidecar_identity_sha256
@@ -2650,9 +2650,9 @@ class R2PanelWindowValidationTest(unittest.TestCase):
             )
             with self.assertRaisesRegex(
                 LDSCUsageError,
-                "user-requested LD window `--ld-wind-kb 1.0` is wider than the input R2 panel window `--ld-wind-kb 0.1`",
+                "user-requested LD window `--ld-wind-kb 1.0` is wider than the input R2 matrix window `--ld-wind-kb 0.1`",
             ):
-                validate_ldscore_window_within_r2_panel_window(
+                validate_ldscore_window_within_r2_matrix_window(
                     args,
                     parquet_paths=[str(r2)],
                     chrom="1",
@@ -2698,15 +2698,15 @@ class R2PanelWindowValidationTest(unittest.TestCase):
                 r2_table=str(r2),
                 snp_identifier="chr_pos",
             )
-            with self.assertRaisesRegex(LDSCUsageError, "is wider than the input R2 panel window"):
-                validate_ldscore_window_within_r2_panel_window(
+            with self.assertRaisesRegex(LDSCUsageError, "is wider than the input R2 matrix window"):
+                validate_ldscore_window_within_r2_matrix_window(
                     args,
                     parquet_paths=[str(r2)],
                     chrom="1",
                 )
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
-    def test_ldscore_rejects_requested_window_mode_differing_from_r2_panel_mode(self):
+    def test_ldscore_rejects_requested_window_mode_differing_from_r2_matrix_mode(self):
         from ldsc._refpanel import build_kernel as kb
         from ldsc._refpanel import r2_format
         from ldsc._core.snp_identity import sidecar_identity_sha256
@@ -2746,7 +2746,7 @@ class R2PanelWindowValidationTest(unittest.TestCase):
                 snp_identifier="chr_pos",
             )
             with self.assertRaises(LDSCUsageError) as caught:
-                validate_ldscore_window_within_r2_panel_window(
+                validate_ldscore_window_within_r2_matrix_window(
                     args,
                     parquet_paths=[str(r2)],
                     chrom="1",
@@ -2754,9 +2754,9 @@ class R2PanelWindowValidationTest(unittest.TestCase):
 
         message = str(caught.exception)
         self.assertIn("with `--ld-wind-kb 100.0`", message)
-        self.assertIn("the panel was built with `--ld-wind-cm 1.0`", message)
+        self.assertIn("the R2 matrix was built with `--ld-wind-cm 1.0`", message)
         self.assertIn("windows in different units cannot be checked for coverage", message)
-        self.assertIn("ldsc build-r2-panel --ld-wind-kb 100.0", message)
+        self.assertIn("ldsc build-r2-matrix --ld-wind-kb 100.0", message)
 
 
 class IndexCrossModeParityTest(unittest.TestCase):
@@ -2823,7 +2823,7 @@ class RawSchemaRejectedTest(unittest.TestCase):
             path = Path(tmp) / "chr1_r2.parquet"
             _write_legacy_r2_parquet(path)  # writes old 10-col canonical schema
             meta = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["a"], "A1": ["A"], "A2": ["G"]})
-            with self.assertRaisesRegex(LDSCInputError, "index-format|build-r2-panel"):
+            with self.assertRaisesRegex(LDSCInputError, "index-format|build-r2-matrix"):
                 SortedR2BlockReader(paths=[str(path)], chrom="1", metadata=meta,
                                     identifier_mode="chr_pos",
                                     genome_build="hg19")
@@ -3046,7 +3046,7 @@ def test_assert_canonical_maf_passes_for_minor():
 
 
 def test_window_coordinates_select_each_window_mode():
-    """One window builder serves ldscore and build-r2-panel for every mode."""
+    """One window builder serves ldscore and build-r2-matrix for every mode."""
     positions = np.array([100, 250, 900, 2_000])
     cm = np.array([0.0, 0.4, 0.9, 1.6])
 
@@ -3065,7 +3065,7 @@ def test_window_coordinates_select_each_window_mode():
 
 
 def test_window_coordinates_count_panel_rows_when_given():
-    """``--ld-wind-snps`` counts R2 panel sidecar rows, not retained rows."""
+    """``--ld-wind-snps`` counts R2 matrix sidecar rows, not retained rows."""
     coords, dist = window_coordinates(
         np.array([10, 20, 30]), None, ld_wind_snps=1, ld_wind_kb=None, ld_wind_cm=None,
         snp_positions=np.array([0, 5, 6]),

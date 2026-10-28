@@ -22,7 +22,7 @@ ldsc_py3_restructured/
 │   ├── _runtime/             tier 2: paths, input preflight, logging, progress, workers, keyword checks, result-file writers
 │   ├── _genome/              tier 4: genome-build inference and policy, build inspection, liftover, HM3 map
 │   ├── _annotation/          tier 5: annotation files, gene lists, interval projection, overlap, ldsc annotate
-│   ├── _refpanel/            tier 5: PLINK reader, R² panel format, LD windows, runtime adapters, build-r2-panel, query-r2
+│   ├── _refpanel/            tier 5: PLINK reader, R² matrix format, LD windows, runtime adapters, build-r2-matrix, query-r2-matrix
 │   ├── _sumstats/            tier 5: munge-sumstats and the munged-table loader
 │   ├── _ldscore/             tier 6: LD-score math and workflow, LD-score directories, legacy conversion
 │   │   └── gene_index/       exact gene LD-score indexes
@@ -88,7 +88,7 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 | `ldsc._runtime.progress` | phase boundaries and time-throttled progress through existing logger routes; bounded counters, current objects, and elapsed time |
 | `ldsc._runtime.workflow_logging` | shared workflow logging context, `LDSC` logger level handling, lifecycle audit lines, CLI console-handler routing (file-authoritative, console error-only) with run-aborting traceback capture, durable authorized-overwrite failure markers without rollback, and log-only formatting helpers |
 | `ldsc._runtime.cli_help` | shared `CLIHelpFormatter` keeps flag names and paths intact when help descriptions wrap; `CHROMOSOME_PATH_HELP` and `SCALAR_PATH_HELP` supply verified path syntax; workflow parsers own their descriptions and argument groups |
-| `ldsc._runtime.workflow_kwargs` | validate Python keyword arguments for `run_ldscore`, `run_build_ref_panel`, `run_h2`, `run_partitioned_h2`, `run_rg`, and `run_quantile_h2` against the command parser before any write; run the regression and post-fit workflows under a failure marker naming the Python function |
+| `ldsc._runtime.workflow_kwargs` | validate Python keyword arguments for `run_ldscore`, `run_build_r2_matrix`, `run_h2`, `run_partitioned_h2`, `run_rg`, and `run_quantile_h2` against the command parser before any write; run the regression and post-fit workflows under a failure marker naming the Python function |
 | `ldsc._runtime.parallelism` | shared `workers` validation, joblib detected CPU budgets, task caps, and execution summaries |
 | `ldsc._runtime.worker_runtime`, `ldsc._runtime.serial_calculation` | fixed one-BLAS-thread worker policy, runtime verification, independent Arrow limits, and controlled standalone numerical calls |
 | `ldsc._genome.build_inference` | public `chr_pos` build and coordinate-basis inference helpers |
@@ -113,15 +113,15 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 | `ldsc._annotation.overlap` | annotation overlap-block computation (`OverlapContribution`, `compute_overlap`, `sum_overlap_contributions`); a product of annotations over reference SNPs without LD |
 | `ldsc._annotation.outputs` | `AnnotationDirectoryWriter` for the `ldsc annotate` result directory |
 | `ldsc._refpanel.plink` | PLINK genotype reader (`PlinkBEDFile` and its `__GenotypeArrayInMemory__` base): selective SNP reads with fused individual filtering retain only selected packed genotypes; unrestricted panel builds opt into disk streaming instead |
-| `ldsc._refpanel.r2_format` | the R² panel format: schema constants, Parquet and sidecar writers, contract readers and checks, sidecar binding, `SortedR2BlockReader` and the pair lookup used by `query-r2` |
-| `ldsc._refpanel.windows` | LD-window geometry shared by `ldscore` and `build-r2-panel`: `window_coordinates`, `get_block_lefts`, and window checks |
+| `ldsc._refpanel.r2_format` | the R² matrix format: schema constants, Parquet and sidecar writers, contract readers and checks, sidecar binding, `SortedR2BlockReader` and the pair lookup used by `query-r2-matrix` |
+| `ldsc._refpanel.windows` | LD-window geometry shared by `ldscore` and `build-r2-matrix`: `window_coordinates`, `get_block_lefts`, and window checks |
 | `ldsc._refpanel.prepared` | the `PreparedChromosome` contract, the chromosome annotation input `ChromosomeAnnotations`, and the `ArrayAnnotations`/`MappedAnnotations` accessors |
 | `ldsc._refpanel.funnel` | the reference-SNP funnel: `ReferenceSNPFunnel` records what each reference-preparation step removed, with readers, writers and the run-level warning text |
-| `ldsc._refpanel.adapters` | runtime PLINK/R²-panel adapters; `RefPanel.prepare_chromosome` owns reference filtering, annotation alignment, window/bias policy, and reader lifetime |
-| `ldsc._refpanel.builder`, `ldsc._refpanel.build_kernel` | R²-panel build workflow (source-build inference, optional liftover, explicit SNP/sample restrictions, optional `min_r2` threshold) and its kernel (genetic maps, pairwise R² emission, restriction masks) |
-| `ldsc._refpanel.query` | public `query-r2` CLI/API, `R2Panel`, one-shot `query_r2()`, endpoint key resolution, sign harmonization, and optional unbiased-R²-to-Pearson-r conversion |
+| `ldsc._refpanel.adapters` | runtime PLINK/R²-matrix adapters; `RefPanel.prepare_chromosome` owns reference filtering, annotation alignment, window/bias policy, and reader lifetime |
+| `ldsc._refpanel.builder`, `ldsc._refpanel.build_kernel` | R²-matrix build workflow (source-build inference, optional liftover, explicit SNP/sample restrictions, optional `min_r2` threshold) and its kernel (genetic maps, pairwise R² emission, restriction masks) |
+| `ldsc._refpanel.query` | public `query-r2-matrix` CLI/API, `R2Matrix`, one-shot `query_r2_matrix()`, endpoint key resolution, sign harmonization, and optional unbiased-R²-to-Pearson-r conversion |
 | `ldsc._refpanel.preflight` | `inspect_r2_headers` and the genetic-map header check for the declared-input gate |
-| `ldsc._refpanel.outputs` | `QueryR2DirectoryWriter` for the `query-r2` result directory |
+| `ldsc._refpanel.outputs` | `QueryR2MatrixDirectoryWriter` for the `query-r2-matrix` result directory |
 | `ldsc._sumstats.munger` | raw-summary-statistics CLI/API orchestration, `--input-format auto` / `--infer-only` header inference, Parquet/TSV munged output writing, self-describing `sumstats.parquet` footer identity metadata, diagnostics under `diagnostics/`, canonical `CHR`/`POS` summary-statistics output, and munged summary-statistics loader |
 | `ldsc._sumstats.munge_input` | private workflow helper resolving raw schema, DANER/sample-size settings, bounded source-build evidence and keep-lists into `ResolvedMungeInput` |
 | `ldsc._sumstats.munge_kernel` | chunk QC and restriction, whole-table N and sign conversion, resolved liftover and global identity cleanup; returns `MungeResult` with counts and provenance |
@@ -159,7 +159,7 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 | change help wrapping or shared log-level wording | `src/ldsc/_runtime/cli_help.py:CLIHelpFormatter`, `src/ldsc/_runtime/workflow_logging.py:LOG_LEVEL_HELP`; verify `tests/package/test_cli_help.py` |
 | change path-token behavior | `src/ldsc/_runtime/paths.py` |
 | change output collision policy | `src/ldsc/_runtime/paths.py`, then the workflow writer that owns the artifact |
-| change a keyword-argument Python workflow (`run_ldscore`, `run_build_ref_panel`, `run_h2`, `run_partitioned_h2`, `run_rg`, `run_quantile_h2`) | the function in its workflow module, keyword checks in `src/ldsc/_runtime/workflow_kwargs.py`; verify `tests/package/test_workflow_keyword_checks.py` and `tests/regression/test_python_regression_workflows.py` |
+| change a keyword-argument Python workflow (`run_ldscore`, `run_build_r2_matrix`, `run_h2`, `run_partitioned_h2`, `run_rg`, `run_quantile_h2`) | the function in its workflow module, keyword checks in `src/ldsc/_runtime/workflow_kwargs.py`; verify `tests/package/test_workflow_keyword_checks.py` and `tests/regression/test_python_regression_workflows.py` |
 | change workflow log files, lifecycle lines, or log-level handling | `src/ldsc/_runtime/workflow_logging.py`, then the workflow orchestration function that owns the output directory |
 | change header aliases or identifier/build normalization | `src/ldsc/_core/columns.py` |
 | change read-only artifact build inspection | `src/ldsc/_genome/build_inspection.py`, with CLI dispatch in `src/ldsc/cli.py` and coverage in `tests/genome/test_genome_build_inspection.py` |
@@ -168,10 +168,10 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 | change BED parsing or interval projection | `src/ldsc/_core/regions.py:iter_bed_rows`, then `src/ldsc/_annotation/interval_queries.py` and `src/ldsc/_annotation/interval_projection.py:ChromosomeProjector` |
 | change gene coordinate catalog validation, identifier resolution, or list naming | `src/ldsc/_annotation/gene_lists.py`, then `src/ldsc/_annotation/builder.py` |
 | change BED/gene partial-success statuses or diagnostic schemas | `src/ldsc/_annotation/query_outcomes.py`, `src/ldsc/_ldscore/calculator.py`, `src/ldsc/_ldscore/outputs.py` |
-| change R²-panel build logic | `src/ldsc/_refpanel/builder.py`, then `src/ldsc/_refpanel/build_kernel.py` |
+| change R²-matrix build logic | `src/ldsc/_refpanel/builder.py`, then `src/ldsc/_refpanel/build_kernel.py` |
 | change named regression-SNP region exclusion for `ldscore` or gene LD-score index construction | `src/ldsc/config.py`, `src/ldsc/_core/regions.py`, then `src/ldsc/_ldscore/calculator.py` or `src/ldsc/_ldscore/gene_index/build.py` |
 | change R² pair lookup CLI/API behavior | `src/ldsc/_refpanel/query.py`, then `src/ldsc/_refpanel/r2_format.py:lookup_pairs_in_parquet` |
-| change runtime PLINK/R²-panel reference access | `src/ldsc/_refpanel/adapters.py`, with the R² file format in `src/ldsc/_refpanel/r2_format.py` and LD windows in `src/ldsc/_refpanel/windows.py` |
+| change runtime PLINK/R²-matrix reference access | `src/ldsc/_refpanel/adapters.py`, with the R² file format in `src/ldsc/_refpanel/r2_format.py` and LD windows in `src/ldsc/_refpanel/windows.py` |
 | change LD-score orchestration, optional-baseline behavior, or output packaging | `src/ldsc/_ldscore/calculator.py`, `src/ldsc/_ldscore/outputs.py` |
 | change saved LD-score loading or selected-query reads | `src/ldsc/_ldscore/source.py`; keep model-specific validation in `src/ldsc/_regression/runner.py` |
 | change LD-score math | `src/ldsc/_ldscore/compute.py` |
@@ -196,8 +196,8 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
   LD-score parquet files remain flat files, with chromosome-aligned row groups documented through root `metadata.json`; diagnostic logs, dropped-SNP reports, and diagnostic metadata live under `diagnostics/`.
   Legacy reference/weight `.l2.ldscore(.gz)`, `.l2.M`, and `.l2.M_5_50` families enter through the explicit [LD-score converter](../reference/formats/legacy-ldscores.md#compatibility-boundary).
   The `.w.l2.ldscore(.gz)` suffix is unsupported, and private kernel legacy artifact emitters and regression readers have been removed.
-- Treat package-built R² panels as the only public R² Parquet
-  format. Both `ldsc ldscore --r2-dir` and `ldsc query-r2` depend on the paired
+- Treat package-built R² matrices as the only public R² Parquet
+  format. Both `ldsc ldscore --r2-matrix-dir` and `ldsc query-r2-matrix` depend on the paired
   `chr*_r2.parquet` / `chr*_meta.tsv.gz` layout and sidecar identity binding.
 - Keep optional-baseline behavior in the public LD-score workflow layer: no baseline and no query means a synthetic all-ones `base`; prebuilt, BED, and gene-list queries require explicit baseline annotations. Skipped BED/gene queries never become placeholder scientific columns.
 - Keep `ldsc annotate` orchestration in `ldsc._annotation.builder`. The CLI
@@ -209,17 +209,17 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
   directories, reuse existing directories, fail on existing owned artifacts by
   default, and require `--overwrite` or `overwrite=True` for replacement.
 - Keep coherent output families consistent. For `munge-sumstats`,
-  `build-r2-panel`, `ldscore`, `partitioned-h2`, `rg`, and `annotate`,
+  `build-r2-matrix`, `ldscore`, `partitioned-h2`, `rg`, and `annotate`,
   no-overwrite mode rejects any current-contract owned sibling from the workflow family.
   Overwrite mode writes the requested current outputs and then removes stale
   current-contract owned siblings that were not produced by the successful run.
   Removed legacy root diagnostic names are not workflow-owned. Unrelated files
   in the output directory must be preserved. Sharded workflows may pass a
-  narrowed owned family when shards share an output directory; `build-r2-panel`
+  narrowed owned family when shards share an output directory; `build-r2-matrix`
   concrete chromosome prefixes own only that chromosome's package, while `@`
-  chromosome-suite prefixes own the full panel package.
+  chromosome-suite prefixes own the full R² matrix package.
 - Preflight deterministic output paths before expensive or multi-file writes.
-  This is especially important for `build-r2-panel`, `munge-sumstats`,
+  This is especially important for `build-r2-matrix`, `munge-sumstats`,
   `annotate`, and summary-table regression commands.
 - Treat workflow logs as diagnostic files. Do not include log paths in
   `output_paths` mappings or thin metadata sidecars that downstream code
@@ -243,8 +243,8 @@ Each test folder has an `__init__.py`, so `pytest` and `python -m unittest disco
 | --- | --- |
 | output layer | `tests/runtime/test_output.py` |
 | annotation workflow | `tests/annotation/test_annotation.py` |
-| reference-panel builder | `tests/refpanel/test_ref_panel_builder.py` |
-| R² pair query | `tests/refpanel/test_r2_query.py` |
+| reference-panel builder | `tests/refpanel/test_r2_matrix_builder.py` |
+| R² pair query | `tests/refpanel/test_r2_matrix_query.py` |
 | LD-score workflow | `tests/ldscore/test_ldscore_workflow.py` |
 | gene coordinate catalog and gene-list resolution | `tests/annotation/test_gene_list_resolver.py` |
 | summary-statistics munging | `tests/sumstats/test_sumstats_munger.py` |
@@ -264,19 +264,19 @@ The result writers keep their separate JSON serialization of NumPy/dataclass pay
 | Change | Current contract | Main owner |
 | --- | --- | --- |
 | annotations and interval projection | [BED input](../reference/formats/bed-intervals.md), [gene lists](../reference/formats/gene-lists.md), [query repair](../reference/results/gene-list-diagnostics.md) | `_annotation.builder.AnnotationBuilder`; `_annotation.interval_queries.build_query_shards`; `_annotation.interval_projection.ChromosomeProjector` |
-| panel preparation, CM/MAF and traversal | [R² pipeline](../reference/formats/r2-panels.md), [pair accumulation](../reference/methods/ld-score-computation.md), [window behavior](../reference/formats/r2-panels.md#37-ld-windows-and-sidecar-values-in-ldscore) | `_refpanel.adapters.RefPanel.prepare_chromosome`; `_ldscore.compute.compute_chromosome` |
+| panel preparation, CM/MAF and traversal | [R² pipeline](../reference/formats/r2-matrices.md), [pair accumulation](../reference/methods/ld-score-computation.md), [window behavior](../reference/formats/r2-matrices.md#37-ld-windows-and-sidecar-values-in-ldscore) | `_refpanel.adapters.RefPanel.prepare_chromosome`; `_ldscore.compute.compute_chromosome` |
 | regression SNPs and region masks | [reference and regression SNPs](../reference/ldscore-snp-universes.md), [region exclusions](../reference/formats/region-exclusion-presets.md) | `_ldscore.calculator._regression_region_intervals`; `_ldscore.compute.regression_mask_from_keys`; `_ldscore.gene_index.build` resolves indexed policy |
-| reference construction and pair queries | [pair query](../reference/query-r2.md), [path contract](../reference/input-paths.md) | `_refpanel.builder.ReferencePanelBuilder`; `_refpanel.query.R2Panel`; `_refpanel.outputs.QueryR2DirectoryWriter` |
+| reference construction and pair queries | [pair query](../reference/query-r2-matrix.md), [path contract](../reference/input-paths.md) | `_refpanel.builder.R2MatrixBuilder`; `_refpanel.query.R2Matrix`; `_refpanel.outputs.QueryR2MatrixDirectoryWriter` |
 | munging and liftover | [munging](../reference/munge-sumstats.md), [liftover](../reference/snp-identity-and-genome-build.md#liftover) | `_sumstats.munger.SumstatsMunger`; `_sumstats.munge_input.prepare_munge_input`; `_sumstats.munge_kernel` |
 | regression and overlap | [configuration](../reference/regression-options.md), [partitioned results](../reference/results/partitioned-h2.md) | `_regression.runner.RegressionRunner`; `_ldscore.overlap_table`; `_regression.overlap_model`; `_regression.estimators` |
 | indexed gene queries | [index](../reference/gene-ldscore-index.md), [mathematics](../reference/methods/gene-ldscore-index-math.md) | `_ldscore.gene_index.build`, `.artifact`, `.scoring`; `_ldscore.gene_index.atoms` |
 | derived results | [plotting](design/plotting.md), [quantile projection](../reference/results/quantile-h2.md) | `_plotting.dispatch`, `_regression.h2_scale`, `_regression.quantile_h2`; shared `_runtime.result_files` |
 
-`query-r2` requires `--output-dir`; `QueryR2DirectoryWriter` writes its result directory.
+`query-r2-matrix` requires `--output-dir`; `QueryR2MatrixDirectoryWriter` writes its result directory.
 Region presets affect the regression SNPs and their weights, not the reference SNPs.
-`build-r2-panel` has no region-pruning fields; use its explicit reference-SNP restriction when pruning is intended.
+`build-r2-matrix` has no region-pruning fields; use its explicit reference-SNP restriction when pruning is intended.
 Reference preparation supplies population-specific CM/MAF; annotation CM is an `NA` placeholder.
-LD scores from R² panels use pair streaming, and PLINK filtering happens during adapter preparation.
+LD scores from R² matrices use pair streaming, and PLINK filtering happens during adapter preparation.
 
 Design rationale that protects a non-obvious constraint is stated in the page that documents the constraint; measurements are in [validation](validation/performance.md).
 Earlier dated specifications, implementation plans, audits, and the archived design map were removed on 2026-10-26, and the decision records on 2026-10-27; they remain in git history, for example `git show 479fc4d:docs/specs/<file>` or `git show 77a54e2:docs/decisions/2026-10-11-parallel-execution.md`.

@@ -1,6 +1,6 @@
 # Region-Exclusion Presets (bundled reference data)
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 **These coordinates have not yet been independently checked against their sources; they will be reviewed once the exclusion strategy is final.**
 
@@ -39,7 +39,7 @@ In both workflows it selects the regression SNPs (the persisted output rows and 
 The regression commands (`h2`/`rg`/`partitioned-h2`) have no region option: they inherit the filtered LD-score directory rows through their ordinary intersection with munged summary statistics.
 `munge-sumstats` never excludes regions.
 
-`build-r2-panel` deliberately has no region-exclusion control: intentional pruning of reference SNPs must be represented by an explicit `--ref-panel-snps-file`, making the changed reference estimand visible.
+`build-r2-matrix` deliberately has no region-exclusion control: intentional pruning of reference SNPs must be represented by an explicit `--ref-panel-snps-file`, making the changed reference estimand visible.
 Prefilter a custom regression-SNP file for arbitrary intervals, and use `--genome-build` to select named preset coordinates.
 
 ## Source of the coordinates

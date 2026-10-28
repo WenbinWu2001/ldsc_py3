@@ -22,7 +22,7 @@ This document summarizes the user-visible file streams for each public workflow.
 ```mermaid
 flowchart LR
   IN1[BED intervals or gene lists]
-  IN2[PLINK reference panel or R² panel]
+  IN2[PLINK reference panel or R² matrix]
   IN3[Raw summary statistics]
 
   subgraph CLI[CLI Layer (public)<br/>ldsc.cli]
@@ -31,7 +31,7 @@ flowchart LR
 
   subgraph WF[Workflow Layer (public)<br/>src/ldsc/*.py]
     W1[Build annotations]
-    W2[Build R² panel]
+    W2[Build R² matrix]
     W2b[Query R² pairs]
     W3[Compute LD scores]
     W4[Munge summary statistics]
@@ -137,17 +137,17 @@ Output preflight covers both `query.*.annot.gz` and `baseline.*.annot.gz` plus o
 - Projection: `_annotation.interval_queries`, `_annotation.interval_projection`, and `_annotation.gene_query_storage`.
 - Publication and reload: `_annotation.outputs.AnnotationDirectoryWriter` and `_annotation.saved_results`.
 
-## 2. `build-r2-panel`: PLINK To R² Panel
+## 2. `build-r2-matrix`: PLINK To R² Matrix
 
 Before chromosome processing starts, the builder precomputes flat current-run
 paths under each emitted `{build}` directory, always-written per-chromosome
 dropped-SNP diagnostics under `diagnostics/dropped_snps/`, plus the selected
-diagnostic metadata and `build-r2-panel` log paths. It also claims existing
+diagnostic metadata and `build-r2-matrix` log paths. It also claims existing
 workflow-owned siblings under `hg19/`, `hg38/`, and `diagnostics/`. The claimed
 package follows the PLINK prefix scope: a concrete single-chromosome prefix
 claims only that chromosome's package, while a `@` chromosome-suite prefix
-claims the full all-chromosome panel package. Existing owned artifacts are
-refused unless `--overwrite` or `ReferencePanelBuildConfig(overwrite=True)` is
+claims the full all-chromosome R² matrix package. Existing owned artifacts are
+refused unless `--overwrite` or `R2MatrixBuildConfig(overwrite=True)` is
 supplied; unrelated files in the output directory are left untouched. With
 overwrite enabled, stale owned artifacts inside the current package that were
 not produced by the successful run are removed.
@@ -207,11 +207,11 @@ flowchart LR
 
 | File | Example | Notes |
 | --- | --- | --- |
-| build-specific R² Parquet file | `hg38/chr22_r2.parquet` with 4 columns: `IDX_1`, `IDX_2` (int32 sidecar-row indices), `R2` (int16 quantized unbiased R², divided by `ldsc:r2_scale`=32767 on read), `SIGN_R` (bool, Pearson r ≥ 0 between the `A1`/minor allele dosages of the pair) | one row per unordered SNP pair inside the LD window; row groups sorted by `IDX_1` (equivalent to `POS_1` order since sidecar is position-sorted); schema metadata records the identity keys plus `ldsc:n_samples`, `ldsc:r2_bias`, `ldsc:r2_encoding`, `ldsc:r2_scale`, `ldsc:min_r2`, `ldsc:ld_window_mode`/`ldsc:ld_window_value`, `ldsc:n_snps`, and `ldsc:sidecar_identity_sha256` ([contract](../reference/formats/r2-panels.md#25-parquet-schema-metadata)); paired sidecar is mandatory |
+| build-specific R² Parquet file | `hg38/chr22_r2.parquet` with 4 columns: `IDX_1`, `IDX_2` (int32 sidecar-row indices), `R2` (int16 quantized unbiased R², divided by `ldsc:r2_scale`=32767 on read), `SIGN_R` (bool, Pearson r ≥ 0 between the `A1`/minor allele dosages of the pair) | one row per unordered SNP pair inside the LD window; row groups sorted by `IDX_1` (equivalent to `POS_1` order since sidecar is position-sorted); schema metadata records the identity keys plus `ldsc:n_samples`, `ldsc:r2_bias`, `ldsc:r2_encoding`, `ldsc:r2_scale`, `ldsc:min_r2`, `ldsc:ld_window_mode`/`ldsc:ld_window_value`, `ldsc:n_snps`, and `ldsc:sidecar_identity_sha256` ([contract](../reference/formats/r2-matrices.md#25-parquet-schema-metadata)); paired sidecar is mandatory |
 | build-specific runtime sidecar | `hg38/chr22_meta.tsv.gz` with leading `# ldsc:*` identity-provenance comments and `CHR POS SNP CM MAF A1 A2` columns | mandatory authoritative list of the panel SNPs for the matching R² Parquet file; defines the index space referenced by `IDX_1`/`IDX_2`; `A1` is the **minor allele** and `MAF = freq(A1) ≤ 0.5` (canonical orientation); current package-written sidecars carry `artifact_type`, `snp_identifier`, and `genome_build` |
 | dropped-SNP audit sidecar | `diagnostics/dropped_snps/chr22_dropped.tsv.gz` with `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written for each processed chromosome; header-only when no rows were dropped; identity reasons include `missing_allele`, `invalid_allele`, `strand_ambiguous_allele`, `multi_allelic_base_key`, and `duplicate_identity`; liftover reasons include `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, and `target_collision` |
 | diagnostic metadata | JSON provenance | `diagnostics/metadata.json` for full-suite runs or `diagnostics/metadata.chr<chrom>.json` for concrete single-chromosome runs; not consumed downstream |
-| workflow log | plain-text lifecycle and package records | `diagnostics/build-r2-panel.log` for full-suite runs or `diagnostics/build-r2-panel.chr<chrom>.log` for concrete single-chromosome runs; not included in `ReferencePanelBuildResult.output_paths` |
+| workflow log | plain-text lifecycle and package records | `diagnostics/build-r2-matrix.log` for full-suite runs or `diagnostics/build-r2-matrix.chr<chrom>.log` for concrete single-chromosome runs; not included in `R2MatrixBuildResult.output_paths` |
 
 **Allele-orientation canonicalization.** The builder orients every SNP so `A1`
 is the minor allele (`freq(A1) ≤ 0.5`): where the `.bim` `A2` allele is the minor
@@ -230,32 +230,32 @@ tie at exactly 0.5 keeps PLINK order. See
 - Kernel: `ldsc._refpanel.build_kernel`, `ldsc._ldscore.compute`, `ldsc._core.plink_files`
 - Postprocessing: parquet and TSV writers in the kernel
 
-## 3. `query-r2`: R² Panel To Pair Lookup Table
+## 3. `query-r2-matrix`: R² Matrix To Pair Lookup Table
 
-`query-r2` is a read-only workflow for package-built R² panels.
-It opens either a `build-r2-panel` output directory or one explicit
+`query-r2-matrix` is a read-only workflow for package-built R² matrices.
+It opens either a `build-r2-matrix` output directory or one explicit
 `chrN_meta.tsv.gz` plus `chrN_r2.parquet` pair, validates the sidecar binding
 against parquet metadata, resolves each endpoint under the active SNP
 identifier mode, and looks up stored pair rows. It requires `--output-dir` and
-writes the canonical result directory (`query_r2.tsv` plus
-`diagnostics/metadata.json` and `diagnostics/query-r2.log`).
+writes the canonical result directory (`query_r2_matrix.tsv` plus
+`diagnostics/metadata.json` and `diagnostics/query-r2-matrix.log`).
 
 ### Required inputs
 
 | File | Example | Notes |
 | --- | --- | --- |
-| R² panel directory or explicit sidecar/parquet pair | `ref_panel/hg38/chr22_r2.parquet` plus `chr22_meta.tsv.gz` | must be a package-built R² panel with matching sidecar identity hash |
+| R² matrix directory or explicit sidecar/parquet pair | `ref_panel/hg38/chr22_r2.parquet` plus `chr22_meta.tsv.gz` | must be a package-built R² matrix with matching sidecar identity hash |
 | pair table | `CHR_1 POS_1 A1_1 A2_1 CHR_2 POS_2 A1_2 A2_2` | TSV by default, CSV when filename ends in `.csv`, or stdin via `-`; endpoint columns are suffixed `_1` and `_2` |
 
 ### Flow
 
 ```mermaid
 flowchart LR
-  I1[Panel directory or sidecar+Parquet pair]
+  I1[R² matrix directory or sidecar+Parquet pair]
   I2[Pair table]
 
   subgraph WQ[Workflow (public)<br/>ldsc._refpanel.query]
-    Q1[Open panel and validate sidecar binding]
+    Q1[Open R² matrix and validate sidecar binding]
     Q2[Resolve endpoint identity keys]
     Q3[Harmonize sign and optional r]
   end
@@ -266,14 +266,14 @@ flowchart LR
 
   I1 --> Q1
   I2 --> Q2
-  Q1 --> Q2 --> Q4 --> Q3 --> OQ[query_r2.tsv plus diagnostics]
+  Q1 --> Q2 --> Q4 --> Q3 --> OQ[query_r2_matrix.tsv plus diagnostics]
 ```
 
 ### Outputs
 
 | File | Example | Notes |
 | --- | --- | --- |
-| annotated pair table | input columns plus `r2`, `sign_r`, `r`, `status` | `status` is blank for found pairs and can report `not_in_panel`, `cross_chromosome`, or `absent`; the always-emitted signed `r` is all-NaN in base modes |
+| annotated pair table | input columns plus `r2`, `sign_r`, `r`, `status` | `status` is blank for found pairs and can report `not_in_matrix`, `cross_chromosome`, or `absent`; the always-emitted signed `r` is all-NaN in base modes |
 
 ### Modules used
 
@@ -317,8 +317,8 @@ prebuilt-annotation, no-query, and indexed LD-score modes.
 | baseline annotation shard, optional | `CHR POS SNP CM base`<br/>`1 10583 rs58108140 0.0 1` | optional for unpartitioned runs; required when query annotations are supplied |
 | query annotation shard, optional | `CHR POS SNP CM enhancer_A`<br/>`1 10583 rs58108140 0.0 1` | optional extra annotation columns; valid only with explicit baseline annotations |
 | query BED or gene list, optional | `chr1 1000 2000` or `ENSG00000141510` | mutually exclusive query source routes; direct gene lists additionally require a one-based build-aware gene coordinate catalog and explicit padding |
-| PLINK prefix or R² panel | `panel_chr@` or build directory `ref_panel/hg38` | choose one backend |
-| R²-panel sidecar, required with an R² panel | `CHR POS SNP CM MAF A1 A2` | authoritative SNP index space, CM and MAF; paired `chrN_meta.tsv.gz` is mandatory; `A1/A2` are required for allele-aware modes; PLINK derives its own metadata |
+| PLINK prefix or R² matrix | `panel_chr@` or build directory `ref_panel/hg38` | choose one backend |
+| R²-matrix sidecar, required with an R² matrix | `CHR POS SNP CM MAF A1 A2` | authoritative SNP index space, CM and MAF; paired `chrN_meta.tsv.gz` is mandatory; `A1/A2` are required for allele-aware modes; PLINK derives its own metadata |
 | regression SNP list, optional | `rs123` or `CHR POS` table | restricts the regression SNPs using identity keys only; allele columns may be omitted and then match by base key; allele-bearing restrictions in allele-aware modes match by effective allele-aware key; duplicate restriction keys collapse to one retained key and non-identity columns such as `CM` or `MAF` are ignored |
 
 ### Flow
@@ -326,7 +326,7 @@ prebuilt-annotation, no-query, and indexed LD-score modes.
 ```mermaid
 flowchart LR
   I1[Optional .annot shards, BEDs, or gene lists]
-  I2[PLINK reference panel or R² panel]
+  I2[PLINK reference panel or R² matrix]
   I3[Metadata / restriction files]
 
   subgraph P3[Preprocessing (public)<br/>config + _runtime.paths + _core.columns]
@@ -421,7 +421,7 @@ reliably supply a build.
 
 There is no public arbitrary-region BED option. To use custom intervals,
 prefilter a custom regression list and pass it with `--regr-snps-file`.
-`build-r2-panel` has no region-exclusion option: deliberate LD-reference
+`build-r2-matrix` has no region-exclusion option: deliberate LD-reference
 pruning is expressed only through `--ref-panel-snps-file`. Artifact
 `metadata.json` records the reference-SNP policy separately from the
 regression-SNP policy and its region-removal counts. See

@@ -2,7 +2,7 @@
 
 The fixtures here build a minimal but faithful two-chromosome canonical
 index-format reference panel (the same `IDX_1/IDX_2/R2/SIGN_R` parquet + sidecar
-that `build-r2-panel` emits, written via the real builder helpers) so the
+that `build-r2-matrix` emits, written via the real builder helpers) so the
 parallel path is exercised end-to-end through `SortedR2BlockReader`, not a mock.
 """
 
@@ -21,7 +21,7 @@ import pytest
 from ldsc.errors import EmptyReferenceSNPs, LDSCInputError
 
 _HAS_PYARROW = importlib.util.find_spec("pyarrow") is not None
-pytestmark = pytest.mark.skipif(not _HAS_PYARROW, reason="pyarrow is required for index parquet panels")
+pytestmark = pytest.mark.skipif(not _HAS_PYARROW, reason="pyarrow is required for R2 matrices")
 
 
 # --- Fixture builders -------------------------------------------------------
@@ -117,7 +117,7 @@ def _run_minimal_ldscore(build_dir: Path, out_dir: Path, workers: int) -> Path:
     ).to_csv(regression_snps, sep="\t", index=False)
     set_global_config(GlobalConfig(snp_identifier="rsid"))
     run_ldscore(
-        r2_dir=str(build_dir),
+        r2_matrix_dir=str(build_dir),
         output_dir=str(out_dir),
         regr_snps_file=str(regression_snps),
         ld_wind_kb=1.0,
@@ -240,7 +240,7 @@ def _chrom1_inputs(build_dir: Path):
         source_summary={},
         config_snapshot=GlobalConfig(snp_identifier="rsid"),
     )
-    spec = RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir))
+    spec = RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir))
     ldscore_config = LDScoreConfig(ld_wind_kb=1.0, snp_batch_size=2, whole_chromosome_ok=True)
     return "1", bundle, spec, ldscore_config, GlobalConfig(snp_identifier="rsid"), None
 
@@ -480,7 +480,7 @@ def test_partitioned_parallel_preserves_scores_counts_overlap_and_classification
         set_global_config(GlobalConfig(snp_identifier="rsid"))
         output = tmp_path / f"threads_{workers}"
         result = run_ldscore(
-            r2_dir=str(two_chrom_panel),
+            r2_matrix_dir=str(two_chrom_panel),
             baseline_annot_sources=[str(baseline_path)],
             query_annot_sources=[str(query_path)],
             output_dir=str(output),
@@ -582,7 +582,7 @@ def _run_with_one_empty_chrom(build_dir: Path, out_dir: Path, workers: int) -> P
     restriction = out_dir.parent / f"{out_dir.name}_chr1_only.tsv"
     restriction.parent.mkdir(parents=True, exist_ok=True)
     restriction.write_text("SNP\nrs1\nrs2\nrs3\nrs4\n")
-    spec = RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir), ref_panel_snps_file=str(restriction))
+    spec = RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir), ref_panel_snps_file=str(restriction))
     ref_panel = RefPanelLoader(gcfg).load(spec)
     ldcfg = LDScoreConfig(ld_wind_kb=1.0, snp_batch_size=2, whole_chromosome_ok=True, workers=workers)
     with _warnings.catch_warnings():

@@ -60,7 +60,7 @@ Arrow's CPU and I/O pools are controlled independently and each use one thread p
 Higher inherited numerical thread settings do not override this policy inside workers.
 These settings do not modify the notebook or Python caller's global numerical or Arrow configuration.
 Standalone numerical entry points without a concurrency option use a controlled serial worker and reuse the current worker when called from a worker.
-This includes standalone regression fits and summaries, R² panel construction, quantile calculations, and legacy conversion's annotation overlap products.
+This includes standalone regression fits and summaries, R² matrix construction, quantile calculations, and legacy conversion's annotation overlap products.
 See [`_runtime/worker_runtime.py`](../../src/ldsc/_runtime/worker_runtime.py) and [`_runtime/serial_calculation.py`](../../src/ldsc/_runtime/serial_calculation.py).
 
 Runtime inspection checks supported loaded backends after importing NumPy and SciPy; these can use separate BLAS libraries.

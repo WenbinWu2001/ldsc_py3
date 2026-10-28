@@ -156,7 +156,7 @@ class GenomeBuildCheck:
                 self.unresolved(role, token, exc)
 
     def r2(self, role, directory):
-        """Inspect selected R2 panel shards, treating build children as alternatives."""
+        """Inspect selected R2 matrix shards, treating build children as alternatives."""
         root = Path(directory)
         paths = sorted(root.glob('chr*_r2.parquet'))
         if paths:
@@ -173,7 +173,7 @@ class GenomeBuildCheck:
             for path in next(iter(alternatives.values())):
                 self.table(role, path)
             return
-        entry = BuildEvidence(role, str(root), frozenset(alternatives), 'available panel build children')
+        entry = BuildEvidence(role, str(root), frozenset(alternatives), 'available R2 matrix build children')
         self.evidence.append(entry)
         self._panel_alternatives.append((entry, alternatives))
 
@@ -265,7 +265,7 @@ class GenomeBuildCheck:
             self.unresolved(role, path, exc)
 
     def _r2_sidecar_declaration(self, role, path):
-        """Compare a bound R2 panel sidecar's declaration without re-inferring it.
+        """Compare a bound R2 matrix sidecar's declaration without re-inferring it.
 
         The owning Parquet declaration establishes the artifact build when
         the sidecar has no separate declaration. Runtime binding checks still
@@ -279,7 +279,7 @@ class GenomeBuildCheck:
             try:
                 build = _text_options(sidecar)[1].get("genome_build")
                 if build:
-                    self.declared(role, sidecar, build, "R2 panel sidecar build metadata")
+                    self.declared(role, sidecar, build, "R2 matrix sidecar build metadata")
             except _INPUT_ERRORS as exc:
                 self.unresolved(role, sidecar, exc)
 

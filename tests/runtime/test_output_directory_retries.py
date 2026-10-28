@@ -14,7 +14,7 @@ from ldsc._regression.outputs import (
     RgDirectoryWriter,
 )
 from ldsc._ldscore.outputs import LDScoreDirectoryWriter
-from ldsc._refpanel.outputs import QueryR2DirectoryWriter
+from ldsc._refpanel.outputs import QueryR2MatrixDirectoryWriter
 from ldsc._runtime.paths import ensure_output_directory, remove_output_artifacts
 from ldsc.errors import LDSCInputError
 
@@ -26,7 +26,7 @@ from ldsc.errors import LDSCInputError
     (LDScoreDirectoryWriter, "ldscore.query.batch00001.parquet"),
     (PartitionedH2DirectoryWriter, "partitioned_h2.tsv"),
     (QuantileH2DirectoryWriter, "quantile_h2.tsv"),
-    (QueryR2DirectoryWriter, "query_r2.tsv"),
+    (QueryR2MatrixDirectoryWriter, "query_r2_matrix.tsv"),
     (RgDirectoryWriter, "rg.tsv"),
 ])
 def test_writer_families_ignore_failure_markers_but_protect_owned_outputs(

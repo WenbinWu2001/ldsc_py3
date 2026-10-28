@@ -76,7 +76,7 @@ def render():
     ], BLUE)
     box(ax, 520, 1060, 430, 160, "Reference inputs", [
         "PLINK: --plink-prefix",
-        "or R$^2$ panel: --r2-dir",
+        "or R$^2$ matrix: --r2-matrix-dir",
         "Resolved paths and chromosome scope",
         "Shared identity and genome-build policy",
     ], BLUE)

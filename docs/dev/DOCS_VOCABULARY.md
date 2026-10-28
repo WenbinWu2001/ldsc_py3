@@ -48,9 +48,9 @@ On each page that names S-LDSC, the first mention gives the full name and citati
 
 | Term | Definition | Avoid | API/CLI identifier | Symbol |
 | --- | --- | --- | --- | --- |
-| reference panel | Genotype data (PLINK) or an R² panel from which LD scores are computed. | "ref panel", "reference genotypes", "LD panel" | `--plink-prefix`; `--r2-dir`; `RefPanelConfig` | |
-| R² panel | Package-built Parquet files of pairwise unbiased R² with one sidecar per chromosome, written by `build-r2-panel`. | "parquet R² reference", "R² table", "index-format panel", "R² parquet panel" | `build-r2-panel`; `--r2-dir`; `--panel-dir`; `R2Panel` | |
-| sidecar | The per-chromosome metadata file of an R² panel that records SNP identity, CM and MAF. | "metadata file", "meta file" | `chr<N>_meta.tsv.gz` | |
+| reference panel | The LD reference from which LD scores are computed, in one of two forms: PLINK genotypes or an R² matrix built from them. Write "PLINK reference panel" or "R² matrix" when only one form applies. | "ref panel", "reference genotypes", "LD panel" | `--plink-prefix`; `--r2-matrix-dir`; `RefPanelConfig`; `RefPanel` | |
+| R² matrix | Package-built Parquet files of pairwise unbiased R² and correlation signs for the SNP pairs within an LD window, with one sidecar per chromosome, written by `build-r2-matrix` from a PLINK reference panel and read by `ldscore` and `query-r2-matrix`. | "R² panel", "R² table", "R² parquet panel", "parquet R² reference", "index-format panel"; "LD matrix" for this artifact, because it usually means signed r | `build-r2-matrix`; `query-r2-matrix`; `--r2-matrix-dir`; `R2Matrix`; `RefPanelConfig(backend="r2_matrix")` | |
+| sidecar | The per-chromosome metadata file of an R² matrix that records SNP identity, CM and MAF. | "metadata file", "meta file" | `chr<N>_meta.tsv.gz` | |
 | R² | Squared correlation between two SNPs' genotypes; written "R²" (or $R^2$ in math) in Markdown prose, and "R2" in code text (docstrings, CLI help, messages, comments) and identifiers. | "R2" in Markdown prose, "r2" | column `R2` | |
 | unbiased R² | The sample-size-corrected squared correlation $r^2 - (1 - r^2)/(n - 2)$ (`src/ldsc/_refpanel/query.py`); it can be negative. | "adjusted R²", "bias-adjusted R²" | column `R2`; `ldsc:r2_bias="unbiased"` | $\tilde r^2$ |
 | LD window | The maximum distance between two SNPs whose R² enters an LD score, in SNPs, kb or cM. | "window size" | `--ld-wind-snps`; `--ld-wind-kb`; `--ld-wind-cm` | |
@@ -139,7 +139,7 @@ These terms are for the developer guide and contributor documentation.
 These identifiers differ from the prose term or from each other; they are recorded here, not renamed.
 
 - The coefficient is the column `coefficient` in `partitioned_h2.tsv` and `tau` in the standardized-coefficient table (`src/ldsc/_regression/outputs.py`).
-- Prose "R²" corresponds to the identifiers `R2`, `r2_dir` and `build-r2-panel`.
+- Prose "R²" corresponds to the identifiers `R2`, `r2_matrix_dir` and `build-r2-matrix`.
 - `--count-kind common|all` on the command line corresponds to `RegressionConfig.use_common_counts` in Python.
 - Prose "gene coordinate catalog" corresponds to the flag `--gene-coordinate-file`.
 - Prose "legacy LDSC" corresponds to the identifiers that contain `ldsc2`, such as `convert-ldsc2-ldscores`.

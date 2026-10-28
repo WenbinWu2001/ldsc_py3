@@ -31,7 +31,7 @@ SNPIdentifierMode = Literal["rsid", "rsid_allele_aware", "chr_pos", "chr_pos_all
 SNP_IDENTIFIER_MODES = ("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware")
 RSID_FAMILY_MODES = ("rsid", "rsid_allele_aware")
 ALLELE_AWARE_MODES = ("rsid_allele_aware", "chr_pos_allele_aware")
-ARTIFACT_TYPES = frozenset({"sumstats", "ref_panel_r2", "ref_panel_metadata", "ldscore"})
+ARTIFACT_TYPES = frozenset({"sumstats", "r2_matrix", "ref_panel_metadata", "ldscore"})
 _ARTIFACT_METADATA_TROUBLESHOOTING = (
     "docs/user-guide/troubleshooting.md#common-ldsc3-artifact-schema-or-provenance-is-incompatible"
 )
@@ -390,7 +390,7 @@ def effective_merge_key_series(frame: pd.DataFrame, mode: str, *, context: str =
 
 
 def sidecar_identity_sha256(metadata: pd.DataFrame, *, context: str = "sidecar identity") -> str:
-    """Hash the panel's physical SNP identity to bind a parquet to its sidecar.
+    """Hash an R2 matrix sidecar's physical SNP identity to bind a parquet to its sidecar.
 
     Computes ``sha256`` over the newline-joined ``CHR:POS:A1:A2`` string of each
     row, in order. This captures the SNP set and order -- exactly what the index

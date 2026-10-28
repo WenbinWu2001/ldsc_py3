@@ -1,9 +1,9 @@
 # ldsc
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 LDSC3 is a Python 3 implementation of LD score regression (LDSC).
-It estimates SNP heritability, genetic correlation and partitioned heritability from GWAS summary statistics, computes LD scores from PLINK files or package-built R² panels, and builds annotations from BED files or gene lists.
+It estimates SNP heritability, genetic correlation and partitioned heritability from GWAS summary statistics, computes LD scores from PLINK files or package-built R² matrices, and builds annotations from BED files or gene lists.
 It provides one command, `ldsc`, and a Python package of the same name (distribution `ldsc`, version 2.0b0).
 Legacy LDSC, the original Python 2 software, is described with its differences in [migrating from legacy LDSC](docs/user-guide/workflows/migrating-from-legacy-ldsc.md).
 

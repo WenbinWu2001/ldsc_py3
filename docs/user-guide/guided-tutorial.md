@@ -25,7 +25,7 @@ The analysis pipeline involves:
 The files you will need are:
 
 - raw GWAS summary statistics files for the traits of interest (or legacy munged `.sumstats.gz` files);
-- a reference panel for LD-score calculation (either an R² panel or PLINK files);
+- a reference panel for LD-score calculation (either an R² matrix or PLINK files);
 - a set of baseline annotations;
 - raw BED files or one-column gene lists for the pathways / cell types whose SNP heritability contribution you want to test (the "query annotations").
 
@@ -129,13 +129,13 @@ Before the regressions in any of the analyses below, we first specify the path t
 
 ```bash
 # LD reference panel from 1000 Genomes Phase 3. Use either R2 parquet files or PLINK files.
-R2_DIR="${INPUT_ROOT}/resources/ldref/ldref_r2_1kgph3_1cM"
+R2_MATRIX_DIR="${INPUT_ROOT}/resources/ldref/ldref_r2_1kgph3_1cM"
 PLINK_PREFIX="${INPUT_ROOT}/resources/1000G_EUR_Phase3_plink/1000G.EUR.QC."  # hg19
 ```
 
 Two reference-panel sources are supported (choose one):
 
-- an R² panel computed from the PLINK files;
+- an R² matrix computed from the PLINK files;
 - the PLINK suite itself.
 
 ## Analysis 1: estimate the heritability of a trait
@@ -145,19 +145,19 @@ Two reference-panel sources are supported (choose one):
 ### Step 1: compute (unpartitioned) LD scores with `ldsc ldscore`
 
 ```bash
-# Step 1: Calculate unpartitioned LD scores from R2 parquets (via `--r2-dir`).
+# Step 1: Calculate unpartitioned LD scores from R2 parquets (via `--r2-matrix-dir`).
 LDSCORE_OUTPUT_DIR="${OUTPUT_ROOT}/unpartitioned_ldscore"
 
 ldsc ldscore \
   --snp-identifier chr_pos \
   --genome-build hg19 \
-  --r2-dir "${R2_DIR}/hg19" \
+  --r2-matrix-dir "${R2_MATRIX_DIR}/hg19" \
   --output-dir "${LDSCORE_OUTPUT_DIR}" \
   --ld-wind-cm 1.0 \
   --overwrite
 ```
 
-If you use the PLINK suite as the reference panel, replace `--r2-dir ...` in the command with:
+If you use the PLINK suite as the reference panel, replace `--r2-matrix-dir ...` in the command with:
 
 ```bash
 --plink-prefix "${PLINK_PREFIX}"
@@ -337,7 +337,7 @@ ldsc ldscore \
   --genome-build "hg19" \
   --query-annot-bed-sources "${RAW_QUERY_BED_SOURCES}" \
   --baseline-annot-sources "${BASELINE_ANNOT_SOURCES}" \
-  --r2-dir "${R2_DIR}/hg19" \
+  --r2-matrix-dir "${R2_MATRIX_DIR}/hg19" \
   --output-dir "${PARTITIONED_LDSCORE_OUTPUT_DIR}" \
   --ld-wind-cm 1.0 \
   --overwrite
@@ -345,7 +345,7 @@ ldsc ldscore \
 
 **Remarks:**
 
-- For PLINK input, replace `--r2-dir ...` with `--plink-prefix "${PLINK_PREFIX}"`.
+- For PLINK input, replace `--r2-matrix-dir ...` with `--plink-prefix "${PLINK_PREFIX}"`.
 - For partitioned heritability, `ldsc ldscore` accepts BED files directly, so you do not need to build the annotations yourself to run this analysis.
   If you do want to generate annotations for other purposes, follow the *Make annotations* section below.
 - Alternatively, pass one-column plain/gzip lists through

@@ -1,7 +1,7 @@
 """Unified CLI for the LDSC3 package.
 
 Core functionality:
-    Provide one command surface for annotation building, R2 panel
+    Provide one command surface for annotation building, R2 matrix
     generation, LD-score calculation, summary-statistics
     munging, regression, result plotting, and liability-scale post-processing.
 
@@ -28,7 +28,7 @@ from ._runtime.cli_help import CLIHelpFormatter
 from ._annotation import builder as annotation_builder
 from ._ldscore.gene_index import build as gene_ldscore_index
 from ._ldscore import calculator as ldscore_calculator
-from ._refpanel import query as r2_query, builder as ref_panel_builder
+from ._refpanel import query as r2_matrix_query, builder as r2_matrix_builder
 from ._runtime.workflow_logging import (
     install_cli_console_handler,
     last_workflow_log_path,
@@ -54,7 +54,7 @@ _SUBCOMMAND_HELP = {
     "infer-genome-build": "Inspect an artifact's genome build without writing files.",
     "annotate": "Find SNPs covered by BED intervals or gene boundaries.",
     "ldscore": "Compute LD scores.",
-    "build-r2-panel": "Build pairwise R2 panels from PLINK genotypes.",
+    "build-r2-matrix": "Build pairwise R2 matrices from PLINK genotypes.",
     "build-gene-ldscore-index": "Build a reusable gene LD-score index.",
     "convert-ldsc2-ldscores": "Convert selected legacy LD-score suites to LDSC3 format.",
     "munge-sumstats": "Munge GWAS summary statistics.",
@@ -62,7 +62,7 @@ _SUBCOMMAND_HELP = {
     "partitioned-h2": "Estimate partitioned heritability with independent query models.",
     "quantile-h2": "Summarize fitted heritability across annotation quantiles.",
     "rg": "Estimate genetic correlation.",
-    "query-r2": "Query R2 for SNP pairs from a reference panel.",
+    "query-r2-matrix": "Look up R2 for SNP pairs in an R2 matrix.",
     "convert-h2-scale": "Convert a saved observed-scale SNP heritability estimate to liability scale.",
     "plot": "Plot a saved LDSC3 result.",
 }
@@ -97,8 +97,8 @@ def build_parser() -> argparse.ArgumentParser:
     ldscore_parser = subparsers.add_parser("ldscore", help=_SUBCOMMAND_HELP["ldscore"])
     _copy_actions(ldscore_parser, ldscore_calculator.build_parser())
 
-    ref_panel_parser = subparsers.add_parser("build-r2-panel", help=_SUBCOMMAND_HELP["build-r2-panel"])
-    _copy_actions(ref_panel_parser, ref_panel_builder.build_parser())
+    ref_panel_parser = subparsers.add_parser("build-r2-matrix", help=_SUBCOMMAND_HELP["build-r2-matrix"])
+    _copy_actions(ref_panel_parser, r2_matrix_builder.build_parser())
 
     gene_index_parser = subparsers.add_parser(
         "build-gene-ldscore-index", help=_SUBCOMMAND_HELP["build-gene-ldscore-index"]
@@ -129,8 +129,8 @@ def build_parser() -> argparse.ArgumentParser:
     rg_parser = subparsers.add_parser("rg", help=_SUBCOMMAND_HELP["rg"])
     regression_runner.add_rg_arguments(rg_parser)
 
-    query_r2_parser = subparsers.add_parser("query-r2", help=_SUBCOMMAND_HELP["query-r2"])
-    _copy_actions(query_r2_parser, r2_query.build_parser())
+    query_r2_matrix_parser = subparsers.add_parser("query-r2-matrix", help=_SUBCOMMAND_HELP["query-r2-matrix"])
+    _copy_actions(query_r2_matrix_parser, r2_matrix_query.build_parser())
 
     h2_scale = _load_h2_scale()
     conversion_parser = subparsers.add_parser(
@@ -195,15 +195,15 @@ def main(argv: Sequence[str] | None = None):
             return annotation_builder.main(subargv)
         if command == "ldscore":
             return ldscore_calculator.main(subargv)
-        if command == "build-r2-panel":
-            return ref_panel_builder.main(subargv)
+        if command == "build-r2-matrix":
+            return r2_matrix_builder.main(subargv)
         if command == "build-gene-ldscore-index":
             return gene_ldscore_index.main(subargv)
         if command == "convert-ldsc2-ldscores":
             legacy_ldscore_converter = _load_legacy_ldscore_converter()
             return legacy_ldscore_converter.main(subargv)
-        if command == "query-r2":
-            return r2_query.main(subargv)
+        if command == "query-r2-matrix":
+            return r2_matrix_query.main(subargv)
         if command == "convert-h2-scale":
             h2_scale = _load_h2_scale()
             parser = _NoAbbrevArgumentParser(
@@ -337,7 +337,7 @@ def _cli_failure_marker_scope(argv: Sequence[str]) -> tuple[Path, str] | None:
     output_dir = _raw_option_value(argv, "--output-dir")
     if output_dir is None:
         return None
-    if command == "build-r2-panel":
+    if command == "build-r2-matrix":
         prefix = _raw_option_value(argv, "--plink-prefix")
         chromosome = _chromosome_from_concrete_prefix(prefix)
         if chromosome is not None:

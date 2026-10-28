@@ -9,7 +9,7 @@ import pytest
 from ldsc._ldscore.gene_index import build as gene_ldscore_index
 from ldsc._ldscore import calculator as ldscore_calculator
 from ldsc._ldscore.gene_index.scoring import _load_gene_ldscore_index
-from ldsc._refpanel import builder as ref_panel_builder
+from ldsc._refpanel import builder as r2_matrix_builder
 from ldsc.errors import LDSCInputError
 
 
@@ -103,11 +103,11 @@ def test_gene_index_reports_every_plink_problem_before_projection(tmp_path):
 
 def test_r2_builder_accepts_plain_dotted_prefix(tmp_path):
     write_inputs(tmp_path)
-    args = ref_panel_builder.build_parser().parse_args([
+    args = r2_matrix_builder.build_parser().parse_args([
         "--plink-prefix", str(tmp_path / "1000G.EUR.QC."), "--source-genome-build", "hg19",
         "--snp-identifier", "chr_pos", "--ld-wind-kb", ".05", "--output-dir", str(tmp_path / "r2"),
     ])
-    result = ref_panel_builder.run_build_ref_panel_from_args(args)
+    result = r2_matrix_builder.run_build_r2_matrix_from_args(args)
     assert len(result.output_paths["r2_hg19"]) == 2
     for path in result.output_paths["r2_hg19"]:
         assert Path(path).is_file()
@@ -118,7 +118,7 @@ def test_r2_builder_retries_failure_without_touching_other_markers(tmp_path, sco
     write_inputs(tmp_path)
     prefix = tmp_path / ("1000G.EUR.QC.21" if scoped else "1000G.EUR.QC.")
     output = tmp_path / "r2"
-    args = ref_panel_builder.build_parser().parse_args([
+    args = r2_matrix_builder.build_parser().parse_args([
         "--plink-prefix", str(prefix), "--source-genome-build", "hg19",
         "--snp-identifier", "chr_pos", "--ld-wind-kb", ".05", "--output-dir", str(output),
         "--overwrite",
@@ -127,13 +127,13 @@ def test_r2_builder_retries_failure_without_touching_other_markers(tmp_path, sco
     original = bed.read_bytes()
     bed.unlink()
     with pytest.raises(LDSCInputError):
-        ref_panel_builder.run_build_ref_panel_from_args(args)
+        r2_matrix_builder.run_build_r2_matrix_from_args(args)
     marker = output / ("RUN_FAILED.chr21.txt" if scoped else "RUN_FAILED.txt")
     assert marker.is_file()
     other = output / "RUN_FAILED.chr22.txt"
     other.write_text("other attempt")
     bed.write_bytes(original)
-    result = ref_panel_builder.run_build_ref_panel_from_args(args)
+    result = r2_matrix_builder.run_build_r2_matrix_from_args(args)
     assert len(result.output_paths["r2_hg19"]) == (1 if scoped else 2)
     assert not marker.exists()
     assert other.read_text() == "other attempt"

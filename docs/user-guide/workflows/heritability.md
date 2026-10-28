@@ -1,6 +1,6 @@
 # Estimate SNP heritability
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 `ldsc h2` estimates the SNP heritability of one trait with LD score regression (LDSC; Bulik-Sullivan et al. 2015): it regresses the trait's $\chi^2$ statistics on LD scores and turns the slope into SNP heritability.
 It writes the estimate with its block-jackknife standard error, the regression intercept, and the binned data behind a diagnostic plot.
@@ -21,7 +21,7 @@ The regression SNPs (the HM3 map by default) are fixed when the LD scores are co
 
 ## Run the analysis
 
-From raw summary statistics and an [R² panel](r2-panels.md), the full analysis is three commands and a plot:
+From raw summary statistics and an [R² matrix](r2-matrices.md), the full analysis is three commands and a plot:
 
 ```bash
 ldsc munge-sumstats \
@@ -33,7 +33,7 @@ ldsc munge-sumstats \
   --output-dir results/trait_sumstats
 
 ldsc ldscore \
-  --r2-dir /path/to/resources/r2_panel/hg38 \
+  --r2-matrix-dir /path/to/resources/r2_matrix/hg38 \
   --snp-identifier chr_pos_allele_aware \
   --ld-wind-cm 1.0 \
   --output-dir results/unpartitioned_ldscores
@@ -47,7 +47,7 @@ ldsc plot --result-dir results/trait_h2
 ```
 
 Run `munge-sumstats --infer-only` first to check how the raw file is read, and add repair flags such as `--N-col NEFF` only when it reports they are needed; see [munge summary statistics](munge-sumstats.md).
-`ldscore` with an R² panel needs the panel's SNP identifier mode and a window no wider than the panel's; `--workers` can split chromosomes over several workers (see [parallel execution](../../reference/parallel-execution.md)).
+`ldscore` with an R² matrix needs the R² matrix's SNP identifier mode and a window no wider than the R² matrix's; `--workers` can split chromosomes over several workers (see [parallel execution](../../reference/parallel-execution.md)).
 The same LD-score directory serves every trait analysed with that reference panel.
 
 ## Read the outputs

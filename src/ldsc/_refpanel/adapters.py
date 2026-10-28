@@ -1,7 +1,7 @@
 """Reference-panel configuration and workflow-to-kernel backend adapters.
 
 This module prepares chromosome-scoped reference data for LD-score projection.
-The PLINK and R2 panel adapters own identity and SNP restrictions, sample/MAF
+The PLINK and R2 matrix adapters own identity and SNP restrictions, sample/MAF
 selection, annotation alignment, reader policy, LD windows, and file lifetime.
 Numerical kernels consume the resulting aligned state without resolving paths
 or reopening a panel. Metadata inspection returns caller-owned chromosome tables without caching them.
@@ -43,8 +43,8 @@ from .prepared import ChromosomeAnnotations, PreparedChromosome
 from .r2_format import (
     SortedR2BlockReader,
     read_r2_parquet_contract,
-    reject_truncated_r2_panel,
-    validate_ldscore_window_within_r2_panel_window,
+    reject_truncated_r2_matrix,
+    validate_ldscore_window_within_r2_matrix_window,
 )
 from .windows import (
     assert_cm_usable,
@@ -71,8 +71,8 @@ from .._core.snp_identity import (
 )
 
 LOGGER = logging.getLogger("LDSC.ref_panel")
-_REF_PANEL_R2_RE = re.compile(r"^chr(?P<chrom>.+)_r2\.parquet$", flags=re.IGNORECASE)
-_REF_PANEL_ARTIFACT_DOC = "docs/user-guide/troubleshooting.md#build-r2-panel-reference-panel-artifact-is-incompatible"
+_R2_MATRIX_RE = re.compile(r"^chr(?P<chrom>.+)_r2\.parquet$", flags=re.IGNORECASE)
+_REF_PANEL_ARTIFACT_DOC = "docs/user-guide/troubleshooting.md#build-r2-matrix-reference-panel-artifact-is-incompatible"
 
 
 def _snp_id_series_for_matching(metadata: pd.DataFrame, snp_identifier: str, *, context: str) -> pd.Series:
@@ -108,13 +108,13 @@ def _artifact_global_config(metadata, global_config, source):
     return GlobalConfig(snp_identifier=mode, genome_build=build)
 
 
-def _validate_r2_identity_matches_config(metadata: dict[str, object], global_config: GlobalConfig, *, source="R2 panel") -> None:
-    """Reject R2 panels built under different identity assumptions."""
+def _validate_r2_identity_matches_config(metadata: dict[str, object], global_config: GlobalConfig, *, source="R2 matrix") -> None:
+    """Reject R2 matrices built under different identity assumptions."""
     artifact_config = _artifact_global_config(metadata, global_config, source)
     validate_config_compatibility(
         global_config,
         artifact_config,
-        context="runtime config and R2 panel",
+        context="runtime config and R2 matrix",
     )
 
 
@@ -206,7 +206,7 @@ class RefPanel(ABC):
             "chromosomes": self.available_chromosomes(),
             "source": {
                 "plink_prefix": self.spec.plink_prefix,
-                "r2_dir": self.spec.r2_dir,
+                "r2_matrix_dir": self.spec.r2_matrix_dir,
             },
         }
 
@@ -433,9 +433,9 @@ class PlinkRefPanel(RefPanel):
         return [prefixes[chrom]]
 
 
-class ParquetR2RefPanel(RefPanel):
+class R2MatrixRefPanel(RefPanel):
     """
-    Reference-panel adapter for R2 panels.
+    Reference-panel adapter for R2 matrices.
 
     The metadata sidecar (``chrN_meta.tsv.gz``) is mandatory and authoritative:
     ``load_metadata()`` reads it, applies ``ref_panel_snps_file`` to form A',
@@ -444,35 +444,35 @@ class ParquetR2RefPanel(RefPanel):
     sidecar-row indices and is meaningless without the exact matching sidecar.
     """
     def available_chromosomes(self) -> list[str]:
-        """List chromosomes from explicit config, panel directory, sidecars, or R2 Parquet files."""
+        """List chromosomes from explicit config, R2 matrix directory, sidecars, or R2 Parquet files."""
         if self.spec.chromosomes is not None:
             return sorted(set(self.spec.chromosomes), key=chrom_sort_key)
 
-        if self.spec.r2_dir is not None:
-            paths = _r2_dir_r2_paths(
-                self.spec.r2_dir,
+        if self.spec.r2_matrix_dir is not None:
+            paths = _r2_matrix_dir_r2_paths(
+                self.spec.r2_matrix_dir,
                 genome_build=self.global_config.genome_build,
                 chrom=None,
             )
             chromosomes = {
                 chrom
                 for path in paths
-                if (chrom := _chromosome_from_ref_panel_r2_path(Path(path))) is not None
+                if (chrom := _chromosome_from_r2_matrix_path(Path(path))) is not None
             }
             if chromosomes:
                 return sorted(chromosomes, key=chrom_sort_key)
             raise LDSCInputError(
-                f"Reference-panel loading found no `chr*_r2.parquet` files in R2 panel "
-                f"directory '{self.spec.r2_dir}'. Most likely the directory is not an "
-                "`ldsc build-r2-panel` output directory or the wrong genome-build child "
+                f"Reference-panel loading found no `chr*_r2.parquet` files in R2 matrix "
+                f"directory '{self.spec.r2_matrix_dir}'. Most likely the directory is not an "
+                "`ldsc build-r2-matrix` output directory or the wrong genome-build child "
                 "directory was selected. Pass the directory containing the R2 Parquet files. "
                 f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
             )
 
         raise LDSCUsageError(
-            "R2 panel chromosome discovery requires explicit chromosomes or `r2_dir`. "
-            "Most likely `RefPanelConfig(backend='parquet_r2')` was used without an R2 panel "
-            "directory. Pass `r2_dir` or an explicit chromosome list."
+            "R2 matrix chromosome discovery requires explicit chromosomes or `r2_matrix_dir`. "
+            "Most likely `RefPanelConfig(backend='r2_matrix')` was used without an R2 matrix "
+            "directory. Pass `r2_matrix_dir` or an explicit chromosome list."
         )
 
     def load_metadata(self, chrom: str) -> pd.DataFrame:
@@ -484,12 +484,12 @@ class ParquetR2RefPanel(RefPanel):
         chrom = normalize_chromosome(chrom)
         if self.spec.keep_indivs_file is not None:
             raise LDSCUsageError(
-                "Reference-panel loading cannot apply `--keep-indivs-file` to an R2 panel. "
-                "Most likely individual filtering was combined with a precomputed R2 "
-                "panel. Remove the keep file or use a PLINK reference panel."
+                "Reference-panel loading cannot apply `--keep-indivs-file` to an R2 matrix. "
+                "Most likely individual filtering was combined with a precomputed "
+                "R2 matrix. Remove the keep file or use a PLINK reference panel."
             )
 
-        # A sidecar without its R2 parquet is an incomplete panel.
+        # A sidecar without its R2 parquet is an incomplete R2 matrix.
         self.resolve_r2_paths(chrom)
         metadata_paths = self.resolve_metadata_paths(chrom)
         if metadata_paths:
@@ -511,10 +511,10 @@ class ParquetR2RefPanel(RefPanel):
                 "R2 Parquet files require their `chrN_meta.tsv.gz` sidecar because "
                 "the parquet stores only sidecar-row indices. Most likely the sidecar was "
                 "not copied with the R2 Parquet file. Restore the matching sidecar or regenerate "
-                "the panel. "
+                "the R2 matrix. "
                 f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
             )
-        funnel = ReferenceSNPFunnel(chrom, "parquet_r2")
+        funnel = ReferenceSNPFunnel(chrom, "r2_matrix")
         funnel.record(REFERENCE_PANEL, "panel_rows", len(metadata))
         if self.spec.ref_panel_snps_file is not None:
             before = len(metadata)
@@ -531,7 +531,7 @@ class ParquetR2RefPanel(RefPanel):
         """
         Build an owned streaming reader over one chromosome's validated R2 Parquet file.
 
-        The parquet must satisfy the ``build-r2-panel`` metadata contract and
+        The parquet must satisfy the ``build-r2-matrix`` metadata contract and
         record the active SNP identifier and genome build; its values are read
         as already unbiased. ``prepare_chromosome`` uses this same factory;
         direct callers must close the returned reader.
@@ -566,13 +566,13 @@ class ParquetR2RefPanel(RefPanel):
         if config.ld_wind_cm is not None:
             _resolve_genetic_map(self, chrom, reference)
         parquet_paths = self.resolve_r2_paths(chrom)
-        validate_ldscore_window_within_r2_panel_window(config, parquet_paths=parquet_paths, chrom=chrom)
-        reject_truncated_r2_panel(parquet_paths, chrom)
+        validate_ldscore_window_within_r2_matrix_window(config, parquet_paths=parquet_paths, chrom=chrom)
+        reject_truncated_r2_matrix(parquet_paths, chrom)
         mapped_annotations = aligned.annotations
         reader = self.build_reader(chrom, metadata=metadata)
         if np.any(np.diff(reader.panel_rows) < 0):
             # Same-position SNPs listed in another order than the sidecar: compute in
-            # panel-row order, which --ld-wind-snps needs. Annotation rows move with
+            # R2 matrix row order, which --ld-wind-snps needs. Annotation rows move with
             # their SNPs, and outputs are re-sorted by CHR, POS, and SNP afterwards.
             order = np.argsort(reader.panel_rows, kind="stable")
             reader.close()
@@ -580,68 +580,68 @@ class ParquetR2RefPanel(RefPanel):
             mapped_annotations = replace(mapped_annotations, row_indices=mapped_annotations.row_indices[order])
             reader = self.build_reader(chrom, metadata=metadata)
         try:
-            # --ld-wind-snps counts panel rows, so a window no wider than the
-            # panel's stays inside its stored pairs when this run keeps fewer SNPs.
+            # --ld-wind-snps counts R2 matrix rows, so a window no wider than the
+            # R2 matrix's stays inside its stored pairs when this run keeps fewer SNPs.
             block_left = _prepare_window(metadata, chrom, config, self.global_config.snp_identifier,
                                          snp_positions=reader.panel_rows)
         except BaseException:
             reader.close()
             raise
         return PreparedChromosome(
-            backend="parquet_r2", reader=reader, metadata=metadata,
+            backend="r2_matrix", reader=reader, metadata=metadata,
             annotations=mapped_annotations, block_left=block_left,
             baseline_columns=list(annotations.baseline_columns), query_columns=list(annotations.query_columns),
             cm_source="parquet_sidecar", reference_snp_funnel=funnel.frame(),
         )
 
     def resolve_r2_paths(self, chrom: str, *, required: bool = True) -> list[str]:
-        """Resolve R2 Parquet file paths for one chromosome from ``r2_dir``."""
+        """Resolve R2 Parquet file paths for one chromosome from ``r2_matrix_dir``."""
         chrom = normalize_chromosome(chrom)
-        if self.spec.r2_dir is not None:
-            return _r2_dir_r2_paths(
-                self.spec.r2_dir,
+        if self.spec.r2_matrix_dir is not None:
+            return _r2_matrix_dir_r2_paths(
+                self.spec.r2_matrix_dir,
                 genome_build=self.global_config.genome_build,
                 chrom=chrom,
             )
         raise LDSCUsageError(
-            "R2 panel loading requires `r2_dir`. Most likely "
-            "`RefPanelConfig(backend='parquet_r2')` was used without an R2 panel directory. "
+            "R2 matrix loading requires `r2_matrix_dir`. Most likely "
+            "`RefPanelConfig(backend='r2_matrix')` was used without an R2 matrix directory. "
             "Pass the directory containing `chrN_r2.parquet` files."
         )
 
     def resolve_metadata_paths(self, chrom: str) -> list[str]:
         """Resolve the required metadata sidecar for one chromosome."""
         chrom = normalize_chromosome(chrom)
-        if self.spec.r2_dir is not None:
-            return _r2_dir_metadata_paths(
-                self.spec.r2_dir,
+        if self.spec.r2_matrix_dir is not None:
+            return _r2_matrix_dir_metadata_paths(
+                self.spec.r2_matrix_dir,
                 genome_build=self.global_config.genome_build,
                 chrom=chrom,
             )
         return []
 
 
-def _chromosome_from_ref_panel_r2_path(path: Path) -> str | None:
+def _chromosome_from_r2_matrix_path(path: Path) -> str | None:
     """Extract the chromosome label from ``chr{chrom}_r2.parquet``."""
-    match = _REF_PANEL_R2_RE.match(path.name)
+    match = _R2_MATRIX_RE.match(path.name)
     if match is None:
         return None
     return normalize_chromosome(match.group("chrom"), context=str(path))
 
 
-def resolve_r2_build_dir(r2_dir: str | Path, genome_build: str | None) -> Path:
-    """Resolve a build-specific R2 panel directory from user input."""
-    root = Path(r2_dir)
+def resolve_r2_build_dir(r2_matrix_dir: str | Path, genome_build: str | None) -> Path:
+    """Resolve a build-specific R2 matrix directory from user input."""
+    root = Path(r2_matrix_dir)
     if not root.exists():
         raise LDSCInputError(
-            f"R2 panel directory does not exist: '{root}'. Most likely the "
+            f"R2 matrix directory does not exist: '{root}'. Most likely the "
             "path is misspelled or relative to a different working directory. Pass the "
-            "existing `ldsc build-r2-panel` output directory."
+            "existing `ldsc build-r2-matrix` output directory."
         )
     if not root.is_dir():
         raise LDSCInputError(
-            f"R2 panel path is not a directory: '{root}'. Most likely a file "
-            "path was passed where an R2 panel directory was expected. Pass the directory "
+            f"R2 matrix path is not a directory: '{root}'. Most likely a file "
+            "path was passed where an R2 matrix directory was expected. Pass the directory "
             "containing `chrN_r2.parquet` files."
         )
     if list(root.glob("chr*_r2.parquet")):
@@ -666,30 +666,30 @@ def resolve_r2_build_dir(r2_dir: str | Path, genome_build: str | None) -> Path:
     return root
 
 
-def _r2_dir_r2_paths(r2_dir: str | Path, *, genome_build: str | None, chrom: str | None) -> list[str]:
-    """Resolve required ``chr{chrom}_r2.parquet`` files inside a panel directory."""
-    build_dir = resolve_r2_build_dir(r2_dir, genome_build)
+def _r2_matrix_dir_r2_paths(r2_matrix_dir: str | Path, *, genome_build: str | None, chrom: str | None) -> list[str]:
+    """Resolve required ``chr{chrom}_r2.parquet`` files inside an R2 matrix directory."""
+    build_dir = resolve_r2_build_dir(r2_matrix_dir, genome_build)
     if chrom is not None:
         path = build_dir / f"chr{normalize_chromosome(chrom)}_r2.parquet"
         if not path.exists():
             raise LDSCInputError(
                 f"Required R2 Parquet file is missing: '{path}'. Most likely the "
                 "reference panel was not built for this chromosome/build, or the wrong "
-                "R2 panel directory was selected. Regenerate the missing chromosome or pass "
-                "the correct `r2_dir`. "
+                "R2 matrix directory was selected. Regenerate the missing chromosome or pass "
+                "the correct `r2_matrix_dir`. "
                 f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
             )
         return [str(path)]
     paths = sorted(
         build_dir.glob("chr*_r2.parquet"),
-        key=lambda path: chrom_sort_key(_chromosome_from_ref_panel_r2_path(path) or path.name),
+        key=lambda path: chrom_sort_key(_chromosome_from_r2_matrix_path(path) or path.name),
     )
     return [str(path) for path in paths]
 
 
-def _r2_dir_metadata_paths(r2_dir: str | Path, *, genome_build: str | None, chrom: str) -> list[str]:
-    """Resolve the optional ``chr{chrom}_meta.tsv.gz`` sidecar from a panel directory."""
-    build_dir = resolve_r2_build_dir(r2_dir, genome_build)
+def _r2_matrix_dir_metadata_paths(r2_matrix_dir: str | Path, *, genome_build: str | None, chrom: str) -> list[str]:
+    """Resolve the optional ``chr{chrom}_meta.tsv.gz`` sidecar from an R2 matrix directory."""
+    build_dir = resolve_r2_build_dir(r2_matrix_dir, genome_build)
     path = build_dir / f"chr{normalize_chromosome(chrom)}_meta.tsv.gz"
     return [str(path)] if path.exists() else []
 
@@ -707,11 +707,11 @@ class RefPanelLoader:
         backend = ref_panel_spec.backend
         if backend == "plink":
             return PlinkRefPanel(global_config, ref_panel_spec)
-        if backend == "parquet_r2":
-            return ParquetR2RefPanel(global_config, ref_panel_spec)
+        if backend == "r2_matrix":
+            return R2MatrixRefPanel(global_config, ref_panel_spec)
         raise LDSCConfigError(
             f"Unsupported reference-panel backend {backend!r}. Most likely a Python "
-            "caller supplied an invalid RefPanelConfig backend. Use `plink` or `parquet_r2`."
+            "caller supplied an invalid RefPanelConfig backend. Use `plink` or `r2_matrix`."
         )
 
     def _global_config_for_spec(self, ref_panel_spec: RefPanelConfig) -> GlobalConfig:
@@ -734,8 +734,8 @@ def _infer_restricted_ref_panel_build(ref_panel_spec: RefPanelConfig, requested=
     check = GenomeBuildCheck(requested, context='reference-panel loading', logger=LOGGER)
     if ref_panel_spec.backend == 'plink':
         check.plink('--plink-prefix', ref_panel_spec.plink_prefix)
-    elif ref_panel_spec.r2_dir is not None:
-        check.r2('--r2-dir', ref_panel_spec.r2_dir)
+    elif ref_panel_spec.r2_matrix_dir is not None:
+        check.r2('--r2-matrix-dir', ref_panel_spec.r2_matrix_dir)
     check.paths('--ref-panel-snps-file', ref_panel_spec.ref_panel_snps_file, restriction_mode='chr_pos')
     return check.resolve()
 
@@ -761,7 +761,7 @@ def _read_metadata_sidecar_identity(path: str | Path) -> dict[str, object] | Non
         raise LDSCInputError(
             f"Reference-panel metadata sidecar '{path}' is missing LDSC3 identity "
             "metadata. Most likely it was written by an older LDSC3 version or edited. "
-            "Regenerate the reference panel with the current `ldsc build-r2-panel`. "
+            "Regenerate the reference panel with the current `ldsc build-r2-matrix`. "
             f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
         )
     return {
@@ -798,7 +798,7 @@ def read_metadata_table(
         raise LDSCInputError(
             f"Reference-panel metadata sidecar '{path}' has no LDSC3 identity metadata. "
             "Most likely it was written by an older LDSC3 version or copied from an external "
-            "source. Regenerate the reference panel with the current `ldsc build-r2-panel`. "
+            "source. Regenerate the R2 matrix with the current `ldsc build-r2-matrix`. "
             f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
         )
     validate_identity_artifact_metadata(identity_metadata, expected_artifact_type="ref_panel_metadata")
@@ -834,14 +834,14 @@ def read_metadata_table(
         raise LDSCInputError(
             f"Reference-panel metadata sidecar '{path}' is incompatible with rsID-family "
             "mode: no SNP column was found. Most likely the sidecar uses CHR/POS-only "
-            "identifiers or an unrecognized SNP header. Regenerate the panel or run with "
+            "identifiers or an unrecognized SNP header. Regenerate the R2 matrix or run with "
             "a chr_pos-family SNP identifier."
         )
     if family == "chr_pos" and (chr_col is None or pos_col is None):
         raise LDSCInputError(
             f"Reference-panel metadata sidecar '{path}' is incompatible with chr_pos-family "
             "mode: CHR and POS columns are required. Most likely the sidecar uses rsID-only "
-            "identifiers or unrecognized CHR/POS headers. Regenerate the panel or run with "
+            "identifiers or unrecognized CHR/POS headers. Regenerate the R2 matrix or run with "
             "an rsID-family SNP identifier."
         )
 
@@ -863,7 +863,7 @@ def read_metadata_table(
         raise LDSCInputError(
             f"Reference-panel metadata sidecar '{path}' is missing MAF metadata. MAF is "
             "required for LD-score calculation. Most likely the sidecar was produced "
-            "without allele-frequency values. Regenerate the panel with MAF metadata."
+            "without allele-frequency values. Regenerate the R2 matrix with MAF metadata."
         )
     maf = pd.to_numeric(df[maf_col], errors="coerce").astype(float)
     # NaN fails both comparisons, so this also catches missing and non-numeric values.
@@ -874,9 +874,9 @@ def read_metadata_table(
         raise LDSCInputError(
             f"Reference-panel metadata sidecar '{path}' has missing, non-numeric, or out-of-range MAF for "
             f"{int(invalid_maf.sum())} of {len(maf)} SNP rows (first: {examples}). "
-            "`ldsc build-r2-panel` records MAF as the minor-allele (A1) frequency, in [0, 0.5], "
+            "`ldsc build-r2-matrix` records MAF as the minor-allele (A1) frequency, in [0, 0.5], "
             "for every row, so the sidecar was most likely edited or produced by another tool. "
-            "Regenerate the reference panel with the current `ldsc build-r2-panel`. "
+            "Regenerate the R2 matrix with the current `ldsc build-r2-matrix`. "
             f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
         )
     out["MAF"] = maf
@@ -887,12 +887,12 @@ def read_metadata_table(
         raise LDSCInputError(
             f"Reference-panel metadata sidecar '{path}' has only one allele column. "
             "Most likely A1 or A2 is missing from the sidecar. Provide both allele "
-            "columns, or regenerate the panel in a base SNP identifier mode."
+            "columns, or regenerate the R2 matrix in a base SNP identifier mode."
         )
     if is_allele_aware_mode(snp_identifier) and (a1_col is None or a2_col is None):
         raise LDSCInputError(
             f"Reference-panel metadata sidecar '{path}' is malformed for allele-aware "
-            "SNP identity: A1/A2 columns are required. Most likely the panel was built "
+            "SNP identity: A1/A2 columns are required. Most likely the R2 matrix was built "
             "without allele metadata. Regenerate with A1/A2 metadata or use a base SNP "
             "identifier mode."
         )
@@ -934,7 +934,7 @@ def _resolve_genetic_map(panel, chrom, metadata):
     if not (spec.genetic_map_hg19_sources or spec.genetic_map_hg38_sources):
         return None
     if spec.backend != "plink":
-        LOGGER.warning("Ignoring --genetic-map-*-sources for the R2 panel: CM is taken from the panel metadata sidecar (authoritative). Genetic-map flags apply only to PLINK panels.")
+        LOGGER.warning("Ignoring --genetic-map-*-sources for the R2 matrix: CM is taken from the panel metadata sidecar (authoritative). Genetic-map flags apply only to PLINK panels.")
         return None
     build = normalize_genome_build(panel.global_config.genome_build)
     if build == "auto":

@@ -29,9 +29,9 @@ _RSID_NOTICE = "This artifact's workflow uses rsIDs for SNP matching."
 _NO_EVIDENCE = "no build metadata or usable SNP coordinates"
 _TROUBLESHOOTING = "docs/user-guide/troubleshooting.md#infer-genome-build-input-cannot-be-inspected"
 _JSON_TYPES = {
-    "annotation_projection", "ldscore", "ref_panel", "gene_ldscore_index",
+    "annotation_projection", "ldscore", "r2_matrix_build", "gene_ldscore_index",
     "h2_result", "partitioned_h2_result", "partitioned_h2_query_result", "rg_result",
-    "rg_pair_result", "quantile_h2_result", "query_r2_result", "plot_result", "h2_scale_conversion_result",
+    "rg_pair_result", "quantile_h2_result", "query_r2_matrix_result", "plot_result", "h2_scale_conversion_result",
 }
 _BUILD_KEYS = ("genome_build", "projection_genome_build", "index_genome_build")
 
@@ -226,7 +226,7 @@ def _read_metadata(path: Path) -> dict:
 
 def _inspect_metadata(payload: dict, source: Path) -> _Inspection:
     result = _Inspection()
-    if payload["artifact_type"] == "ref_panel":
+    if payload["artifact_type"] == "r2_matrix_build":
         result.metadata(payload, source, keys=())
         builds = payload.get("emitted_genome_builds", [])
         if not isinstance(builds, list):
@@ -256,7 +256,7 @@ def _file_tokens(payload: dict):
         selected = (
             (kind == "annotation_projection" and key in {"baseline_annotations", "query_annotations"})
             or (kind == "ldscore" and (key in {"baseline", "query"} or key.startswith("query_batch")))
-            or (kind == "ref_panel" and key in {"r2_hg19", "r2_hg38", "meta_hg19", "meta_hg38"})
+            or (kind == "r2_matrix_build" and key in {"r2_hg19", "r2_hg38", "meta_hg19", "meta_hg38"})
         )
         if selected:
             for token in values if isinstance(values, list) else [values]:
@@ -318,7 +318,7 @@ def _inspect_directory(root: Path) -> _Inspection:
                     member = _member(root, f"chromosomes/chr{chrom}/metadata.json")
                     result.merge(_inspect_metadata(_read_metadata(member), member))
             elif members:
-                if kind == "ref_panel":
+                if kind == "r2_matrix_build":
                     # GlobalConfig and source_genome_build do not describe emitted coordinates.
                     for key, token in members:
                         build = key.rsplit("_", 1)[-1]
@@ -336,7 +336,7 @@ def _inspect_directory(root: Path) -> _Inspection:
                 result.merge(declared)
         return result
 
-    # Panel build children are also valid standalone inputs. Directory labels
+    # R2 matrix build children are also valid standalone inputs. Directory labels
     # organize alternatives; only file evidence establishes the actual build.
     panel_groups = [("", sorted(root.glob("chr*_r2.parquet")))]
     panel_groups.extend((build, sorted((root / build).glob("chr*_r2.parquet"))) for build in ("hg19", "hg38"))

@@ -18,17 +18,17 @@ from tests.runtime.test_output import make_split_ldscore_result
 
 def prepared_case(tmp_path):
     from ldsc import GlobalConfig, RefPanelConfig, LDScoreConfig
-    from ldsc._refpanel.adapters import ParquetR2RefPanel
+    from ldsc._refpanel.adapters import R2MatrixRefPanel
     from tests.ldscore.test_ldscore_parallelism import _PANEL_CHROMS, _write_index_panel
-    panel_dir = tmp_path / "panel"
-    _write_index_panel(panel_dir, _PANEL_CHROMS)
+    r2_matrix_dir = tmp_path / "panel"
+    _write_index_panel(r2_matrix_dir, _PANEL_CHROMS)
     metadata = pd.concat([pair[0] for pair in _PANEL_CHROMS.values()], ignore_index=True)
     baseline = pd.DataFrame({"base": np.ones(len(metadata))})
     queries = pd.DataFrame({"first": [1, 0, 1, 0, 1, 0, 0],
                             "second": [0, 1, 0, 1, 0, 1, 0],
                             "third": [.3, -1, .1, 2, .5, .7, -.2]})
     config = GlobalConfig(snp_identifier="rsid")
-    panel = ParquetR2RefPanel(config, RefPanelConfig(backend="parquet_r2", r2_dir=str(panel_dir)))
+    panel = R2MatrixRefPanel(config, RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(r2_matrix_dir)))
     return metadata, baseline, queries, config, panel, LDScoreConfig(ld_wind_kb=1, whole_chromosome_ok=True)
 
 
@@ -134,7 +134,7 @@ def test_direct_bed_preparation_releases_each_execution_batch(tmp_path, monkeypa
     try:
         set_global_config(config)
         saved = run_ldscore(baseline_annot_sources=str(baseline_path), query_annot_bed_sources=query_paths,
-            r2_dir=str(tmp_path / "panel"), output_dir=str(tmp_path / "out"),
+            r2_matrix_dir=str(tmp_path / "panel"), output_dir=str(tmp_path / "out"),
             regr_snps_file=str(restriction), regr_snps_exclude_regions="none",
             ld_wind_kb=1, yes_really=True, query_batch_size=1)
     finally:

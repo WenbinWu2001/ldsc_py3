@@ -29,12 +29,12 @@ print(get_global_config())
 Workflow functions such as `run_ldscore` read the registered configuration and reject `snp_identifier`, `genome_build` and `log_level` as keyword arguments; `run_annotate`, `RegressionRunner` and `SumstatsMunger.run` also accept an explicit `global_config=`.
 Saved LD-score directories and munged summary statistics keep the SNP identity and build recorded when they were written, and regression uses those records rather than the session setting.
 The regression functions `run_h2`, `run_partitioned_h2`, `run_rg` and `run_quantile_h2` therefore take only the log level from the registered configuration.
-These four functions, `run_ldscore` and `run_build_ref_panel` also reject, before writing anything, a keyword name the command does not have, a missing required option, a value outside the command's choices, and a non-boolean value for an on/off option.
+These four functions, `run_ldscore` and `run_build_r2_matrix` also reject, before writing anything, a keyword name the command does not have, a missing required option, a value outside the command's choices, and a non-boolean value for an on/off option.
 `plot_result`, `convert_h2_scale`, `convert_ldsc2_ldscores` and `build_gene_ldscore_index` take an explicit `log_level=` for one call; when it is omitted they use the registered log level.
 See [SNP identity and genome build](concepts/snp-identity-and-genome-build.md).
 
 **Run workflows under `if __name__ == "__main__":`.**
-Most numerical workflows, including LD-score computation, R² panel and index construction, regression and LD-score conversion, run in managed workers started with `spawn`, even with one worker.
+Most numerical workflows, including LD-score computation, R² matrix and index construction, regression and LD-score conversion, run in managed workers started with `spawn`, even with one worker.
 A Python script must therefore run its workflow calls inside a main guard:
 
 ```python
@@ -70,7 +70,7 @@ def main():
     source = run_ldscore(
         baseline_annot_sources="/path/to/baseline/baseline.@.annot.gz",
         query_annot_bed_sources="/path/to/beds/*.bed",
-        r2_dir="/path/to/r2-panel/hg19",
+        r2_matrix_dir="/path/to/r2-matrix/hg19",
         ld_wind_cm=1.0,
         query_batch_size=100,
         workers=1,
@@ -185,7 +185,7 @@ def main():
     source = run_ldscore(
         baseline_annot_sources=baseline_files,
         query_annot_sources=query_files,
-        r2_dir="/path/to/r2-panel/hg19",
+        r2_matrix_dir="/path/to/r2-matrix/hg19",
         ref_panel_snps_file="/path/to/filters/reference_snps.tsv.gz",
         regr_snps_file="/path/to/filters/regression_snps.tsv.gz",
         ld_wind_cm=1.0,
@@ -293,7 +293,7 @@ def main():
         baseline_annot_sources="/path/to/baseline/baseline.@.annot.gz",
         target_annot_sources="/path/to/target/target.@.annot.gz",
         target_annotation="continuous_score",
-        ref_metadata_sources="/path/to/r2-panel/hg19/chr@_meta.tsv.gz",
+        ref_metadata_sources="/path/to/r2-matrix/hg19/chr@_meta.tsv.gz",
         num_quantiles=5,
         output_dir="results/continuous_score_quantiles",
     )
@@ -407,7 +407,7 @@ print(preview.runnable, preview.suggested_args)
 ## LD scores
 
 `run_ldscore()` is the Python form of `ldsc ldscore`.
-It takes the command-line option names without the leading `--` and with underscores, for example `baseline_annot_sources`, `query_annot_bed_sources`, `plink_prefix`, `r2_dir`, `ld_wind_cm`, `workers` and `output_dir`.
+It takes the command-line option names without the leading `--` and with underscores, for example `baseline_annot_sources`, `query_annot_bed_sources`, `plink_prefix`, `r2_matrix_dir`, `ld_wind_cm`, `workers` and `output_dir`.
 The SNP identifier mode, genome build and log level are not keyword arguments: set them once with `set_global_config(GlobalConfig(...))`, and `run_ldscore()` rejects `snp_identifier`, `genome_build` or `log_level` passed directly.
 It also rejects, before writing anything, a name that is not an `ldscore` option (for example a misspelled `ld_wind_cn`), a value outside the command's choices and a non-boolean value for an on/off option such as `overwrite`.
 Per-run SNP controls such as `ref_panel_snps_file` and `regr_snps_file` stay ordinary keyword arguments.
@@ -424,7 +424,7 @@ if __name__ == "__main__":
     source = run_ldscore(
         output_dir="results/ldscores/baseline",
         baseline_annot_sources="/path/to/baseline/baseline.@.annot.gz",
-        r2_dir="/path/to/r2-panel/hg38",
+        r2_matrix_dir="/path/to/r2-matrix/hg38",
         ld_wind_cm=1.0,
         # overwrite=True,  # replace existing LD-score files and remove stale query files
     )
@@ -495,7 +495,7 @@ from ldsc import AnnotationBundle, GlobalConfig, LDScoreCalculator, LDScoreConfi
 if __name__ == "__main__":
     config = GlobalConfig(snp_identifier="rsid", genome_build="hg19")
     # metadata, baseline_values and query_values are aligned in-memory DataFrames.
-    # ref_panel is an already-configured PlinkRefPanel or ParquetR2RefPanel.
+    # ref_panel is an already-configured PlinkRefPanel or R2MatrixRefPanel.
     with AnnotationBundle.from_frames(
         metadata, baseline_values, query_values, config_snapshot=config,
     ) as annotations:
@@ -695,39 +695,39 @@ The returned bundle refers to the exported annotation files (only query files fo
 Construction scratch is released before the call returns; reading a chromosome from the bundle can prepare private data again under the output directory.
 Use `with run_annotate(...) as bundle:` or call `bundle.close()` when you are done; closing keeps every exported file and your original inputs.
 
-<a id="r2-panels"></a>
+<a id="r2-matrices"></a>
 
-## R² panels
+## R² matrices
 
-This section is the Python counterpart of [Build and query R² panels](workflows/r2-panels.md).
+This section is the Python counterpart of [Build and query R² matrices](workflows/r2-matrices.md).
 
-### Build a panel
+### Build an R² matrix
 
-The Python builder keeps the names `ReferencePanelBuilder`, `ReferencePanelBuildConfig` and `run_build_ref_panel`; the command is `build-r2-panel`.
-`run_build_ref_panel()` takes the command's options as keyword arguments.
+The Python builder keeps the names `R2MatrixBuilder`, `R2MatrixBuildConfig` and `run_build_r2_matrix`; the command is `build-r2-matrix`.
+`run_build_r2_matrix()` takes the command's options as keyword arguments.
 It reads the SNP identifier mode and log level from the registered `GlobalConfig`, so call `set_global_config()` first; passing `snp_identifier`, `genome_build` or `log_level` to it is an error, and `GlobalConfig.genome_build` is ignored: `source_genome_build` gives the build of the PLINK input.
-Like `run_ldscore()`, it rejects names that are not `build-r2-panel` options and values outside the command's choices before writing anything.
+Like `run_ldscore()`, it rejects names that are not `build-r2-matrix` options and values outside the command's choices before writing anything.
 
 ```python
-from ldsc import GlobalConfig, run_build_ref_panel, set_global_config
+from ldsc import GlobalConfig, run_build_r2_matrix, set_global_config
 
 if __name__ == "__main__":
     set_global_config(GlobalConfig(snp_identifier="chr_pos_allele_aware", log_level="INFO"))
-    result = run_build_ref_panel(
+    result = run_build_r2_matrix(
         plink_prefix="tests/fixtures/minimal_external_resources/plink/hm3_chr22_subset",
         source_genome_build="hg38",
         ld_wind_snps=10,
-        output_dir="tutorial_outputs/r2_panel_python",
+        output_dir="tutorial_outputs/r2_matrix_python",
     )
     print(result.chromosomes)
     print(result.output_paths["r2_hg38"], result.output_paths["meta_hg38"])
 ```
 
 `result.output_paths` maps `r2_<build>` and `meta_<build>` to the per-chromosome files, plus `metadata`; it does not list the log.
-`run_build_ref_panel()` writes the workflow log under `diagnostics/`.
-`ReferencePanelBuilder(global_config=...).run(ReferencePanelBuildConfig(...))` builds the same files without a workflow log.
+`run_build_r2_matrix()` writes the workflow log under `diagnostics/`.
+`R2MatrixBuilder(global_config=...).run(R2MatrixBuildConfig(...))` builds the same files without a workflow log.
 
-### Inspect a panel
+### Inspect an R² matrix
 
 Read one row group instead of loading a large pair table in full.
 A direct Pandas or PyArrow read returns the stored 16-bit integers; divide `R2` by the footer's `ldsc:r2_scale`.
@@ -736,7 +736,7 @@ A direct Pandas or PyArrow read returns the stored 16-bit integers; divide `R2` 
 import pandas as pd
 import pyarrow.parquet as pq
 
-root = "tutorial_outputs/r2_panel_chr22/hg38"
+root = "tutorial_outputs/r2_matrix_chr22/hg38"
 meta = pd.read_csv(f"{root}/chr22_meta.tsv.gz", sep="\t", comment="#")
 parquet = pq.ParquetFile(f"{root}/chr22_r2.parquet")
 pairs = parquet.read_row_group(0).to_pandas()
@@ -750,40 +750,40 @@ Never sort or edit the sidecar apart from its pair table: its row order defines 
 
 ### Query pairs
 
-`query_r2()` opens a panel, queries a DataFrame of pairs and returns the input rows with `r2`, `sign_r`, `r` and `status`.
-The pair columns are the same as for `ldsc query-r2`.
+`query_r2_matrix()` opens an R² matrix, queries a DataFrame of pairs and returns the input rows with `r2`, `sign_r`, `r` and `status`.
+The pair columns are the same as for `ldsc query-r2-matrix`.
 This example queries the first two SNPs of the sidecar read above, in the sidecar's allele orientation, and saves the pairs for the command-line query:
 
 ```python
-from ldsc import query_r2
+from ldsc import query_r2_matrix
 
 query = pd.DataFrame({
     f"{column}_{endpoint}": [meta.iloc[row][column]]
     for endpoint, row in ((1, 0), (2, 1))
     for column in ("CHR", "POS", "A1", "A2")
 })
-result = query_r2(query, panel_dir=root, genome_build="hg38")
+result = query_r2_matrix(query, r2_matrix_dir=root, genome_build="hg38")
 print(result[["r2", "sign_r", "r", "status"]])
-query.to_csv("tutorial_outputs/r2_panel_chr22/pairs.tsv", sep="\t", index=False)
+query.to_csv("tutorial_outputs/r2_matrix_chr22/pairs.tsv", sep="\t", index=False)
 ```
 
 In Python, `sign_r` is a nullable `Int8` column; the saved TSV writes missing values as `NaN`.
-A missing `panel_dir` is an error.
+A missing `r2_matrix_dir` is an error.
 
-For repeated queries, open the panel once.
-`R2Panel.open()` checks every chromosome's Parquet footer immediately and loads each chromosome's sidecar and lookup state on first use, then reuses them:
+For repeated queries, open the R² matrix once.
+`R2Matrix.open()` checks every chromosome's Parquet footer immediately and loads each chromosome's sidecar and lookup state on first use, then reuses them:
 
 ```python
-from ldsc import R2Panel
+from ldsc import R2Matrix
 
-panel = R2Panel.open(root, genome_build="hg38")
-first = panel.query_pairs(query)
-print(panel.chromosomes, panel.snp_identifier, panel.n_samples)
+matrix = R2Matrix.open(root, genome_build="hg38")
+first = matrix.query_pairs(query)
+print(matrix.chromosomes, matrix.snp_identifier, matrix.n_samples)
 ```
 
 `unbiased_r2_to_pearson_r(r2_adj, n, sign=None)` converts unbiased R² values to Pearson r for reference sample size `n`; without `sign` it returns $|r|$.
-`query_r2()` and `R2Panel.query_pairs()` apply it with the panel's `ldsc:n_samples` and the aligned `sign_r`.
-See the [query reference](../reference/query-r2.md#python-api).
+`query_r2_matrix()` and `R2Matrix.query_pairs()` apply it with the R² matrix's `ldsc:n_samples` and the aligned `sign_r`.
+See the [query reference](../reference/query-r2-matrix.md#python-api).
 
 ## SNP heritability
 
@@ -799,7 +799,7 @@ def main():
 
     run_ldscore(
         output_dir="results/unpartitioned_ldscores",
-        r2_dir="/path/to/resources/r2_panel/hg38",
+        r2_matrix_dir="/path/to/resources/r2_matrix/hg38",
         ld_wind_cm=1.0,
     )
 

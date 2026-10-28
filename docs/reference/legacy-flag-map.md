@@ -86,9 +86,9 @@ Legacy numerical source: [`munge_sumstats.py:321`, `process_n`](https://github.c
 Legacy LDSC computed PLINK LD scores in chunks of `--chunk-size` SNPs (default 50) and widened each SNP's window to a multiple of the chunk, so the chunk size changed the LD scores.
 Legacy LDSC's own code comment notes that these windows differ from the definition in the paper.
 The current PLINK backend keeps the chunked computation but drops every pair outside the requested window, so `--snp-batch-size` in `ldsc ldscore` and `ldsc build-gene-ldscore-index` changes only speed and memory.
-Its LD scores equal legacy LDSC run with `--chunk-size 1` and use the same window rule as the R² panel backend, which always used exact windows.
-The two backends still differ slightly, because an R² panel stores R² as int16 and an `--ld-wind-snps` window on an R² panel counts panel rows rather than retained SNPs.
-A cM window also differs when the panel's `CM`, interpolated from a genetic map, differs from the `.bim` `CM` the PLINK run uses.
+Its LD scores equal legacy LDSC run with `--chunk-size 1` and use the same window rule as the R² matrix backend, which always used exact windows.
+The two backends still differ slightly, because an R² matrix stores R² as int16 and an `--ld-wind-snps` window on an R² matrix counts R² matrix rows rather than retained SNPs.
+A cM window also differs when the R² matrix's `CM`, interpolated from a genetic map, differs from the `.bim` `CM` the PLINK run uses.
 Gene LD-score indexes built with the earlier rounded windows (`format_version` 2) are rejected and must be rebuilt.
 Published legacy LD scores remain usable unchanged through `ldsc convert-ldsc2-ldscores`.
 
@@ -115,7 +115,7 @@ These mappings describe current workflows and are not additional changes made by
 | `ldsc.py --l2` | `ldsc ldscore` | LD-score computation is a subcommand. |
 | `ldsc.py --bfile PREFIX` | `ldsc ldscore --plink-prefix PREFIX` | PLINK BED/BIM/FAM input; current prefix resolution also handles chromosome suites. |
 | `ldsc.py --extract FILE` | `ldsc ldscore --ref-panel-snps-file FILE` | Select the reference SNPs using the current headered identity-file contract. |
-| `ldsc.py --keep FILE` | `ldsc ldscore --keep-indivs-file FILE` | Restrict PLINK individuals; invalid with an R² panel. |
+| `ldsc.py --keep FILE` | `ldsc ldscore --keep-indivs-file FILE` | Restrict PLINK individuals; invalid with an R² matrix. |
 | `ldsc.py --annot SOURCES` | `--baseline-annot-sources`, optionally `--query-annot-sources` | Explicitly separate baseline annotations from query annotations; current annotation inputs include identity metadata. |
 | `ldsc.py --maf VALUE` | `ldsc ldscore --maf-min VALUE` | Reference-panel MAF filtering; `--common-maf-min` separately controls common-SNP count vectors. |
 | `ldsc.py --chunk-size N` | `ldsc ldscore --snp-batch-size N` | PLINK genotype computation batch size, current default 512. Unlike `--chunk-size`, it does not widen LD windows; see [Exact PLINK LD windows](#exact-plink-ld-windows). This is not munging's `--chunksize`. |

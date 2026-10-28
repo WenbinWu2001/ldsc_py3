@@ -10,7 +10,7 @@ from ldsc import AnnotationBundle, GlobalConfig, LDScoreCalculator, LDScoreConfi
 from ldsc._ldscore import compute as ldscore
 from ldsc._refpanel.prepared import ChromosomeAnnotations
 from ldsc._refpanel.r2_format import SortedR2BlockReader
-from ldsc._refpanel.adapters import ParquetR2RefPanel
+from ldsc._refpanel.adapters import R2MatrixRefPanel
 from ldsc._refpanel.r2_format import write_r2_parquet, write_runtime_metadata_sidecar
 from ldsc._core.snp_identity import sidecar_identity_sha256
 from ldsc.errors import LDSCInputError
@@ -56,7 +56,7 @@ def test_package_r2_is_read_as_unbiased_through_public_calculation(tmp_path):
     # second sample-size correction.
     metadata = write_panel(tmp_path)
     config = GlobalConfig(snp_identifier="rsid")
-    panel = ParquetR2RefPanel(config, RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path))
+    panel = R2MatrixRefPanel(config, RefPanelConfig(backend="r2_matrix", r2_matrix_dir=tmp_path))
     result = LDScoreCalculator().compute_chromosome(
         "1", public_bundle(metadata), panel, LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True), config,
     )
@@ -73,7 +73,7 @@ def test_prepared_annotations_share_reference_rows_alleles_cm_maf_and_counts(tmp
         metadata = metadata.assign(A1="A", A2="C")
     values = pd.DataFrame({"base": [1.0, 99.0, 3.0], "flag": [True, True, False]})
     config = GlobalConfig(snp_identifier=mode, genome_build="hg19")
-    panel = ParquetR2RefPanel(config, RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path))
+    panel = R2MatrixRefPanel(config, RefPanelConfig(backend="r2_matrix", r2_matrix_dir=tmp_path))
     bundle = ChromosomeAnnotations(metadata, values, ["base", "flag"], [])
     with panel.prepare_chromosome("1", bundle, LDScoreConfig(ld_wind_cm=0.3, whole_chromosome_ok=True)) as prepared:
         assert prepared.annotations.read().dtype == np.float32
@@ -92,7 +92,7 @@ def test_prepared_annotations_share_reference_rows_alleles_cm_maf_and_counts(tmp
 def test_allele_mismatch_is_rejected_before_reader_creation(tmp_path):
     metadata = write_panel(tmp_path, mode="chr_pos_allele_aware").assign(A2="G")
     config = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19")
-    panel = ParquetR2RefPanel(config, RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path))
+    panel = R2MatrixRefPanel(config, RefPanelConfig(backend="r2_matrix", r2_matrix_dir=tmp_path))
     with pytest.raises(LDSCInputError, match="retained no reference SNPs"):
         LDScoreCalculator().compute_chromosome(
             "1", public_bundle(metadata), panel, LDScoreConfig(ld_wind_snps=1), config,
@@ -102,7 +102,7 @@ def test_allele_mismatch_is_rejected_before_reader_creation(tmp_path):
 def test_parquet_preparation_releases_reader_on_calculation_failure(tmp_path, monkeypatch):
     metadata = write_panel(tmp_path)
     config = GlobalConfig(snp_identifier="rsid")
-    panel = ParquetR2RefPanel(config, RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path))
+    panel = R2MatrixRefPanel(config, RefPanelConfig(backend="r2_matrix", r2_matrix_dir=tmp_path))
     bundle = ChromosomeAnnotations(metadata, pd.DataFrame({"base": [1, 1]}), ["base"], [])
 
     def fail_decode(self, table, row_group_index):
@@ -119,7 +119,7 @@ def test_parquet_preparation_releases_reader_on_calculation_failure(tmp_path, mo
 def test_public_calculation_uses_panel_maf_filter_for_aligned_annotations(tmp_path):
     metadata = write_panel(tmp_path)
     config = GlobalConfig(snp_identifier="rsid")
-    panel = ParquetR2RefPanel(config, RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path, maf_min=0.1))
+    panel = R2MatrixRefPanel(config, RefPanelConfig(backend="r2_matrix", r2_matrix_dir=tmp_path, maf_min=0.1))
     result = LDScoreCalculator().compute_chromosome(
         "1", public_bundle(metadata, pd.DataFrame({"base": [2.0, 3.0]})), panel,
         LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True), config,
@@ -133,7 +133,7 @@ def test_public_run_fails_when_the_grid_misses_a_whole_chromosome(tmp_path):
     absent = write_panel(tmp_path, chrom="1").assign(SNP=["absent1", "absent3"])
     present = write_panel(tmp_path, chrom="22")
     config = GlobalConfig(snp_identifier="rsid")
-    panel = ParquetR2RefPanel(config, RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path))
+    panel = R2MatrixRefPanel(config, RefPanelConfig(backend="r2_matrix", r2_matrix_dir=tmp_path))
     bundle = public_bundle(pd.concat([absent, present], ignore_index=True))
     with pytest.raises(LDSCInputError, match=r"annotation SNP grid for chromosome 1 \(2 annotation rows"):
         LDScoreCalculator().run(bundle, panel, LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True), config)
@@ -143,8 +143,8 @@ def test_parquet_panel_with_a_pair_floor_is_rejected_at_preparation(tmp_path):
     # The LDScoreCalculator Python API skips the CLI preflight, so preparation
     # itself must refuse a panel that omitted pairs below --min-r2.
     metadata = write_panel(tmp_path, min_r2=0.05)
-    panel = ParquetR2RefPanel(GlobalConfig(snp_identifier="rsid"),
-                              RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path))
+    panel = R2MatrixRefPanel(GlobalConfig(snp_identifier="rsid"),
+                              RefPanelConfig(backend="r2_matrix", r2_matrix_dir=tmp_path))
     with pytest.raises(LDSCInputError, match="omits SNP pairs with unbiased R2 below 0.05"):
         panel.prepare_chromosome(
             "1", ChromosomeAnnotations(metadata, pd.DataFrame({"base": [1, 1]}), ["base"], []),
@@ -156,8 +156,8 @@ def test_rsid_preparation_of_a_build_tagged_panel_raises_no_genome_build_warning
     # Panels always record their build; rsID-family runs ignore it without
     # the GlobalConfig warning meant for a user-supplied genome_build.
     metadata = write_panel(tmp_path)
-    panel = ParquetR2RefPanel(GlobalConfig(snp_identifier="rsid"),
-                              RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path))
+    panel = R2MatrixRefPanel(GlobalConfig(snp_identifier="rsid"),
+                              RefPanelConfig(backend="r2_matrix", r2_matrix_dir=tmp_path))
     with panel.prepare_chromosome(
         "1", ChromosomeAnnotations(metadata, pd.DataFrame({"base": [1, 1]}), ["base"], []),
         LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True),
@@ -168,8 +168,8 @@ def test_rsid_preparation_of_a_build_tagged_panel_raises_no_genome_build_warning
 
 def test_parquet_genetic_maps_are_ignored_at_preparation(tmp_path, caplog):
     metadata = write_panel(tmp_path, ld_window=("cm", 1.0))
-    panel = ParquetR2RefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(
-        backend="parquet_r2", r2_dir=tmp_path, genetic_map_hg19_sources="unused-map.tsv",
+    panel = R2MatrixRefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(
+        backend="r2_matrix", r2_matrix_dir=tmp_path, genetic_map_hg19_sources="unused-map.tsv",
     ))
     with panel.prepare_chromosome(
         "1", ChromosomeAnnotations(metadata, pd.DataFrame({"base": [1, 1]}), ["base"], []),
@@ -213,7 +213,7 @@ def test_reference_preparation_defers_value_reads_and_kernel_returns_only_output
             return super().read(rows=rows, columns=columns)
     source = RecordingSource(np.array([[1,2,0],[1,0,4]],dtype=np.float32), ('base','q1','q2'))
     config = GlobalConfig(snp_identifier='rsid')
-    panel = ParquetR2RefPanel(config, RefPanelConfig(backend='parquet_r2',r2_dir=tmp_path))
+    panel = R2MatrixRefPanel(config, RefPanelConfig(backend='r2_matrix',r2_matrix_dir=tmp_path))
     bundle = ChromosomeAnnotations(metadata,source,['base'],['q1','q2'])
     with panel.prepare_chromosome('1',bundle,LDScoreConfig(ld_wind_snps=1,whole_chromosome_ok=True)) as prepared:
         assert not reads

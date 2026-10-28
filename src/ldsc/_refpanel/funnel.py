@@ -31,11 +31,11 @@ _STEPS = {
         "panel_rows", "identity_cleanup", "ref_panel_snps_file", "allele_aware_identity_cleanup",
         ANNOTATION_SNP_GRID, "genotype_qc", "maf_floor",
     ),
-    ("parquet_r2", REFERENCE_PANEL): (
+    ("r2_matrix", REFERENCE_PANEL): (
         "panel_rows", "ref_panel_snps_file", "maf_floor", "allele_aware_identity_cleanup", ANNOTATION_SNP_GRID,
     ),
     ("plink", ANNOTATION_SNP_GRID): ("grid_rows", ANNOTATION_SNP_GRID, "genotype_qc", "maf_floor"),
-    ("parquet_r2", ANNOTATION_SNP_GRID): ("grid_rows", ANNOTATION_SNP_GRID),
+    ("r2_matrix", ANNOTATION_SNP_GRID): ("grid_rows", ANNOTATION_SNP_GRID),
 }
 
 

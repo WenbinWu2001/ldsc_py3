@@ -213,16 +213,16 @@ def test_header_gate_checks_all_sources_without_scanning(tmp_path, monkeypatch):
 
 
 def test_r2_builder_aggregates_late_trio_and_keep_defects(tmp_path, monkeypatch):
-    from ldsc._refpanel import builder as ref_panel_builder
+    from ldsc._refpanel import builder as r2_matrix_builder
     write_inputs(tmp_path)
     (tmp_path/'1000G.EUR.QC.22.bed').unlink()
-    args = ref_panel_builder.build_parser().parse_args([
+    args = r2_matrix_builder.build_parser().parse_args([
         '--plink-prefix', str(tmp_path/'1000G.EUR.QC.*'), '--source-genome-build', 'hg19',
         '--snp-identifier', 'chr_pos', '--ld-wind-kb', '1', '--keep-indivs-file', str(tmp_path/'missing.keep'),
         '--output-dir', str(tmp_path/'out')])
-    monkeypatch.setattr(ref_panel_builder.ReferencePanelBuilder, '_build_chromosome', forbid_work)
+    monkeypatch.setattr(r2_matrix_builder.R2MatrixBuilder, '_build_chromosome', forbid_work)
     with pytest.raises(LDSCInputError) as failure:
-        ref_panel_builder.run_build_ref_panel_from_args(args)
+        r2_matrix_builder.run_build_r2_matrix_from_args(args)
     assert '22.bed' in str(failure.value) and 'missing.keep' in str(failure.value)
 
 
@@ -307,18 +307,18 @@ def test_direct_reuses_discovery_and_reference_validation_with_phase_records(tmp
 
 
 def test_r2_builder_aggregates_map_header_and_late_companion(tmp_path, monkeypatch):
-    from ldsc._refpanel import builder as ref_panel_builder
+    from ldsc._refpanel import builder as r2_matrix_builder
     write_inputs(tmp_path)
     bad_map = tmp_path/'map.tsv'
     bad_map.write_text('CHR POS wrong\n21 100 0.1\n')
     (tmp_path/'1000G.EUR.QC.22.fam').unlink()
-    args = ref_panel_builder.build_parser().parse_args([
+    args = r2_matrix_builder.build_parser().parse_args([
         '--plink-prefix', str(tmp_path/'1000G.EUR.QC.*'), '--source-genome-build', 'hg19',
         '--snp-identifier', 'chr_pos', '--ld-wind-kb', '1', '--genetic-map-hg19-sources', str(bad_map),
         '--output-dir', str(tmp_path/'out')])
-    monkeypatch.setattr(ref_panel_builder.ReferencePanelBuilder, '_build_chromosome', forbid_work)
+    monkeypatch.setattr(r2_matrix_builder.R2MatrixBuilder, '_build_chromosome', forbid_work)
     with pytest.raises(LDSCInputError) as failure:
-        ref_panel_builder.run_build_ref_panel_from_args(args)
+        r2_matrix_builder.run_build_r2_matrix_from_args(args)
     assert 'map.tsv' in str(failure.value) and '22.fam' in str(failure.value)
 
 
@@ -360,20 +360,20 @@ def test_malformed_manifest_aggregates_with_other_missing_inputs(tmp_path, manif
 
 
 def test_r2_successful_retry_clears_stale_input_repair_table(tmp_path):
-    from ldsc._refpanel import builder as ref_panel_builder
+    from ldsc._refpanel import builder as r2_matrix_builder
     write_inputs(tmp_path)
     bed = tmp_path/'1000G.EUR.QC.22.bed'
     original = bed.read_bytes()
     bed.unlink()
-    args = ref_panel_builder.build_parser().parse_args([
+    args = r2_matrix_builder.build_parser().parse_args([
         '--plink-prefix', str(tmp_path/'1000G.EUR.QC.*'), '--source-genome-build', 'hg19',
         '--snp-identifier', 'chr_pos', '--ld-wind-kb', '.05', '--output-dir', str(tmp_path/'out')])
     with pytest.raises(LDSCInputError):
-        ref_panel_builder.run_build_ref_panel_from_args(args)
+        r2_matrix_builder.run_build_r2_matrix_from_args(args)
     issue_path = tmp_path/'out/diagnostics/input_issues.tsv'
     assert issue_path.exists()
     bed.write_bytes(original)
-    result = ref_panel_builder.run_build_ref_panel_from_args(args)
+    result = r2_matrix_builder.run_build_r2_matrix_from_args(args)
     assert result.chromosomes == ['21', '22']
     assert not issue_path.exists()
     assert (tmp_path/'out/hg19/chr22_r2.parquet').exists()

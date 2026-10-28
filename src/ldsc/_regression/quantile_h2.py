@@ -540,7 +540,7 @@ def add_quantile_h2_arguments(parser: argparse.ArgumentParser) -> None:
         help=(
             'Required reference SNP metadata files with chromosome, position, SNP ID, and MAF; allele-aware '
             "matching also uses A1/A2. Accepts exact paths, '*' and '@' patterns; see --target-annot-sources for "
-            'pattern rules. Use original R2 panel sidecars or PLINK metadata exported by ldscore --export-ref-metadata.'
+            'pattern rules. Use original R2 matrix sidecars or PLINK metadata exported by ldscore --export-ref-metadata.'
         ),
     )
     query_group = original.add_mutually_exclusive_group()

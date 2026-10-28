@@ -1,6 +1,6 @@
 # Partitioned heritability
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 Partitioned heritability asks how SNP heritability is distributed across annotations, estimated with stratified LD score regression (S-LDSC; Finucane et al. 2015).
 LDSC3 runs it in two steps: `ldsc ldscore` computes LD scores for baseline annotations and any query annotations, and `ldsc partitioned-h2` fits the regression.
@@ -16,8 +16,8 @@ Testing one query annotation per cell type is [cell-type enrichment](cell-type-e
 - **Munged summary statistics** for one trait: the Parquet file written by [`munge-sumstats`](munge-sumstats.md), or a legacy `.sumstats(.gz)` file with `SNP`, `A1`, `A2`, `Z` and `N` (see [legacy summary statistics](../../reference/formats/legacy-sumstats.md)).
 - **Baseline annotations**: a chromosome suite of `.annot(.gz)` files, for example a baseline-LD release.
   No baseline annotations are packaged with LDSC3; see [reference data](../reference-data.md).
-- **A reference panel**: an [R² panel](r2-panels.md) built by `build-r2-panel` (`--r2-dir`), or PLINK files (`--plink-prefix`).
-  An R² panel needs its per-chromosome sidecars, and other R² formats are not accepted; see [R² panel format](../../reference/formats/r2-panels.md).
+- **A reference panel**: an [R² matrix](r2-matrices.md) built by `build-r2-matrix` (`--r2-matrix-dir`), or PLINK files (`--plink-prefix`).
+  An R² matrix needs its per-chromosome sidecars, and other R² formats are not accepted; see [R² matrix format](../../reference/formats/r2-matrices.md).
 - **Annotation files that align**: when several files supply annotation columns for one chromosome, their SNP rows must match exactly and their column names must be unique; see [input paths](../../reference/input-paths.md).
 - **Query annotations** (optional), from exactly one of three routes: BED files (`--query-annot-bed-sources`), prebuilt annotation files (`--query-annot-sources`), or gene lists (`--query-annot-gene-list-sources`; see [gene-list LD scores](gene-list-ld-scores.md)).
 
@@ -33,7 +33,7 @@ This example projects BED files directly onto the baseline annotation rows, with
 ldsc ldscore \
   --baseline-annot-sources "/path/to/baseline/baseline.@.annot.gz" \
   --query-annot-bed-sources "/path/to/beds/*.bed" \
-  --r2-dir /path/to/r2-panel/hg19 \
+  --r2-matrix-dir /path/to/r2-matrix/hg19 \
   --snp-identifier chr_pos_allele_aware \
   --genome-build hg19 \
   --ld-wind-cm 1.0 \
@@ -43,8 +43,8 @@ ldsc ldscore \
 - `--baseline-annot-sources` uses `@` as the chromosome placeholder; query annotations always require explicit baseline annotations.
 - `--query-annot-bed-sources` takes a quoted glob; each BED file becomes one query annotation.
   BED intervals are zero-based half-open; see [BED intervals](../../reference/formats/bed-intervals.md) and the optional `--padding-bp`.
-- `--r2-dir` points to one build-specific R² panel.
-  The LD window must use the unit the panel was built with and be no wider.
+- `--r2-matrix-dir` points to one build-specific R² matrix.
+  The LD window must use the unit the R² matrix was built with and be no wider.
 - `--snp-identifier` and `--genome-build` must match the munged summary statistics; coordinate-family modes require `--genome-build` on the command line.
 - `--ld-wind-cm 1.0` sets a 1 cM LD window; supply exactly one of `--ld-wind-cm`, `--ld-wind-kb` or `--ld-wind-snps`.
 
@@ -78,7 +78,7 @@ Pass both families together to `ldscore`:
 ldsc ldscore \
   --baseline-annot-sources "/path/to/annotations/query_from_beds/baseline.@.annot.gz" \
   --query-annot-sources "/path/to/annotations/query_from_beds/query.@.annot.gz" \
-  --r2-dir /path/to/r2-panel/hg19 \
+  --r2-matrix-dir /path/to/r2-matrix/hg19 \
   --snp-identifier chr_pos_allele_aware \
   --genome-build hg19 \
   --ld-wind-cm 1.0 \

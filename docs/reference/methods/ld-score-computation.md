@@ -1,9 +1,9 @@
-# LD-score Computation from R² Panels — Mathematical Specification
+# LD-score Computation from R² Matrices — Mathematical Specification
 
 Last updated on: 2026-10-28
 
-This document defines, in math, **how LD scores are computed from an R² panel** by the streaming accumulator.
-It is the conceptual companion to [the artifact format and read pipeline](../formats/r2-panels.md).
+This document defines, in math, **how LD scores are computed from an R² matrix** by the streaming accumulator.
+It is the conceptual companion to [the artifact format and read pipeline](../formats/r2-matrices.md).
 §8 records why the earlier sliding-block method was replaced; the current selected-output realization is described below.
 
 Every symbol is defined in §1 before it is used. Read §1 first.
@@ -32,8 +32,8 @@ after intersection and restriction), in **genomic (position-sorted) order**.
 | $\mathrm{block\_left}[j]$ | index | smallest retained index inside the LD window of SNP $j$ (the window's left edge) |
 | $P$ | set of triples | the stored, decoded, window-filtered pair set (defined in §4) |
 | $v_{ij}$ | scalar | the final R² value of the stored pair $(i,j)$, $v_{ij}=r^2(i,j)$ (in vector form, $\mathbf{v}$ is a chunk's vector of these) |
-| $\mathrm{remap}[\cdot]$ | array | maps a panel (build-order) index to its retained index, or $-1$ if the SNP is not retained |
-| $\mathrm{IDX}_1,\mathrm{IDX}_2$ | on-disk int32 | a stored pair's two **panel** indices, with $\mathrm{IDX}_1<\mathrm{IDX}_2$ |
+| $\mathrm{remap}[\cdot]$ | array | maps an R² matrix (build-order) index to its retained index, or $-1$ if the SNP is not retained |
+| $\mathrm{IDX}_1,\mathrm{IDX}_2$ | on-disk int32 | a stored pair's two **R² matrix** indices, with $\mathrm{IDX}_1<\mathrm{IDX}_2$ |
 | $q$ | on-disk int16 | the quantized R² of a pair as stored on disk |
 | $s$ | scalar | dequantization scale, $s=32767$ (`ldsc:r2_scale`) |
 | $K$ | scalar | maximum decoded pairs buffered before projection (§5) |
@@ -91,9 +91,9 @@ product $RA$ is formed by streaming those pairs (§5).
 
 ---
 
-## 4. What the R² panel provides
+## 4. What the R² matrix provides
 
-The panel stores each **unordered** within-(build-)window pair **once**, in the
+The R² matrix stores each **unordered** within-(build-)window pair **once**, in the
 upper triangle. After the read-side per-pair transform (decode), a stored pair is a
 triple $(i,j,v_{ij})$ where, for an on-disk row $(\mathrm{IDX}_1,\mathrm{IDX}_2,q)$:
 $$
@@ -107,7 +107,7 @@ Two filters define the consumed set $P$:
 1. **Retention.** Drop pairs whose either endpoint is not a retained reference SNP
    ($\mathrm{remap}=-1$).
 2. **LD window.** The *ldscore* window (`--ld-wind-*`) may be **tighter** than the
-   panel's build window, so a stored pair counts only if both endpoints are mutual
+   R² matrix's build window, so a stored pair counts only if both endpoints are mutual
    window neighbours. For $i<j$ this is the single condition $i\ge\mathrm{block\_left}[j]$:
 
 $$
@@ -164,7 +164,7 @@ $U$ is stored in **compressed sparse row (CSR)** form: a `data` array of nonzero
 values (row by row), an `indices` array of their column indices, and an `indptr`
 array of length $m{+}1$ where row $k$'s entries are `data[indptr[k]:indptr[k+1]]`.
 
-**Numeric example** (a panel with $m=4$, pairs $(0,1){=}0.4,\ (0,2){=}0.2,\
+**Numeric example** (an R² matrix with $m=4$, pairs $(0,1){=}0.4,\ (0,2){=}0.2,\
 (1,2){=}0.6,\ (2,3){=}0.5$, single all-ones annotation $A=[1,1,1,1]^{\top}$):
 
 $$
@@ -266,17 +266,17 @@ overwrite. (This is what an earlier `np.add.at` scatter did element by element a
 far more slowly.)
 
 ### 6.4 The stored R² is already unbiased
-`build-r2-panel` writes the **unbiased** estimate $r^2$ (`_unbiased_r2_array`,
+`build-r2-matrix` writes the **unbiased** estimate $r^2$ (`_unbiased_r2_array`,
 tagged `ldsc:r2_bias=unbiased`), so the decoded $v_{ij}=q/s$ is the final value and
 no correction is applied.
-Readers reject any panel whose metadata does not declare `ldsc:r2_bias=unbiased`, so the $v_{ij}$ entering §5 is always the final R².
+Readers reject any R² matrix whose metadata does not declare `ldsc:r2_bias=unbiased`, so the $v_{ij}$ entering §5 is always the final R².
 Negative decoded $v_{ij}$ values are preserved, not floored.
 
 ### 6.5 Numerical precision
 The score accumulator, sparse operator values, and annotation operands are float64.
 This avoids accumulating many contributions in float32; public LD-score values are narrowed only at the established output boundary.
 Annotation bit-packing is lossless, while source continuous annotations and decoded R² retain their existing float32 precision before promotion.
-Int16 panel quantization is a separate lossy operation; promoting decoded values cannot restore the lost information.
+Int16 R² matrix quantization is a separate lossy operation; promoting decoded values cannot restore the lost information.
 
 Linearity proves the mathematical result, not bitwise equality between floating-point evaluation orders.
 Changing $K$, tile layout, query width, or backend can reorder sums and alter roundoff.
@@ -306,7 +306,7 @@ See [memory and CPU efficiency design](../../dev/design/memory-and-cpu.md#precis
 
 The Parquet path originally imitated the genotype backend's sliding-block accumulation.
 For each block it re-queried and re-scattered an $O(b)$-wide band once per $c$-wide batch, which costs $O(b^3/c)$ per block for window width $b$.
-That tiling exists only because the genotype backend must recompute R² per window; a Parquet panel already stores R² as an explicit pair list, so pair streaming removes the redundant work.
+That tiling exists only because the genotype backend must recompute R² per window; an R² matrix already stores R² as an explicit pair list, so pair streaming removes the redundant work.
 
 The June 2026 single-thread measurements at revision `7568f72` compared three realizations:
 

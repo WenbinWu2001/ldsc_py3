@@ -17,7 +17,7 @@ ldsc infer-genome-build panels/reference
 
 Each invocation takes one exact file or recognized LDSC3 artifact directory; `--help` is the only option.
 Standalone BIM needs no BED/FAM companions.
-Headered text (including gzip), Parquet, and recognized LDSC3 metadata JSON are supported, as are annotation, summary-statistics, LD-score, R²-panel, gene LD-score index, and saved-result directory layouts.
+Headered text (including gzip), Parquet, and recognized LDSC3 metadata JSON are supported, as are annotation, summary-statistics, LD-score, R²-matrix, gene LD-score index, and saved-result directory layouts.
 The helper inspects only the artifact's own metadata and relevant members, without following upstream paths or searching unrelated neighboring files.
 It does not expand globs or chromosome suites, accept build/column overrides, or create files, directories, logs, or failure markers.
 
@@ -32,7 +32,7 @@ No coordinates are converted.
 
 Insufficient or inconclusive evidence produces `Genome build: unknown (...)` with exit 0, including rsID-only tables and ordinary BED intervals without build metadata.
 An unresolved member prevents a single inferred build; confidently conflicting evidence is an error.
-Deliberately available hg19/hg38 alternatives, such as an R² panel with both build directories, are reported separately in that order and succeed.
+Deliberately available hg19/hg38 alternatives, such as an R² matrix with both build directories, are reported separately in that order and succeed.
 
 Inspection uses available build evidence regardless of the SNP identifier mode.
 When applicable metadata records `rsid` or `rsid_allele_aware`, either a known or unknown result also includes:
@@ -52,7 +52,7 @@ Source: `inspect_genome_build()` in [_genome/build_inspection.py](../../../src/l
 ## Genome-build inference, checking, and overrides
 
 Use the existing build flag for the coordinate stage you are running.
-`--genome-build auto` checks all relevant inputs and selected shards; `build-r2-panel` and `munge-sumstats` use `--source-genome-build auto`.
+`--genome-build auto` checks all relevant inputs and selected shards; `build-r2-matrix` and `munge-sumstats` use `--source-genome-build auto`.
 Valid artifact metadata and build-specific position columns establish builds without coordinate re-inference.
 Otherwise LDSC3 samples up to 5,000 rows per input/chromosome and requires at least 200 informative HM3 matches with at least 99% support.
 Every relevant input participates before a consistency error is raised, regardless of input order.
@@ -97,7 +97,7 @@ Quote patterns so the shell passes them intact. Pattern support depends on the c
 | BED and gene-list sources | `"beds/*.bed"` or `"pathways/*.txt"`; `@` is not expanded. |
 | Single summary-statistics file | A literal file or a quoted glob resolving to exactly one file. |
 | `rg --sumstats-sources` | Exact files or globs selecting at least two inputs; `@` is not expanded. |
-| Genetic maps for `ldscore`/`build-gene-ldscore-index` | Comma-separated exact file paths; neither `*` nor `@` is expanded. `build-r2-panel` has its own map resolver that supports both patterns. |
+| Genetic maps for `ldscore`/`build-gene-ldscore-index` | Comma-separated exact file paths; neither `*` nor `@` is expanded. `build-r2-matrix` has its own map resolver that supports both patterns. |
 | Gene coordinate catalog and control gene list | One literal file per option; no glob expansion. |
 | Input and output directories | Literal directory paths; no glob expansion. |
 

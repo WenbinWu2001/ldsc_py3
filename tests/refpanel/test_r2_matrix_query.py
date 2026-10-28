@@ -15,7 +15,7 @@ pytest.importorskip("pyarrow")
 
 
 def build_test_panel(
-    panel_dir: Path,
+    r2_matrix_dir: Path,
     *,
     chrom: str = "1",
     snp_identifier: str = "chr_pos_allele_aware",
@@ -30,7 +30,7 @@ def build_test_panel(
         (0,1) R2=0.64 sign=+   (0,2) R2=0.04 sign=-   (1,2) R2=0.25 sign=+
     Pair (0,3) is intentionally absent (out-of-window placeholder).
     """
-    build_dir = panel_dir / genome_build
+    build_dir = r2_matrix_dir / genome_build
     build_dir.mkdir(parents=True, exist_ok=True)
     sidecar = pd.DataFrame(
         {
@@ -68,14 +68,14 @@ def build_test_panel(
     return build_dir, meta_path, r2_path
 
 
-@pytest.mark.parametrize("reader", ["ldscore", "query-r2"])
+@pytest.mark.parametrize("reader", ["ldscore", "query-r2-matrix"])
 @pytest.mark.parametrize("old_sign", [True, False], ids=["old-SIGN", "missing-sign"])
 def test_readers_require_sign_r(tmp_path, reader, old_sign):
     import pyarrow.parquet as pq
 
     from ldsc._refpanel.r2_format import SortedR2BlockReader
     from ldsc.errors import LDSCInputError
-    from ldsc._refpanel.query import R2Panel
+    from ldsc._refpanel.query import R2Matrix
 
     _, meta_path, r2_path = build_test_panel(tmp_path)
     table = pq.read_table(r2_path)
@@ -85,7 +85,7 @@ def test_readers_require_sign_r(tmp_path, reader, old_sign):
         table = table.drop_columns(["SIGN_R"])
     pq.write_table(table, r2_path)
 
-    with pytest.raises(LDSCInputError, match="SIGN_R.*build-r2-panel"):
+    with pytest.raises(LDSCInputError, match="SIGN_R.*build-r2-matrix"):
         if reader == "ldscore":
             SortedR2BlockReader(
                 paths=[str(r2_path)], chrom="1",
@@ -93,7 +93,7 @@ def test_readers_require_sign_r(tmp_path, reader, old_sign):
                 identifier_mode="chr_pos_allele_aware", genome_build="hg38",
             )
         else:
-            panel = R2Panel.open(tmp_path, genome_build="hg38")
+            panel = R2Matrix.open(tmp_path, genome_build="hg38")
             panel.query_pairs(pd.DataFrame({
                 "CHR_1": [1], "POS_1": [100], "A1_1": ["A"], "A2_1": ["G"],
                 "CHR_2": [1], "POS_2": [200], "A1_2": ["C"], "A2_2": ["T"],
@@ -173,26 +173,26 @@ class TestLookupPairsInParquet:
         np.testing.assert_array_equal(rg_sign, st_sign)
 
 
-class TestR2PanelOpen:
-    def test_open_panel_dir_exposes_metadata(self, tmp_path):
-        from ldsc._refpanel.query import R2Panel
+class TestR2MatrixOpen:
+    def test_open_r2_matrix_dir_exposes_metadata(self, tmp_path):
+        from ldsc._refpanel.query import R2Matrix
 
         build_test_panel(tmp_path, snp_identifier="chr_pos_allele_aware", n_samples=1234)
-        panel = R2Panel.open(tmp_path, genome_build="hg38")
+        panel = R2Matrix.open(tmp_path, genome_build="hg38")
         assert panel.chromosomes == ["1"]
         assert panel.snp_identifier == "chr_pos_allele_aware"
         assert panel.n_samples == 1234
 
-    def test_open_requires_panel_dir(self, tmp_path):
+    def test_open_requires_r2_matrix_dir(self, tmp_path):
         from ldsc.errors import LDSCUsageError
-        from ldsc._refpanel.query import R2Panel
+        from ldsc._refpanel.query import R2Matrix
 
         with pytest.raises(LDSCUsageError):
-            R2Panel.open()  # panel_dir omitted
+            R2Matrix.open()  # r2_matrix_dir omitted
 
     def test_binding_mismatch_is_hard_error(self, tmp_path):
         from ldsc.errors import LDSCInputError
-        from ldsc._refpanel.query import R2Panel
+        from ldsc._refpanel.query import R2Matrix
 
         build_dir, meta_path, _ = build_test_panel(tmp_path)
         # Corrupt the sidecar identity by rewriting one allele (breaks the hash).
@@ -203,7 +203,7 @@ class TestR2PanelOpen:
         body[1] = body[1].replace("\tA\t", "\tT\t", 1)  # first data row allele edit
         with gzip.open(meta_path, "wt") as handle:
             handle.writelines(header + body)
-        panel = R2Panel.open(tmp_path, genome_build="hg38")
+        panel = R2Matrix.open(tmp_path, genome_build="hg38")
         with pytest.raises(LDSCInputError):
             panel.query_pairs(pd.DataFrame({
                 "CHR_1": [1], "POS_1": [100], "A1_1": ["A"], "A2_1": ["G"],
@@ -213,18 +213,18 @@ class TestR2PanelOpen:
 
 class TestQueryPairs:
     def _panel(self, tmp_path, mode="chr_pos_allele_aware"):
-        from ldsc._refpanel.query import R2Panel
+        from ldsc._refpanel.query import R2Matrix
 
         build_test_panel(tmp_path, snp_identifier=mode)
-        return R2Panel.open(tmp_path, genome_build="hg38")
+        return R2Matrix.open(tmp_path, genome_build="hg38")
 
     def test_stored_diagonal_absent_cross_and_missing(self, tmp_path):
-        from ldsc._refpanel.query import R2Panel
+        from ldsc._refpanel.query import R2Matrix
 
         # Two-chromosome panel so the cross-chromosome row resolves both endpoints.
         build_test_panel(tmp_path, chrom="1", snp_identifier="chr_pos_allele_aware")
         build_test_panel(tmp_path, chrom="2", snp_identifier="chr_pos_allele_aware")
-        panel = R2Panel.open(tmp_path, genome_build="hg38")
+        panel = R2Matrix.open(tmp_path, genome_build="hg38")
         pairs = pd.DataFrame(
             {
                 # stored (0,1); diagonal (0,0); absent (0,3); not-in-panel; cross-chr
@@ -244,7 +244,7 @@ class TestQueryPairs:
         assert out["r2"].iloc[1] == 1.0           # diagonal
         assert out["status"].iloc[1] == ""
         assert np.isnan(out["r2"].iloc[2]) and out["status"].iloc[2] == "absent"
-        assert np.isnan(out["r2"].iloc[3]) and out["status"].iloc[3] == "not_in_panel"
+        assert np.isnan(out["r2"].iloc[3]) and out["status"].iloc[3] == "not_in_matrix"
         assert np.isnan(out["r2"].iloc[4]) and out["status"].iloc[4] == "cross_chromosome"
 
     def test_sign_harmonized_in_allele_aware_mode(self, tmp_path):
@@ -336,33 +336,33 @@ class TestQueryPairs:
             panel.query_pairs(pairs)
 
 
-class TestQueryR2Wrapper:
-    def test_query_r2_one_shot_matches_handle(self, tmp_path):
-        from ldsc._refpanel.query import query_r2
+class TestQueryR2MatrixWrapper:
+    def test_query_r2_matrix_one_shot_matches_handle(self, tmp_path):
+        from ldsc._refpanel.query import query_r2_matrix
 
         build_test_panel(tmp_path, snp_identifier="chr_pos_allele_aware")
         pairs = pd.DataFrame(
             {"CHR_1": [1], "POS_1": [100], "A1_1": ["A"], "A2_1": ["G"],
              "CHR_2": [1], "POS_2": [200], "A1_2": ["C"], "A2_2": ["T"]}
         )
-        out = query_r2(pairs, panel_dir=tmp_path, genome_build="hg38")
+        out = query_r2_matrix(pairs, r2_matrix_dir=tmp_path, genome_build="hg38")
         assert out["r2"].iloc[0] == pytest.approx(0.64, abs=1.5e-5)
         assert "status" in out.columns
 
     def test_signed_r_always_present(self, tmp_path):
-        from ldsc._refpanel.query import query_r2
+        from ldsc._refpanel.query import query_r2_matrix
 
         build_test_panel(tmp_path, snp_identifier="chr_pos_allele_aware", n_samples=1000)
         pairs = pd.DataFrame(
             {"CHR_1": [1], "POS_1": [100], "A1_1": ["G"], "A2_1": ["A"],  # swapped -> negative r
              "CHR_2": [1], "POS_2": [200], "A1_2": ["C"], "A2_2": ["T"]}
         )
-        out = query_r2(pairs, panel_dir=tmp_path, genome_build="hg38")
+        out = query_r2_matrix(pairs, r2_matrix_dir=tmp_path, genome_build="hg38")
         assert "r" in out.columns  # always emitted, no --with-r needed
         assert out["r"].iloc[0] < 0
 
 
-class TestQueryR2CLI:
+class TestQueryR2MatrixCLI:
     def _write_pairs(self, tmp_path):
         build_test_panel(tmp_path, snp_identifier="chr_pos_allele_aware")
         pairs_path = tmp_path / "pairs.tsv"
@@ -374,7 +374,7 @@ class TestQueryR2CLI:
 
     def _argv(self, tmp_path, pairs_path, *extra):
         return [
-            "query-r2", "--panel-dir", str(tmp_path), "--genome-build", "hg38",
+            "query-r2-matrix", "--r2-matrix-dir", str(tmp_path), "--genome-build", "hg38",
             "--pairs", str(pairs_path), *extra,
         ]
 
@@ -385,7 +385,7 @@ class TestQueryR2CLI:
         with pytest.raises(SystemExit):
             cli_main(self._argv(tmp_path, pairs_path))
         assert capsys.readouterr().out == ""
-        assert not (tmp_path / "query_r2.tsv").exists()
+        assert not (tmp_path / "query_r2_matrix.tsv").exists()
 
     def test_output_dir_writes_result_metadata_and_log(self, tmp_path):
         import json
@@ -400,18 +400,18 @@ class TestQueryR2CLI:
         cli_main(self._argv(tmp_path, pairs_path, "--output-dir", str(out_dir)))
 
         assert not marker.exists()
-        result = pd.read_csv(out_dir / "query_r2.tsv", sep="\t")
+        result = pd.read_csv(out_dir / "query_r2_matrix.tsv", sep="\t")
         assert result["r2"].iloc[0] == pytest.approx(0.64, abs=1e-4)
         assert result.columns[-4:].tolist() == ["r2", "sign_r", "r", "status"]
         assert result["sign_r"].tolist() == [1]
         assert "sign" not in result.columns
 
         metadata_path = out_dir / "diagnostics" / "metadata.json"
-        log_path = out_dir / "diagnostics" / "query-r2.log"
+        log_path = out_dir / "diagnostics" / "query-r2-matrix.log"
         assert log_path.read_text().strip()  # non-empty workflow audit log
         meta = json.loads(metadata_path.read_text())
-        assert meta["artifact_type"] == "query_r2_result"
-        assert meta["files"]["result"] == "query_r2.tsv"
+        assert meta["artifact_type"] == "query_r2_matrix_result"
+        assert meta["files"]["result"] == "query_r2_matrix.tsv"
         assert meta["snp_identifier"] == "chr_pos_allele_aware"
         assert meta["n_samples"] == 1000
         assert meta["n_pairs"] == 1
@@ -433,7 +433,7 @@ class TestQueryR2CLI:
         out_dir = tmp_path / "result"
         cli_main(self._argv(tmp_path, pairs_path, "--output-dir", str(out_dir)))
         cli_main(self._argv(tmp_path, pairs_path, "--output-dir", str(out_dir), "--overwrite"))
-        result = pd.read_csv(out_dir / "query_r2.tsv", sep="\t")
+        result = pd.read_csv(out_dir / "query_r2_matrix.tsv", sep="\t")
         assert result["r2"].iloc[0] == pytest.approx(0.64, abs=1e-4)
 
     def test_out_flag_is_removed(self, tmp_path):
@@ -444,25 +444,25 @@ class TestQueryR2CLI:
             cli_main(self._argv(tmp_path, pairs_path, "--out", str(tmp_path / "x.tsv")))
 
 
-class TestQueryR2Writer:
+class TestQueryR2MatrixWriter:
     def test_writes_nan_literal_for_missing_values(self, tmp_path):
         # Missing numeric r2/r render as the explicit literal "NaN", consistent
         # with the other result writers; the string `status` "" marker is unaffected.
-        from ldsc._refpanel.outputs import QueryR2DirectoryWriter, QueryR2OutputConfig
+        from ldsc._refpanel.outputs import QueryR2MatrixDirectoryWriter, QueryR2MatrixOutputConfig
 
         result = pd.DataFrame(
             {
                 "r2": [0.64, float("nan")],
                 "sign_r": pd.array([1, pd.NA], dtype="Int8"),
                 "r": [0.8, float("nan")],
-                "status": ["", "not_in_panel"],
+                "status": ["", "not_in_matrix"],
             }
         )
         out_dir = tmp_path / "result"
-        QueryR2DirectoryWriter().write(
-            result, QueryR2OutputConfig(output_dir=out_dir), metadata={}
+        QueryR2MatrixDirectoryWriter().write(
+            result, QueryR2MatrixOutputConfig(output_dir=out_dir), metadata={}
         )
-        text = (out_dir / "query_r2.tsv").read_text(encoding="utf-8")
+        text = (out_dir / "query_r2_matrix.tsv").read_text(encoding="utf-8")
         assert "NaN" in text
 
 
@@ -470,8 +470,8 @@ class TestPackageExports:
     def test_public_symbols_importable_from_ldsc(self):
         import ldsc
 
-        assert hasattr(ldsc, "R2Panel")
-        assert hasattr(ldsc, "query_r2")
+        assert hasattr(ldsc, "R2Matrix")
+        assert hasattr(ldsc, "query_r2_matrix")
         assert hasattr(ldsc, "unbiased_r2_to_pearson_r")
-        for name in ("R2Panel", "query_r2", "unbiased_r2_to_pearson_r"):
+        for name in ("R2Matrix", "query_r2_matrix", "unbiased_r2_to_pearson_r"):
             assert name in ldsc.__all__

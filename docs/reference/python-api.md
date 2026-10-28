@@ -14,7 +14,7 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | `AnnotationBuilder` | Prepare chromosome-backed annotations under explicit resource ownership. |
 | `LDScoreCalculator` | Orchestrate chromosome-wise LD-score calculation. |
 | `LegacyLDScoreConverter` | Convert a reusable legacy LDSC reference/weight suite into LDSC3 format. |
-| `ReferencePanelBuilder` | Build R2 panels from PLINK input. |
+| `R2MatrixBuilder` | Build R2 matrices from PLINK input. |
 | `RegressionRunner` | Assemble regression datasets and fit in workers with 1 BLAS thread each. |
 | `SumstatsMunger` | Run legacy-compatible munging through a typed workflow interface. |
 
@@ -36,11 +36,11 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | `load_ldscore_from_dir` | Open an LD-score directory with query values read on demand. |
 | `load_sumstats` | Load one munged summary-statistics artifact into a ``SumstatsTable``. |
 | `plot_result` | Create the approved plot for a canonical LDSC3 result. |
-| `query_r2` | Open a panel, query ``pairs`` once, and return the annotated DataFrame. |
+| `query_r2_matrix` | Open an R2 matrix, query ``pairs`` once, and return the annotated DataFrame. |
 | `resolve_chr_pos_table` | Infer and normalize the genome build for a ``CHR``/``POS`` table. |
 | `resolve_genome_build` | Resolve a genome-build hint to a concrete build or ``None``. |
 | `run_annotate` | Write BED or query gene-list annotations and return a live shard handle. |
-| `run_build_ref_panel` | Run the reference-panel builder with CLI-equivalent keyword arguments. |
+| `run_build_r2_matrix` | Run the reference-panel builder with CLI-equivalent keyword arguments. |
 | `run_h2` | Estimate SNP heritability and save the ``h2`` result directory. |
 | `run_ldscore` | Run LD-score calculation from Python using public CLI-style names. |
 | `run_partitioned_h2` | Estimate partitioned heritability and save the ``partitioned-h2`` result directory. |
@@ -62,7 +62,7 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | `PartitionedH2OutputConfig` | Directory-oriented output config for partitioned-h2 regression summaries. |
 | `QuantileH2OutputConfig` | Output directory and replacement policy for ``quantile-h2`` results. |
 | `RefPanelConfig` | Configuration for choosing and parameterizing a reference-panel backend. |
-| `ReferencePanelBuildConfig` | Configuration for building standard parquet reference panels from PLINK. |
+| `R2MatrixBuildConfig` | Configuration for building standard parquet reference panels from PLINK. |
 | `RegressionConfig` | Configuration for heritability and genetic-correlation regressions. |
 | `RgOutputConfig` | Directory-oriented output config for genetic-correlation summaries. |
 
@@ -94,7 +94,7 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | `QuantileH2Result` | Compact result family returned by `run_quantile_h2()`. |
 | `RawSumstatsInference` | Header-level inference report for one raw summary-statistics file. |
 | `RefPanelLoader` | Instantiate the backend requested by a `RefPanelConfig`. |
-| `ReferencePanelBuildResult` | Summary of files produced by one reference-panel build run. |
+| `R2MatrixBuildResult` | Summary of files produced by one reference-panel build run. |
 | `RegressionDataset` | Merged regression-ready dataset built from summary statistics and LD-score tables. |
 | `RgResultFamily` | Result family returned by multi-trait genetic-correlation workflows. |
 | `SumstatsTable` | In-memory LDSC-ready summary-statistics table. |
@@ -103,9 +103,9 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 
 | Name | Summary |
 | --- | --- |
-| `ParquetR2RefPanel` | Reference-panel adapter for R2 panels. |
+| `R2MatrixRefPanel` | Reference-panel adapter for R2 matrices. |
 | `PlinkRefPanel` | PLINK-backed reference-panel adapter. |
-| `R2Panel` | Handle over an R2 panel written by ``build-r2-panel``, for pair queries. |
+| `R2Matrix` | Handle over an R2 matrix written by ``build-r2-matrix``, for pair queries. |
 | `RefPanel` | Abstract chromosome-scoped reference-panel interface. |
 
 ## Output writers
@@ -146,7 +146,7 @@ Field names of each configuration dataclass; types and defaults are in each clas
 | `MungeConfig` | `output_dir`, `raw_sumstats_file`, `compression`, `output_format`, `trait_name`, `column_hints`, `N`, `N_cas`, `N_con`, `info_min`, `maf_min`, `n_min`, `nstudy_min`, `chunk_size`, `sumstats_snps_file`, `no_snp_restriction`, `source_genome_build`, `output_genome_build`, `liftover_chain_file`, `signed_sumstats_spec`, `ignore_columns`, `info_list_columns`, `sumstats_format`, `a1_inc`, `overwrite` |
 | `PartitionedH2OutputConfig` | `output_dir`, `overwrite`, `write_per_query_results` |
 | `QuantileH2OutputConfig` | `output_dir`, `overwrite` |
-| `RefPanelConfig` | `backend`, `plink_prefix`, `r2_dir`, `chromosomes`, `maf_min`, `keep_indivs_file`, `ref_panel_snps_file`, `genetic_map_hg19_sources`, `genetic_map_hg38_sources` |
-| `ReferencePanelBuildConfig` | `plink_prefix`, `output_dir`, `source_genome_build`, `genetic_map_hg19_sources`, `genetic_map_hg38_sources`, `liftover_chain_hg19_to_hg38_file`, `liftover_chain_hg38_to_hg19_file`, `ld_wind_snps`, `ld_wind_kb`, `ld_wind_cm`, `maf_min`, `ref_panel_snps_file`, `keep_indivs_file`, `snp_batch_size`, `min_r2`, `overwrite` |
+| `RefPanelConfig` | `backend`, `plink_prefix`, `r2_matrix_dir`, `chromosomes`, `maf_min`, `keep_indivs_file`, `ref_panel_snps_file`, `genetic_map_hg19_sources`, `genetic_map_hg38_sources` |
+| `R2MatrixBuildConfig` | `plink_prefix`, `output_dir`, `source_genome_build`, `genetic_map_hg19_sources`, `genetic_map_hg38_sources`, `liftover_chain_hg19_to_hg38_file`, `liftover_chain_hg38_to_hg19_file`, `ld_wind_snps`, `ld_wind_kb`, `ld_wind_cm`, `maf_min`, `ref_panel_snps_file`, `keep_indivs_file`, `snp_batch_size`, `min_r2`, `overwrite` |
 | `RegressionConfig` | `n_blocks`, `use_common_counts`, `use_intercept`, `intercept_h2`, `intercept_gencov`, `two_step_cutoff`, `chisq_max`, `samp_prev`, `pop_prev`, `allow_identity_downgrade` |
 | `RgOutputConfig` | `output_dir`, `overwrite`, `write_per_pair_detail` |

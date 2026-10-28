@@ -4,7 +4,7 @@
 # the PLINK LD-score block sums moved here from the genotype reader.
 # See NOTICE for attribution and dated modifications.
 
-"""LD-score projection primitives and streaming R2 panel reader.
+"""LD-score projection primitives and streaming R2 matrix reader.
 
 ``RefPanel.prepare_chromosome`` owns source resolution, reference filtering,
 annotation alignment, LD-window validation, and reader lifetime. This module's
@@ -24,11 +24,11 @@ filtering; chromosome LD scores retain the existing float32 result conversion.
 Parquet projection accumulates in float64. Common-SNP counts and overlap use
 ``MAF >= common_maf_min`` (0.05 by default), independently of panel filtering.
 
-R2 panel Parquet files contain sidecar-row indices ``IDX_1``/``IDX_2``,
+R2 matrix Parquet files contain sidecar-row indices ``IDX_1``/``IDX_2``,
 ``R2``, and ``SIGN_R``. The required sidecar is bound by its identity digest and
 row count. Each chromosome builds one identity remap; pairs stream through
 ``iter_all_pairs`` without a dense chromosome matrix or row-group cache. Every
-file must match the ``build-r2-panel`` metadata contract checked by
+file must match the ``build-r2-matrix`` metadata contract checked by
 ``read_r2_parquet_contract``: int16 ``R2`` quantized with scale 32767 and already
 bias-corrected, so decoding divides by the scale and applies no further
 correction. Each unordered off-diagonal pair contributes in both directions,
@@ -37,7 +37,7 @@ and the diagonal is added internally as one.
 This module returns in-memory results and writes no artifacts. Public result
 normalization and aggregation live in ``ldsc._ldscore.calculator``; canonical
 output layout belongs to ``ldsc._regression.outputs``. See
-``docs/reference/formats/r2-panels.md`` for the file contract.
+``docs/reference/formats/r2-matrices.md`` for the file contract.
 """
 
 from __future__ import annotations

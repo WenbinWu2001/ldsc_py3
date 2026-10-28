@@ -124,7 +124,7 @@ _QUERY_REQUIRES_BASELINE_MESSAGE = (
 _LDSCORE_INTERSECTION_DOC = (
     "docs/user-guide/troubleshooting.md#ldscore-no-reference-snps-remain-on-the-annotation-snp-grid"
 )
-_LDSCORE_PARQUET_DOC = "docs/user-guide/troubleshooting.md#ldscore-r2-panel-is-incompatible"
+_LDSCORE_PARQUET_DOC = "docs/user-guide/troubleshooting.md#ldscore-r2-matrix-is-incompatible"
 
 
 @dataclass(frozen=True)
@@ -274,10 +274,10 @@ class LDScoreResult:
     annotation_types : dict of str to str, optional
         Per-column semantic classification used for interpretation only.
     ld_window_snp_counts : pandas.DataFrame or None, optional
-        For an R2 panel with ``--ld-wind-snps``, one row per chromosome
+        For an R2 matrix with ``--ld-wind-snps``, one row per chromosome
         with ``CHR``, ``panel_snps`` (sidecar rows), ``kept_snps`` (SNPs this
         run kept), ``ld_wind_snps``, and ``counting_basis="panel_rows"``.
-        ``None`` for kb/cM windows and PLINK panels.
+        ``None`` for kb/cM windows and PLINK reference panels.
     reference_snp_funnel : pandas.DataFrame or None, optional
         Reference-SNP funnel of every chromosome, including skipped ones: the
         SNPs each reference-preparation step removed, in the backend's order.
@@ -402,7 +402,7 @@ class LDScoreCalculator:
             Prepared baseline and query inputs. ``AnnotationBundle.from_frames``
             supplies a small in-memory dataset without filesystem staging.
         ref_panel : RefPanel
-            Resolved PLINK or R2 panel adapter; input files are read without mutation.
+            Resolved PLINK or R2 matrix adapter; input files are read without mutation.
         ldscore_config : LDScoreConfig
             Scientific settings, query execution width, and chromosome worker
             count. Chromosome workers run within each active query batch.
@@ -439,7 +439,7 @@ class LDScoreCalculator:
             disk preparation, or reference-metadata export is requested
             without an output directory.
         LDSCInputError
-            An R2 panel has an invalid chromosome footer or sidecar.
+            An R2 matrix has an invalid chromosome footer or sidecar.
             Every chromosome is checked before any is computed, and one error
             lists all issues. Also raised, naming every such chromosome, when
             no reference-panel SNP left on a chromosome has an annotation row.
@@ -491,7 +491,7 @@ class LDScoreCalculator:
                     if obj.spec.backend == 'plink':
                         check.plink('--plink-prefix', obj.spec.plink_prefix)
                     else:
-                        check.r2('--r2-dir', obj.spec.r2_dir)
+                        check.r2('--r2-matrix-dir', obj.spec.r2_matrix_dir)
                     check.paths('--ref-panel-snps-file', obj.spec.ref_panel_snps_file, restriction_mode=global_config.snp_identifier)
             global_config = dataclass_replace(global_config, genome_build=check.resolve())
         if hasattr(ref_panel, 'global_config') and global_config.genome_build in {'hg19', 'hg38'}:
@@ -1144,9 +1144,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.prog = 'ldsc ldscore'
     parser.formatter_class = CLIHelpFormatter
     parser.description = 'Compute LD scores from a reference panel, or assemble gene-list LD scores from a prebuilt gene LD-score index.'
-    inputs = parser.add_argument_group('Inputs and output', description='Choose direct computation with PLINK or an R2 panel, or indexed computation with gene lists.')
+    inputs = parser.add_argument_group('Inputs and output', description='Choose direct computation with PLINK or an R2 matrix, or indexed computation with gene lists.')
     identity = parser.add_argument_group('Direct mode: SNP identity and genome build')
-    window = parser.add_argument_group('Direct mode: LD window', description='Specify exactly one window; it must fit within the window of any R2 panel.')
+    window = parser.add_argument_group('Direct mode: LD window', description='Specify exactly one window; it must fit within the window of any R2 matrix.')
     annotations = parser.add_argument_group('Annotation sources', description='Choose at most one query source type; direct queries need explicit baseline annotations.')
     genes = parser.add_argument_group('BED and gene-list annotations')
     filters = parser.add_argument_group('Direct mode: SNP and individual selection')
@@ -1157,17 +1157,17 @@ def build_parser() -> argparse.ArgumentParser:
         '--plink-prefix', default=None, metavar='PREFIX',
         help=(
             'PLINK .bed/.bim/.fam filename prefix or chromosome suite stem. Direct mode requires exactly one of '
-            '--plink-prefix or --r2-dir. Cannot be combined with --gene-ldscore-index-dir; no default. '
+            '--plink-prefix or --r2-matrix-dir. Cannot be combined with --gene-ldscore-index-dir; no default. '
             'Direct query runs require every declared chromosome member. '
             + CHROMOSOME_PATH_HELP
         ),
     )
     inputs.add_argument(
-        '--r2-dir', dest='r2_dir', default=None, metavar='DIR',
+        '--r2-matrix-dir', dest='r2_matrix_dir', default=None, metavar='DIR',
         help=(
-            'Precomputed reference-panel directory containing chrN_r2.parquet and required chrN_meta.tsv.gz '
-            'files. The LD window must use the unit the panel was built with and be no wider. Direct mode '
-            'requires exactly one of --r2-dir or --plink-prefix. Cannot be combined with '
+            'R2 matrix directory written by build-r2-matrix, containing chrN_r2.parquet and required chrN_meta.tsv.gz '
+            'files. The LD window must use the unit the R2 matrix was built with and be no wider. Direct mode '
+            'requires exactly one of --r2-matrix-dir or --plink-prefix. Cannot be combined with '
             '--gene-ldscore-index-dir; no default.'
         ),
     )
@@ -1224,7 +1224,7 @@ def build_parser() -> argparse.ArgumentParser:
         '--ld-wind-snps', default=None, type=int, metavar='N',
         help=(
             'Maximum LD-window distance on either side of each SNP, counted in retained SNPs with '
-            '--plink-prefix and in panel rows with --r2-dir. No default; specify exactly one of '
+            '--plink-prefix and in R2 matrix rows with --r2-matrix-dir. No default; specify exactly one of '
             '--ld-wind-snps, --ld-wind-kb, or --ld-wind-cm. Direct mode only.'
         ),
     )
@@ -1332,7 +1332,7 @@ def build_parser() -> argparse.ArgumentParser:
         '--keep-indivs-file', default=None, metavar='FILE',
         help=(
             'File listing one individual ID (IID) per row to retain from PLINK genotypes. Requires '
-            '--plink-prefix; cannot be used with --r2-dir or --gene-ldscore-index-dir. If omitted, retain all '
+            '--plink-prefix; cannot be used with --r2-matrix-dir or --gene-ldscore-index-dir. If omitted, retain all '
             'individuals. Supply an exact file path; patterns are not expanded.'
         ),
     )
@@ -1406,7 +1406,7 @@ def build_parser() -> argparse.ArgumentParser:
         '--snp-batch-size', default=DEFAULT_SNP_BATCH_SIZE, type=int, metavar='N',
         help=(
             f'Number of reference SNPs processed per PLINK genotype batch. Default: {DEFAULT_SNP_BATCH_SIZE}; '
-            'larger batches use more memory. LD scores do not depend on it. Ignored with --r2-dir; '
+            'larger batches use more memory. LD scores do not depend on it. Ignored with --r2-matrix-dir; '
             'rejected with --gene-ldscore-index-dir.'
         ),
     )
@@ -1510,9 +1510,9 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
                     'control_gene_list_file', 'gene_coordinate_file', 'regr_snps_file', 'ref_panel_snps_file', 'keep_indivs_file')],
                 plink=getattr(args, 'plink_prefix', None), require_complete_suite=has_queries,
                 mode=getattr(args, 'snp_identifier', 'rsid'), issues_path=output_dir/'diagnostics/input_issues.tsv',
-                checks=[('reference', args.r2_dir, lambda: inspect_r2_headers(
-                    args.r2_dir, getattr(args, 'genome_build', None), ldscore_args=args))]
-                       if getattr(args, 'r2_dir', None) else ())
+                checks=[('reference', args.r2_matrix_dir, lambda: inspect_r2_headers(
+                    args.r2_matrix_dir, getattr(args, 'genome_build', None), ldscore_args=args))]
+                       if getattr(args, 'r2_matrix_dir', None) else ())
             batch = catalog = None
             if _has_cli_tokens(getattr(args,"query_annot_gene_list_sources",None)):
                 catalog = GeneCatalog.load(args.gene_coordinate_file)
@@ -1557,7 +1557,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
             if scope.get("chromosomes"):
                 LOGGER.info("Chromosomes resolved and entering the analysis: %s.", ", ".join(scope['chromosomes']))
             log_inputs(output_dir=str(output_dir),reference_mode=ref_panel.spec.backend,
-                reference_panel_source=ref_panel.spec.plink_prefix or ref_panel.spec.r2_dir,
+                reference_panel_source=ref_panel.spec.plink_prefix or ref_panel.spec.r2_matrix_dir,
                 snp_identifier=global_config.snp_identifier,genome_build=global_config.genome_build,
                 ref_panel_snps_file=normalized_args.ref_panel_snps_file or "none",
                 regr_snps_file=ldscore_config.regr_snps_file or "packaged_hm3_default",
@@ -1603,7 +1603,7 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> "LDScoreSource":
         "--gene-coordinate-file",
         "--gene-exclude-regions",
         "--plink-prefix",
-        "--r2-dir",
+        "--r2-matrix-dir",
         "--snp-identifier",
         "--genome-build",
         "--ref-panel-snps-file",
@@ -1627,7 +1627,7 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> "LDScoreSource":
         "--query-annot-bed-sources": getattr(args, "query_annot_bed_sources", None),
         "--gene-coordinate-file": getattr(args, "gene_coordinate_file", None),
         "--plink-prefix": getattr(args, "plink_prefix", None),
-        "--r2-dir": getattr(args, "r2_dir", None),
+        "--r2-matrix-dir": getattr(args, "r2_matrix_dir", None),
         "--ref-panel-snps-file": getattr(args, "ref_panel_snps_file", None),
         "--regr-snps-file": getattr(args, "regr_snps_file", None),
         "--keep-indivs-file": getattr(args, "keep_indivs_file", None),
@@ -1887,21 +1887,21 @@ def _validate_run_args(args: argparse.Namespace) -> None:
     keep = getattr(args, "keep", None)
     if _uses_parquet_reference(args) == bool(args.bfile):
         raise LDSCUsageError(
-            "ldscore could not choose a reference-panel backend. Most likely both R2 panel "
+            "ldscore could not choose a reference-panel backend. Most likely both R2 matrix "
             "input and PLINK input were supplied, or neither was supplied. Pass exactly "
-            "one of `--r2-dir` for R2 panel mode or `--plink-prefix` for PLINK mode."
+            "one of `--r2-matrix-dir` for R2 matrix mode or `--plink-prefix` for PLINK mode."
         )
     if _uses_parquet_reference(args):
         if keep:
             raise LDSCUsageError(
-                "ldscore cannot apply `--keep-indivs-file` in R2 panel mode. Most likely "
-                "`--keep-indivs-file` was combined with `--r2-dir`, but individual-level "
+                "ldscore cannot apply `--keep-indivs-file` in R2 matrix mode. Most likely "
+                "`--keep-indivs-file` was combined with `--r2-matrix-dir`, but individual-level "
                 "filtering only exists before PLINK genotype LD calculation. Remove "
                 "`--keep-indivs-file`, or rerun in PLINK mode with `--plink-prefix`."
             )
         if identity_mode_family(args.snp_identifier) == "chr_pos" and args.genome_build is None:
             raise LDSCUsageError(
-                "ldscore cannot run R2 panel mode with a coordinate-family SNP identifier mode "
+                "ldscore cannot run R2 matrix mode with a coordinate-family SNP identifier mode "
                 "without a genome build. Most likely `--snp-identifier chr_pos` or "
                 "`--snp-identifier chr_pos_allele_aware` was supplied without `--genome-build`. Pass "
                 "`--genome-build hg19`, `--genome-build hg38`, or `--genome-build auto`."
@@ -1970,13 +1970,13 @@ def _format_ldscore_start_message(annotation_bundle, n_chromosomes: int) -> str:
 
 
 def _uses_parquet_reference(args: argparse.Namespace) -> bool:
-    """Return whether normalized args select parquet reference-panel mode."""
-    return bool(_r2_dir_from_args(args))
+    """Return whether normalized args select R2 matrix mode."""
+    return bool(_r2_matrix_dir_from_args(args))
 
 
-def _r2_dir_from_args(args: argparse.Namespace) -> str | None:
-    """Return the R2 panel directory supplied to the LD-score workflow."""
-    return normalize_optional_path_token(getattr(args, "r2_dir", None))
+def _r2_matrix_dir_from_args(args: argparse.Namespace) -> str | None:
+    """Return the R2 matrix directory supplied to the LD-score workflow."""
+    return normalize_optional_path_token(getattr(args, "r2_matrix_dir", None))
 
 
 def run_ldscore(**kwargs) -> "LDScoreSource":
@@ -1984,7 +1984,7 @@ def run_ldscore(**kwargs) -> "LDScoreSource":
 
     Keyword arguments are interpreted as CLI-equivalent option names without
     leading ``--``; for example ``baseline_annot_sources``, ``query_annot_sources``,
-    ``query_annot_bed_sources``, ``query_annot_gene_list_sources``, ``plink_prefix``, ``r2_dir``,
+    ``query_annot_bed_sources``, ``query_annot_gene_list_sources``, ``plink_prefix``, ``r2_matrix_dir``,
     ``keep_indivs_file``, ``snp_batch_size``, ``common_maf_min``, ``workers``, and
     ``output_dir``. Shared runtime assumptions such as ``snp_identifier`` and
     ``genome_build`` must be supplied through ``set_global_config(...)`` first,
@@ -2083,7 +2083,7 @@ def _normalize_run_args(
         "query_annot_sources",
         "baseline_annot_sources",
         "plink_prefix",
-        "r2_dir",
+        "r2_matrix_dir",
         "query_annot_bed_sources",
         "query_annot_gene_list_sources",
         "gene_coordinate_file",
@@ -2113,7 +2113,7 @@ def _normalize_run_args(
         normalized_args.snp_batch_size = DEFAULT_SNP_BATCH_SIZE
     normalized_args.snp_identifier = normalized_mode
     normalized_args.output_dir = normalize_path_token(args.output_dir)
-    normalized_args.r2_dir = _r2_dir_from_args(normalized_args)
+    normalized_args.r2_matrix_dir = _r2_matrix_dir_from_args(normalized_args)
     normalized_args.keep_indivs_file = normalize_optional_path_token(getattr(args, "keep_indivs_file", None))
     normalized_args.gene_coordinate_file = normalize_optional_path_token(getattr(args, "gene_coordinate_file", None))
     normalized_args.ref_panel_snps_file = normalize_optional_path_token(getattr(args, "ref_panel_snps_file", None))
@@ -2198,9 +2198,9 @@ def _resolve_ldscore_chr_pos_genome_build(
     for role in ("baseline_annot_sources", "query_annot_sources"):
         check.paths("--" + role.replace("_", "-"), getattr(args, role, None))
     check.plink("--plink-prefix", getattr(args, "plink_prefix", None))
-    r2_dir = _r2_dir_from_args(args)
-    if r2_dir is not None:
-        check.r2("--r2-dir", r2_dir)
+    r2_matrix_dir = _r2_matrix_dir_from_args(args)
+    if r2_matrix_dir is not None:
+        check.r2("--r2-matrix-dir", r2_matrix_dir)
     mode = getattr(args, "snp_identifier", "chr_pos")
     for role in ("ref_panel_snps_file", "regr_snps_file"):
         check.paths("--" + role.replace("_", "-"), getattr(args, role, None), restriction_mode=mode)
@@ -2281,11 +2281,11 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig, 
     from .._refpanel.adapters import RefPanelLoader
 
     ref_panel_snps_file = normalize_optional_path_token(getattr(args, "ref_panel_snps_file", None))
-    r2_dir = _r2_dir_from_args(args)
-    if r2_dir is not None:
+    r2_matrix_dir = _r2_matrix_dir_from_args(args)
+    if r2_matrix_dir is not None:
         spec = RefPanelConfig(
-            backend="parquet_r2",
-            r2_dir=r2_dir,
+            backend="r2_matrix",
+            r2_matrix_dir=r2_matrix_dir,
             ref_panel_snps_file=ref_panel_snps_file,
             maf_min=getattr(args, "maf_min", None),
             keep_indivs_file=getattr(args, "keep_indivs_file", None),
@@ -2329,7 +2329,7 @@ def _reference_metadata_sources(ref_panel) -> tuple[str, str]:
     """Return ``(cm_source, maf_source)`` provenance labels for the reference panel."""
     spec = getattr(ref_panel, "spec", None)
     backend = getattr(spec, "backend", None)
-    if backend == "parquet_r2":
+    if backend == "r2_matrix":
         return "parquet_sidecar", "parquet_sidecar"
     has_map = bool(getattr(spec, "genetic_map_hg19_sources", None) or getattr(spec, "genetic_map_hg38_sources", None))
     return ("genetic_map" if has_map else "plink_bim"), "plink_genotypes"
@@ -2375,13 +2375,13 @@ def _snp_universe_policy(
 
 
 def _ld_window_snp_counts(ref_panel, ldscore_config: LDScoreConfig, chromosome_results) -> pd.DataFrame | None:
-    """Per-chromosome panel and kept SNP counts behind a parquet ``--ld-wind-snps`` window.
+    """Per-chromosome R2 matrix and kept SNP counts behind an R2 matrix ``--ld-wind-snps`` window.
 
-    On a parquet panel the window counts panel (sidecar) rows, so a chromosome
-    keeping fewer SNPs than the panel gives its SNPs fewer than K reference SNPs
-    per side. ``None`` for kb/cM windows and PLINK panels.
+    On an R2 matrix the window counts R2 matrix (sidecar) rows, so a chromosome
+    keeping fewer SNPs than the R2 matrix gives its SNPs fewer than K reference SNPs
+    per side. ``None`` for kb/cM windows and PLINK reference panels.
     """
-    if ldscore_config.ld_wind_snps is None or getattr(getattr(ref_panel, "spec", None), "backend", None) != "parquet_r2":
+    if ldscore_config.ld_wind_snps is None or getattr(getattr(ref_panel, "spec", None), "backend", None) != "r2_matrix":
         return None
     rows = [
         {
@@ -2397,12 +2397,12 @@ def _ld_window_snp_counts(ref_panel, ldscore_config: LDScoreConfig, chromosome_r
 
 
 def _check_parquet_reference(ref_panel, chromosomes, ldscore_config: LDScoreConfig, global_config: GlobalConfig) -> None:
-    """Check every chromosome's R2 panel footer and sidecar before any is computed.
+    """Check every chromosome's R2 matrix footer and sidecar before any is computed.
 
     The CLI runs the same checks in its input preflight. Python API callers would
     otherwise learn of a defect only from the first chromosome worker to reach it.
     """
-    if getattr(getattr(ref_panel, "spec", None), "backend", None) != "parquet_r2":
+    if getattr(getattr(ref_panel, "spec", None), "backend", None) != "r2_matrix":
         return
     from .._runtime.preflight import InputGate
     from .._refpanel.preflight import inspect_r2_headers
@@ -2413,12 +2413,12 @@ def _check_parquet_reference(ref_panel, chromosomes, ldscore_config: LDScoreConf
         metadata = read_r2_sidecar_for_chromosome(path, chrom, global_config)
         ref_panel.build_reader(chrom, metadata=metadata).close()
 
-    r2_dir = ref_panel.spec.r2_dir
-    gate = InputGate("R2 panel validation")
-    gate.check("reference", r2_dir, lambda: inspect_r2_headers(
-        r2_dir, global_config.genome_build, ldscore_args=ldscore_config))
+    r2_matrix_dir = ref_panel.spec.r2_matrix_dir
+    gate = InputGate("R2 matrix validation")
+    gate.check("reference", r2_matrix_dir, lambda: inspect_r2_headers(
+        r2_matrix_dir, global_config.genome_build, ldscore_args=ldscore_config))
     for chrom in chromosomes:
-        gate.check("reference", r2_dir, lambda chrom=chrom: check_sidecar(chrom), chrom=chrom)
+        gate.check("reference", r2_matrix_dir, lambda chrom=chrom: check_sidecar(chrom), chrom=chrom)
     gate.finish()
 
 
@@ -2432,8 +2432,8 @@ def _warn_ld_window_snp_subset(counts: pd.DataFrame | None, where: str) -> None:
     first = subset.iloc[0]
     window = int(first["ld_wind_snps"])
     LOGGER.warning(
-        f"ldscore `--ld-wind-snps {window}` counts positions in the R2 panel; this run kept fewer "
-        f"SNPs than the panel on {len(subset)} chromosome(s) (e.g. chr{first['CHR']}: {first['kept_snps']} of "
+        f"ldscore `--ld-wind-snps {window}` counts positions in the R2 matrix; this run kept fewer "
+        f"SNPs than the R2 matrix on {len(subset)} chromosome(s) (e.g. chr{first['CHR']}: {first['kept_snps']} of "
         f"{first['panel_snps']}), so those SNPs have fewer than {window} reference SNPs per side. "
         f"Per-chromosome counts: {where}."
     )
@@ -2468,9 +2468,9 @@ def _grid_emptied_message(funnels: Sequence[pd.DataFrame]) -> str:
 def _write_one_ref_metadata_sidecar(metadata: pd.DataFrame, chrom: str, output_dir: str) -> None:
     """Write one opt-in reference-metadata sidecar (PLINK backend).
 
-    The format matches the parquet panel sidecar: a gzip TSV with
+    The format matches the R2 matrix sidecar: a gzip TSV with
     ``CHR POS SNP A1 A2 CM MAF`` columns, so an exported sidecar can seed a future
-    ``build-r2-panel`` or a QC diff. Written from inside the per-chromosome
+    ``build-r2-matrix`` or a QC diff. Written from inside the per-chromosome
     worker so the lean cross-process result does not carry per-SNP metadata.
     """
     columns = [c for c in ("CHR", "POS", "SNP", "A1", "A2", "CM", "MAF") if c in metadata.columns]

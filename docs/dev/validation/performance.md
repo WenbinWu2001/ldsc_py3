@@ -1,6 +1,6 @@
 # Performance Measurements
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 This page records the measurements behind the package's resource guidance, each with its date, revision and limits.
 The raw reports and probe scripts are kept outside the repository; the summaries below are the in-repository record.
@@ -100,5 +100,5 @@ All 28 valid replays passed exact comparisons of saved values, schemas, SNP and 
 No comparison group showed a wall or CPU increase above the 5% screening threshold; this does not guarantee a production speedup.
 Active fragments totaled about 257 MiB across all 22 files, and sampled workload-file peaks were about 0.644 GiB for one batch and 1.115 GiB for three batches (1.259 GiB allocated blocks), excluding fixed inputs and logs.
 Because the replays omitted reference preparation and computation, they do not establish production memory savings or a smaller safe memory request.
-The integrated implementation is also covered by local tests with small PLINK and R² panel calculations, including metadata parity and failure cleanup ([`test_direct_batch_staging.py`](../../../tests/ldscore/test_direct_batch_staging.py)); the raw replay report is kept outside the repository.
+The integrated implementation is also covered by local tests with small PLINK and R² matrix calculations, including metadata parity and failure cleanup ([`test_direct_batch_staging.py`](../../../tests/ldscore/test_direct_batch_staging.py)); the raw replay report is kept outside the repository.
 

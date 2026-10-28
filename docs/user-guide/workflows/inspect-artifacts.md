@@ -1,6 +1,6 @@
 # Examine Parquet and NPZ Artifacts
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 Start one Python session and replace the file placeholders:
 
@@ -54,9 +54,9 @@ The following row examples refer to that batch, so row 123 requires at least 124
 The three expressions return a column, row 123, and the value in `COLUMN` at
 row 123.
 
-### R² panel columns
+### R² matrix columns
 
-A [`build-r2-panel`](r2-panels.md) Parquet file stores `IDX_1`, `IDX_2`, quantized int16 `R2`, and boolean `SIGN_R`. Read a row group and decode the stored scale before interpreting R²:
+A [`build-r2-matrix`](r2-matrices.md) Parquet file stores `IDX_1`, `IDX_2`, quantized int16 `R2`, and boolean `SIGN_R`. Read a row group and decode the stored scale before interpreting R²:
 
 ```python
 import pandas as pd
@@ -67,7 +67,7 @@ pairs["r2_decoded"] = pairs["R2"].astype("float32") / scale
 meta = pd.read_csv("chr22_meta.tsv.gz", sep="\t", comment="#")
 ```
 
-Use the exact sidecar next to the selected Parquet: each index points to a zero-based row in that table. `SIGN_R=True` means Pearson r is nonnegative in panel allele orientation. For results harmonized to query alleles, use [`query-r2`](r2-panels.md), whose output field is nullable `sign_r` (+1/-1). Source: [current R² storage contract](../../reference/formats/r2-panels.md).
+Use the exact sidecar next to the selected Parquet: each index points to a zero-based row in that table. `SIGN_R=True` means Pearson r is nonnegative in panel allele orientation. For results harmonized to query alleles, use [`query-r2-matrix`](r2-matrices.md), whose output field is nullable `sign_r` (+1/-1). Source: [current R² storage contract](../../reference/formats/r2-matrices.md).
 
 ## NPZ
 

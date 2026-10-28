@@ -1,7 +1,7 @@
 """Reference-SNP funnels recorded by reference preparation on both panel backends.
 
 Expected counts come from worked examples over the small fixtures: the
-two-SNP R2 panel from ``tests/refpanel/test_reference_preparation.py`` and the 32-SNP
+two-SNP R2 matrix from ``tests/refpanel/test_reference_preparation.py`` and the 32-SNP
 chromosome-22 PLINK subset.
 """
 from pathlib import Path
@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 
 from ldsc import GlobalConfig, LDScoreConfig, RefPanelConfig
-from ldsc._refpanel.adapters import ParquetR2RefPanel, PlinkRefPanel
+from ldsc._refpanel.adapters import R2MatrixRefPanel, PlinkRefPanel
 from ldsc._refpanel.funnel import annotation_snp_grid_emptied, with_grid_rows
 from ldsc._refpanel.prepared import ChromosomeAnnotations
 from ldsc.errors import EmptyReferenceSNPs
@@ -44,7 +44,7 @@ def r2_annotations(snps):
 
 def test_r2_funnel_counts_grid_rows_missing_from_the_panel(tmp_path):
     write_panel(tmp_path)
-    panel = ParquetR2RefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path))
+    panel = R2MatrixRefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(backend="r2_matrix", r2_matrix_dir=tmp_path))
     with panel.prepare_chromosome("1", r2_annotations(["rs1", "rs2", "rs3"]), WINDOW) as prepared:
         funnel = prepared.reference_snp_funnel
         retained = len(prepared.metadata)
@@ -53,14 +53,14 @@ def test_r2_funnel_counts_grid_rows_missing_from_the_panel(tmp_path):
         "allele_aware_identity_cleanup": (None, 2), "annotation_snp_grid": (0, 2),
     }
     assert steps(funnel, "annotation_snp_grid") == {"grid_rows": (None, 3), "annotation_snp_grid": (1, 2)}
-    assert set(funnel["backend"]) == {"parquet_r2"} and set(funnel["chrom"]) == {"1"}
+    assert set(funnel["backend"]) == {"r2_matrix"} and set(funnel["chrom"]) == {"1"}
     assert_invariant(funnel, retained)
 
 
 def test_r2_funnel_applies_maf_before_the_grid_and_counts_off_grid_panel_snps(tmp_path):
     write_panel(tmp_path)  # rs1 has MAF 0.04 and rs3 has MAF 0.3
-    panel = ParquetR2RefPanel(GlobalConfig(snp_identifier="rsid"),
-                              RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path, maf_min=0.01))
+    panel = R2MatrixRefPanel(GlobalConfig(snp_identifier="rsid"),
+                              RefPanelConfig(backend="r2_matrix", r2_matrix_dir=tmp_path, maf_min=0.01))
     with panel.prepare_chromosome("1", r2_annotations(["rs1"]), WINDOW) as prepared:
         funnel = prepared.reference_snp_funnel
         assert prepared.metadata["SNP"].tolist() == ["rs1"]
@@ -72,7 +72,7 @@ def test_r2_funnel_applies_maf_before_the_grid_and_counts_off_grid_panel_snps(tm
 
 def test_r2_empty_chromosome_carries_its_funnel_and_names_the_emptying_step(tmp_path):
     write_panel(tmp_path)
-    panel = ParquetR2RefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path))
+    panel = R2MatrixRefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(backend="r2_matrix", r2_matrix_dir=tmp_path))
     with pytest.raises(EmptyReferenceSNPs) as caught:
         panel.prepare_chromosome("1", r2_annotations(["absent"]), WINDOW)
     funnel = caught.value.reference_snp_funnel
@@ -81,8 +81,8 @@ def test_r2_empty_chromosome_carries_its_funnel_and_names_the_emptying_step(tmp_
 
     restriction = tmp_path / "keep.tsv"
     restriction.write_text("SNP\nabsent\n")
-    restricted = ParquetR2RefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(
-        backend="parquet_r2", r2_dir=tmp_path, ref_panel_snps_file=str(restriction)))
+    restricted = R2MatrixRefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(
+        backend="r2_matrix", r2_matrix_dir=tmp_path, ref_panel_snps_file=str(restriction)))
     with pytest.raises(EmptyReferenceSNPs) as caught:
         restricted.prepare_chromosome("1", r2_annotations(["rs1"]), WINDOW)
     funnel = caught.value.reference_snp_funnel
@@ -135,7 +135,7 @@ def test_plink_grid_that_misses_every_panel_snp_is_emptied_at_the_grid_step():
 
 def test_index_grid_funnel_restarts_before_the_baseline_intersection(tmp_path):
     write_panel(tmp_path)
-    panel = ParquetR2RefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path))
+    panel = R2MatrixRefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(backend="r2_matrix", r2_matrix_dir=tmp_path))
     with panel.prepare_chromosome("1", r2_annotations(["rs1", "rs3"]), WINDOW) as prepared:
         funnel = with_grid_rows(prepared.reference_snp_funnel, 5)
     assert steps(funnel, "annotation_snp_grid") == {"grid_rows": (None, 5), "annotation_snp_grid": (3, 2)}
@@ -145,7 +145,7 @@ def test_index_grid_funnel_restarts_before_the_baseline_intersection(tmp_path):
 # --- LD-score workflow -------------------------------------------------------
 
 def r2_workflow_inputs(root, baseline_snps):
-    """Write the three-SNP chromosome-22 R2 panel and a baseline on ``baseline_snps``."""
+    """Write the three-SNP chromosome-22 R2 matrix and a baseline on ``baseline_snps``."""
     from tests.ldscore.test_ldscore_chromosome_scope import write_r2_inputs
 
     inputs = write_r2_inputs(root)
@@ -157,7 +157,7 @@ def r2_workflow_inputs(root, baseline_snps):
 
 
 def workflow_argv(root, inputs, *extra):
-    return ["--output-dir", str(root / "out"), "--r2-dir", inputs.r2_dir,
+    return ["--output-dir", str(root / "out"), "--r2-matrix-dir", inputs.r2_matrix_dir,
             "--baseline-annot-sources", inputs.baseline_annot_sources,
             "--regr-snps-file", str(root / "regression.txt"), "--regr-snps-exclude-regions", "none",
             "--snp-identifier", "rsid", "--ld-wind-snps", "2", "--yes-really", *extra]
@@ -182,7 +182,7 @@ def test_panel_larger_than_the_grid_succeeds_and_reports_the_excluded_panel_snps
     log = (tmp_path / "out" / "diagnostics" / "ldscore.log").read_text()
     warning = "ldscore excluded 1 reference-panel SNPs on 1 chromosome that are not on the annotation SNP grid"
     assert any("WARNING" in line and warning in line for line in log.splitlines())
-    assert ["reference_panel_source", inputs.r2_dir] in [line.split() for line in log.splitlines()]
+    assert ["reference_panel_source", inputs.r2_matrix_dir] in [line.split() for line in log.splitlines()]
     assert f"WARNING: {warning}" in capsys.readouterr().err
     metadata = json.loads((tmp_path / "out" / "metadata.json").read_text())
     universe = metadata["snp_universe_policy"]["ld_reference_universe"]
@@ -206,7 +206,7 @@ def test_chromosome_emptied_by_the_panel_restriction_is_skipped_with_a_logged_wa
     from ldsc._ldscore.calculator import build_parser, run_ldscore_from_args
 
     inputs = r2_workflow_inputs(tmp_path, ["rs1", "rs2", "rs3"])
-    write_panel(Path(inputs.r2_dir), chrom="1")  # chromosome 1 holds rs1 and rs3
+    write_panel(Path(inputs.r2_matrix_dir), chrom="1")  # chromosome 1 holds rs1 and rs3
     baseline = pd.read_csv(inputs.baseline_annot_sources, sep="\t")
     chrom1 = pd.DataFrame({"CHR": [1], "SNP": ["absent"], "POS": [100], "base": [1]})
     pd.concat([chrom1, baseline], ignore_index=True).to_csv(inputs.baseline_annot_sources, sep="\t", index=False)
@@ -244,7 +244,7 @@ def test_in_memory_result_carries_the_funnel(tmp_path):
 
     metadata = write_panel(tmp_path)
     config = GlobalConfig(snp_identifier="rsid")
-    panel = ParquetR2RefPanel(config, RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path))
+    panel = R2MatrixRefPanel(config, RefPanelConfig(backend="r2_matrix", r2_matrix_dir=tmp_path))
     result = LDScoreCalculator().run(public_bundle(metadata.iloc[[0]]), panel, WINDOW, config)
     assert steps(result.reference_snp_funnel, "reference_panel")["annotation_snp_grid"] == (1, 1)
     assert list(result.reference_snp_funnel.columns) == [

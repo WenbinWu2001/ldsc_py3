@@ -173,7 +173,7 @@ def test_sumstats_directory_detects_trait_named_footer(tmp_path, capsys):
 
 
 @pytest.mark.parametrize("artifact", [
-    "h2_result", "partitioned_h2_result", "rg_result", "quantile_h2_result", "query_r2_result",
+    "h2_result", "partitioned_h2_result", "rg_result", "quantile_h2_result", "query_r2_matrix_result",
     "plot_result", "h2_scale_conversion_result", "partitioned_h2_query_result", "rg_pair_result",
 ])
 def test_saved_results_use_only_recorded_build(tmp_path, capsys, artifact):
@@ -194,19 +194,19 @@ def test_gene_index_root_and_chromosome_metadata(tmp_path, capsys):
     assert "Genome build: hg19 (declared" in capsys.readouterr().out
 
 
-def test_r2_directory_reports_both_output_builds(tmp_path, capsys):
+def test_r2_matrix_directory_reports_both_output_builds(tmp_path, capsys):
     files = {}
     for build in ("hg19", "hg38"):
         directory = tmp_path / build
         directory.mkdir()
         member = directory / "chr1_r2.parquet"
         pq.write_table(pa.table({"IDX_1": [0]}).replace_schema_metadata({
-            b"ldsc:artifact_type": b"ref_panel_r2", b"ldsc:genome_build": build.encode(),
+            b"ldsc:artifact_type": b"r2_matrix", b"ldsc:genome_build": build.encode(),
             b"ldsc:snp_identifier": b"rsid",
         }), member)
         files[f"r2_{build}"] = [str(member.relative_to(tmp_path))]
     write_metadata(tmp_path, {
-        "artifact_type": "ref_panel", "source_genome_build": "hg19", "genome_build": "auto",
+        "artifact_type": "r2_matrix_build", "source_genome_build": "hg19", "genome_build": "auto",
         "emitted_genome_builds": ["hg38", "hg19"], "snp_identifier": "rsid", "files": files,
     })
     for path in (tmp_path, tmp_path / "hg38"):
@@ -351,7 +351,7 @@ def test_sumstats_directory_ignores_unrelated_invalid_parquet(tmp_path, capsys):
 def test_panel_manifest_normalizes_emitted_build_aliases(tmp_path, capsys):
     (tmp_path / "hg38").mkdir()
     pq.write_table(pa.table({"IDX_1": [0]}), tmp_path / "hg38/chr1_r2.parquet")
-    write_metadata(tmp_path, {"artifact_type": "ref_panel", "emitted_genome_builds": ["GRCh38"],
+    write_metadata(tmp_path, {"artifact_type": "r2_matrix_build", "emitted_genome_builds": ["GRCh38"],
                               "files": {"r2_hg38": ["hg38/chr1_r2.parquet"]}})
     assert cli.run_cli(["infer-genome-build", str(tmp_path)]) == 0
     assert "Genome build [hg38]: hg38 (declared" in capsys.readouterr().out

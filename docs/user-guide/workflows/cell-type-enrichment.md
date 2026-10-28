@@ -1,6 +1,6 @@
 # Cell-type enrichment
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 Cell-type enrichment asks which cell types' annotations carry more trait heritability than the baseline annotations explain.
 Each cell type becomes one query annotation, for example the SNPs near its specifically expressed genes or inside its open-chromatin peaks.
@@ -20,7 +20,7 @@ This is the query form of [partitioned heritability](partitioned-heritability.md
   - one BED file per cell type (Route A below);
   - one gene list per cell type, such as its top specifically expressed genes (Route B below);
   - prebuilt annotation files with one column per cell type (`--query-annot-sources`; see [partitioned heritability](partitioned-heritability.md#reuse-query-annotations-across-runs)).
-- **A reference panel** ([R² panel](r2-panels.md) or PLINK files), or, for gene lists only, a prebuilt [gene LD-score index](gene-list-ld-scores.md).
+- **A reference panel** ([R² matrix](r2-matrices.md) or PLINK files), or, for gene lists only, a prebuilt [gene LD-score index](gene-list-ld-scores.md).
 
 Use the same SNP identifier mode and genome build throughout; see [SNP identity and genome build](../concepts/snp-identity-and-genome-build.md).
 
@@ -32,7 +32,7 @@ Compute baseline-plus-cell-type LD scores, projecting the BED files directly:
 ldsc ldscore \
   --baseline-annot-sources "/path/to/baseline/baseline.@.annot.gz" \
   --query-annot-bed-sources "/path/to/cell_type_beds/*.bed" \
-  --r2-dir /path/to/r2-panel/hg19 \
+  --r2-matrix-dir /path/to/r2-matrix/hg19 \
   --snp-identifier chr_pos_allele_aware \
   --genome-build hg19 \
   --ld-wind-cm 1.0 \
@@ -132,7 +132,7 @@ ldsc ldscore \
 ```
 
 The index fixes the baseline annotations, reference SNPs, SNP identifier mode, genome build (hg19 or hg38), LD window, gene padding, gene exclusion, regression SNPs, region exclusion, MAF rules, annotation counts and regression weights; its metadata is the record of these settings.
-Do not pass live settings such as `--baseline-annot-sources`, `--plink-prefix`, `--r2-dir`, `--snp-identifier`, `--genome-build`, `--ld-wind-*`, `--padding-bp`, `--gene-exclude-regions` or `--regr-snps-file`.
+Do not pass live settings such as `--baseline-annot-sources`, `--plink-prefix`, `--r2-matrix-dir`, `--snp-identifier`, `--genome-build`, `--ld-wind-*`, `--padding-bp`, `--gene-exclude-regions` or `--regr-snps-file`.
 `--workers` and `--query-batch-size` are accepted; a smaller batch reduces temporary space but rereads the index operators for each batch.
 An optional `--control-gene-list-file` must be one existing file and inherits the index's gene coordinate catalog, build, padding and gene exclusion.
 The finished LD-score directory is self-contained; Step 2 does not need the index.

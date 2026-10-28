@@ -8,7 +8,7 @@ import pytest
 
 from ldsc import cli
 from ldsc._runtime.workflow_logging import overwrite_failure_marker
-from ldsc._refpanel import builder as ref_panel_builder
+from ldsc._refpanel import builder as r2_matrix_builder
 from ldsc.errors import LDSCInputError
 
 
@@ -71,11 +71,11 @@ def test_cli_failure_marker_uses_nested_plot_scope(tmp_path):
         ("rg", "--output-dir", ""),
         ("annotate", "--output-dir", ""),
         ("ldscore", "--output-dir", ""),
-        ("build-r2-panel", "--output-dir", ""),
+        ("build-r2-matrix", "--output-dir", ""),
         ("build-gene-ldscore-index", "--output-dir", ""),
         ("convert-ldsc2-ldscores", "--output-dir", ""),
         ("munge-sumstats", "--output-dir", ""),
-        ("query-r2", "--output-dir", ""),
+        ("query-r2-matrix", "--output-dir", ""),
     ],
 )
 def test_cli_materializing_commands_share_marker_policy(tmp_path, command, source_flag, nested):
@@ -175,7 +175,7 @@ def test_cli_concrete_reference_panel_failure_uses_chromosome_marker(tmp_path):
     with mock.patch.object(cli, "main", side_effect=RuntimeError("failed")):
         cli.run_cli(
             [
-                "build-r2-panel",
+                "build-r2-matrix",
                 "--plink-prefix",
                 str(tmp_path / "reference.chr22"),
                 "--output-dir",
@@ -197,12 +197,12 @@ def test_python_reference_panel_failure_uses_chromosome_marker(tmp_path):
     )
 
     with mock.patch.object(
-        ref_panel_builder,
+        r2_matrix_builder,
         "config_from_args",
         side_effect=RuntimeError("failed before config"),
     ):
         with pytest.raises(RuntimeError, match="failed before config"):
-            ref_panel_builder.run_build_ref_panel_from_args(args)
+            r2_matrix_builder.run_build_r2_matrix_from_args(args)
 
     assert (output_dir / "RUN_FAILED.chr22.txt").is_file()
     assert not (output_dir / "RUN_FAILED.txt").exists()

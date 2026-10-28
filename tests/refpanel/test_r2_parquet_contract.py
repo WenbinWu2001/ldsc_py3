@@ -1,7 +1,7 @@
-"""R2 parquet metadata contract shared by the ldscore and query-r2 readers.
+"""R2 parquet metadata contract shared by the ldscore and query-r2-matrix readers.
 
 A reference-panel R2 parquet is accepted only when it matches what the current
-``ldsc build-r2-panel`` writes: int16 ``R2`` with ``ldsc:r2_encoding`` /
+``ldsc build-r2-matrix`` writes: int16 ``R2`` with ``ldsc:r2_encoding`` /
 ``ldsc:r2_scale``, already-unbiased values with their sample size, and complete
 binding, identity, and LD-window metadata. Every defect is rejected before any
 pair is decoded, and all defects of all files are reported together.
@@ -20,11 +20,11 @@ from ldsc.errors import LDSCInputError
 from ldsc._refpanel.preflight import inspect_r2_headers
 from ldsc._refpanel import build_kernel as kb
 from ldsc._refpanel.r2_format import write_r2_parquet, write_runtime_metadata_sidecar
-from ldsc._refpanel.adapters import ParquetR2RefPanel
+from ldsc._refpanel.adapters import R2MatrixRefPanel
 from ldsc._core.snp_identity import sidecar_identity_sha256
-from ldsc._refpanel.query import R2Panel
+from ldsc._refpanel.query import R2Matrix
 
-ANCHOR = "docs/user-guide/troubleshooting.md#ldscore-r2-panel-is-incompatible"
+ANCHOR = "docs/user-guide/troubleshooting.md#ldscore-r2-matrix-is-incompatible"
 
 
 def _write_panel(root: Path, chrom: str = "1", *, snp_identifier: str = "chr_pos_allele_aware") -> Path:
@@ -88,7 +88,7 @@ def _assert_contract_error(error: Exception, path: Path, *keys: str) -> None:
     assert str(path) in message
     for key in keys:
         assert key in message
-    assert "ldsc build-r2-panel" in message
+    assert "ldsc build-r2-matrix" in message
 
 
 @pytest.mark.parametrize("defect", sorted(DEFECTS))
@@ -96,9 +96,9 @@ def test_ldscore_reader_rejects_contract_defect(tmp_path, defect):
     rewrite, key = DEFECTS[defect]
     r2 = _write_panel(tmp_path / "hg19")
     _rewrite(r2, **rewrite)
-    panel = ParquetR2RefPanel(
+    panel = R2MatrixRefPanel(
         GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19"),
-        RefPanelConfig(backend="parquet_r2", r2_dir=str(tmp_path / "hg19")),
+        RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(tmp_path / "hg19")),
     )
     with pytest.raises(LDSCInputError) as failure:
         panel.build_reader("1").close()
@@ -106,12 +106,12 @@ def test_ldscore_reader_rejects_contract_defect(tmp_path, defect):
 
 
 @pytest.mark.parametrize("defect", sorted(DEFECTS))
-def test_query_r2_panel_rejects_contract_defect_at_open(tmp_path, defect):
+def test_query_r2_matrix_panel_rejects_contract_defect_at_open(tmp_path, defect):
     rewrite, key = DEFECTS[defect]
     r2 = _write_panel(tmp_path / "hg19")
     _rewrite(r2, **rewrite)
     with pytest.raises(LDSCInputError) as failure:
-        R2Panel.open(tmp_path / "hg19", genome_build="hg19")
+        R2Matrix.open(tmp_path / "hg19", genome_build="hg19")
     _assert_contract_error(failure.value, r2, key)
 
 
@@ -125,7 +125,7 @@ def test_one_error_lists_every_defect_of_every_file(tmp_path):
     _assert_contract_error(failure.value, first, "ldsc:r2_scale", "ldsc:r2_bias")
     _assert_contract_error(failure.value, second, "ldsc:n_samples")
     with pytest.raises(LDSCInputError) as failure:
-        R2Panel.open(root, genome_build="hg19")
+        R2Matrix.open(root, genome_build="hg19")
     _assert_contract_error(failure.value, first, "ldsc:r2_scale", "ldsc:r2_bias")
     _assert_contract_error(failure.value, second, "ldsc:n_samples")
 
@@ -135,31 +135,31 @@ def test_unreadable_file_is_reported_with_the_other_files_defects(tmp_path):
     first, second = _write_panel(root, "1"), _write_panel(root, "2")
     first.write_bytes(b"not a parquet file")
     _rewrite(second, drop=[b"ldsc:r2_scale"])
-    for open_panel in (lambda: inspect_r2_headers(root, "hg19"), lambda: R2Panel.open(root, genome_build="hg19")):
+    for open_panel in (lambda: inspect_r2_headers(root, "hg19"), lambda: R2Matrix.open(root, genome_build="hg19")):
         with pytest.raises(LDSCInputError) as failure:
             open_panel()
         _assert_contract_error(failure.value, first, "cannot be read as parquet")
         _assert_contract_error(failure.value, second, "ldsc:r2_scale")
 
 
-def test_query_r2_panel_rejects_chromosomes_with_different_sample_sizes(tmp_path):
-    # query-r2 converts unbiased R2 back to r with each panel's sample size, so
+def test_query_r2_matrix_panel_rejects_chromosomes_with_different_sample_sizes(tmp_path):
+    # query-r2-matrix converts unbiased R2 back to r with each panel's sample size, so
     # chromosome files from runs with different samples cannot form one panel.
     root = tmp_path / "hg19"
     _write_panel(root, "1")
     second = _write_panel(root, "2")
     _rewrite(second, set_meta={b"ldsc:n_samples": b"5000"})
     with pytest.raises(LDSCInputError, match=r"different sample sizes \(ldsc:n_samples 100, 5000\)"):
-        R2Panel.open(root, genome_build="hg19")
+        R2Matrix.open(root, genome_build="hg19")
 
 
 def test_writer_output_satisfies_contract_and_decodes_exactly(tmp_path):
     root = tmp_path / "hg19"
     _write_panel(root)
     inspect_r2_headers(root, "hg19")
-    panel = ParquetR2RefPanel(
+    panel = R2MatrixRefPanel(
         GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19"),
-        RefPanelConfig(backend="parquet_r2", r2_dir=str(root)),
+        RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(root)),
     )
     reader = panel.build_reader("1")
     try:
@@ -169,7 +169,7 @@ def test_writer_output_satisfies_contract_and_decodes_exactly(tmp_path):
     # Writer stores round(R2 * 32767); the endpoint 1.0 and 0.25 decode within one step.
     np.testing.assert_allclose(np.sort(values), [0.25, 1.0], rtol=0, atol=1 / 32767)
     assert values.dtype == np.float32
-    result = R2Panel.open(root, genome_build="hg19").query_pairs(pd.DataFrame({
+    result = R2Matrix.open(root, genome_build="hg19").query_pairs(pd.DataFrame({
         "CHR_1": ["1"], "POS_1": [100], "A1_1": ["A"], "A2_1": ["C"],
         "CHR_2": ["1"], "POS_2": [120], "A1_2": ["A"], "A2_2": ["G"],
     }))
@@ -180,21 +180,21 @@ def test_writer_output_satisfies_contract_and_decodes_exactly(tmp_path):
 @pytest.mark.parametrize("requested,accepted", [
     ("chr_pos_allele_aware", True), ("chr_pos", True), ("rsid", False), ("rsid_allele_aware", False),
 ])
-def test_query_r2_identifier_override_must_be_panel_mode_or_its_base(tmp_path, requested, accepted):
+def test_query_r2_matrix_identifier_override_must_be_panel_mode_or_its_base(tmp_path, requested, accepted):
     root = tmp_path / "hg19"
     _write_panel(root)
     if accepted:
-        assert R2Panel.open(root, snp_identifier=requested, genome_build="hg19").snp_identifier == requested
+        assert R2Matrix.open(root, snp_identifier=requested, genome_build="hg19").snp_identifier == requested
         return
     with pytest.raises(LDSCInputError, match="chr_pos_allele_aware"):
-        R2Panel.open(root, snp_identifier=requested, genome_build="hg19")
+        R2Matrix.open(root, snp_identifier=requested, genome_build="hg19")
 
 
-def test_query_r2_rejects_allele_aware_override_on_base_panel(tmp_path):
+def test_query_r2_matrix_rejects_allele_aware_override_on_base_panel(tmp_path):
     root = tmp_path / "hg19"
     _write_panel(root, snp_identifier="chr_pos")
     with pytest.raises(LDSCInputError, match="chr_pos"):
-        R2Panel.open(root, snp_identifier="chr_pos_allele_aware", genome_build="hg19")
+        R2Matrix.open(root, snp_identifier="chr_pos_allele_aware", genome_build="hg19")
 
 
 def test_python_api_run_reports_every_chromosome_defect_before_computing(tmp_path):

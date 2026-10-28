@@ -89,15 +89,15 @@ After a successful `munge-sumstats` CLI run, stdout displays a `Munge-sumstats s
 Public workflow layers treat their fixed current-contract outputs plus workflow log as one owned family.
 Without `--overwrite`, any existing owned artifact rejects the run before the log is opened.
 With `--overwrite`, stale owned siblings that the successful run did not produce are removed after the current outputs are written.
-Legacy root log names such as `sumstats.log`, `annotate.log`, `ldscore.log`, `build-r2-panel*.log`, or regression logs at the output root are not part of the current owned family.
-For `build-r2-panel`, concrete chromosome PLINK prefixes own only the matching chromosome-scoped log, while `@` chromosome-suite prefixes own the full `build-r2-panel` log family.
+Legacy root log names such as `sumstats.log`, `annotate.log`, `ldscore.log`, `build-r2-matrix*.log`, or regression logs at the output root are not part of the current owned family.
+For `build-r2-matrix`, concrete chromosome PLINK prefixes own only the matching chromosome-scoped log, while `@` chromosome-suite prefixes own the full `build-r2-matrix` log family.
 
 This keeps an output directory from mixing artifacts from different
 configurations, while preserving unrelated user files. Direct Python writer
 APIs apply the same rule to their data artifacts. Standalone `run_annotate()` owns the canonical annotation log; `AnnotationBuilder.run()` prepares private data without installing a workflow log.
 
 The directory writers in the domain `outputs` modules (`ldsc._annotation.outputs`, `ldsc._refpanel.outputs`, `ldsc._ldscore.outputs` and `ldsc._regression.outputs`) each expose `artifact_family()`, returning an `ArtifactFamily` with selected output paths and the complete owned scope.
-`h2`, `partitioned-h2`, `rg`, `quantile-h2`, `query-r2`, and LD-score workflow preflights consult their writer's declaration and add workflow-owned logs or audits.
+`h2`, `partitioned-h2`, `rg`, `quantile-h2`, `query-r2-matrix`, and LD-score workflow preflights consult their writer's declaration and add workflow-owned logs or audits.
 The legacy LDSC converter and indexed LD-score CLI also consult the LD-score writer.
 Declarations only describe paths; the existing `_runtime.paths.preflight_output_artifact_family()` still performs collision checks.
 
@@ -114,7 +114,7 @@ Validation lives in `tests/runtime/test_artifact_declarations.py`, `tests/runtim
 Output ownership and input validity are separate gates.
 Existing artifact-family checks authorize logs/diagnostics and prevent replacement without overwrite.
 Input gates do not authorize scientific output replacement, remove stale science files, or imply that publication succeeded.
-R² panel builds derive their chromosome-specific output family from validated PLINK contents; their early discovery repair table can therefore precede the full output-family check, as the previous PLINK repair table did.
+R² matrix builds derive their chromosome-specific output family from validated PLINK contents; their early discovery repair table can therefore precede the full output-family check, as the previous PLINK repair table did.
 
 [`_runtime.preflight.InputGate`](../../src/ldsc/_runtime/preflight.py) collects independent input errors across objects at a stage and retains `input_issues` on the exception.
 Writing workflows persist the existing six-column `input_issues.tsv` repair table under diagnostics; gene LD-score index builds use the sibling `.<index>.build-state/` directory.
@@ -132,13 +132,13 @@ When a phase total is unknown, progress omits the denominator; any reported comp
 
 Direct LD scores check declarations and annotation headers, resolve gene-list controls, and validate reference content before annotation staging.
 PLINK companion mappings and reference scope evidence are reused; annotation headers supply the source scan widths.
-Gene LD-score index and R² panel construction check baseline/auxiliary declarations and PLINK companions together.
+Gene LD-score index and R² matrix construction check baseline/auxiliary declarations and PLINK companions together.
 Index consumers check every component path, small chromosome identity metadata, and Parquet header before opening the first numerical operator.
 See [`test_staged_input_preflight.py`](../../tests/runtime/test_staged_input_preflight.py).
 
 Validation remains staged: BIM/FAM rows and BED dimensions require reference inspection; annotation row alignment, duplicate identities, chromosome contents, and gene support require their content scans.
-R² panel query-scope validation streams pair integrity before preparation and reuses that scope result.
-Baseline-only R² panel runs check sidecar/reader compatibility early and retain pair-content checks in the consuming reader, avoiding an additional full pair scan.
+R² matrix query-scope validation streams pair integrity before preparation and reuses that scope result.
+Baseline-only R² matrix runs check sidecar/reader compatibility early and retain pair-content checks in the consuming reader, avoiding an additional full pair scan.
 Ordinary globs cannot reveal a chromosome that is absent consistently from all matches.
 Scientific omission, ignored-option, overwrite, and failure-marker policies remain unchanged.
 
@@ -189,7 +189,7 @@ escapes:
 - `plot`: `<result-dir>/plots/RUN_FAILED.txt`
 - `convert-h2-scale`:
   `<h2-result-dir>/postprocessing/liability-scale/RUN_FAILED.txt`
-- concrete chromosome `build-r2-panel`:
+- concrete chromosome `build-r2-matrix`:
   `<output-dir>/RUN_FAILED.chr<chrom>.txt`
 
 The marker records the failed command/API boundary, UTC timestamp, exception,
@@ -272,14 +272,14 @@ header is written and final work before the footer is written.
 | `munge-sumstats` | `<output_dir>/diagnostics/sumstats.log` |
 | `annotate` | `<output_dir>/diagnostics/annotate.log` |
 | `ldscore` | `<output_dir>/diagnostics/ldscore.log` |
-| `build-r2-panel` | `<output_dir>/diagnostics/build-r2-panel.log`, or `<output_dir>/diagnostics/build-r2-panel.chr<chrom>.log` for concrete single-chromosome PLINK-prefix runs |
+| `build-r2-matrix` | `<output_dir>/diagnostics/build-r2-matrix.log`, or `<output_dir>/diagnostics/build-r2-matrix.chr<chrom>.log` for concrete single-chromosome PLINK-prefix runs |
 | `build-gene-ldscore-index` | completed success: `<index_dir>/diagnostics/build-gene-ldscore-index.log`; running/failed: `<parent>/.<index-name>.build-state/build-gene-ldscore-index.log`; prior failed attempts move to hidden `history/` |
 | `convert-ldsc2-ldscores` | `<output_dir>/diagnostics/convert-ldsc2-ldscores.log` |
 | `h2` | `<output_dir>/diagnostics/h2.log` |
 | `partitioned-h2` | `<output_dir>/diagnostics/partitioned-h2.log` |
 | `quantile-h2` | `<output_dir>/diagnostics/quantile-h2.log` |
 | `rg` | `<output_dir>/diagnostics/rg.log` |
-| `query-r2` | `<output_dir>/diagnostics/query-r2.log` |
+| `query-r2-matrix` | `<output_dir>/diagnostics/query-r2-matrix.log` |
 | `plot` | `<result-dir>/plots/diagnostics/plot.log` |
 | `convert-h2-scale` | `<h2-result-dir>/postprocessing/liability-scale/diagnostics/convert-h2-scale.log` |
 

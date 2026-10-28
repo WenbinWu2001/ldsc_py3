@@ -333,8 +333,8 @@ ldsc.set_global_config(cfg)
 
 ref_panel = ldsc.RefPanelLoader(cfg).load(
     ldsc.RefPanelConfig(
-        backend="parquet_r2",
-        r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
+        backend="r2_matrix",
+        r2_matrix_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
     )
 )
 
@@ -348,10 +348,10 @@ ldscore = ldsc.LDScoreCalculator().run(
 )
 ```
 
-For R² panels, R² bias and sample size are recorded only in the
+For R² matrices, R² bias and sample size are recorded only in the
 Parquet schema (`ldsc:r2_bias` and `ldsc:n_samples`); there are no
 `RefPanelConfig` bias or sample-size fields.
-Readers accept only already-unbiased panels written by the current `build-r2-panel`; other panels must be rebuilt.
+Readers accept only already-unbiased R² matrices written by the current `build-r2-matrix`; other R² matrices must be rebuilt.
 
 ### Regression-region exclusion
 
@@ -362,7 +362,7 @@ LD scores, and count vectors untouched. `ldscore --genome-build` selects the
 named interval build; the closed gene LD-score index builder uses its required explicit
 hg19 build. Custom intervals require a prefiltered `--regr-snps-file`;
 intentional reference pruning requires `--ref-panel-snps-file` in live
-`ldscore` or at reference-panel build time. `build-r2-panel` has neither
+`ldscore` or at reference-panel build time. `build-r2-matrix` has neither
 region-exclusion nor HM3 convenience flags.
 
 ### Artifact contract
@@ -397,21 +397,21 @@ successful run removes stale owned siblings that the current run did not
 produce, such as `ldscore.query.parquet` after switching from query LD scores
 to baseline-only LD scores.
 
-The same coherent-family rule applies to `munge-sumstats`, `build-r2-panel`,
+The same coherent-family rule applies to `munge-sumstats`, `build-r2-matrix`,
 `partitioned-h2`, `rg`, and `annotate`: no-overwrite mode rejects any owned
 sibling in the current public layout, while successful overwrites delete stale
 current-contract owned siblings and preserve unrelated files. Removed legacy
 root diagnostic names are ignored by preflight and cleanup. Sharded workflows
-may narrow the owned package to the current shard; for `build-r2-panel`,
+may narrow the owned package to the current shard; for `build-r2-matrix`,
 concrete chromosome PLINK prefixes own only that chromosome's package, while
-`@` chromosome-suite prefixes own the full all-chromosome panel package.
+`@` chromosome-suite prefixes own the full all-chromosome R² matrix package.
 
 ---
 
 ## Caveats and Known Limitations
 
 **Reference-panel runtime state does not carry its own full `GlobalConfig`.**
-`RefPanelConfig` owns backend and filtering options such as `r2_dir`,
+`RefPanelConfig` owns backend and filtering options such as `r2_matrix_dir`,
 `maf_min`, and `ref_panel_snps_file`. The shared identifier and genome-build
 assumptions come from the `GlobalConfig` passed to `RefPanelLoader` and then
 captured by the LD-score workflow result snapshots.
@@ -461,7 +461,7 @@ re-runs an earlier cell that did not capture a config explicitly, and then combi
 results, they will get a `ConfigMismatchError`. This is the intended behavior — the
 error message explains the mismatch clearly. It is not a silent corruption.
 
-**The `run_ldscore()` and `run_build_ref_panel()` convenience wrappers read the global
+**The `run_ldscore()` and `run_build_r2_matrix()` convenience wrappers read the global
 registry at call time.** Explicit `global_config=` arguments are always preferred.
 
 ## Retired inert configuration

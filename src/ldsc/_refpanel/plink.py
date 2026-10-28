@@ -108,7 +108,7 @@ if ba is not None:
 
             When ``streaming`` is true the retained genotype bitarray is never
             materialized; ``nextSNPs`` decodes each batch directly from disk. Only
-            ``build-r2-panel`` opts in, and only for unrestricted builds where the
+            ``build-r2-matrix`` opts in, and only for unrestricted builds where the
             kept set spans the whole chromosome.
             """
             self._streaming = bool(streaming)
@@ -325,5 +325,5 @@ else:
             raise LDSCDependencyError(
                 "PLINK LD-score support could not open genotype data because bitarray is not installed. "
                 "Most likely PLINK reference-panel mode was requested in an environment missing the optional "
-                "dependency. Install bitarray or use an R2 panel as the reference panel."
+                "dependency. Install bitarray or use an R2 matrix as the reference panel."
             )

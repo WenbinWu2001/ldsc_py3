@@ -57,7 +57,7 @@ Output paths are different:
 
 ### PLINK prefix resolution
 
-PLINK is an exception to the file-token rule against bare prefixes. `ldscore`, `build-gene-ldscore-index`, `build-r2-panel`, and direct Python PLINK panels use the shared `_runtime.paths.inspect_plink_inputs()` implementation.
+PLINK is an exception to the file-token rule against bare prefixes. `ldscore`, `build-gene-ldscore-index`, `build-r2-matrix`, and direct Python PLINK panels use the shared `_runtime.paths.inspect_plink_inputs()` implementation.
 
 - Accept an exact prefix (`panel.22`), a member path (`panel.22.bim`), a plain stem (`1000G.EUR.QC.`), a glob (`"panel.*"`), or an explicit `@` pattern (`"panel.@"`). Only `.bed`, `.bim`, and `.fam` are stripped as PLINK member extensions; `.22` remains part of a prefix.
 - An exact selected prefix takes precedence over broader stem discovery. Otherwise a plain stem discovers matching PLINK members; a glob selects its actual matches. Every selected prefix must have a complete BED/BIM/FAM trio. Partially present trios are reported rather than silently omitted.
@@ -66,14 +66,14 @@ PLINK is an exception to the file-token rule against bare prefixes. `ldscore`, `
 - Coverage remains workflow-specific.
   Direct query LD-score `@` declarations require autosomes 1-22; plain/glob inputs select their actual validated scope and must match baseline coverage.
   Gene LD-score index construction always requires autosomes 1-22.
-  Generic group expansion and `build-r2-panel` retain existing `@` members, while rejecting incomplete selected trios.
+  Generic group expansion and `build-r2-matrix` retain existing `@` members, while rejecting incomplete selected trios.
 
 [`inspect_plink_inputs()`](../../src/ldsc/_runtime/paths.py) returns prefixes, chromosome assignments, and issue records.
 `require_valid()` raises a combined error, optionally including missing required chromosomes.
 `resolve_plink_prefix_group()` retains the path-only group interface when no chromosome is requested; per-chromosome resolution uses the shared content validation.
 The direct workflow combines these issues with its annotation diagnostics.
 Failed gene LD-score index build attempts retain `plink_input_issues.tsv` under `.<output-name>.build-state/`; a later attempt archives that audit alongside the prior log.
-Failed `build-r2-panel` validation writes `diagnostics/plink_input_issues.tsv`.
+Failed `build-r2-matrix` validation writes `diagnostics/plink_input_issues.tsv`.
 
 ### Pattern support in command help
 
@@ -88,17 +88,17 @@ The first suite-capable flag in each command explains this syntax. Later flags r
 | Raw or munged scalar summary-statistics files; munging SNP-list and liftover-chain files | Exact file or quoted `*` pattern resolving to exactly one file; `@` is not expanded. |
 | `rg --sumstats-sources` | Exact files or quoted `*` patterns selecting multiple files; at least two inputs are required. `@` is not expanded. |
 | `ldscore --regr-snps-file` | Exact file or quoted `*` pattern resolving to one file; `@` is not expanded. |
-| `build-r2-panel` SNP/individual restriction files | Exact file or quoted `*` pattern resolving to one file; `@` is not expanded. |
-| `build-r2-panel` genetic-map sources | Exact files, quoted `*` patterns, or `@` suites. |
+| `build-r2-matrix` SNP/individual restriction files | Exact file or quoted `*` pattern resolving to one file; `@` is not expanded. |
+| `build-r2-matrix` genetic-map sources | Exact files, quoted `*` patterns, or `@` suites. |
 | `ldscore` and `build-gene-ldscore-index` genetic-map sources | Comma-separated exact paths. Their current readers do not expand `*` or `@`. |
-| Gene coordinate catalogs, fixed control gene lists, `ldscore` reference-SNP/individual lists, gene LD-score index regression-SNP/individual lists, and `build-r2-panel` liftover-chain files | Exact file paths. Pattern expansion is not implemented by these readers. |
-| Input/output directories and `query-r2 --pairs` | Literal paths; no pattern expansion. `--pairs -` retains its standard-input meaning. |
+| Gene coordinate catalogs, fixed control gene lists, `ldscore` reference-SNP/individual lists, gene LD-score index regression-SNP/individual lists, and `build-r2-matrix` liftover-chain files | Exact file paths. Pattern expansion is not implemented by these readers. |
+| Input/output directories and `query-r2-matrix --pairs` | Literal paths; no pattern expansion. `--pairs -` retains its standard-input meaning. |
 
-Sources: [`_runtime.paths.resolve_scalar_path`, `resolve_file_group`, and PLINK resolvers](../../src/ldsc/_runtime/paths.py); [`_annotation.preflight.resolve_annotation_inputs`](../../src/ldsc/_annotation/preflight.py); [`_ldscore.direct_annotation.prepare_direct_annotations`](../../src/ldsc/_ldscore/direct_annotation.py); [`_regression.quantile_inputs.prepare_quantile_statistics`](../../src/ldsc/_regression/quantile_inputs.py); [`_annotation.gene_lists._expand_focal_gene_list_sources`](../../src/ldsc/_annotation/gene_lists.py); [`_refpanel.builder.ReferencePanelBuilder._prepare_build_state`](../../src/ldsc/_refpanel/builder.py); [`_refpanel.adapters._resolve_genetic_map`](../../src/ldsc/_refpanel/adapters.py); [`_ldscore.gene_index.build._load_builder_genetic_map`](../../src/ldsc/_ldscore/gene_index/build.py).
+Sources: [`_runtime.paths.resolve_scalar_path`, `resolve_file_group`, and PLINK resolvers](../../src/ldsc/_runtime/paths.py); [`_annotation.preflight.resolve_annotation_inputs`](../../src/ldsc/_annotation/preflight.py); [`_ldscore.direct_annotation.prepare_direct_annotations`](../../src/ldsc/_ldscore/direct_annotation.py); [`_regression.quantile_inputs.prepare_quantile_statistics`](../../src/ldsc/_regression/quantile_inputs.py); [`_annotation.gene_lists._expand_focal_gene_list_sources`](../../src/ldsc/_annotation/gene_lists.py); [`_refpanel.builder.R2MatrixBuilder._prepare_build_state`](../../src/ldsc/_refpanel/builder.py); [`_refpanel.adapters._resolve_genetic_map`](../../src/ldsc/_refpanel/adapters.py); [`_ldscore.gene_index.build._load_builder_genetic_map`](../../src/ldsc/_ldscore/gene_index/build.py).
 
 ### Direct LD-score query scope
 
-Direct gene-list, BED, and prebuilt-query `ldscore` runs use these rules for both PLINK and R² panel reference backends:
+Direct gene-list, BED, and prebuilt-query `ldscore` runs use these rules for both PLINK and R² matrix reference backends:
 
 1. `@` declares all autosomes 1–22. Every required chromosome input must exist and validate; it does not mean “use whichever chromosomes are present.”
 2. Ordinary globs select the files they actually match. Validated contents, not filenames, determine their chromosome set. For example, `"annotations/*.22.annot.gz"` does not guarantee chr22-only contents: any additional chromosomes in its matched files participate in scope.
@@ -113,7 +113,7 @@ Quote glob tokens on the command line so the package receives the pattern intact
 
 For an intentional subset, use quoted `*` patterns or exact paths selecting matching baseline and PLINK chromosome sets.
 If a full suite was intended, restore missing files instead.
-With `--r2-dir`, use a literal directory containing the matching chromosome set.
+With `--r2-matrix-dir`, use a literal directory containing the matching chromosome set.
 Every selected query/control gene must still be covered; supply missing chromosome inputs or explicitly revise the gene lists.
 Replacing `@` with `*` does not filter genes or truncate pathways.
 Coverage errors and their workflow-log tracebacks include this repair guidance.
@@ -132,18 +132,18 @@ independent optional files:
   `sumstats.gz`, `diagnostics/dropped_snps/dropped.tsv.gz`, and
   `diagnostics/sumstats.log`
   for CLI/workflow runs
-- `ldscore`: `metadata.json`, `ldscore.baseline.parquet`, optional single or numbered query Parquet files, optional `ldscore.overlap.parquet`, `diagnostics/ld_window_snp_counts.tsv` for R² panel `--ld-wind-snps` runs, `diagnostics/reference_snp_funnel.tsv`, and `diagnostics/ldscore.log` for CLI/workflow runs
+- `ldscore`: `metadata.json`, `ldscore.baseline.parquet`, optional single or numbered query Parquet files, optional `ldscore.overlap.parquet`, `diagnostics/ld_window_snp_counts.tsv` for R² matrix `--ld-wind-snps` runs, `diagnostics/reference_snp_funnel.tsv`, and `diagnostics/ldscore.log` for CLI/workflow runs
 - `convert-ldsc2-ldscores`: canonical `metadata.json`,
   `ldscore.baseline.parquet`, optional `ldscore.overlap.parquet`,
   `diagnostics/conversion_issues.tsv.gz`, and
   `diagnostics/convert-ldsc2-ldscores.log`. This command deliberately accepts
   directory inputs and performs its own strict chromosomes 1-22 family
   discovery; that exception does not enable directory discovery elsewhere.
-- `build-r2-panel`: `{hg19,hg38}/chr*_r2.parquet`,
+- `build-r2-matrix`: `{hg19,hg38}/chr*_r2.parquet`,
   `{hg19,hg38}/chr*_meta.tsv.gz`,
   `diagnostics/metadata.json`, `diagnostics/metadata.chr*.json`,
   `diagnostics/dropped_snps/chr*_dropped.tsv.gz`,
-  and `diagnostics/build-r2-panel*.log` for CLI/workflow runs
+  and `diagnostics/build-r2-matrix*.log` for CLI/workflow runs
 - `partitioned-h2`: `partitioned_h2.tsv`,
   `diagnostics/metadata.json`, optional `diagnostics/query_annotations/`, and
   `diagnostics/partitioned-h2.log` for CLI/workflow runs
@@ -170,7 +170,7 @@ and then removes stale current-contract owned siblings not produced by the
 successful run. Removed legacy root diagnostic names are ignored by preflight
 and cleanup, and unrelated files in the directory are preserved. Workflows that
 can run independent shards into one directory may narrow the owned family to the
-current shard. For `build-r2-panel`, a concrete chromosome prefix owns only
+current shard. For `build-r2-matrix`, a concrete chromosome prefix owns only
 that chromosome's package, while an `@` chromosome-suite invocation owns the
 full all-chromosome package. Directory artifacts such as
 `diagnostics/query_annotations/` and `diagnostics/pairs/` are owned as whole
@@ -219,7 +219,7 @@ Use this when you have one file or prefix per chromosome.
 ## How Group Inputs Are Handled
 
 Group-style inputs include annotation files and BED inputs.
-The public R² panel interface is directory-oriented (`r2_dir`); the loader discovers fixed `chr*_r2.parquet` files and optional metadata sidecars inside that directory.
+The public R² matrix interface is directory-oriented (`r2_matrix_dir`); the loader discovers fixed `chr*_r2.parquet` files and optional metadata sidecars inside that directory.
 
 During per-chromosome processing:
 
@@ -372,7 +372,7 @@ Group-style inputs:
 
 Directory-style inputs:
 
-- `r2_dir`
+- `r2_matrix_dir`
 
 Scalar-style inputs:
 
@@ -400,19 +400,19 @@ How they are handled:
 Requirements:
 
 - annotation files must align on SNP rows within each chromosome
-- R² panel directories must use the fixed `chr{chrom}_r2.parquet` naming
+- R² matrix directories must use the fixed `chr{chrom}_r2.parquet` naming
   contract, with a mandatory paired `chr{chrom}_meta.tsv.gz` sidecar for each
   chromosome (the sidecar defines the index space)
 - package-built R² Parquet files record `ldsc:r2_bias=unbiased`, `ldsc:n_samples`,
-  and the rest of the [R² panel contract](formats/r2-panels.md#25-parquet-schema-metadata) in schema metadata;
-  there are no bias-related flags, and panels that do not match the contract must be rebuilt
+  and the rest of the [R² matrix contract](formats/r2-matrices.md#25-parquet-schema-metadata) in schema metadata;
+  there are no bias-related flags, and R² matrices that do not match the contract must be rebuilt
 
 Examples:
 
 ```bash
 ldsc ldscore \
   --output-dir out/trait_ldscores \
-  --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
+  --r2-matrix-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0
 ```
@@ -446,8 +446,8 @@ Output:
 
 Relevant APIs:
 
-- `run_build_ref_panel(...)`
-- `ldsc build-r2-panel`
+- `run_build_r2_matrix(...)`
+- `ldsc build-r2-matrix`
 
 Accepted path forms:
 
@@ -476,7 +476,7 @@ How they are handled:
 - `snp_identifier` for SNP restrictions comes from `GlobalConfig`; the CLI flag
   constructs a one-invocation identifier config, and the Python wrapper reads
   the registered config
-- `build-r2-panel` ignores `GlobalConfig.genome_build`; in `chr_pos`-family modes, the
+- `build-r2-matrix` ignores `GlobalConfig.genome_build`; in `chr_pos`-family modes, the
   restriction file must provide source-build coordinates, either through a
   source-specific column such as `hg19_POS` or through generic `POS` that
   infers to the source PLINK build
@@ -484,7 +484,7 @@ How they are handled:
 Example:
 
 ```bash
-ldsc build-r2-panel \
+ldsc build-r2-matrix \
   --plink-prefix data/reference/genomes_30x_chr \
   --source-genome-build hg38 \
   --genetic-map-hg19-sources maps/hg19.txt \
@@ -503,14 +503,14 @@ Output:
 - For a concrete single-chromosome PLINK prefix such as `panel.1`, the owned
   package is restricted to chromosome 1: the `chr1` R² Parquet file, `chr1` metadata
   sidecars, `diagnostics/dropped_snps/chr1_dropped.tsv.gz`,
-  `diagnostics/metadata.chr1.json`, and `diagnostics/build-r2-panel.chr1.log`.
+  `diagnostics/metadata.chr1.json`, and `diagnostics/build-r2-matrix.chr1.log`.
   Sibling chromosomes are not collisions and are not stale cleanup targets.
 - For a `@` chromosome-suite prefix such as `panel.@`, the owned package spans
   every discovered chromosome in the output directory, so full-panel overwrites
   can clean stale target-build, chromosome, dropped-SNP, metadata, and log
   siblings.
 - Existing parquet, metadata, dropped-SNP audit, or workflow-log files are
-  refused unless `--overwrite` or `ReferencePanelBuildConfig(overwrite=True)`
+  refused unless `--overwrite` or `R2MatrixBuildConfig(overwrite=True)`
   is supplied.
 - With overwrite enabled, a successful run removes stale owned artifacts inside
   the current package that the run did not produce.
@@ -619,7 +619,7 @@ The package does not infer:
 - missing file suffixes
 - directory contents from an input directory argument
 - a hidden per-chromosome mode from a bare prefix
-- target-build SNP restrictions for `ldsc build-r2-panel`; that workflow
+- target-build SNP restrictions for `ldsc build-r2-matrix`; that workflow
   applies restrictions before liftover and requires restriction coordinates to
   align to the inferred or explicit source PLINK build
 

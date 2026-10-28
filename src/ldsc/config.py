@@ -40,7 +40,7 @@ from ._runtime.paths import normalize_optional_path_token, normalize_path_token,
 LOGGER = logging.getLogger("LDSC.config")
 _GENOME_BUILD_UNSET = object()
 # SNPs per PLINK genotype batch in ldscore, build-gene-ldscore-index, and
-# build-r2-panel. LD windows are exact for any value, so it sets speed and
+# build-r2-matrix. LD windows are exact for any value, so it sets speed and
 # memory only; see docs/dev/design/memory-and-cpu.md for the benchmark.
 DEFAULT_SNP_BATCH_SIZE = 512
 
@@ -49,7 +49,7 @@ SNPIdentifierMode = Literal["rsid", "rsid_allele_aware", "chr_pos", "chr_pos_all
 GenomeBuildInput = Literal["auto", "hg19", "hg37", "hg38", "GRCh37", "GRCh38"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 LOG_LEVEL_CHOICES: tuple[LogLevel, ...] = ("DEBUG", "INFO", "WARNING", "ERROR")
-RefPanelBackend = Literal["auto", "plink", "parquet_r2"]
+RefPanelBackend = Literal["auto", "plink", "r2_matrix"]
 
 
 class ConfigMismatchError(LDSCConfigError, ValueError):
@@ -433,14 +433,14 @@ class RefPanelConfig:
 
     Parameters
     ----------
-    backend : {"auto", "plink", "parquet_r2"}, optional
+    backend : {"auto", "plink", "r2_matrix"}, optional
         Backend family used to supply LD reference information. Default is
         ``"auto"``.
     plink_prefix : str or os.PathLike[str] or None, optional
         Exact PLINK ``.bed/.bim/.fam`` prefix, plain chromosome-suite stem,
         glob, or explicit ``@`` suite token. Default is ``None``.
-    r2_dir : str or os.PathLike[str] or None, optional
-        R2 panel directory containing package-built Parquet files named
+    r2_matrix_dir : str or os.PathLike[str] or None, optional
+        R2 matrix directory containing package-built Parquet files named
         ``chr{chrom}_r2.parquet`` and mandatory metadata sidecars named
         ``chr{chrom}_meta.tsv.gz``. Default is ``None``.
     maf_min : float or None, optional
@@ -453,7 +453,7 @@ class RefPanelConfig:
     """
     backend: RefPanelBackend = "auto"
     plink_prefix: str | PathLike[str] | None = None
-    r2_dir: str | PathLike[str] | None = None
+    r2_matrix_dir: str | PathLike[str] | None = None
     chromosomes: tuple[str, ...] | list[str] | None = None
     maf_min: float | None = None
     keep_indivs_file: str | PathLike[str] | None = None
@@ -462,13 +462,13 @@ class RefPanelConfig:
     genetic_map_hg38_sources: str | PathLike[str] | None = None
 
     def __post_init__(self) -> None:
-        """Normalize backend path tokens and validate R2-panel settings."""
-        if self.backend not in {"auto", "plink", "parquet_r2"}:
-            raise LDSCConfigError(_invalid_choice_message("RefPanelConfig", "backend", self.backend, "'auto', 'plink', or 'parquet_r2'"))
+        """Normalize backend path tokens and validate R2-matrix settings."""
+        if self.backend not in {"auto", "plink", "r2_matrix"}:
+            raise LDSCConfigError(_invalid_choice_message("RefPanelConfig", "backend", self.backend, "'auto', 'plink', or 'r2_matrix'"))
         if self.maf_min is not None and not 0 <= self.maf_min <= 0.5:
             raise LDSCConfigError(_range_message("RefPanelConfig", "maf_min", self.maf_min, "[0, 0.5]"))
         object.__setattr__(self, "plink_prefix", _normalize_optional_path(self.plink_prefix))
-        object.__setattr__(self, "r2_dir", _normalize_optional_path(self.r2_dir))
+        object.__setattr__(self, "r2_matrix_dir", _normalize_optional_path(self.r2_matrix_dir))
         object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
         object.__setattr__(self, "ref_panel_snps_file", _normalize_optional_path(self.ref_panel_snps_file))
         object.__setattr__(self, "genetic_map_hg19_sources", _normalize_optional_path(self.genetic_map_hg19_sources))
@@ -483,9 +483,9 @@ class RefPanelConfig:
 class LDScoreConfig:
     """Configuration for chromosome-wise LD-score calculation.
 
-    Exactly one LD-window field must be provided. With an R2 panel the
-    window must use the panel's build-window unit and be no wider than it, and
-    ``ld_wind_snps`` counts panel sidecar rows rather than retained SNPs. The
+    Exactly one LD-window field must be provided. With an R2 matrix the
+    window must use the R2 matrix's build-window unit and be no wider than it, and
+    ``ld_wind_snps`` counts R2 matrix sidecar rows rather than retained SNPs. The
     remaining fields control regression-SNP selection, annotation counts, and
     execution batch sizes.
 
@@ -506,7 +506,7 @@ class LDScoreConfig:
         restrictions through ``regression_snps`` instead.
     snp_batch_size : int, optional
         Number of SNPs per PLINK genotype batch. LD windows are exact for any
-        value, so it changes speed and memory, not LD scores; R2 panel
+        value, so it changes speed and memory, not LD scores; R2 matrix
         input ignores it. Default is ``512``.
     query_batch_size : int, optional
         Positive maximum number of focal query columns prepared, computed,
@@ -527,7 +527,7 @@ class LDScoreConfig:
         Write retained PLINK reference metadata, including effective CM, under
         ``ref_metadata/`` in the output directory. Default is ``False``.
         Requires an output configuration and is not a zero-write option.
-        R2 panel inputs already have authoritative metadata sidecars.
+        R2 matrix inputs already have authoritative metadata sidecars.
     workers : int, optional
         Maximum number of concurrent workers, default 1, including on HPC.
         Use joblib.cpu_count() as the detected available CPU budget.
@@ -734,12 +734,12 @@ class GeneLDScoreIndexBuildConfig:
 
 
 @dataclass(frozen=True)
-class ReferencePanelBuildConfig:
+class R2MatrixBuildConfig:
     """Configuration for building standard parquet reference panels from PLINK.
 
     This config owns the builder-only SNP restriction path
     ``ref_panel_snps_file``. That setting is not shared through
-    ``GlobalConfig`` because it changes the retained panel rows for one build
+    ``GlobalConfig`` because it changes the retained R2 matrix rows for one build
     run rather than the global identifier or genome-build assumptions.
 
     Parameters
@@ -767,7 +767,7 @@ class ReferencePanelBuildConfig:
     liftover_chain_hg19_to_hg38_file, liftover_chain_hg38_to_hg19_file : str or os.PathLike[str] or None, optional
         Chain files used to populate the opposite-build coordinates. If the
         chain matching the resolved ``source_genome_build`` is omitted, the
-        builder emits a source-build-only panel. Matching chain files are valid
+        builder emits a source-build-only R2 matrix. Matching chain files are valid
         only when the active ``GlobalConfig.snp_identifier`` is in the
         ``chr_pos`` family.
     ld_wind_snps, ld_wind_kb, ld_wind_cm : int, float, float, or None, optional
@@ -775,7 +775,7 @@ class ReferencePanelBuildConfig:
     maf_min : float or None, optional
         Optional retained-SNP MAF threshold. Default is ``None``.
     ref_panel_snps_file : str or os.PathLike[str] or None, optional
-        Optional SNP list restricting the SNPs written to the reference panel.
+        Optional SNP list restricting the SNPs written to the R2 matrix.
         Default is ``None``. The identifier mode comes from
         ``GlobalConfig.snp_identifier``. Restriction files may omit alleles and
         then match by base key. In ``chr_pos``-family modes, the restriction
@@ -794,11 +794,11 @@ class ReferencePanelBuildConfig:
         any non-positive value) writes every retained pair, preserving exact
         pairwise completeness. A positive value drops pairs whose unbiased R2
         is below the threshold, reducing output size and memory; ``ldscore``
-        rejects such a panel, while ``query-r2`` reports dropped pairs as
+        rejects such an R2 matrix, while ``query-r2-matrix`` reports dropped pairs as
         absent. The applied value is recorded as ``ldsc:min_r2`` parquet
         metadata. Default is ``0.0``.
     overwrite : bool, optional
-        If ``True``, replace current panel artifacts and remove stale
+        If ``True``, replace current R2 matrix artifacts and remove stale
         workflow-owned parquet, metadata, dropped-SNP, or log siblings after a
         successful run. If ``False``, output collisions raise before
         chromosome processing starts. Default is ``False``.
@@ -828,14 +828,14 @@ class ReferencePanelBuildConfig:
             source_genome_build = normalize_genome_build(self.source_genome_build)
         except ValueError as exc:
             raise LDSCConfigError(
-                f"Could not construct ReferencePanelBuildConfig: source_genome_build={self.source_genome_build!r} is invalid. "
+                f"Could not construct R2MatrixBuildConfig: source_genome_build={self.source_genome_build!r} is invalid. "
                 "Most likely the genome build name is misspelled or unsupported. "
                 "Use 'auto', 'hg19', 'hg38', 'GRCh37', or 'GRCh38'."
             ) from exc
         object.__setattr__(self, "source_genome_build", source_genome_build)
         if self.source_genome_build is None:
             raise LDSCConfigError(
-                "Could not construct ReferencePanelBuildConfig: source_genome_build=None is invalid. "
+                "Could not construct R2MatrixBuildConfig: source_genome_build=None is invalid. "
                 "Most likely the build was omitted for a coordinate reference-panel build. "
                 "Use source_genome_build='auto', 'hg19', or 'hg38'."
             )
@@ -856,7 +856,7 @@ class ReferencePanelBuildConfig:
         object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
         windows = [self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm]
         if sum(value is not None for value in windows) != 1:
-            raise LDSCConfigError(_one_ld_window_message("ReferencePanelBuildConfig"))
+            raise LDSCConfigError(_one_ld_window_message("R2MatrixBuildConfig"))
         source_map = None
         if self.source_genome_build == "hg19":
             source_map = self.genetic_map_hg19_sources
@@ -864,23 +864,23 @@ class ReferencePanelBuildConfig:
             source_map = self.genetic_map_hg38_sources
         if self.ld_wind_cm is not None and self.source_genome_build in {"hg19", "hg38"} and source_map is None:
             raise LDSCConfigError(
-                f"Could not construct ReferencePanelBuildConfig: ld_wind_cm requires a {self.source_genome_build} genetic map path. "
+                f"Could not construct R2MatrixBuildConfig: ld_wind_cm requires a {self.source_genome_build} genetic map path. "
                 "Most likely cM-window LD scores were requested without the matching genetic map. "
                 f"Set genetic_map_{self.source_genome_build}_sources or use ld_wind_snps/ld_wind_kb."
             )
         if self.ld_wind_snps is not None and self.ld_wind_snps <= 0:
-            raise LDSCConfigError(_positive_number_message("ReferencePanelBuildConfig", "ld_wind_snps", self.ld_wind_snps))
+            raise LDSCConfigError(_positive_number_message("R2MatrixBuildConfig", "ld_wind_snps", self.ld_wind_snps))
         if self.ld_wind_kb is not None and self.ld_wind_kb <= 0:
-            raise LDSCConfigError(_positive_number_message("ReferencePanelBuildConfig", "ld_wind_kb", self.ld_wind_kb))
+            raise LDSCConfigError(_positive_number_message("R2MatrixBuildConfig", "ld_wind_kb", self.ld_wind_kb))
         if self.ld_wind_cm is not None and self.ld_wind_cm <= 0:
-            raise LDSCConfigError(_positive_number_message("ReferencePanelBuildConfig", "ld_wind_cm", self.ld_wind_cm))
+            raise LDSCConfigError(_positive_number_message("R2MatrixBuildConfig", "ld_wind_cm", self.ld_wind_cm))
         if self.maf_min is not None and not 0 <= self.maf_min <= 0.5:
-            raise LDSCConfigError(_range_message("ReferencePanelBuildConfig", "maf_min", self.maf_min, "[0, 0.5]"))
+            raise LDSCConfigError(_range_message("R2MatrixBuildConfig", "maf_min", self.maf_min, "[0, 0.5]"))
         if self.snp_batch_size <= 0:
-            raise LDSCConfigError(_positive_number_message("ReferencePanelBuildConfig", "snp_batch_size", self.snp_batch_size))
+            raise LDSCConfigError(_positive_number_message("R2MatrixBuildConfig", "snp_batch_size", self.snp_batch_size))
         if not math.isfinite(self.min_r2) or self.min_r2 > 1:
             raise LDSCConfigError(
-                f"Could not construct ReferencePanelBuildConfig: min_r2={self.min_r2!r} must be a finite "
+                f"Could not construct R2MatrixBuildConfig: min_r2={self.min_r2!r} must be a finite "
                 "number no greater than 1. "
                 "Most likely an R2 percentage or invalid threshold was supplied. "
                 "Use a decimal threshold in [0, 1]."

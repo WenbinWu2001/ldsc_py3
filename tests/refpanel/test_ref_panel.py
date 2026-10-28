@@ -12,7 +12,7 @@ import pytest
 from ldsc.config import GlobalConfig, RefPanelConfig
 from ldsc.errors import LDSCInputError
 from ldsc._refpanel.adapters import (
-    ParquetR2RefPanel,
+    R2MatrixRefPanel,
     PlinkRefPanel,
     RefPanelLoader,
     read_metadata_table,
@@ -100,21 +100,21 @@ class RefPanelLoaderTest(unittest.TestCase):
         spec = RefPanelConfig(backend="plink", ref_panel_snps_file="/path/to/snps.txt")
         self.assertEqual(spec.ref_panel_snps_file, "/path/to/snps.txt")
 
-    def test_ref_panel_config_accepts_r2_dir(self):
-        spec = RefPanelConfig(backend="parquet_r2", r2_dir="/path/to/panel/hg38")
-        self.assertEqual(spec.r2_dir, "/path/to/panel/hg38")
+    def test_ref_panel_config_accepts_r2_matrix_dir(self):
+        spec = RefPanelConfig(backend="r2_matrix", r2_matrix_dir="/path/to/panel/hg38")
+        self.assertEqual(spec.r2_matrix_dir, "/path/to/panel/hg38")
 
     def test_ref_panel_config_rejects_removed_parquet_source_fields(self):
         for name in ("r2_ref_panel_dir", "ref_panel_dir", "r2_sources", "metadata_sources"):
             with self.subTest(name=name):
                 with self.assertRaises(TypeError):
-                    RefPanelConfig(backend="parquet_r2", **{name: "/path/to/panel/hg38"})
+                    RefPanelConfig(backend="r2_matrix", **{name: "/path/to/panel/hg38"})
 
     def test_loader_selects_parquet_backend(self):
         loader = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RefPanelConfig())
-        spec = RefPanelConfig(backend="parquet_r2", chromosomes=("1",))
+        spec = RefPanelConfig(backend="r2_matrix", chromosomes=("1",))
         panel = loader.load(spec)
-        self.assertIsInstance(panel, ParquetR2RefPanel)
+        self.assertIsInstance(panel, R2MatrixRefPanel)
 
     def test_auto_build_resolution_uses_coordinate_family(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -170,9 +170,9 @@ class PlinkRefPanelTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             restrict_path = Path(tmpdir) / "restrict.tsv"
             restrict_path.write_text("SNP\tA1\tA2\nrs1\tA\tC\n", encoding="utf-8")
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="rsid_allele_aware"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=tmpdir, ref_panel_snps_file=str(restrict_path)),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=tmpdir, ref_panel_snps_file=str(restrict_path)),
             )
             metadata = pd.DataFrame(
                 {
@@ -310,23 +310,23 @@ class ParquetRefPanelTest(unittest.TestCase):
                 snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
                 ld_window_mode="kb", ld_window_value=1000.0,
             )
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)),
             )
             with self.assertRaisesRegex(LDSCInputError, "sidecar"):
                 panel.load_metadata("1")
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
-    def test_r2_dir_loads_sidecar_metadata(self):
+    def test_r2_matrix_dir_loads_sidecar_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
             _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet")
             _write_meta_sidecar(build_dir / "chr1_meta.tsv.gz", "CHR\tPOS\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n1\t20\trs2\t0.2\t0.3\n")
 
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)),
             )
 
             self.assertEqual(panel.available_chromosomes(), ["1"])
@@ -335,7 +335,7 @@ class ParquetRefPanelTest(unittest.TestCase):
             self.assertEqual(metadata["CM"].round(3).tolist(), [0.1, 0.2])
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
-    def test_r2_dir_loads_allele_metadata_sidecar_in_allele_aware_mode(self):
+    def test_r2_matrix_dir_loads_allele_metadata_sidecar_in_allele_aware_mode(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
             _write_canonical_r2_parquet(
@@ -347,9 +347,9 @@ class ParquetRefPanelTest(unittest.TestCase):
                 "CHR\tPOS\tSNP\tCM\tMAF\tA1\tA2\n1\t10\trs1\t0.1\t0.2\tA\tC\n1\t20\trs2\t0.2\t0.3\tA\tG\n",
                 snp_identifier="chr_pos_allele_aware",
             )
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)),
             )
 
             metadata = panel.load_metadata("1")
@@ -371,9 +371,9 @@ class ParquetRefPanelTest(unittest.TestCase):
                 "CHR\tPOS\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n",
                 snp_identifier="chr_pos_allele_aware",
             )
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)),
             )
 
             with self.assertRaisesRegex(LDSCInputError, "malformed.*A1/A2"):
@@ -386,9 +386,9 @@ class ParquetRefPanelTest(unittest.TestCase):
             _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet", identity_metadata=False)
             _write_meta_sidecar(build_dir / "chr1_meta.tsv.gz", "CHR\tPOS\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n")
 
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)),
             )
 
             with self.assertRaisesRegex(LDSCInputError, "ldsc:artifact_type is missing"):
@@ -405,9 +405,9 @@ class ParquetRefPanelTest(unittest.TestCase):
                 identity_metadata=False,
             )
 
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)),
             )
 
             with self.assertRaisesRegex(
@@ -427,9 +427,9 @@ class ParquetRefPanelTest(unittest.TestCase):
                 snp_identifier="chr_pos_allele_aware",
             )
 
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)),
             )
 
             with self.assertRaisesRegex(ValueError, "snp_identifier mismatch"):
@@ -442,9 +442,9 @@ class ParquetRefPanelTest(unittest.TestCase):
             _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet", snp_identifier="chr_pos")
             _write_meta_sidecar(build_dir / "chr1_meta.tsv.gz", "CHR\tPOS\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n")
 
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="rsid"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)),
             )
 
             with self.assertRaisesRegex(ValueError, "snp_identifier mismatch"):
@@ -457,78 +457,78 @@ class ParquetRefPanelTest(unittest.TestCase):
             _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet", genome_build="hg38")
             _write_meta_sidecar(build_dir / "chr1_meta.tsv.gz", "CHR\tPOS\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n")
 
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)),
             )
 
             with self.assertRaisesRegex(LDSCInputError, "Conflicting genome-build evidence"):
                 panel.build_reader("1")
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
-    def test_r2_dir_requires_r2_for_requested_chromosome(self):
+    def test_r2_matrix_dir_requires_r2_for_requested_chromosome(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
             build_dir.mkdir(parents=True)
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)),
             )
 
             with self.assertRaisesRegex(LDSCInputError, "chr1_r2.parquet"):
                 panel.load_metadata("1")
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
-    def test_r2_dir_missing_metadata_hard_fails_when_configured(self):
+    def test_r2_matrix_dir_missing_metadata_hard_fails_when_configured(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
             _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet")
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)),
             )
 
             with self.assertRaisesRegex(LDSCInputError, "metadata sidecar"):
                 panel.load_metadata("1")
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
-    def test_r2_dir_top_level_root_descends_by_genome_build(self):
+    def test_r2_matrix_dir_top_level_root_descends_by_genome_build(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir) / "panel"
             _write_canonical_r2_parquet(root / "hg38" / "chr1_r2.parquet")
 
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(root)),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(root)),
             )
 
             self.assertEqual(panel.available_chromosomes(), ["1"])
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
-    def test_r2_dir_top_level_root_rejects_ambiguous_build(self):
+    def test_r2_matrix_dir_top_level_root_rejects_ambiguous_build(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir) / "panel"
             _write_canonical_r2_parquet(root / "hg19" / "chr1_r2.parquet")
             _write_canonical_r2_parquet(root / "hg38" / "chr1_r2.parquet")
 
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="rsid"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(root)),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(root)),
             )
 
             with self.assertRaisesRegex(LDSCInputError, "ambiguous"):
                 panel.available_chromosomes()
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
-    def test_r2_dir_top_level_root_rejects_build_dirs_even_when_only_one_has_r2(self):
+    def test_r2_matrix_dir_top_level_root_rejects_build_dirs_even_when_only_one_has_r2(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir) / "panel"
             (root / "hg19").mkdir(parents=True)
             _write_canonical_r2_parquet(root / "hg38" / "chr1_r2.parquet")
 
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="rsid"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(root)),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(root)),
             )
 
             with self.assertRaisesRegex(LDSCInputError, "ambiguous"):
@@ -544,9 +544,9 @@ class ParquetRefPanelTest(unittest.TestCase):
                 "CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n1\t20\trs2\t0.2\t0.2\n2\t30\trs3\t0.3\t0.4\n",
             )
             _write_meta_sidecar(build_dir / "chr2_meta.tsv.gz", "CHR\tBP\tSNP\tCM\tMAF\n2\t30\trs3\t0.3\t0.4\n")
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)),
             )
             self.assertEqual(panel.available_chromosomes(), ["1", "2"])
             metadata = panel.load_metadata("1")
@@ -561,9 +561,9 @@ class ParquetRefPanelTest(unittest.TestCase):
                 build_dir / "chr1_meta.tsv.gz",
                 "CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n1\t20\trs2\t0.2\t0.3\n1\t30\trs3\t0.3\t0.4\n",
             )
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir), maf_min=0.25),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir), maf_min=0.25),
             )
 
             metadata = panel.load_metadata("1")
@@ -579,9 +579,9 @@ class ParquetRefPanelTest(unittest.TestCase):
                 build_dir / "chr1_meta.tsv.gz",
                 "CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.24\n1\t20\trs2\t0.2\t0.25\n1\t30\trs3\t0.3\t0.4\n",
             )
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir), maf_min=0.25),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir), maf_min=0.25),
             )
 
             metadata = panel.load_metadata("1")
@@ -590,7 +590,7 @@ class ParquetRefPanelTest(unittest.TestCase):
             self.assertEqual(metadata["SNP"].tolist(), ["rs2", "rs3"])
 
     def test_sidecar_metadata_rejects_invalid_maf_values(self):
-        # build-r2-panel records MAF = freq(A1) <= 0.5 from genotypes for every
+        # build-r2-matrix records MAF = freq(A1) <= 0.5 from genotypes for every
         # sidecar row, so a missing or out-of-range value means the artifact was
         # altered; it must never be read as "below threshold", folded into range,
         # or silently skip a requested --maf-min filter.
@@ -610,9 +610,9 @@ class ParquetRefPanelTest(unittest.TestCase):
                     build_dir = Path(tmpdir) / "panel" / "hg38"
                     _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet")
                     _write_meta_sidecar(build_dir / "chr1_meta.tsv.gz", rows)
-                    panel = ParquetR2RefPanel(
+                    panel = R2MatrixRefPanel(
                         GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                        RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir), maf_min=maf_min),
+                        RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir), maf_min=maf_min),
                     )
 
                     with self.assertRaisesRegex(
@@ -630,9 +630,9 @@ class ParquetRefPanelTest(unittest.TestCase):
                 build_dir / "chr1_meta.tsv.gz",
                 "CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0\n1\t20\trs2\t0.2\t0.5\n1\t30\trs3\t0.3\t0.25\n",
             )
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)),
             )
 
             metadata = panel.load_metadata("1")
@@ -640,7 +640,7 @@ class ParquetRefPanelTest(unittest.TestCase):
             self.assertEqual(metadata["MAF"].tolist(), [0.0, 0.5, 0.25])
 
     def test_sidecar_metadata_reads_back_the_values_the_builder_used(self):
-        # build-r2-panel windows on round_to_sidecar_precision(CM); the reader must
+        # build-r2-matrix windows on round_to_sidecar_precision(CM); the reader must
         # return exactly those values for CM and MAF.
         from ldsc._refpanel.r2_format import round_to_sidecar_precision, write_runtime_metadata_sidecar
 
@@ -654,9 +654,9 @@ class ParquetRefPanelTest(unittest.TestCase):
                               "A1": ["A"] * 3, "A2": ["G"] * 3, "CM": cm, "MAF": maf}),
                 build_dir / "chr1_meta.tsv.gz", genome_build="hg38", snp_identifier="chr_pos",
             )
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)),
             )
 
             metadata = panel.load_metadata("1")
@@ -677,9 +677,9 @@ class ParquetRefPanelTest(unittest.TestCase):
                 build_dir / "chr2_meta.tsv.gz",
                 "CHR\tBP\tSNP\tCM\tMAF\n1.0\t10\trs1\t0.1\t0.2\nchr2.0\t20\trs2\t0.2\t0.3\n",
             )
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)),
             )
 
             self.assertEqual(panel.available_chromosomes(), ["1", "2"])
@@ -694,23 +694,23 @@ class ParquetRefPanelTest(unittest.TestCase):
                 build_dir / "chr1_meta.tsv.gz",
                 "CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n1\t20\trs2\t0.2\t0.3\n",
             )
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir), chromosomes=("1",)),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir), chromosomes=("1",)),
             )
             filtered = panel.filter_to_snps("1", {"1:20"})
             self.assertEqual(filtered["POS"].tolist(), [20])
 
-    def test_r2_dir_sidecar_metadata_loading_by_chromosome(self):
+    def test_r2_matrix_dir_sidecar_metadata_loading_by_chromosome(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
             _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet")
             _write_canonical_r2_parquet(build_dir / "chr2_r2.parquet", chrom="2")
             _write_meta_sidecar(build_dir / "chr1_meta.tsv.gz", "CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n")
             _write_meta_sidecar(build_dir / "chr2_meta.tsv.gz", "CHR\tBP\tSNP\tCM\tMAF\n2\t20\trs2\t0.2\t0.3\n")
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)),
             )
 
             self.assertEqual(panel.available_chromosomes(), ["1", "2"])
@@ -726,9 +726,9 @@ class ParquetRefPanelTest(unittest.TestCase):
             for idx, pos in enumerate(positions, start=1):
                 rows.append(f"1\t{pos - 1}\trs{idx}\t0.1\t0.2")
             _write_meta_sidecar(build_dir / "chr1_meta.tsv.gz", "\n".join(rows) + "\n")
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="auto"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)),
             )
 
             with self.assertRaisesRegex(AssertionError, "workflow entry"):
@@ -739,9 +739,9 @@ class ParquetRefPanelTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
             _write_meta_sidecar(build_dir / "chr1_meta.tsv.gz", "CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n")
-            panel = ParquetR2RefPanel(
+            panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)),
             )
             with self.assertRaises(LDSCInputError):
                 panel.build_reader("1")

@@ -1,6 +1,6 @@
 """Reference-panel input checks for the shared declared-input gate.
 
-``inspect_r2_headers`` checks R2 panel files before any pair scan, and
+``inspect_r2_headers`` checks R2 matrix files before any pair scan, and
 ``GENETIC_MAP_HEADER_CHECKS`` gives the gate its header check for
 genetic-map files.
 """
@@ -36,15 +36,15 @@ def inspect_r2_headers(directory, genome_build=None, *, ldscore_args=None):
     """
     from .r2_format import (
         read_r2_parquet_contract,
-        reject_truncated_r2_panel,
-        validate_ldscore_window_within_r2_panel_window,
+        reject_truncated_r2_matrix,
+        validate_ldscore_window_within_r2_matrix_window,
     )
     from .adapters import resolve_r2_build_dir
 
     root = Path(directory)
     children = [root / build for build in ('hg19', 'hg38') if (root / build).is_dir()]
     if genome_build == 'auto' and len(children) > 1 and not list(root.glob('chr*_r2.parquet')):
-        gate = InputGate('R2 panel declarations and headers')
+        gate = InputGate('R2 matrix declarations and headers')
         for child in children:
             gate.check('reference', child,
                        lambda child=child: inspect_r2_headers(child, child.name, ldscore_args=ldscore_args))
@@ -52,7 +52,7 @@ def inspect_r2_headers(directory, genome_build=None, *, ldscore_args=None):
         return root
     root = resolve_r2_build_dir(directory, genome_build)
     members = sorted({path.name.split('_')[0][3:] for pattern in ('chr*_r2.parquet', 'chr*_meta.tsv.gz') for path in root.glob(pattern)})
-    gate = InputGate('R2 panel declarations and headers')
+    gate = InputGate('R2 matrix declarations and headers')
     if not members:
         gate.issues.append(input_issue('reference', root, '', 'missing_required_input', 'No R2 Parquet or sidecar chromosome files found.'))
     for chrom in members:
@@ -61,8 +61,8 @@ def inspect_r2_headers(directory, genome_build=None, *, ldscore_args=None):
         gate.check('reference', sidecar, lambda: check_readable(sidecar), chrom=chrom)
         contract = gate.check('reference', pair, lambda: read_r2_parquet_contract(pair), chrom=chrom)
         if contract is not None and ldscore_args is not None:
-            gate.check('reference', pair, lambda: validate_ldscore_window_within_r2_panel_window(
+            gate.check('reference', pair, lambda: validate_ldscore_window_within_r2_matrix_window(
                 ldscore_args, parquet_paths=[str(pair)], chrom=chrom), chrom=chrom)
-            gate.check('reference', pair, lambda: reject_truncated_r2_panel([str(pair)], chrom), chrom=chrom)
+            gate.check('reference', pair, lambda: reject_truncated_r2_matrix([str(pair)], chrom), chrom=chrom)
     gate.finish()
     return root

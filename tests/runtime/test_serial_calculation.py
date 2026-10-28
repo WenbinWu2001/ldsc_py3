@@ -34,7 +34,7 @@ def test_child_traceback_reaches_the_workflow_log_footer_without_an_error_record
 def test_cli_reports_an_expected_worker_error_on_one_line(tmp_path, monkeypatch, capsys):
     output = tmp_path / "panel"
     monkeypatch.setattr(sys, "argv", [
-        "ldsc", "build-r2-panel", "--plink-prefix", str(PLINK_FIXTURE), "--output-dir", str(output),
+        "ldsc", "build-r2-matrix", "--plink-prefix", str(PLINK_FIXTURE), "--output-dir", str(output),
         "--ld-wind-kb", "1000", "--maf-min", "0.5", "--source-genome-build", "hg19",
     ])
 
@@ -43,4 +43,4 @@ def test_cli_reports_an_expected_worker_error_on_one_line(tmp_path, monkeypatch,
     lines = capsys.readouterr().err.strip().splitlines()
     assert len(lines) == 1
     assert lines[0].startswith("[ERROR] Error: PLINK BED loading retained no SNPs")
-    assert "_refpanel/plink.py" in (output / "diagnostics/build-r2-panel.chr22.log").read_text(encoding="utf-8")
+    assert "_refpanel/plink.py" in (output / "diagnostics/build-r2-matrix.chr22.log").read_text(encoding="utf-8")

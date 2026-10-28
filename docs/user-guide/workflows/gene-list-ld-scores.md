@@ -9,7 +9,7 @@ There are two ways to compute these LD scores:
 
 | Mode | Use when | What you supply |
 | --- | --- | --- |
-| Direct | You run a few gene-list batches, or need settings that change between runs. | Baseline annotations, a reference panel (PLINK or R² panel), a gene coordinate catalog and the padding. |
+| Direct | You run a few gene-list batches, or need settings that change between runs. | Baseline annotations, a reference panel (PLINK or R² matrix), a gene coordinate catalog and the padding. |
 | Indexed | You test many gene lists against one fixed baseline, PLINK reference panel and gene coordinate catalog. | A gene LD-score index, built once with `ldsc build-gene-ldscore-index`; it contains the gene coordinate catalog and all scientific settings. |
 
 Both modes give the same kind of LD-score directory, and every general `ldscore` option and output is described in [Calculate LD scores](ld-scores.md).
@@ -78,7 +78,7 @@ ldsc ldscore \
 - `--gene-exclude-regions mhc` removes genes whose unpadded interval overlaps the MHC, before padding; the direct-mode default is `none`.
   This gene exclusion is recorded in the diagnostics and is separate from `--regr-snps-exclude-regions`, which removes regression SNPs.
 - `--genome-build` defaults to `auto` for direct gene-list runs, and the gene coordinate catalog's declared genome build must agree with the baseline annotations and reference panel; there is no liftover.
-- An R² panel works as well: replace `--plink-prefix` with `--r2-dir`.
+- An R² matrix works as well: replace `--plink-prefix` with `--r2-matrix-dir`.
 - Every selected gene must lie on a chromosome covered by both the baseline annotations and the reference panel; a gene list is never truncated to fit, and an uncovered gene fails the whole batch ([chromosome scope](../../reference/formats/gene-lists.md#direct-query-chromosome-scope)).
 
 ## Indexed mode

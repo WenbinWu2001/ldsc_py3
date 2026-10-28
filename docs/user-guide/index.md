@@ -1,6 +1,6 @@
 # User Guide
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 This guide is for scientists running analyses with LDSC3.
 It explains what each analysis does, which inputs it needs, how to run it from the command line, and how to read the results.
@@ -18,7 +18,7 @@ Exact option lists, file formats and result columns are in the [reference](../re
 | Task | Page |
 | --- | --- |
 | Prepare GWAS summary statistics | [Munge summary statistics](workflows/munge-sumstats.md) |
-| Build or query an LD reference | [R² panels](workflows/r2-panels.md) |
+| Build or query an LD reference | [R² matrices](workflows/r2-matrices.md) |
 | Compute LD scores | [LD scores](workflows/ld-scores.md), [gene-list LD scores](workflows/gene-list-ld-scores.md) |
 | Make annotation files from BED files or gene lists | [Annotations](workflows/annotations.md) |
 | Estimate SNP heritability | [SNP heritability](workflows/heritability.md) |

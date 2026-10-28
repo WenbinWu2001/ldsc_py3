@@ -1,4 +1,4 @@
-"""LD-window rules for ldscore runs on parquet R2 panels.
+"""LD-window rules for ldscore runs on parquet R2 matrices.
 
 Fixture: the deterministic 32-SNP chromosome-22 1KG-30x subset (3202 samples,
 hg38 positions; see ``tests/fixtures/minimal_external_resources/README.md``).
@@ -28,7 +28,7 @@ def panels(tmp_path_factory):
     windows = {"kb200": ["--ld-wind-kb", "200"], "snps3": ["--ld-wind-snps", "3"], "snps6": ["--ld-wind-snps", "6"]}
     for name, window in windows.items():
         built[name] = root / name
-        assert cli.run_cli(["build-r2-panel", "--plink-prefix", str(PLINK), "--output-dir", str(built[name]),
+        assert cli.run_cli(["build-r2-matrix", "--plink-prefix", str(PLINK), "--output-dir", str(built[name]),
                             *IDENTITY, "--source-genome-build", "hg38", *window]) == 0
     return built
 
@@ -39,22 +39,22 @@ def _ldscore(output_dir, *args):
 
 def test_window_in_a_different_unit_is_rejected_before_any_chromosome_is_computed(tmp_path, panels):
     output = tmp_path / "out"
-    assert _ldscore(output, "--r2-dir", str(panels["kb200"]), "--ld-wind-snps", "3") != 0
+    assert _ldscore(output, "--r2-matrix-dir", str(panels["kb200"]), "--ld-wind-snps", "3") != 0
 
     issues = pd.read_csv(output / "diagnostics" / "input_issues.tsv", sep="\t")
     assert issues["chrom"].astype(str).tolist() == ["22"]
     assert "windows in different units cannot be checked for coverage" in issues["details"].iloc[0]
-    assert "the panel was built with `--ld-wind-kb 200.0`" in issues["details"].iloc[0]
+    assert "the R2 matrix was built with `--ld-wind-kb 200.0`" in issues["details"].iloc[0]
     assert not (output / "diagnostics" / "chromosome-logs").exists()
     assert not (output / "ldscore.baseline.parquet").exists()
 
 
 def test_wider_window_in_the_same_unit_is_rejected_before_any_chromosome_is_computed(tmp_path, panels):
     output = tmp_path / "out"
-    assert _ldscore(output, "--r2-dir", str(panels["snps3"]), "--ld-wind-snps", "4") != 0
+    assert _ldscore(output, "--r2-matrix-dir", str(panels["snps3"]), "--ld-wind-snps", "4") != 0
 
     issues = pd.read_csv(output / "diagnostics" / "input_issues.tsv", sep="\t")
-    assert "is wider than the input R2 panel window" in issues["details"].iloc[0]
+    assert "is wider than the input R2 matrix window" in issues["details"].iloc[0]
     assert not (output / "diagnostics" / "chromosome-logs").exists()
 
 
@@ -80,7 +80,7 @@ def test_snp_count_window_counts_panel_rows_when_the_run_keeps_fewer_snps(tmp_pa
     decoded dosages, n = 3202) over kept partners within K panel rows.
     """
     output = tmp_path / "out"
-    assert _ldscore(output, "--r2-dir", str(panels[panel]), "--ld-wind-snps", str(window), "--maf-min", "0.3") == 0
+    assert _ldscore(output, "--r2-matrix-dir", str(panels[panel]), "--ld-wind-snps", str(window), "--maf-min", "0.3") == 0
 
     sidecar = pd.read_csv(panels[panel] / "hg38" / "chr22_meta.tsv.gz", sep="\t", comment="#")
     bim = pd.read_csv(f"{PLINK}.bim", sep=r"\s+", header=None, names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
@@ -137,12 +137,12 @@ def test_snp_count_window_computes_same_position_snps_in_panel_order(tmp_path):
     those of the same run with the annotation listed in sidecar order.
     """
     from ldsc import AnnotationBundle, GlobalConfig, LDScoreCalculator, LDScoreConfig, RefPanelConfig
-    from ldsc._refpanel.adapters import ParquetR2RefPanel
+    from ldsc._refpanel.adapters import R2MatrixRefPanel
     from ldsc._ldscore.outputs import LDScoreOutputConfig
 
     sidecar = _tied_snp_panel(tmp_path / "panel")
     config = GlobalConfig(snp_identifier="rsid")
-    panel = ParquetR2RefPanel(config, RefPanelConfig(backend="parquet_r2", r2_dir=str(tmp_path / "panel")))
+    panel = R2MatrixRefPanel(config, RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(tmp_path / "panel")))
     query = pd.DataFrame({"q": [0.1, 0.2, 0.3, 0.4]})
 
     def written_scores(order, name):
@@ -161,12 +161,12 @@ def test_snp_count_window_computes_same_position_snps_in_panel_order(tmp_path):
     assert swapped[0]["SNP"].tolist() == ["rs1", "rs2", "rs3", "rs4"]
 
 
-WARNING_TEXT = "counts positions in the R2 panel"
+WARNING_TEXT = "counts positions in the R2 matrix"
 
 
 def test_snp_count_window_records_panel_and_kept_counts_and_warns_once(tmp_path, panels):
     output = tmp_path / "out"
-    assert _ldscore(output, "--r2-dir", str(panels["snps6"]), "--ld-wind-snps", "2", "--maf-min", "0.3") == 0
+    assert _ldscore(output, "--r2-matrix-dir", str(panels["snps6"]), "--ld-wind-snps", "2", "--maf-min", "0.3") == 0
 
     sidecar = pd.read_csv(panels["snps6"] / "hg38" / "chr22_meta.tsv.gz", sep="\t", comment="#")
     kept = int((sidecar["MAF"] >= 0.3).sum())
@@ -189,7 +189,7 @@ def test_snp_count_window_records_panel_and_kept_counts_and_warns_once(tmp_path,
 ])
 def test_no_ld_window_warning_without_a_snp_subset(tmp_path, panels, source, window, table):
     output = tmp_path / "out"
-    reference = ["--plink-prefix", str(PLINK)] if source == "plink" else ["--r2-dir", str(panels[source])]
+    reference = ["--plink-prefix", str(PLINK)] if source == "plink" else ["--r2-matrix-dir", str(panels[source])]
     assert _ldscore(output, *reference, *window) == 0
 
     assert WARNING_TEXT not in (output / "diagnostics" / "ldscore.log").read_text()
@@ -219,7 +219,7 @@ def test_cm_panel_stores_every_pair_inside_the_window_its_sidecar_records(tmp_pa
     pd.DataFrame({"CHR": bim["CHR"], "POS": bim["POS"], "CM": cm}).to_csv(
         genetic_map, sep="\t", index=False, float_format="%.13f")
     out = tmp_path / "panel"
-    assert cli.run_cli(["build-r2-panel", "--plink-prefix", str(PLINK), "--output-dir", str(out), *IDENTITY,
+    assert cli.run_cli(["build-r2-matrix", "--plink-prefix", str(PLINK), "--output-dir", str(out), *IDENTITY,
                         "--source-genome-build", "hg38", "--genetic-map-hg38-sources", str(genetic_map),
                         "--ld-wind-cm", "1"]) == 0
 
@@ -255,7 +255,7 @@ def test_both_sidecar_writers_keep_nine_significant_digits_of_maf(tmp_path, pane
 def test_build_maf_filter_holds_for_the_stored_maf(tmp_path):
     """Rounding is monotone, so every stored MAF still meets the build --maf-min."""
     out = tmp_path / "panel"
-    assert cli.run_cli(["build-r2-panel", "--plink-prefix", str(PLINK), "--output-dir", str(out), *IDENTITY,
+    assert cli.run_cli(["build-r2-matrix", "--plink-prefix", str(PLINK), "--output-dir", str(out), *IDENTITY,
                         "--source-genome-build", "hg38", "--ld-wind-snps", "3", "--maf-min", "0.3"]) == 0
 
     stored = pd.read_csv(out / "hg38" / "chr22_meta.tsv.gz", sep="\t", comment="#")["MAF"]

@@ -22,8 +22,8 @@ The older annotation benchmark scripts were removed from the active tree on Sept
 | Two content passes and disk-backed global identity checks | [Source preparation](#bounded-source-preparation) | Avoid a dense whole-genome annotation matrix and numeric spool; repeat input parsing/decompression. |
 | Exact binary classification and bit-packing | [Annotation format](#annotation-format-policy) | About 32 times smaller binary payload than float32; decode only selected tiles. |
 | Shared baseline/control plus active query preparation | [BED and gene queries](#bed-and-gene-queries) | Retain one generated query batch; preserve complete source validation outside the batch loop. |
-| Selective BED reads and unrestricted build streaming | [Genotypes and panel construction](#genotype-access-and-r²-panel-construction) | Avoid whole-source/sample-filter copies; streaming rereads genotype bytes. |
-| Numeric pair emission and compact R² storage | [Genotypes and panel construction](#genotype-access-and-r²-panel-construction) | Avoid per-pair Python objects and repeated SNP identities; R² quantization is lossy. |
+| Selective BED reads and unrestricted build streaming | [Genotypes and R² matrix construction](#genotype-access-and-r²-matrix-construction) | Avoid whole-source/sample-filter copies; streaming rereads genotype bytes. |
+| Numeric pair emission and compact R² storage | [Genotypes and R² matrix construction](#genotype-access-and-r²-matrix-construction) | Avoid per-pair Python objects and repeated SNP identities; R² quantization is lossy. |
 | Output-row accumulators, tiled float64 operands, fused weights | [Direct LD scoring](#direct-ld-score-computation) | Reuse each correlation block within a batch; another batch repeats reference traversal. |
 | Bounded R² pair buffers and rectangular sparse products | [Sparse projection](#streamed-r²-projection) | Read stored pairs once per traversal; CSR construction and operand/product tiles still allocate. |
 | Baseline-by-query overlaps and query diagonals | [Compact sufficient statistics](#compact-count-and-overlap-statistics) | Avoid a query-by-query matrix without changing separate-query models. |
@@ -42,7 +42,7 @@ Packed annotation bits represent exact 0/1 values losslessly; public annotation 
 Continuous annotations retain the established float32 representation, while external quantile targets retain float64.
 LD-score accumulation, annotation sums, overlap products, index operators, and saved coefficient delete values use float64.
 Public LD-score Parquet values remain float32.
-The existing int16 R² panel encoding is lossy and must not be described as equivalent to lossless annotation packing.
+The existing int16 R² matrix encoding is lossy and must not be described as equivalent to lossless annotation packing.
 
 Preserve the [reference- and regression-SNP contract](../../reference/ldscore-snp-universes.md): reference SNPs and all-SNP and common-SNP counts are broader than the regression SNPs that become output rows.
 Moving the output mask before score allocation does not remove contributors.
@@ -71,13 +71,13 @@ The key includes resolved path, modification time, and size; this is a reuse key
 The cache retains full filters, has no automatic eviction, and can be reset with `clear_snp_restriction_keys_cache()` in long-lived callers.
 Inputs are expected to remain unchanged during a workflow.
 
-[`R2Panel`](../../../src/ldsc/_refpanel/query.py) lazily retains per-chromosome sidecar/index/Parquet reader state for repeated pair queries.
+[`R2Matrix`](../../../src/ldsc/_refpanel/query.py) lazily retains per-chromosome sidecar/index/Parquet reader state for repeated pair queries.
 [`lookup_pairs_in_parquet()`](../../../src/ldsc/_refpanel/r2_format.py) canonicalizes query endpoint indices into numeric keys, deduplicates lookup work, and restores requested order and repeated queries in the result.
 Small requests prune row groups using `IDX_1` footer ranges; absent statistics conservatively keep the group.
 Larger requests scan the file sequentially, matching numeric keys without constructing an all-pairs DataFrame.
-Returned arrays still scale with requested pairs, and a reused panel handle can retain metadata for every chromosome it touches.
+Returned arrays still scale with requested pairs, and a reused `R2Matrix` handle can retain metadata for every chromosome it touches.
 This query access pattern is separate from the full sequential reader used for LD-score calculation.
-See [the pair-query reference](../../reference/query-r2.md) and [`test_r2_query.py`](../../../tests/refpanel/test_r2_query.py).
+See [the pair-query reference](../../reference/query-r2-matrix.md) and [`test_r2_matrix_query.py`](../../../tests/refpanel/test_r2_matrix_query.py).
 
 ## Ownership and lifetime
 
@@ -271,14 +271,14 @@ Its audits use `annotation_snp_count`; reference-panel support remains unevaluat
 Direct LD scoring evaluates support on retained reference rows and applies its additional regression-specific viability rules.
 See the [gene-list condition–outcome table](../../reference/annotate.md#gene-list-queries).
 
-## Genotype access and R² panel construction
+## Genotype access and R² matrix construction
 
 [`PlinkBEDFile`](../../../src/ldsc/_refpanel/plink.py) reads physical SNP records selectively and applies individual filtering during each read.
 It avoids coexisting full-source and sample-filtered bitarrays and preserves the physical-row mapping when retained SNPs are reordered or dropped.
 The ordinary reader retains the selected packed genotype payload in memory; standardized numerical genotype blocks are decoded as needed.
 It does not imply that direct LD scoring or index construction streams all genotype payloads from disk.
 
-[`ReferencePanelBuilder._build_chromosome()`](../../../src/ldsc/_refpanel/builder.py) enables disk streaming when there is no explicit reference-SNP restriction.
+[`R2MatrixBuilder._build_chromosome()`](../../../src/ldsc/_refpanel/builder.py) enables disk streaming when there is no explicit reference-SNP restriction.
 This path retains SNP/MAF bookkeeping and reads genotype batches again for computation instead of retaining the whole selected bitarray.
 An explicitly restricted build retains its selected genotype payload.
 The builder requests float32 standardized genotype blocks; the direct LD/index numerical path keeps its existing float64 computation.
@@ -292,14 +292,14 @@ Vectorized triangle/window masks select cross-block and within-block pairs.
 `_PendingPairs` retains numeric arrays for left-endpoint groups until all their right neighbors have been seen, then emits stable ordered pairs.
 `write_r2_parquet()` converts these arrays directly to Arrow without an intervening pandas frame.
 Its writer buffer flushes at its configured pair threshold and can overshoot by one incoming chunk; a row-group size controls file layout, not total process RAM.
-See [`test_ref_panel_builder.py`](../../../tests/refpanel/test_ref_panel_builder.py) and the [R² format reference](../../reference/formats/r2-panels.md).
+See [`test_r2_matrix_builder.py`](../../../tests/refpanel/test_r2_matrix_builder.py) and the [R² format reference](../../reference/formats/r2-matrices.md).
 
-The [R² format](../../reference/formats/r2-panels.md) stores two int32 sidecar indices, quantized int16 R², and a bit-packed correlation sign instead of repeating identity strings per pair.
+The [R² format](../../reference/formats/r2-matrices.md) stores two int32 sidecar indices, quantized int16 R², and a bit-packed correlation sign instead of repeating identity strings per pair.
 The identity sidecar is stored once per SNP and bound to pair indices by the required identity hash.
 Column-specific dictionary/delta/byte-stream encodings and compression reduce file size and I/O; compression also consumes CPU.
 R² quantization uses scale 32767 and preserves signed unbiased estimates within the stored range, but introduces rounding error.
 Aggregate LD-score error depends on the contributing pairs and annotation weights; historical measured differences are not universal bounds.
-Positive `min_r2` filtering omits scientific contributions, so `ldscore` rejects such panels; they serve `query-r2` lookups only.
+Positive `min_r2` filtering omits scientific contributions, so `ldscore` rejects such R² matrices; they serve `query-r2-matrix` lookups only.
 The default zero threshold preserves zero and negative unbiased pairs.
 
 ## Direct LD-score computation
@@ -318,7 +318,7 @@ Moving the output mask upstream does not restrict the reference SNPs.
 Within each active direct query batch, each PLINK correlation block is generated once.
 The next execution batch repeats reference preparation and traversal.
 Shared baseline columns and the weight mask are projected together, then query columns are read in batches for that same block.
-For R² panels, bounded pair batches are scattered through float64 sparse products.
+For R² matrices, bounded pair batches are scattered through float64 sparse products.
 Counts and overlap products are accumulated from bounded annotation tiles; the retained overlap summary consists of baseline-by-all-annotation products plus query diagonals, rather than a dense query-by-query matrix.
 Preserve the existing accumulation and validation tolerances when changing these kernels.
 Annotation sums reduce binary 0/1 and normalized float32 continuous values into float64, fixing batch/layout-dependent continuous-annotation counts (completion-review R1).
@@ -331,7 +331,7 @@ With exactly 1,000 queries, the default uses ten batches of up to 100.
 The active output-row accumulator scales with batch width.
 Only compact counts, baseline-by-query overlaps, and diagnostic/source descriptors scale with the total requested query count; saved query LD values do not accumulate in memory.
 
-`--snp-batch-size` defaults to **512** for PLINK input in `ldscore`, `build-gene-ldscore-index`, and `build-r2-panel`; R²-panel input ignores it.
+`--snp-batch-size` defaults to **512** for PLINK input in `ldscore`, `build-gene-ldscore-index`, and `build-r2-matrix`; R²-matrix input ignores it.
 LD windows are exact for every batch size, so the setting changes only speed and memory.
 Each batch computes about one batch width of out-of-window pairs per SNP before dropping them, and holds a few `(window + batch) × batch` float64 blocks beside the `samples × window` genotype block.
 Measured on 2026-10-27 at revision `38c98d8` (macOS, Apple Accelerate, one BLAS thread) by timing the PLINK kernel alone; LD scores were identical at every size, and memory is the peak above the loaded process:
@@ -348,7 +348,7 @@ Measured on 2026-10-27 at revision `38c98d8` (macOS, Apple Accelerate, one BLAS 
 512 was within about 4% of the fastest size on both panels; larger batches add time and memory without changing results.
 Limits: one machine, one chromosome stretch per panel, and single runs; Linux BLAS libraries may favor somewhat larger batches.
 Memory outside the kernel does not depend on the batch size, including each chromosome's in-memory genotypes (`SNPs × samples / 4` bytes) and annotation reads, and it repeats for each worker.
-`build-r2-panel` uses the same chunk walk but was not timed; its stored pairs are identical for any batch size, with R² differing by at most one int16 unit from float32 summation order (see `tests/ldscore/test_plink_exact_windows.py`).
+`build-r2-matrix` uses the same chunk walk but was not timed; its stored pairs are identical for any batch size, with R² differing by at most one int16 unit from float32 summation order (see `tests/ldscore/test_plink_exact_windows.py`).
 
 For direct file-writing workflows, [`stage_direct_chromosome()`](../../../src/ldsc/_ldscore/direct_batches.py) writes the existing post-kernel float32 query table to a private Parquet fragment before the worker returns.
 The parent receives baseline data, counts, overlaps, variation summaries, and diagnostic descriptors, then combines them without a genome-wide query matrix.
@@ -634,7 +634,7 @@ Include negative R², one diagonal, contributor-only SNPs, mixed binary/continuo
 Exercise worker, reader, and writer failures to prove shutdown precedes scratch cleanup and unsuccessful computation leaves no published scientific result.
 Record numerical tolerances, schemas, row/column order, diagnostics, and relocation behavior alongside measurements.
 
-Useful entry tests beyond the annotation/regression list above are [`test_plink_bed_reader.py`](../../../tests/refpanel/test_plink_bed_reader.py), [`test_ref_panel_builder.py`](../../../tests/refpanel/test_ref_panel_builder.py), [`test_ldscore_projection.py`](../../../tests/ldscore/test_ldscore_projection.py), [`test_direct_batch_staging.py`](../../../tests/ldscore/test_direct_batch_staging.py), [`test_partitioned_query_workers.py`](../../../tests/regression/test_partitioned_query_workers.py), and [`test_worker_policy.py`](../../../tests/runtime/test_worker_policy.py).
+Useful entry tests beyond the annotation/regression list above are [`test_plink_bed_reader.py`](../../../tests/refpanel/test_plink_bed_reader.py), [`test_r2_matrix_builder.py`](../../../tests/refpanel/test_r2_matrix_builder.py), [`test_ldscore_projection.py`](../../../tests/ldscore/test_ldscore_projection.py), [`test_direct_batch_staging.py`](../../../tests/ldscore/test_direct_batch_staging.py), [`test_partitioned_query_workers.py`](../../../tests/regression/test_partitioned_query_workers.py), and [`test_worker_policy.py`](../../../tests/runtime/test_worker_policy.py).
 For performance claims, record package revision and dirty state, dependencies, input dimensions, concurrency/native limits, cache conditions, repeated matched wall/CPU measurements, anonymous/cache peaks, and peak scratch occupancy.
 Distinguish local kernel tests, local integration, assembly-only replays, and full HPC runs.
 Documentation-only updates do not establish a new performance result or justify reducing requested RAM.

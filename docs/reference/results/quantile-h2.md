@@ -58,7 +58,7 @@ The command deliberately does not copy original annotation matrices into regress
 - reference metadata with `--ref-metadata-sources`.
 
 Path arguments accept exact files, globs, `@` chromosome placeholders, and existing path-token conventions.
-R² panel users can supply the existing `chr*_meta.tsv.gz` sidecars.
+R² matrix users can supply the existing `chr*_meta.tsv.gz` sidecars.
 PLINK users should supply metadata previously produced with `ldscore --export-ref-metadata`.
 Reference metadata requires `CHR`, `POS` (or `BP`), `SNP`, and `MAF`; allele-aware identity also uses `A1/A2`, with inference allowed only when the base identity is unique.
 

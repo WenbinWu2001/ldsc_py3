@@ -46,12 +46,12 @@ A step that did not run, because its option was not set, the identifier mode ski
 | Funnel | Backend | Steps in order |
 | --- | --- | --- |
 | `reference_panel` | PLINK | `panel_rows` (BIM rows on the chromosome), `identity_cleanup` (`rsid` and `chr_pos` modes), `ref_panel_snps_file`, `allele_aware_identity_cleanup` (allele-aware modes), `annotation_snp_grid`, `genotype_qc` (monomorphic or all-missing SNPs after `--keep-indivs-file`), `maf_floor` |
-| `reference_panel` | R² panel | `panel_rows` (sidecar rows), `ref_panel_snps_file`, `maf_floor`, `allele_aware_identity_cleanup`, `annotation_snp_grid` |
+| `reference_panel` | R² matrix | `panel_rows` (sidecar rows), `ref_panel_snps_file`, `maf_floor`, `allele_aware_identity_cleanup`, `annotation_snp_grid` |
 | `annotation_snp_grid` | PLINK | `grid_rows`, `annotation_snp_grid` (grid rows with no remaining reference-panel SNP), `genotype_qc`, `maf_floor` |
-| `annotation_snp_grid` | R² panel | `grid_rows`, `annotation_snp_grid` |
+| `annotation_snp_grid` | R² matrix | `grid_rows`, `annotation_snp_grid` |
 
 For PLINK panels the grid step runs before genotype QC, so a reference-panel SNP off the grid is counted even when genotype QC would have removed it, and the genotype-QC and MAF counts cover grid SNPs only.
-For R² panels the MAF floor comes from the sidecar and runs before the grid step.
+For R² matrices the MAF floor comes from the sidecar and runs before the grid step.
 Both funnels of a chromosome end at the same count: the reference SNPs that enter LD scores, SNP counts and overlap.
 The counts come from one reference preparation per chromosome per run; later query batches and the gene-list support pass add nothing.
 Sources: `ReferenceSNPFunnel` in [_refpanel/funnel.py](../../src/ldsc/_refpanel/funnel.py), `_align_annotations()` and each panel's `prepare_chromosome()` in [_refpanel/adapters.py](../../src/ldsc/_refpanel/adapters.py), and `LDScoreCalculator._run_batch()` in [_ldscore/calculator.py](../../src/ldsc/_ldscore/calculator.py).
@@ -80,7 +80,7 @@ See [coverage diagnostics](results/gene-list-diagnostics.md#chromosome-scope-and
 ## Projection and traversal contract
 
 Within each direct query execution batch, baseline/control annotations, the active query columns, and the binary regression-SNP mask share one numerical LD traversal per chromosome.
-PLINK computes each genotype-correlation block once for that batch; an R² panel decodes bounded pair chunks.
+PLINK computes each genotype-correlation block once for that batch; an R² matrix decodes bounded pair chunks.
 The next execution batch repeats reference preparation and genotype/R² traversal.
 This repeated work is deliberate: completed query batches are written and released before the next batch is prepared.
 Shared baseline counts and overlap blocks are retained once, not added repeatedly across execution batches.

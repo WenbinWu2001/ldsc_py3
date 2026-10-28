@@ -1,10 +1,10 @@
-"""Query unbiased R2 for SNP pairs from R2 panels.
+"""Query unbiased R2 for SNP pairs from R2 matrices.
 
-Public surface for reading an R2 panel written by ``ldsc build-r2-panel`` by SNP pair:
-the :class:`R2Panel` handle, the one-shot :func:`query_r2` wrapper, and the pure
+Public surface for reading an R2 matrix written by ``ldsc build-r2-matrix`` by SNP pair:
+the :class:`R2Matrix` handle, the one-shot :func:`query_r2_matrix` wrapper, and the pure
 :func:`unbiased_r2_to_pearson_r` converter. See
-``docs/reference/query-r2.md`` for the current input and output contract.
-Stored ``SIGN_R`` values use panel alleles; returned ``sign_r`` values use the
+``docs/reference/query-r2-matrix.md`` for the current input and output contract.
+Stored ``SIGN_R`` values use R2 matrix alleles; returned ``sign_r`` values use the
 query alleles after orientation harmonization.
 """
 from __future__ import annotations
@@ -25,11 +25,11 @@ from .._core.identifiers import build_snp_id_series
 from .r2_format import _load_full_panel_sidecar, _validate_index_binding, read_r2_parquet_contracts
 from .r2_format import lookup_pairs_in_parquet
 from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
-from .outputs import QueryR2DirectoryWriter, QueryR2OutputConfig
+from .outputs import QueryR2MatrixDirectoryWriter, QueryR2MatrixOutputConfig
 from .._runtime.paths import ensure_output_directory
 from .adapters import (
-    _r2_dir_metadata_paths,
-    _r2_dir_r2_paths,
+    _r2_matrix_dir_metadata_paths,
+    _r2_matrix_dir_r2_paths,
 )
 from .._core.snp_identity import (
     COMPLEMENT,
@@ -53,7 +53,7 @@ from .._core.columns import (
 )
 from ..errors import LDSCInputError, LDSCUsageError
 
-LOGGER = logging.getLogger("LDSC.r2_query")
+LOGGER = logging.getLogger("LDSC.r2_matrix_query")
 
 
 def unbiased_r2_to_pearson_r(r2_adj, n, sign=None):
@@ -67,7 +67,7 @@ def unbiased_r2_to_pearson_r(r2_adj, n, sign=None):
     Parameters
     ----------
     r2_adj : float or array-like
-        Unbiased squared correlation as stored in the panel.
+        Unbiased squared correlation as stored in the R2 matrix.
     n : int or array-like
         Reference sample size used to estimate R2 (``ldsc:n_samples``).
     sign : int, array-like, or None, optional
@@ -89,30 +89,30 @@ def unbiased_r2_to_pearson_r(r2_adj, n, sign=None):
     return r if r.ndim else r.item()
 
 
-def query_r2(
+def query_r2_matrix(
     pairs: pd.DataFrame,
     *,
-    panel_dir=None,
+    r2_matrix_dir=None,
     snp_identifier: str | None = None,
     genome_build: str | None = None,
 ) -> pd.DataFrame:
-    """Open a panel, query ``pairs`` once, and return the annotated DataFrame.
+    """Open an R2 matrix, query ``pairs`` once, and return the annotated DataFrame.
 
     Parameters
     ----------
     pairs : pandas.DataFrame
         SNP pairs with endpoint columns suffixed ``_1`` and ``_2``; see
-        :meth:`R2Panel.query_pairs` for identity and allele requirements.
-    panel_dir : str or os.PathLike
-        Required build-r2-panel output directory or its genome-build child.
+        :meth:`R2Matrix.query_pairs` for identity and allele requirements.
+    r2_matrix_dir : str or os.PathLike
+        Required build-r2-matrix output directory or its genome-build child.
     snp_identifier : str or None, optional
-        The panel's recorded SNP identifier mode or its base form.
+        The R2 matrix's recorded SNP identifier mode or its base form.
         None uses the recorded mode.
     genome_build : {"hg19", "hg38"} or None, optional
-        Select the coordinate build when the panel directory contains both.
+        Select the coordinate build when the R2 matrix directory contains both.
         A concrete value must agree with normalized input declarations.
         Otherwise coordinate-panel shard
-        declarations must agree. Pair endpoints use the selected panel build;
+        declarations must agree. Pair endpoints use the selected R2 matrix build;
         their coordinate build is not independently inferred.
 
     Returns
@@ -120,31 +120,31 @@ def query_r2(
     pandas.DataFrame
         Copy of the input with ``r2``, ``sign_r``, ``r``, and ``status``.
         Signed results use query allele orientation and are missing in base
-        modes. See :meth:`R2Panel.query_pairs` for missing-pair semantics.
+        modes. See :meth:`R2Matrix.query_pairs` for missing-pair semantics.
     """
-    panel = R2Panel.open(
-        panel_dir,
+    matrix = R2Matrix.open(
+        r2_matrix_dir,
         snp_identifier=snp_identifier,
         genome_build=genome_build,
     )
-    return panel.query_pairs(pairs)
+    return matrix.query_pairs(pairs)
 
 
 @dataclass
 class _ChromState:
-    """Cached per-chromosome state for one open panel chromosome."""
+    """Cached per-chromosome state for one open R2 matrix chromosome."""
 
     sidecar: pd.DataFrame
     key_index: pd.Index          # identity key -> row position (unique)
-    a1: np.ndarray               # panel A1 (object), aligned to sidecar rows
-    a2: np.ndarray               # panel A2 (object), aligned to sidecar rows
+    a1: np.ndarray               # R2 matrix A1 (object), aligned to sidecar rows
+    a2: np.ndarray               # R2 matrix A2 (object), aligned to sidecar rows
     parquet_file: object         # pyarrow.parquet.ParquetFile
     n_snps: int
     r2_scale: float
 
 
-class R2Panel:
-    """Handle over an R2 panel written by ``build-r2-panel``, for pair queries.
+class R2Matrix:
+    """Handle over an R2 matrix written by ``build-r2-matrix``, for pair queries.
 
     Open once with :meth:`open`, then call :meth:`query_pairs` many times.
     :meth:`open` validates every chromosome's parquet footer up front. Each
@@ -163,51 +163,51 @@ class R2Panel:
     @classmethod
     def open(
         cls,
-        panel_dir=None,
+        r2_matrix_dir=None,
         *,
         snp_identifier: str | None = None,
         genome_build: str | None = None,
         validate_binding: bool = True,
-    ) -> "R2Panel":
-        """Open a panel directory and lazily cache chromosomes on first use.
+    ) -> "R2Matrix":
+        """Open an R2 matrix directory and lazily cache chromosomes on first use.
 
-        ``panel_dir`` is required and may name the output root or one build
+        ``r2_matrix_dir`` is required and may name the output root or one build
         child. ``genome_build`` selects hg19/hg38 when needed; an omitted
-        ``snp_identifier`` uses the mode recorded in panel metadata. Each
-        chromosome requires a Parquet satisfying the ``build-r2-panel``
+        ``snp_identifier`` uses the mode recorded in R2 matrix metadata. Each
+        chromosome requires a Parquet satisfying the ``build-r2-matrix``
         metadata contract and its matching SNP sidecar; every chromosome's
         Parquet metadata is validated here, and all defects are reported in
-        one error. An explicit ``snp_identifier`` must be the panel's recorded
+        one error. An explicit ``snp_identifier`` must be the R2 matrix's recorded
         mode or that mode's base form. ``validate_binding=True``
         checks the sidecar's identity hash and row count when loading a
         chromosome; disabling it does not relax the required metadata. Returns
-        a reusable :class:`R2Panel` handle.
+        a reusable :class:`R2Matrix` handle.
         """
-        if panel_dir is None:
+        if r2_matrix_dir is None:
             raise LDSCUsageError(
-                "Opening an R2 panel requires a panel directory. "
-                "Set --panel-dir (panel_dir in Python) to a build-r2-panel output directory "
+                "Opening an R2 matrix requires an R2 matrix directory. "
+                "Set --r2-matrix-dir (r2_matrix_dir in Python) to a build-r2-matrix output directory "
                 "containing R2 Parquet files."
             )
 
         paths: dict[str, tuple[str, str]] = {}
-        r2_paths = _r2_dir_r2_paths(panel_dir, genome_build=genome_build, chrom=None)
+        r2_paths = _r2_matrix_dir_r2_paths(r2_matrix_dir, genome_build=genome_build, chrom=None)
         for r2 in r2_paths:
             chrom = _chrom_from_r2_path(r2)
-            meta = _r2_dir_metadata_paths(panel_dir, genome_build=genome_build, chrom=chrom)
+            meta = _r2_matrix_dir_metadata_paths(r2_matrix_dir, genome_build=genome_build, chrom=chrom)
             if not meta:
                 raise LDSCInputError(
-                    f"R2Panel could not find the metadata sidecar for chromosome {chrom} "
+                    f"R2Matrix could not find the metadata sidecar for chromosome {chrom} "
                     f"next to '{r2}'. Most likely the `chr{chrom}_meta.tsv.gz` sidecar was "
-                    "not copied with the parquet. Restore the sidecar or regenerate the panel."
+                    "not copied with the parquet. Restore the sidecar or regenerate the R2 matrix."
                 )
             paths[chrom] = (meta[0], r2)
 
         if not paths:
             raise LDSCInputError(
-                f"Could not open R2 panel '{panel_dir}': no chr*_r2.parquet files were found. "
-                "The directory may not contain build-r2-panel outputs, or the selected genome-build "
-                "subdirectory may be wrong. Set --panel-dir to the matching panel output directory "
+                f"Could not open R2 matrix '{r2_matrix_dir}': no chr*_r2.parquet files were found. "
+                "The directory may not contain build-r2-matrix outputs, or the selected genome-build "
+                "subdirectory may be wrong. Set --r2-matrix-dir to the matching R2 matrix output directory "
                 "and check --genome-build."
             )
 
@@ -221,32 +221,32 @@ class R2Panel:
             mixed.append(f"different sample sizes (ldsc:n_samples {', '.join(map(str, sample_sizes))})")
         if mixed:
             raise LDSCInputError(
-                f"Could not open R2 panel '{panel_dir}': its chromosome files record "
-                f"{' and '.join(mixed)}. Most likely files from different build-r2-panel runs were "
-                "combined. Use one complete panel directory or regenerate the panel."
+                f"Could not open R2 matrix '{r2_matrix_dir}': its chromosome files record "
+                f"{' and '.join(mixed)}. Most likely files from different build-r2-matrix runs were "
+                "combined. Use one complete R2 matrix directory or regenerate the R2 matrix."
             )
         panel_mode = panel_modes[0]
         mode = panel_mode if snp_identifier is None else normalize_snp_identifier_mode(snp_identifier)
         if mode not in {panel_mode, identity_base_mode(panel_mode)}:
             allowed = sorted({panel_mode, identity_base_mode(panel_mode)})
             raise LDSCInputError(
-                f"query-r2 cannot use --snp-identifier {mode} with R2 panel '{panel_dir}', which was "
-                f"built in {panel_mode} mode. A panel answers only its own mode or that mode's base "
-                f"form ({' or '.join(allowed)}). Use one of those modes, or a panel built in {mode} mode."
+                f"query-r2-matrix cannot use --snp-identifier {mode} with R2 matrix '{r2_matrix_dir}', which was "
+                f"built in {panel_mode} mode. An R2 matrix answers only its own mode or that mode's base "
+                f"form ({' or '.join(allowed)}). Use one of those modes, or an R2 matrix built in {mode} mode."
             )
-        panel = cls(paths, mode, contracts)
-        if panel._mode.startswith('chr_pos'):
+        matrix = cls(paths, mode, contracts)
+        if matrix._mode.startswith('chr_pos'):
             from .._genome.build_policy import GenomeBuildCheck
-            check = GenomeBuildCheck(genome_build, context='query-r2', logger=LOGGER)
+            check = GenomeBuildCheck(genome_build, context='query-r2-matrix', logger=LOGGER)
             for _, parquet_path in paths.values():
-                check.table('--panel-dir', parquet_path)
+                check.table('--r2-matrix-dir', parquet_path)
             check.resolve()
-        panel._validate_binding = validate_binding
-        return panel
+        matrix._validate_binding = validate_binding
+        return matrix
 
     @property
     def chromosomes(self) -> list[str]:
-        """Chromosomes available in this panel (in resolved order)."""
+        """Chromosomes available in this R2 matrix (in resolved order)."""
         return list(self._paths.keys())
 
     @property
@@ -266,9 +266,9 @@ class R2Panel:
             return self._state[chrom]
         if chrom not in self._paths:
             raise LDSCInputError(
-                f"The R2 panel has no chromosome {chrom}; available chromosomes: {self.chromosomes}. "
-                "The query requests a chromosome absent from this panel. "
-                "Check the selected panel directory and genome build, or use a panel covering "
+                f"The R2 matrix has no chromosome {chrom}; available chromosomes: {self.chromosomes}. "
+                "The query requests a chromosome absent from this R2 matrix. "
+                "Check the selected R2 matrix directory and genome build, or use an R2 matrix covering "
                 "the intended query chromosome."
             )
         meta_path, r2_path = self._paths[chrom]
@@ -280,15 +280,15 @@ class R2Panel:
         if self._validate_binding:
             _validate_index_binding(
                 sidecar, n_snps=contract.n_snps, identity_hash=contract.sidecar_identity_sha256,
-                context=f"R2Panel[{chrom}] {r2_path}",
+                context=f"R2Matrix[{chrom}] {r2_path}",
             )
         key = build_snp_id_series(sidecar, self._mode)
         key_index = pd.Index(key)
         if key_index.has_duplicates:
             raise LDSCInputError(
-                f"R2Panel cannot key chromosome {chrom} in mode '{self._mode}': the sidecar "
+                f"R2Matrix cannot key chromosome {chrom} in mode '{self._mode}': the sidecar "
                 "has duplicate SNP identity keys, so a query SNP could resolve ambiguously. "
-                "Most likely the mode is too coarse for the panel (e.g. duplicate positions "
+                "Most likely the mode is too coarse for the R2 matrix (e.g. duplicate positions "
                 "in chr_pos). Use an allele-aware mode."
             )
         state = _ChromState(
@@ -309,7 +309,7 @@ class R2Panel:
         ``endpoint`` carries canonical columns ``CHR/POS/SNP/A1/A2`` (subset by
         mode). Returns parallel arrays the length of ``endpoint``: chromosome
         label (object, ``None`` if unresolved), row index (int64, ``-1`` if
-        unresolved), and panel A1/A2 (object, ``None`` if unresolved).
+        unresolved), and R2 matrix A1/A2 (object, ``None`` if unresolved).
         """
         n = len(endpoint)
         chrom_out = np.full(n, None, dtype=object)
@@ -358,7 +358,7 @@ class R2Panel:
         pairs : pandas.DataFrame
             Endpoint columns are suffixed ``_1``/``_2``: ``CHR``/``POS`` in
             coordinate-family modes or ``SNP`` in rsID-family modes, with ``A1``/``A2`` in
-            allele-aware modes. Coordinates use the selected panel build.
+            allele-aware modes. Coordinates use the selected R2 matrix build.
             Registered aliases are accepted; input rows are not reordered.
 
         Returns
@@ -371,13 +371,13 @@ class R2Panel:
             allele swaps and strand complements. Both are missing in base
             modes.
             Unresolved, cross-chromosome, and unstored pairs have NaN R2 and
-            status ``not_in_panel``, ``cross_chromosome``, or ``absent``.
+            status ``not_in_matrix``, ``cross_chromosome``, or ``absent``.
             Resolved diagonals have R2=1; numeric results have empty status.
 
         Raises
         ------
         LDSCInputError
-            Endpoint columns or the panel schema, identity, or binding are
+            Endpoint columns or the R2 matrix schema, identity, or binding are
             incompatible with the selected mode.
         """
         ep1 = _endpoint_frame(pairs, "1", self._mode)
@@ -391,13 +391,13 @@ class R2Panel:
         status = np.array([""] * n, dtype=object)
 
         resolved = (i1 >= 0) & (i2 >= 0)
-        status[~resolved] = "not_in_panel"
+        status[~resolved] = "not_in_matrix"
         cross = resolved & (c1 != c2)
         status[cross] = "cross_chromosome"
         same = resolved & (c1 == c2)
         diagonal = same & (i1 == i2)
         r2[diagonal] = 1.0
-        sign[diagonal] = 1  # panel orientation; harmonized below
+        sign[diagonal] = 1  # R2 matrix orientation; harmonized below
         lookup = same & (i1 != i2)
 
         for chrom in {c for c in c1[lookup]}:
@@ -436,7 +436,7 @@ class R2Panel:
         """Recover Pearson r using the harmonized query-orientation sign_r.
 
         Positive r denotes positive correlation between query A1 dosages;
-        query A1 need not be the panel's minor allele. Base modes carry no
+        query A1 need not be the R2 matrix's minor allele. Base modes carry no
         sign_r, so ``r`` is all-NaN. The required ``ldsc:n_samples`` recovers
         raw R2 from the stored unbiased value.
         """
@@ -444,9 +444,9 @@ class R2Panel:
         sign_float = sign_col.to_numpy(dtype="float64", na_value=np.nan)
         if not is_allele_aware_mode(self._mode):
             LOGGER.warning(
-                "query-r2 returns R2 but all signed r values are unavailable (NaN) because the selected "
+                "query-r2-matrix returns R2 but all signed r values are unavailable (NaN) because the selected "
                 "SNP identifier mode omits allele orientation. To obtain signed r, select an allele-aware "
-                "--snp-identifier matching the panel and provide A1/A2 for both query endpoints."
+                "--snp-identifier matching the R2 matrix and provide A1/A2 for both query endpoints."
             )
         return unbiased_r2_to_pearson_r(r2.astype(np.float64), n_samples, sign=sign_float)
 
@@ -456,8 +456,8 @@ def _chrom_from_r2_path(r2_path: str) -> str:
     name = Path(r2_path).name
     if not name.startswith("chr") or not name.endswith("_r2.parquet"):
         raise LDSCInputError(
-            f"R2Panel expected a canonical `chr{{N}}_r2.parquet` filename but got '{name}'. "
-            "Most likely a non-panel parquet was passed. Pass an R2 Parquet file written by build-r2-panel."
+            f"R2Matrix expected a canonical `chr{{N}}_r2.parquet` filename but got '{name}'. "
+            "Most likely a non-panel parquet was passed. Pass an R2 Parquet file written by build-r2-matrix."
         )
     return normalize_chromosome(name[len("chr") : -len("_r2.parquet")])
 
@@ -466,7 +466,7 @@ def _query_keys(endpoint: pd.DataFrame, mode: str) -> np.ndarray:
     """Build identity keys for query endpoints, tolerating unresolvable rows.
 
     Unlike :func:`build_snp_id_series`, invalid/ambiguous allele-aware rows do not
-    raise: they yield ``None`` so the endpoint resolves to ``not_in_panel`` (spec
+    raise: they yield ``None`` so the endpoint resolves to ``not_in_matrix`` (spec
     Section 7) rather than aborting the whole query.
     """
     mode = normalize_snp_identifier_mode(mode)
@@ -491,7 +491,7 @@ _ENDPOINT_COLUMNS = tuple(_ENDPOINT_COLUMN_SPECS)
 
 
 def _endpoint_column_spec(base: ColumnSpec, suffix: str) -> ColumnSpec:
-    """Return a ``query-r2`` endpoint spec for aliases suffixed by endpoint."""
+    """Return a ``query-r2-matrix`` endpoint spec for aliases suffixed by endpoint."""
     aliases: list[str] = []
     for alias in base.aliases:
         aliases.extend((f"{alias}_{suffix}", f"{alias}{suffix}"))
@@ -521,14 +521,14 @@ def _endpoint_frame(pairs: pd.DataFrame, suffix: str, mode: str) -> pd.DataFrame
         if canonical in ("A1", "A2") and not allele_aware:
             continue
         spec = _endpoint_column_spec(_ENDPOINT_COLUMN_SPECS[canonical], suffix)
-        col = resolve_optional_column(suffixed_columns, spec, context=f"query-r2 endpoint {suffix}")
+        col = resolve_optional_column(suffixed_columns, spec, context=f"query-r2-matrix endpoint {suffix}")
         if col is not None:
             out[canonical] = pairs[col].to_numpy()
     if not out:
         raise LDSCInputError(
-            f"query-r2 found no endpoint-{suffix} columns. Most likely the pair table is "
+            f"query-r2-matrix found no endpoint-{suffix} columns. Most likely the pair table is "
             f"missing `CHR_{suffix}/POS_{suffix}` or `SNP_{suffix}`. Provide the columns "
-            "required by the panel's SNP identifier mode."
+            "required by the R2 matrix's SNP identifier mode."
         )
     return pd.DataFrame(out)
 
@@ -536,10 +536,10 @@ def _endpoint_frame(pairs: pd.DataFrame, suffix: str, mode: str) -> pd.DataFrame
 def _orientation_multiplier(query_a1: np.ndarray, panel_a1: np.ndarray, panel_a2: np.ndarray) -> np.ndarray:
     """Return per-endpoint sign multiplier (+1 aligned, -1 swapped, 0 unknown).
 
-    Aligned when the query A1 equals panel A1 (or its strand complement); swapped
-    when it equals panel A2 (or its complement). Strand-ambiguous panel SNPs are
+    Aligned when the query A1 equals R2 matrix A1 (or its strand complement); swapped
+    when it equals R2 matrix A2 (or its complement). Strand-ambiguous R2 matrix SNPs are
     excluded from allele-aware matching, so a matched endpoint always classifies
-    cleanly; ``0`` only occurs for unresolved endpoints (panel allele ``None``).
+    cleanly; ``0`` only occurs for unresolved endpoints (R2 matrix allele ``None``).
     """
     n = query_a1.shape[0]
     out = np.zeros(n, dtype=np.int16)
@@ -557,22 +557,22 @@ def _orientation_multiplier(query_a1: np.ndarray, panel_a1: np.ndarray, panel_a2
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the ``ldsc query-r2`` argument parser."""
+    """Build the ``ldsc query-r2-matrix`` argument parser."""
     parser = argparse.ArgumentParser(
-        prog="ldsc query-r2",
-        description="Query unbiased R2 (and signed r) for SNP pairs from an R2 panel.",
+        prog="ldsc query-r2-matrix",
+        description="Query unbiased R2 (and signed r) for SNP pairs from an R2 matrix.",
         allow_abbrev=False,
     )
-    parser.prog = 'ldsc query-r2'
+    parser.prog = 'ldsc query-r2-matrix'
     parser.formatter_class = CLIHelpFormatter
     inputs = parser.add_argument_group('Inputs and output')
-    identity = parser.add_argument_group('Panel and SNP matching')
+    identity = parser.add_argument_group('R2 matrix and SNP matching')
     runtime = parser.add_argument_group('Output and logging')
 
     inputs.add_argument(
-        '--panel-dir', required=True, metavar='DIR',
+        '--r2-matrix-dir', required=True, metavar='DIR',
         help=(
-            'Required reference-panel directory produced by build-r2-panel, or its root containing '
+            'Required R2 matrix directory produced by build-r2-matrix, or its root containing '
             'genome-build subdirectories. Use --genome-build to select a subdirectory when needed.'
         ),
     )
@@ -586,7 +586,7 @@ def build_parser() -> argparse.ArgumentParser:
     inputs.add_argument(
         '--output-dir', required=True, metavar='DIR',
         help=(
-            'Required destination for query_r2.tsv (r2, sign_r, r, status plus input columns) '
+            'Required destination for query_r2_matrix.tsv (r2, sign_r, r, status plus input columns) '
             'and diagnostics. sign_r and r use query allele orientation.'
         ),
     )
@@ -594,7 +594,7 @@ def build_parser() -> argparse.ArgumentParser:
     identity.add_argument(
         '--genome-build', choices=['hg19', 'hg38'], default=None,
         help=(
-            'Select the hg19 or hg38 subdirectory under --panel-dir. If omitted, use the supplied '
+            'Select the hg19 or hg38 subdirectory under --r2-matrix-dir. If omitted, use the supplied '
             'build-specific directory or its sole available build; ambiguous build roots require a '
             'selection.'
         ),
@@ -602,7 +602,7 @@ def build_parser() -> argparse.ArgumentParser:
     identity.add_argument(
         '--snp-identifier', default=None,
         help=(
-            'SNP matching rule for pair endpoints: the mode recorded by the panel (the default) or the '
+            'SNP matching rule for pair endpoints: the mode recorded by the R2 matrix (the default) or the '
             'base form of that mode (rsid or chr_pos), which ignores alleles. Pair columns must support '
             'the selected mode.'
         ),
@@ -628,63 +628,63 @@ def build_parser() -> argparse.ArgumentParser:
         if getattr(args, "output_dir", None)
         else None
     ),
-    command="run_query_r2_from_args(...)",
+    command="run_query_r2_matrix_from_args(...)",
 )
-def run_query_r2_from_args(args: argparse.Namespace) -> pd.DataFrame:
-    """Run ``query-r2`` from parsed CLI arguments and emit the result table.
+def run_query_r2_matrix_from_args(args: argparse.Namespace) -> pd.DataFrame:
+    """Run ``query-r2-matrix`` from parsed CLI arguments and emit the result table.
 
-    The command writes the canonical result directory: ``query_r2.tsv`` plus
-    ``diagnostics/metadata.json`` and ``diagnostics/query-r2.log``, matching the
+    The command writes the canonical result directory: ``query_r2_matrix.tsv`` plus
+    ``diagnostics/metadata.json`` and ``diagnostics/query-r2-matrix.log``, matching the
     other workflow commands.
     """
-    return _write_query_r2_directory(args)
+    return _write_query_r2_matrix_directory(args)
 
 
-def _write_query_r2_directory(args: argparse.Namespace, pairs: pd.DataFrame | None = None) -> pd.DataFrame:
-    """Query against the panel and write the canonical result directory."""
+def _write_query_r2_matrix_directory(args: argparse.Namespace, pairs: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Query against the R2 matrix and write the canonical result directory."""
     output_dir = ensure_output_directory(args.output_dir, label="output directory")
     diagnostics_dir = output_dir / "diagnostics"
-    log_path = diagnostics_dir / "query-r2.log"
-    QueryR2DirectoryWriter.artifact_family(output_dir).preflight(
+    log_path = diagnostics_dir / "query-r2-matrix.log"
+    QueryR2MatrixDirectoryWriter.artifact_family(output_dir).preflight(
         overwrite=args.overwrite, additional_paths=[log_path],
     )
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    with workflow_logging("query-r2", log_path, log_level=args.log_level):
+    with workflow_logging("query-r2-matrix", log_path, log_level=args.log_level):
         from .._runtime.preflight import inspect_declared_inputs
         from .preflight import inspect_r2_headers
         from .._runtime.progress import PhaseProgress
         inspect_declared_inputs(files=[] if args.pairs == '-' else [('pairs', args.pairs)],
-            checks=[('reference', args.panel_dir, lambda: inspect_r2_headers(args.panel_dir, args.genome_build))],
+            checks=[('reference', args.r2_matrix_dir, lambda: inspect_r2_headers(args.r2_matrix_dir, args.genome_build))],
             issues_path=diagnostics_dir/'input_issues.tsv')
         if pairs is None:
             with PhaseProgress(LOGGER, 'validation', 'pair input loading'):
                 pairs_handle = sys.stdin if args.pairs == '-' else args.pairs
                 sep = ',' if str(args.pairs).endswith('.csv') else '\t'
                 pairs = pd.read_csv(pairs_handle, sep=sep)
-        log_inputs(panel_dir=args.panel_dir, pairs=args.pairs, output_dir=str(output_dir))
-        LOGGER.info(f"Querying R2 for pairs from '{args.pairs}' against panel '{args.panel_dir}'.")
-        panel = R2Panel.open(args.panel_dir, snp_identifier=args.snp_identifier, genome_build=args.genome_build)
-        result = panel.query_pairs(pairs)
-        written = QueryR2DirectoryWriter().write(
+        log_inputs(r2_matrix_dir=args.r2_matrix_dir, pairs=args.pairs, output_dir=str(output_dir))
+        LOGGER.info(f"Querying R2 for pairs from '{args.pairs}' against R2 matrix '{args.r2_matrix_dir}'.")
+        matrix = R2Matrix.open(args.r2_matrix_dir, snp_identifier=args.snp_identifier, genome_build=args.genome_build)
+        result = matrix.query_pairs(pairs)
+        written = QueryR2MatrixDirectoryWriter().write(
             result,
-            QueryR2OutputConfig(output_dir=output_dir, overwrite=args.overwrite),
-            metadata=_query_r2_metadata(args, panel, result),
+            QueryR2MatrixOutputConfig(output_dir=output_dir, overwrite=args.overwrite),
+            metadata=_query_r2_matrix_metadata(args, matrix, result),
         )
-        LOGGER.info("R2 query complete: pairs=%d; status counts=%s. See query_r2.tsv and diagnostics/metadata.json.",
+        LOGGER.info("R2 query complete: pairs=%d; status counts=%s. See query_r2_matrix.tsv and diagnostics/metadata.json.",
                     len(result), result["status"].value_counts(dropna=False).to_dict())
         log_outputs(**written)
     return result
 
 
-def _query_r2_metadata(args: argparse.Namespace, panel: "R2Panel", result: pd.DataFrame) -> dict[str, object]:
-    """Build the diagnostic metadata payload for one query-r2 run."""
+def _query_r2_matrix_metadata(args: argparse.Namespace, matrix: "R2Matrix", result: pd.DataFrame) -> dict[str, object]:
+    """Build the diagnostic metadata payload for one query-r2-matrix run."""
     counts = result["status"].value_counts(dropna=False)
     status_counts = {(str(label) or "resolved"): int(count) for label, count in counts.items()}
     return {
-        "panel_dir": str(args.panel_dir),
-        "snp_identifier": panel.snp_identifier,
+        "r2_matrix_dir": str(args.r2_matrix_dir),
+        "snp_identifier": matrix.snp_identifier,
         "genome_build": args.genome_build,
-        "n_samples": panel.n_samples,
+        "n_samples": matrix.n_samples,
         "n_pairs": int(len(result)),
         "status_counts": status_counts,
     }
@@ -693,4 +693,4 @@ def _query_r2_metadata(args: argparse.Namespace, panel: "R2Panel", result: pd.Da
 def main(argv: Sequence[str] | None = None) -> pd.DataFrame:
     """Command-line entry point for the R2 pair-query workflow."""
     args = build_parser().parse_args(argv)
-    return run_query_r2_from_args(args)
+    return run_query_r2_matrix_from_args(args)

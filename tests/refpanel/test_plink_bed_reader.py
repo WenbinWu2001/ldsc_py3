@@ -1,6 +1,6 @@
 """Bit-for-bit guardrails for the PLINK genotype reader refactor.
 
-These tests pin the current reader and ``build-r2-panel`` R2 output so the
+These tests pin the current reader and ``build-r2-matrix`` R2 output so the
 selective-read (O1), fused individual filter (O3), and streaming (O2) changes
 cannot alter any observable value. If a golden assertion fails, the change is
 wrong -- fix the change, not the golden.
@@ -120,20 +120,20 @@ def test_streaming_rewind_replays_identically():
     np.testing.assert_allclose(first, second, rtol=0, atol=0)
 
 
-def _run_build_ref_panel(tmp_path):
+def _run_build_r2_matrix(tmp_path):
     """Run an unrestricted source-only build on the real fixture; return parquet path."""
-    from ldsc._refpanel.builder import ReferencePanelBuilder, ReferencePanelBuildConfig
+    from ldsc._refpanel.builder import R2MatrixBuilder, R2MatrixBuildConfig
     from ldsc.config import GlobalConfig
 
     for ext in (".bed", ".bim", ".fam"):
         shutil.copy(str(FIX) + ext, tmp_path / f"panel.1{ext}")
-    cfg = ReferencePanelBuildConfig(
+    cfg = R2MatrixBuildConfig(
         plink_prefix=tmp_path / "panel.@",
         source_genome_build="hg19",
         output_dir=tmp_path / "out",
         ld_wind_snps=4,
     )
-    ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="rsid")).run(cfg)
+    R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="rsid")).run(cfg)
     paths = sorted(glob.glob(str(tmp_path / "out" / "**" / "*_r2.parquet"), recursive=True))
     assert paths, "no parquet produced"
     return paths[0]
@@ -148,7 +148,7 @@ def _read_r2(parquet_path):
 
 def test_build_ref_panel_parquet_golden(tmp_path):
     assert BUILD_GOLDEN.is_file(), f"Missing immutable golden: {BUILD_GOLDEN}. Restore it from version control."
-    out = _read_r2(_run_build_ref_panel(tmp_path))
+    out = _read_r2(_run_build_r2_matrix(tmp_path))
     g = np.load(BUILD_GOLDEN)
     # Preserve the immutable numerical reference across the public column rename.
     expected = {"SIGN_R" if name == "SIGN" else name: g[name] for name in g.files}

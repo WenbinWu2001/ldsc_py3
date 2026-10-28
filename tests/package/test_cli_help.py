@@ -92,7 +92,7 @@ def test_munge_companion_flags_and_window_alternatives_are_explained(commands):
 
 def test_wrapped_help_keeps_companion_flag_names_intact(commands):
     help_text = commands["ldscore"].format_help()
-    r2_description = help_text.split("  --r2-dir DIR", 1)[1].split(
+    r2_description = help_text.split("  --r2-matrix-dir DIR", 1)[1].split(
         "\n  --gene-ldscore-index-dir", 1
     )[0]
     assert "--gene-ldscore-index-dir" in r2_description
@@ -114,7 +114,7 @@ def test_regression_rejects_removed_no_intercept(commands, command, capsys):
 def test_path_help_distinguishes_suites_globs_and_single_files(commands):
     for command, flag in (
         ("annotate", "--ref-snp-annot-sources"), ("ldscore", "--plink-prefix"),
-        ("build-r2-panel", "--plink-prefix"), ("build-gene-ldscore-index", "--baseline-annot-sources"),
+        ("build-r2-matrix", "--plink-prefix"), ("build-gene-ldscore-index", "--baseline-annot-sources"),
         ("quantile-h2", "--target-annot-sources"),
     ):
         help_text = commands[command]._option_string_actions[flag].help

@@ -1,4 +1,4 @@
-"""Internal helpers for building R2 panels."""
+"""Internal helpers for building R2 matrices."""
 
 from __future__ import annotations
 
@@ -31,9 +31,9 @@ from .._core.snp_identity import (
     restriction_membership_mask,
 )
 
-LOGGER = logging.getLogger("LDSC.ref_panel_builder.kernel")
+LOGGER = logging.getLogger("LDSC.r2_matrix_builder.kernel")
 _BUILD_REF_PANEL_LIFTOVER_DOC = (
-    "docs/user-guide/troubleshooting.md#build-r2-panel-liftover-or-genetic-map-configuration-is-incomplete"
+    "docs/user-guide/troubleshooting.md#build-r2-matrix-liftover-or-genetic-map-configuration-is-incomplete"
 )
 
 
@@ -83,7 +83,7 @@ def load_genetic_map(path: str | PathLike[str]) -> pd.DataFrame:
     duplicated = out.duplicated(subset=["CHR", "POS"], keep=False)
     if duplicated.any():
         raise LDSCInputError(
-            f"build-r2-panel could not load genetic map '{path}': duplicate CHR/POS "
+            f"build-r2-matrix could not load genetic map '{path}': duplicate CHR/POS "
             "rows were found. Most likely the map file contains repeated positions. "
             "Deduplicate the map or provide a clean genetic map. "
             f"Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
@@ -92,7 +92,7 @@ def load_genetic_map(path: str | PathLike[str]) -> pd.DataFrame:
     chrom_order = out["CHR"].map(chrom_sort_key)
     if not chrom_order.equals(chrom_order.sort_values(ignore_index=True)):
         raise LDSCInputError(
-            f"build-r2-panel could not load genetic map '{path}': rows are not sorted "
+            f"build-r2-matrix could not load genetic map '{path}': rows are not sorted "
             "by chromosome. Most likely map shards were concatenated out of order. Sort "
             "the file by chromosome and position, or pass correctly ordered map shards."
         )
@@ -100,7 +100,7 @@ def load_genetic_map(path: str | PathLike[str]) -> pd.DataFrame:
         positions = chrom_frame["POS"].reset_index(drop=True)
         if not positions.equals(positions.sort_values(ignore_index=True)):
             raise LDSCInputError(
-                f"build-r2-panel could not load genetic map '{path}': positions are not "
+                f"build-r2-matrix could not load genetic map '{path}': positions are not "
                 f"sorted within chromosome {chrom}. Most likely this chromosome's map rows "
                 "were shuffled. Sort the map by chromosome and position before rerunning."
             )
@@ -113,7 +113,7 @@ def load_genetic_map_group(paths: Sequence[str | PathLike[str]]) -> pd.DataFrame
 
     if not paths:
         raise LDSCInputError(
-            "build-r2-panel could not load a genetic map group because no map paths "
+            "build-r2-matrix could not load a genetic map group because no map paths "
             "were supplied. Most likely an empty path token reached the kernel. Pass at "
             "least one genetic map file or omit cM-window output."
         )
@@ -123,7 +123,7 @@ def load_genetic_map_group(paths: Sequence[str | PathLike[str]]) -> pd.DataFrame
     duplicated = combined.duplicated(subset=["CHR", "POS"], keep=False)
     if duplicated.any():
         raise LDSCInputError(
-            "build-r2-panel could not combine genetic map inputs: duplicate CHR/POS "
+            "build-r2-matrix could not combine genetic map inputs: duplicate CHR/POS "
             "rows were found across map files. Most likely overlapping map shards were "
             "supplied. Use non-overlapping shards or a single deduplicated genetic map. "
             f"Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
@@ -142,7 +142,7 @@ def interpolate_genetic_map_cm(
     chrom_map = genetic_map.loc[genetic_map["CHR"] == chrom, ["POS", "CM"]].reset_index(drop=True)
     if len(chrom_map) == 0:
         raise LDSCInputError(
-            f"build-r2-panel could not interpolate cM positions for chromosome {chrom}: "
+            f"build-r2-matrix could not interpolate cM positions for chromosome {chrom}: "
             "the genetic map contains no rows for that chromosome. Most likely the wrong "
             "map build or incomplete chromosome shard was supplied. Pass a map that covers "
             f"chromosome {chrom}. Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
@@ -243,7 +243,7 @@ def build_plink_metadata_frame(
     freq_values = np.asarray(freq_values, dtype=float)
     if not (len(kept_snps) == len(maf_values) == len(freq_values)):
         raise LDSCInternalError(
-            "build-r2-panel metadata assembly failed: kept_snps, maf_values, and "
+            "build-r2-matrix metadata assembly failed: kept_snps, maf_values, and "
             f"freq_values have different lengths ({len(kept_snps)} vs "
             f"{len(maf_values)} vs {len(freq_values)}). Most likely PLINK filtering "
             "bookkeeping desynchronized. Re-run with DEBUG logging and report the traceback."
@@ -414,13 +414,13 @@ def yield_pairwise_r2_rows(
     block_left = np.asarray(block_left, dtype=int)
     if len(block_left) != m:
         raise LDSCInternalError(
-            "build-r2-panel pairwise R2 emission failed: block_left length does not "
+            "build-r2-matrix pairwise R2 emission failed: block_left length does not "
             f"match SNP count ({len(block_left)} vs {m}). Most likely LD-window setup "
             "desynchronized from retained SNP metadata. Re-run with DEBUG logging and report the traceback."
         )
     if snp_batch_size <= 0:
         raise LDSCConfigError(
-            f"build-r2-panel received invalid snp_batch_size={snp_batch_size}. Most "
+            f"build-r2-matrix received invalid snp_batch_size={snp_batch_size}. Most "
             "likely the batch size was set to zero or a negative value. Pass a positive "
             "integer batch size."
         )

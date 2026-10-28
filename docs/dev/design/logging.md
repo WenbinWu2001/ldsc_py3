@@ -157,7 +157,7 @@ Log creation depends on the API's output contract:
 - `AnnotationBuilder.run(..., output_dir=...)` requires an output parent for private preparation but does not install a workflow log. `run_annotate(...)` owns standalone output preflight, writing, and `diagnostics/annotate.log`.
 - `LDScoreCalculator.run(..., output_config=...)` creates `diagnostics/ldscore.log` and chromosome logs for writing runs.
   `LDScoreCalculator.run(..., output_config=None)` creates no files.
-- `ReferencePanelBuilder.run(...)` does not create a `build-r2-panel` workflow log.
+- `R2MatrixBuilder.run(...)` does not create a `build-r2-matrix` workflow log.
 - `RegressionRunner.estimate_*` methods do not create regression logs.
 
 `SumstatsMunger.run(...)` remains a workflow-level API and keeps writing
@@ -209,7 +209,7 @@ Ordinary query-model exceptions include the query name and stage. Process death,
 Use this page for current rules rather than copying dated implementation instructions.
 The May 2026 harmonization design introduced the shared workflow context, exact invocation, input/output sections, and separation of logs from scientific outputs.
 Its message-only formatter, console-verbosity rules, regression calls without output directories, direct LD-score API log exclusion, and failure footer without exception details are superseded.
-The current command is `build-r2-panel`, and short-run elapsed times use seconds as specified above.
+The current command is `build-r2-matrix`, and short-run elapsed times use seconds as specified above.
 
 The June 2026 refinement work contributed self-contained errors, command-oriented troubleshooting, original exception context, and synchronized reference links.
 Its source counts, line numbers, command map, companion-document paths, and batch/commit instructions describe that historical implementation effort.

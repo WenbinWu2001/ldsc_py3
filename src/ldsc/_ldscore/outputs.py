@@ -329,7 +329,7 @@ class LDScoreDirectoryWriter:
 
     @staticmethod
     def _write_ld_window_snp_counts(result: Any, paths: dict[str, Path]) -> None:
-        """Write per-chromosome panel/kept SNP counts behind a parquet ``--ld-wind-snps`` window."""
+        """Write per-chromosome R2 matrix/kept SNP counts behind an R2 matrix ``--ld-wind-snps`` window."""
         if "ld_window_snp_counts" in paths:
             paths["ld_window_snp_counts"].parent.mkdir(parents=True, exist_ok=True)
             result.ld_window_snp_counts.to_csv(paths["ld_window_snp_counts"], sep="\t", index=False)

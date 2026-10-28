@@ -1,9 +1,9 @@
 """``ldsc`` package public surface.
 
 Core functionality:
-    Re-export the LDSC3 workflow classes, reference-panel builders
-    and loaders, configuration dataclasses, and convenience helpers from a
-    single import location.
+    Re-export the LDSC3 workflow classes, the R2 matrix builder,
+    reference-panel loaders, configuration dataclasses, and convenience
+    helpers from a single import location.
 
 Overview
 --------
@@ -11,7 +11,7 @@ This module is the top-level public API for LDSC3. Import from
 ``ldsc`` when you want the supported package surface; the private domain
 packages (``ldsc._core``, ``ldsc._ldscore`` and the others) hold the
 implementation. The exports here mirror the main user
-workflows: annotation building, R2 panel building, exact gene
+workflows: annotation building, R2 matrix building, exact gene
 LD-score index construction, LD-score calculation, summary-statistics munging,
 regression, output writing, genome-build inference for ``chr_pos`` inputs, and
 lazy access to result plotting and liability-scale post-processing.
@@ -26,10 +26,10 @@ Design Notes
 
 Example
 -------
->>> from ldsc import GlobalConfig, ReferencePanelBuilder
+>>> from ldsc import GlobalConfig, R2MatrixBuilder
 >>> GlobalConfig().snp_identifier
 'chr_pos_allele_aware'
->>> isinstance(ReferencePanelBuilder(), ReferencePanelBuilder)
+>>> isinstance(R2MatrixBuilder(), R2MatrixBuilder)
 True
 """
 
@@ -47,7 +47,7 @@ from .config import (
     GeneLDScoreIndexBuildConfig,
     LDScoreConfig,
     MungeConfig,
-    ReferencePanelBuildConfig,
+    R2MatrixBuildConfig,
     RefPanelConfig,
     RegressionConfig,
     get_global_config,
@@ -85,9 +85,9 @@ from ._regression.outputs import (
     RgOutputConfig,
 )
 from ._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
-from ._refpanel.builder import ReferencePanelBuildResult, ReferencePanelBuilder, run_build_ref_panel
-from ._refpanel.adapters import ParquetR2RefPanel, PlinkRefPanel, RefPanel, RefPanelLoader
-from ._refpanel.query import R2Panel, query_r2, unbiased_r2_to_pearson_r
+from ._refpanel.builder import R2MatrixBuildResult, R2MatrixBuilder, run_build_r2_matrix
+from ._refpanel.adapters import R2MatrixRefPanel, PlinkRefPanel, RefPanel, RefPanelLoader
+from ._refpanel.query import R2Matrix, query_r2_matrix, unbiased_r2_to_pearson_r
 
 _LAZY_EXPORTS = {
     "MungeRunSummary": ("._sumstats.munger", "MungeRunSummary"),
@@ -168,9 +168,9 @@ __all__ = [
     "MungeConfig",
     "MungeRunSummary",
     "RawSumstatsInference",
-    "ParquetR2RefPanel",
-    "R2Panel",
-    "query_r2",
+    "R2MatrixRefPanel",
+    "R2Matrix",
+    "query_r2_matrix",
     "unbiased_r2_to_pearson_r",
     "PartitionedH2DirectoryWriter",
     "PartitionedH2OutputConfig",
@@ -180,9 +180,9 @@ __all__ = [
     "QuantileH2Result",
     "PlinkRefPanel",
     "PlotArtifact",
-    "ReferencePanelBuildConfig",
-    "ReferencePanelBuildResult",
-    "ReferencePanelBuilder",
+    "R2MatrixBuildConfig",
+    "R2MatrixBuildResult",
+    "R2MatrixBuilder",
     "RefPanel",
     "RefPanelConfig",
     "RefPanelLoader",
@@ -204,7 +204,7 @@ __all__ = [
     "compute_quantile_h2",
     "compute_standardized_coefficients",
     "infer_raw_sumstats",
-    "run_build_ref_panel",
+    "run_build_r2_matrix",
     "build_gene_ldscore_index",
     "run_annotate",
     "run_ldscore",

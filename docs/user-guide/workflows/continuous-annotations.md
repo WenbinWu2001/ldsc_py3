@@ -44,7 +44,7 @@ If regression used `--continue-on-query-error`, failed queries appear only in `d
 
 You need every annotation source used to fit the selected model, one target source, and reference metadata. LDSC3 stores regression delete values and annotation aggregate statistics. You must resupply the annotation matrices. The workflow checks alignment, counts, annotation sums, and available overlap cross-products; passing these checks does not establish the original annotation value at every SNP.
 
-- R² panel users can supply the existing `chr*_meta.tsv.gz` sidecars.
+- R² matrix users can supply the existing `chr*_meta.tsv.gz` sidecars.
 - PLINK users should first run `ldsc ldscore --export-ref-metadata`; use the resulting `ref_metadata/chr@_meta.tsv.gz` files.
 
 Annotation names must be unique across all baseline and query sources in one LD-score directory.
@@ -61,7 +61,7 @@ ldsc quantile-h2 \
   --baseline-annot-sources "${BASELINE_ANNOT_DIR}/baseline.@.annot.gz" \
   --target-annot-sources "${TARGET_ANNOT_DIR}/target.@.annot.gz" \
   --target-annotation "continuous_score" \
-  --ref-metadata-sources "${R2_DIR}/chr@_meta.tsv.gz" \
+  --ref-metadata-sources "${R2_MATRIX_DIR}/chr@_meta.tsv.gz" \
   --num-quantiles 5 \
   --output-dir "${OUTPUT_ROOT}/continuous-score-quantiles" \
   --overwrite
@@ -76,7 +76,7 @@ ldsc quantile-h2 \
   --query-annot-sources "${QUERY_ANNOT_DIR}/my_query.@.annot.gz" \
   --target-annot-sources "${TARGET_ANNOT_DIR}/external_score.@.annot.gz" \
   --target-annotation "external_score" \
-  --ref-metadata-sources "${R2_DIR}/chr@_meta.tsv.gz" \
+  --ref-metadata-sources "${R2_MATRIX_DIR}/chr@_meta.tsv.gz" \
   --output-dir "${OUTPUT_ROOT}/external-score-quantiles"
 ```
 

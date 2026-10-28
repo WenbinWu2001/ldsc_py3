@@ -272,7 +272,7 @@ class IndexParquetRuntimeTest(unittest.TestCase):
             self.assertIn("SNP-pair rows", message)
             self.assertIn("slower", message)
             self.assertIn("memory", message)
-            self.assertIn("ldsc build-r2-panel", message)
+            self.assertIn("ldsc build-r2-matrix", message)
 
     def test_index_init_hard_fails_on_multiple_paths(self):
         with tempfile.TemporaryDirectory() as tmpdir:

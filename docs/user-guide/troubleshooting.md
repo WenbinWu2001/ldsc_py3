@@ -99,7 +99,7 @@ Markers, logs, audits, and scientific outputs use the same expanded destination.
 2. Narrow broad globs so they match exactly the intended file.
 3. For annotation chromosome suites, use an explicit `@` token such as `baseline.@.annot.gz` or a quoted glob with the full file suffix.
 
-**PLINK resolution (`ldscore`, `build-gene-ldscore-index`, `build-r2-panel`):** A plain stem such as `1000G.EUR.QC.` is supported and preserves numeric suffixes such as `.22`. These commands share `_runtime.paths.inspect_plink_inputs()`. If `Could not resolve PLINK inputs` appears, read every listed issue: restore each missing BED/BIM/FAM member, replace malformed or truncated trios, verify BIM chromosome contents against any explicit `@` declaration, and narrow inputs when multiple trios contain the same chromosome. Renaming a file does not change its chromosome assignment. Gene-index construction requires chromosomes 1-22 even without `@`; direct query LD-score full-suite declarations also retain their coverage checks. Direct LD-score issues appear in its input diagnostics; gene-index issues are retained in `.<output-name>.build-state/plink_input_issues.tsv`; R²-builder issues appear in `diagnostics/plink_input_issues.tsv`. See the [shared resolution contract](../reference/input-paths.md#plink-prefix-resolution).
+**PLINK resolution (`ldscore`, `build-gene-ldscore-index`, `build-r2-matrix`):** A plain stem such as `1000G.EUR.QC.` is supported and preserves numeric suffixes such as `.22`. These commands share `_runtime.paths.inspect_plink_inputs()`. If `Could not resolve PLINK inputs` appears, read every listed issue: restore each missing BED/BIM/FAM member, replace malformed or truncated trios, verify BIM chromosome contents against any explicit `@` declaration, and narrow inputs when multiple trios contain the same chromosome. Renaming a file does not change its chromosome assignment. Gene-index construction requires chromosomes 1-22 even without `@`; direct query LD-score full-suite declarations also retain their coverage checks. Direct LD-score issues appear in its input diagnostics; gene-index issues are retained in `.<output-name>.build-state/plink_input_issues.tsv`; R²-builder issues appear in `diagnostics/plink_input_issues.tsv`. See the [shared resolution contract](../reference/input-paths.md#plink-prefix-resolution).
 
 **Developer reference:** `_runtime.paths.resolve_scalar_path()` and group/path-prefix resolvers · **Exception:** `LDSCInputError`
 
@@ -148,7 +148,7 @@ In either case, confirm the genome build from the source metadata before declari
 **Remedies:**
 
 1. If the input build is known, declare it with the option for that command.
-   Use `--source-genome-build hg19` or `hg38` for coordinate-based `munge-sumstats` inputs and `build-r2-panel` source panels; use `--genome-build hg19` or `hg38` for `annotate` and direct `ldscore`.
+   Use `--source-genome-build hg19` or `hg38` for coordinate-based `munge-sumstats` inputs and `build-r2-matrix` source panels; use `--genome-build hg19` or `hg38` for `annotate` and direct `ldscore`.
    Do not guess a build solely to pass validation.
 2. Fix column mapping or delimiter issues before retrying automatic inference.
 3. Rebuild the input so all CHR/POS rows use one genome build and one coordinate basis.
@@ -195,7 +195,7 @@ Valid build metadata and matching build-specific position columns supply build e
 When a matching build-specific column is present, it takes precedence over generic `POS`; an unused generic column does not create a conflict.
 
 Override advice must use the option for the affected command.
-For `build-r2-panel` and coordinate-based `munge-sumstats`, the source-build example is `--source-genome-build hg19` or `--source-genome-build hg38`.
+For `build-r2-matrix` and coordinate-based `munge-sumstats`, the source-build example is `--source-genome-build hg19` or `--source-genome-build hg38`.
 `--output-genome-build` specifies munging's target build and does not override source evidence.
 For commands without a build override, direct the user to consistent upstream artifacts instead of suggesting an unsupported flag.
 Explicit build declarations remain authoritative within their existing scope; they do not repair unreadable files or other structural input errors.
@@ -586,7 +586,7 @@ repair steps, see [Gene-list diagnostics and repair](../reference/results/gene-l
 Read `diagnostics/input_issues.tsv` and `diagnostics/chromosome_scope.json`. For gene lists, inspect `coverage_status`, `selected_genes`, `covered_genes`, `missing_chromosomes`, and `uncovered_gene_ids` in `gene_list_resolution_summary.tsv`; audit rows with `coverage_status == 'uncovered'` identify affected input lines. Fix every reported issue before rerunning with `--overwrite`.
 
 - Missing, unreadable, malformed, or mismatched PLINK trio / R²-sidecar / baseline inputs: restore valid matched artifacts. `@` requires every autosome 1–22. All safely discoverable independent issues are reported at the current gate.
-- If a chromosome subset was intended, use quoted `*` patterns or exact paths selecting matching baseline and PLINK chromosome sets, for example `"baseline.*.annot.gz"` and `"panel.*"`. Use `*` to select available files without declaring a complete 1-22 suite. Check the matched files and their contents; a broad wildcard can select unintended chromosomes. For a full-suite run, restore missing files instead of narrowing the declaration. `--r2-dir` takes a literal directory containing the matching chromosome set, not a glob.
+- If a chromosome subset was intended, use quoted `*` patterns or exact paths selecting matching baseline and PLINK chromosome sets, for example `"baseline.*.annot.gz"` and `"panel.*"`. Use `*` to select available files without declaring a complete 1-22 suite. Check the matched files and their contents; a broad wildcard can select unintended chromosomes. For a full-suite run, restore missing files instead of narrowing the declaration. `--r2-matrix-dir` takes a literal directory containing the matching chromosome set, not a glob.
 - Baseline/reference chromosome-set disagreement: supply exactly matching validated sets. Glob matches are authoritative; filenames do not establish content. A missing file may be undetectable when the remaining groups consistently cover the same subset.
 - Incomplete focal/control coverage: supply matching inputs covering every selected gene, or deliberately revise the lists. Neither `resolved-only` nor chromosome-subset inputs authorize dropping cross-chromosome genes or pathways.
 - Invalid immutable index: restore or rebuild the complete public index. Resolution policy never repairs an index or changes its scientific configuration.
@@ -655,7 +655,7 @@ Inspect `diagnostics/reference_snp_funnel.tsv` when it was written, to see which
 | # | Likely cause | How to check |
 |---|--------------|--------------|
 | 1 | Annotation SNP identifiers use a different identity space than the reference panel | Compare a few annotation SNP identifiers against reference-panel metadata; confirm both use the same `--snp-identifier` |
-| 2 | Annotation coordinates and reference-panel coordinates are on different genome builds | Check `--genome-build` and the build recorded in R² panel or reference-panel metadata |
+| 2 | Annotation coordinates and reference-panel coordinates are on different genome builds | Check `--genome-build` and the build recorded in R² matrix or reference-panel metadata |
 | 3 | Allele-aware mode was requested but annotation/reference alleles do not match | Inspect A1/A2 columns in annotation and reference metadata for a few expected overlapping SNPs |
 | 4 | Chromosome labels or chromosome-sharded path tokens resolved to mismatched chromosomes | Print CHR values from the annotation and reference metadata for the failing chromosome |
 
@@ -671,32 +671,32 @@ A chromosome emptied by `--ref-panel-snps-file` or genotype QC is skipped with a
 
 **Developer reference:** `_refpanel.adapters._align_annotations()` during `RefPanel.prepare_chromosome()`, the gene-support pass `_apply_direct_gene_gate_b()`, and the batch check in `_ldscore.calculator.LDScoreCalculator._run_batch()` · **Exception:** `LDSCInputError`
 
-<a id="ldscore-r2-panel-is-incompatible"></a>
+<a id="ldscore-r2-matrix-is-incompatible"></a>
 
-### `ldscore`: an R² panel is incompatible
+### `ldscore`: an R² matrix is incompatible
 
-**Symptom:** `R2 parquet '...' does not match the format written by the current ldsc build-r2-panel: ...` / `ldscore could not use R2 parquet ...` / `ldscore cannot use R2 parquet ... omits SNP pairs with adjusted R2 below ...` / `... sidecar ... missing`
+**Symptom:** `R2 parquet '...' does not match the format written by the current ldsc build-r2-matrix: ...` / `ldscore could not use R2 parquet ...` / `ldscore cannot use R2 parquet ... omits SNP pairs with adjusted R2 below ...` / `... sidecar ... missing`
 
 **Likely causes & how to check** (most probable first):
 
 | # | Likely cause | How to check |
 |---|--------------|--------------|
-| 1 | The R² panel was written by an older LDSC3 version or another tool | Inspect columns; current files contain `IDX_1`, `IDX_2`, `R2`, and `SIGN_R`. The former `SIGN` column is no longer accepted; rebuild according to the [current format requirements](../reference/formats/r2-panels.md#5-caveats-and-constraints). |
-| 2 | The matching `chrN_meta.tsv.gz` sidecar is missing or was copied from another panel | Confirm each `chrN_r2.parquet` has a same-directory `chrN_meta.tsv.gz` with matching timestamps/provenance |
-| 3 | Parquet schema metadata was stripped or edited | The error lists each missing or invalid key; current panels record `ldsc:r2_encoding`, `ldsc:r2_scale`, `ldsc:r2_bias=unbiased`, `ldsc:n_samples`, `ldsc:ld_window_mode`/`ldsc:ld_window_value`, `ldsc:min_r2`, `ldsc:sorted_by_build`, `ldsc:n_snps`, `ldsc:sidecar_identity_sha256`, and identity keys, with an int16 `R2` column |
-| 4 | The R² panel directory mixes chromosomes or builds from different reference-panel runs | List files in the R² panel directory and compare recorded `genome_build` metadata |
-| 5 | Duplicate or conflicting pair rows survived in the R² panel | Regenerate from a deduplicated reference-panel source and current `ldsc build-r2-panel` |
-| 6 | The panel was built with a positive `--min-r2`, so it omits low-R² pairs | The error names `ldsc:min_r2`; rebuild the panel without `--min-r2` for `ldscore`, and keep the truncated panel only for `ldsc query-r2` |
-| 7 | The LD window is in a different unit from the panel's build window, or wider than it (`windows in different units cannot be checked for coverage` / `is wider than the input R2 parquet panel window`) | The error names both windows; rerun with the panel's unit and a value no wider, or rebuild the panel with the requested window. See [LD windows for R² panels](../reference/formats/r2-panels.md#37-ld-windows-and-sidecar-values-in-ldscore) |
+| 1 | The R² matrix was written by an older LDSC3 version or another tool | Inspect columns; current files contain `IDX_1`, `IDX_2`, `R2`, and `SIGN_R`. The former `SIGN` column is no longer accepted; rebuild according to the [current format requirements](../reference/formats/r2-matrices.md#5-caveats-and-constraints). |
+| 2 | The matching `chrN_meta.tsv.gz` sidecar is missing or was copied from another R² matrix | Confirm each `chrN_r2.parquet` has a same-directory `chrN_meta.tsv.gz` with matching timestamps/provenance |
+| 3 | Parquet schema metadata was stripped or edited | The error lists each missing or invalid key; current R² matrices record `ldsc:r2_encoding`, `ldsc:r2_scale`, `ldsc:r2_bias=unbiased`, `ldsc:n_samples`, `ldsc:ld_window_mode`/`ldsc:ld_window_value`, `ldsc:min_r2`, `ldsc:sorted_by_build`, `ldsc:n_snps`, `ldsc:sidecar_identity_sha256`, and identity keys, with an int16 `R2` column |
+| 4 | The R² matrix directory mixes chromosomes or builds from different reference-panel runs | List files in the R² matrix directory and compare recorded `genome_build` metadata |
+| 5 | Duplicate or conflicting pair rows survived in the R² matrix | Regenerate from a deduplicated reference-panel source and current `ldsc build-r2-matrix` |
+| 6 | The R² matrix was built with a positive `--min-r2`, so it omits low-R² pairs | The error names `ldsc:min_r2`; rebuild the R² matrix without `--min-r2` for `ldscore`, and keep the truncated R² matrix only for `ldsc query-r2-matrix` |
+| 7 | The LD window is in a different unit from the R² matrix's build window, or wider than it (`windows in different units cannot be checked for coverage` / `is wider than the input R2 matrix window`) | The error names both windows; rerun with the R² matrix's unit and a value no wider, or rebuild the panel with the requested window. See [LD windows for R² matrices](../reference/formats/r2-matrices.md#37-ld-windows-and-sidecar-values-in-ldscore) |
 
 **Remedies:**
 
-1. Regenerate the reference panel with the current `ldsc build-r2-panel`.
+1. Regenerate the reference panel with the current `ldsc build-r2-matrix`.
 2. Keep each `chrN_r2.parquet` with its matching `chrN_meta.tsv.gz` sidecar; do
    not hand-edit or independently copy sidecars.
-3. Use one consistent R² panel directory per genome build and reference-panel run.
+3. Use one consistent R² matrix directory per genome build and reference-panel run.
 
-**Developer reference:** `_refpanel.r2_format.read_r2_parquet_contracts`, `_refpanel.r2_format.SortedR2BlockReader`, sidecar-binding guards, and `validate_ldscore_window_within_r2_panel_window` · **Exception:** `LDSCInputError`; `LDSCUsageError` for LD-window mismatches (cause 7)
+**Developer reference:** `_refpanel.r2_format.read_r2_parquet_contracts`, `_refpanel.r2_format.SortedR2BlockReader`, sidecar-binding guards, and `validate_ldscore_window_within_r2_matrix_window` · **Exception:** `LDSCInputError`; `LDSCUsageError` for LD-window mismatches (cause 7)
 
 ### `ldscore`: genome build could not be resolved consistently
 
@@ -707,7 +707,7 @@ A chromosome emptied by `--ref-panel-snps-file` or genotype QC is skipped with a
 | # | Likely cause | How to check |
 |---|--------------|--------------|
 | 1 | A coordinate input, including a small keep list, lacks sufficient build evidence | Read the `unresolved` group for the input flag, concrete path, and reason |
-| 2 | Annotation, PLINK BIM, gene coordinate catalog, or R² panel declarations identify different builds | Compare the complete `hg19` and `hg38` groups, including every selected shard |
+| 2 | Annotation, PLINK BIM, gene coordinate catalog, or R² matrix declarations identify different builds | Compare the complete `hg19` and `hg38` groups, including every selected shard |
 | 3 | R² Parquet and sidecar declarations disagree | Keep matching `chrN_r2.parquet` and `chrN_meta.tsv.gz` artifacts together |
 | 4 | CHR/POS columns were parsed from the wrong fields | Inspect the listed input's header; matching build-specific position columns take precedence over generic POS |
 
@@ -741,17 +741,17 @@ or missing — it cannot define a genetic-distance window, and `--yes-really` do
    `--genetic-map-hg38-sources <file>` or `--genetic-map-hg19-sources <file>`.
    ldscore interpolates `CM` at the `.bim` positions (PLINK backend).
 2. Provide a `.bim` whose third column carries real genetic-map positions, or a
-   parquet panel built with `ldsc build-r2-panel --genetic-map-<build>-sources --ld-wind-cm`.
+   R² matrix built with `ldsc build-r2-matrix --genetic-map-<build>-sources --ld-wind-cm`.
 3. Use a physical-distance window instead: `--ld-wind-kb 1000` or `--ld-wind-snps`.
-   With a parquet panel, use the panel's own window unit, no wider than its build window.
+   With an R² matrix, use the R² matrix's own window unit, no wider than its build window.
 4. In rsID identifier modes, pass `--genome-build hg19` / `--genome-build hg38`
    so the matching genetic map can be selected.
 
-## `build-r2-panel`
+## `build-r2-matrix`
 
-### `build-r2-panel`: no reference-panel artifacts were produced
+### `build-r2-matrix`: no reference-panel artifacts were produced
 
-**Symptom:** `Reference-panel SNP selection failed: N input issue(s)...` listing chromosomes where `all K SNPs were removed at <stage>` (SNP restriction, identity cleanup, or liftover and duplicate-position filtering), with `diagnostics/input_issues.tsv` / `build-r2-panel stopped at chromosome C: PLINK genotype filtering removed all ...` / `build-r2-panel produced no chromosome artifacts...` / `...retained no parquet metadata rows...`
+**Symptom:** `Reference-panel SNP selection failed: N input issue(s)...` listing chromosomes where `all K SNPs were removed at <stage>` (SNP restriction, identity cleanup, or liftover and duplicate-position filtering), with `diagnostics/input_issues.tsv` / `build-r2-matrix stopped at chromosome C: PLINK genotype filtering removed all ...` / `build-r2-matrix produced no chromosome artifacts...` / `...retained no parquet metadata rows...`
 
 SNP selection is checked for every chromosome before any genotypes are read, and every autosome that loses all its SNPs is reported in one error; an autosome emptied by genotype filtering stops the run when it is reached. The causes below apply per chromosome.
 
@@ -770,13 +770,13 @@ SNP selection is checked for every chromosome before any genotypes are read, and
 1. Build the SNP restriction from the same PLINK source build and SNP identifier mode.
 2. Use the error/log counts to identify the failing stage; inspect a named dropped-SNP sidecar when it was written and covers that stage.
 3. Correct an unintended threshold, restriction, or individual selection, or regenerate compatible PLINK/reference inputs.
-   If the intended filters legitimately retain no usable SNPs, do not weaken them solely to make the command finish; any revised filter changes the panel being constructed.
+   If the intended filters legitimately retain no usable SNPs, do not weaken them solely to make the command finish; any revised filter changes the R² matrix being constructed.
 
-**Developer reference:** `_refpanel.builder.ReferencePanelBuilder.run()` and reference-panel metadata cleanup paths · **Exception:** `LDSCInputError`
+**Developer reference:** `_refpanel.builder.R2MatrixBuilder.run()` and reference-panel metadata cleanup paths · **Exception:** `LDSCInputError`
 
-### `build-r2-panel`: liftover or genetic-map configuration is incomplete
+### `build-r2-matrix`: liftover or genetic-map configuration is incomplete
 
-**Symptom:** `build-r2-panel cannot emit <build>...` / `...genetic map...`
+**Symptom:** `build-r2-matrix cannot emit <build>...` / `...genetic map...`
 
 **Likely causes & how to check** (most probable first):
 
@@ -795,11 +795,11 @@ SNP selection is checked for every chromosome before any genotypes are read, and
 3. Use liftover chains only in chr_pos-family modes and make the chain direction
    match the source and target builds.
 
-**Developer reference:** `_refpanel.builder.ReferencePanelBuilder._prepare_build_state()`, chromosome liftover setup, and genetic-map interpolation helpers · **Exception:** `LDSCUsageError` / `LDSCInputError`
+**Developer reference:** `_refpanel.builder.R2MatrixBuilder._prepare_build_state()`, chromosome liftover setup, and genetic-map interpolation helpers · **Exception:** `LDSCUsageError` / `LDSCInputError`
 
-### `build-r2-panel`: SNP restriction does not match the source panel
+### `build-r2-matrix`: SNP restriction does not match the source panel
 
-**Symptom:** `Genome-build consistency check failed for build-r2-panel...`, with `--ref-panel-snps-file` listed under a conflicting build or `unresolved`.
+**Symptom:** `Genome-build consistency check failed for build-r2-matrix...`, with `--ref-panel-snps-file` listed under a conflicting build or `unresolved`.
 
 **Likely causes & how to check** (most probable first):
 
@@ -819,9 +819,9 @@ SNP selection is checked for every chromosome before any genotypes are read, and
    A concrete `--source-genome-build` bypasses fresh inference and must agree with declarations; it does not convert positions.
 3. Fix ragged rows or delimiter/header issues before rerunning.
 
-**Developer reference:** `_refpanel.builder.ReferencePanelBuilder._resolve_source_genome_build()`, `_genome.build_policy.GenomeBuildCheck`, and `_core.columns.resolve_restriction_chr_pos_columns()` · **Exception:** `LDSCInputError`
+**Developer reference:** `_refpanel.builder.R2MatrixBuilder._resolve_source_genome_build()`, `_genome.build_policy.GenomeBuildCheck`, and `_core.columns.resolve_restriction_chr_pos_columns()` · **Exception:** `LDSCInputError`
 
-### `build-r2-panel`: reference-panel artifact is incompatible
+### `build-r2-matrix`: reference-panel artifact is incompatible
 
 **Symptom:** `Reference-panel metadata sidecar is missing...` / `...required identity/provenance keys are missing...` / `...has missing, non-numeric, or out-of-range MAF for ... SNP rows...`
 
@@ -831,18 +831,18 @@ SNP selection is checked for every chromosome before any genotypes are read, and
 |---|--------------|--------------|
 | 1 | The R² Parquet file was copied without its matching `chrN_meta.tsv.gz` sidecar | Confirm each `chrN_r2.parquet` has a same-directory `chrN_meta.tsv.gz` |
 | 2 | The artifact was written by an older LDSC3 version | Inspect parquet or sidecar metadata for `artifact_type`, `snp_identifier`, and `genome_build` |
-| 3 | A parent directory with multiple build children was passed without a concrete build | Check for `hg19/` and `hg38/` children under `--r2-dir` |
+| 3 | A parent directory with multiple build children was passed without a concrete build | Check for `hg19/` and `hg38/` children under `--r2-matrix-dir` |
 | 4 | The metadata sidecar lacks required SNP identity columns for the active mode | Inspect sidecar columns for SNP or CHR/POS plus A1/A2 in allele-aware modes |
 | 5 | The selected chromosome/build was not generated | List `chr*_r2.parquet` files in the selected build directory |
-| 6 | The sidecar was edited or produced by another tool, leaving `MAF` missing, non-numeric, or outside [0, 0.5] | The error names the count and first SNPs; `build-r2-panel` writes the minor-allele (`A1`) frequency for every row |
+| 6 | The sidecar was edited or produced by another tool, leaving `MAF` missing, non-numeric, or outside [0, 0.5] | The error names the count and first SNPs; `build-r2-matrix` writes the minor-allele (`A1`) frequency for every row |
 
 **Remedies:**
 
 1. Keep R² Parquet files and their sidecars together as one artifact family.
-2. Regenerate the reference panel with the current `ldsc build-r2-panel`.
-3. Pass a concrete build-specific R² panel directory or set the matching genome build.
+2. Regenerate the reference panel with the current `ldsc build-r2-matrix`.
+3. Pass a concrete build-specific R² matrix directory or set the matching genome build.
 
-**Developer reference:** `_refpanel.adapters.ParquetR2RefPanel` and metadata sidecar readers · **Exception:** `LDSCInputError`
+**Developer reference:** `_refpanel.adapters.R2MatrixRefPanel` and metadata sidecar readers · **Exception:** `LDSCInputError`
 
 ## `convert-ldsc2-ldscores`
 
@@ -1029,7 +1029,7 @@ See [keeping fitted results together](workflows/partitioned-heritability.md#read
 | 5 | Effective SNP identities are duplicated or target coverage is incomplete | Inspect `diagnostics/snp_alignment_issues.tsv.gz`. |
 
 Resupply the exact original annotation sources and matching reference metadata.
-R² panel users can use the existing `chr*_meta.tsv.gz` sidecars; PLINK users should regenerate LD scores with `--export-ref-metadata`.
+R² matrix users can use the existing `chr*_meta.tsv.gz` sidecars; PLINK users should regenerate LD scores with `--export-ref-metadata`.
 Do not concatenate coefficient tables from different query directories.
 
 `quantile-h2` requires an inclusive common-SNP MAF threshold (`>=`).

@@ -44,9 +44,9 @@ python -m unittest discover -s tests -p 'test*.py' -v
 
 ## Package boundaries and current interfaces
 
-- Import supported user-facing objects from `ldsc`; `src/ldsc/__init__.py` owns exports such as `AnnotationBuilder`, `LDScoreCalculator`, `RegressionRunner`, `SumstatsMunger`, `ReferencePanelBuilder`, `LDScoreSource`, configurations, writers, and convenience functions.
+- Import supported user-facing objects from `ldsc`; `src/ldsc/__init__.py` owns exports such as `AnnotationBuilder`, `LDScoreCalculator`, `RegressionRunner`, `SumstatsMunger`, `R2MatrixBuilder`, `LDScoreSource`, configurations, writers, and convenience functions.
   The underscore-prefixed domain packages (`src/ldsc/_core/`, `src/ldsc/_ldscore/` and the others) and other underscore-prefixed modules are private implementations, even when selected objects are re-exported publicly.
-- `ldsc=ldsc.cli:run_cli` and `python -m ldsc` expose one CLI: `infer-genome-build`, `annotate`, `ldscore`, `build-r2-panel`, `build-gene-ldscore-index`, `convert-ldsc2-ldscores`, `munge-sumstats`, `h2`, `partitioned-h2`, `quantile-h2`, `rg`, `query-r2`, `convert-h2-scale`, and `plot`.
+- `ldsc=ldsc.cli:run_cli` and `python -m ldsc` expose one CLI: `infer-genome-build`, `annotate`, `ldscore`, `build-r2-matrix`, `build-gene-ldscore-index`, `convert-ldsc2-ldscores`, `munge-sumstats`, `h2`, `partitioned-h2`, `quantile-h2`, `rg`, `query-r2-matrix`, `convert-h2-scale`, and `plot`.
   Keep CLI code limited to parsing/dispatch; numerical and plotting logic belongs to its workflow or kernel.
 - Dependency direction is CLI → workflows → shared helpers/private kernels; workflows call output writers, and kernels must not import workflow orchestration or writers.
   Runtime reference adapters currently live in `_refpanel/adapters.py`; `RefPanel.prepare_chromosome()` owns panel preparation and reader lifetime.
@@ -116,7 +116,7 @@ python -m unittest discover -s tests -p 'test*.py' -v
   Converted identity is allele-unaware; `.w.l2.ldscore(.gz)`, query/thin conversion suites, and direct regression consumption of fragments are unsupported.
   Private kernels do not own legacy sumstats, LD-score, count, or annotation-group output files; full contracts live in `docs/reference/formats/legacy-sumstats.md` and `docs/reference/formats/legacy-ldscores.md`.
 - Avoid routine provenance hashes; prefer schemas, source labels, declared metadata, and counts.
-  Retain hashes only for necessary semantic identity/integrity guarantees, documenting their purpose; the retained hashes are the R² panel sidecar binding (`docs/reference/formats/r2-panels.md`, section 4) and the gene LD-score index identity: `index_id`, its input fingerprints, and `published_row_metadata_sha256` (`docs/reference/gene-ldscore-index.md`).
+  Retain hashes only for necessary semantic identity/integrity guarantees, documenting their purpose; the retained hashes are the R² matrix sidecar binding (`docs/reference/formats/r2-matrices.md`, section 4) and the gene LD-score index identity: `index_id`, its input fingerprints, and `published_row_metadata_sha256` (`docs/reference/gene-ldscore-index.md`).
 
 ## Existing warning, error, and diagnostic policy
 

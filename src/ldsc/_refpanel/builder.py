@@ -1,13 +1,13 @@
-"""Workflow wrapper for building R2 panels from PLINK.
+"""Workflow wrapper for building R2 matrices from PLINK.
 
 Core functionality:
     Resolve public PLINK, optional genetic-map, and optional liftover inputs;
-    orchestrate chromosome-wise reference-panel builds; and emit the R2 panel
+    orchestrate chromosome-wise R2 matrix builds; and emit the R2 matrix
     files consumed by LDSC3 workflows.
 
 Overview
 --------
-This module is the public entry point for the `build-r2-panel` workflow. It
+This module is the public entry point for the `build-r2-matrix` workflow. It
 keeps path resolution, logging configuration, and cross-file validation in the
 workflow layer, then delegates pairwise-R2 generation and parquet serialization to
 ``ldsc._refpanel.build_kernel``. Before chromosome processing begins, the
@@ -16,13 +16,13 @@ audit destinations and refuses any existing workflow-owned artifact unless
 ``overwrite=True`` was configured. Concrete single-chromosome invocations own
 only their chromosome's output artifacts so parallel array jobs can share an
 output directory without deleting sibling chromosome outputs. Parsed workflow
-wrappers write ``build-r2-panel.log`` for multi-chromosome runs and
+wrappers write ``build-r2-matrix.log`` for multi-chromosome runs and
 chromosome-scoped logs for concrete single-chromosome runs; direct builder calls
 return data artifact paths only and do not create a log file by default. With
 overwrite enabled, successful runs replace current-run artifacts and remove
 stale owned parquet, metadata, audit, or log siblings from previous
 incompatible configurations.
-Reference-panel liftover keeps the historical source-build plus optional
+R2 matrix liftover keeps the historical source-build plus optional
 opposite-build UX, but matching chain files are valid only in ``chr_pos``-family
 modes and are rejected in rsID-family modes. Duplicate-position handling is
 likewise coordinate-family behavior and uses drop-all for coordinate collisions.
@@ -61,7 +61,7 @@ from .._core.snp_identity import (
     normalize_snp_identifier_mode,
 )
 from ..config import (
-    DEFAULT_SNP_BATCH_SIZE, GlobalConfig, ReferencePanelBuildConfig, get_global_config, print_global_config_banner,
+    DEFAULT_SNP_BATCH_SIZE, GlobalConfig, R2MatrixBuildConfig, get_global_config, print_global_config_banner,
 )
 from .._core.coordinates import normalize_chr_pos_frame
 from .._runtime.progress import report_phase
@@ -95,22 +95,22 @@ from .._genome.liftover import (
 )
 
 
-LOGGER = logging.getLogger("LDSC.ref_panel_builder")
+LOGGER = logging.getLogger("LDSC.r2_matrix_builder")
 _GENETIC_MAP_SUFFIXES = ("", ".txt", ".txt.gz", ".tsv", ".tsv.gz", ".csv", ".csv.gz")
 _TABLE_SUFFIXES = ("", ".txt", ".txt.gz", ".tsv", ".tsv.gz", ".csv", ".csv.gz")
-_BUILD_REF_PANEL_EMPTY_DOC = "docs/user-guide/troubleshooting.md#build-r2-panel-no-reference-panel-artifacts-were-produced"
+_BUILD_REF_PANEL_EMPTY_DOC = "docs/user-guide/troubleshooting.md#build-r2-matrix-no-reference-panel-artifacts-were-produced"
 _BUILD_REF_PANEL_LIFTOVER_DOC = (
-    "docs/user-guide/troubleshooting.md#build-r2-panel-liftover-or-genetic-map-configuration-is-incomplete"
+    "docs/user-guide/troubleshooting.md#build-r2-matrix-liftover-or-genetic-map-configuration-is-incomplete"
 )
 
 
 @dataclass(frozen=True)
-class ReferencePanelBuildResult:
-    """Summary of files produced by one reference-panel build run.
+class R2MatrixBuildResult:
+    """Summary of files produced by one R2 matrix build run.
 
     Parameters
     ----------
-    panel_name : str
+    matrix_name : str
         Name inferred from ``Path(output_dir).name``.
     chromosomes : list of str
         Chromosomes for which artifacts were written.
@@ -122,7 +122,7 @@ class ReferencePanelBuildResult:
         Build configuration and resolved input provenance.
     """
 
-    panel_name: str
+    matrix_name: str
     chromosomes: list[str]
     output_paths: dict[str, list[str]] = field(default_factory=dict)
     config_snapshot: dict[str, Any] = field(default_factory=dict)
@@ -144,7 +144,7 @@ _AUTOSOMES = frozenset(map(str, range(1, 23)))
 _EMPTIED_AUTOSOME_REPAIR = (
     "Check that the SNP restriction file, --snp-identifier mode, --source-genome-build, and liftover chain "
     "match this PLINK input (identity, liftover, and duplicate-position drops are listed in "
-    "diagnostics/dropped_snps/); a panel missing an autosome changes downstream LD scores"
+    "diagnostics/dropped_snps/); an R2 matrix missing an autosome changes downstream LD scores"
 )
 
 
@@ -166,12 +166,12 @@ class _ChromosomeSelection:
     empty_stage: str | None = None
 
 
-def _emitted_genome_builds(config: ReferencePanelBuildConfig) -> list[str]:
+def _emitted_genome_builds(config: R2MatrixBuildConfig) -> list[str]:
     """Return source and optional target builds emitted by one build config."""
     source_build = config.source_genome_build
     if source_build not in {"hg19", "hg38"}:
         raise LDSCInternalError(
-            "build-r2-panel output planning failed in _emitted_genome_builds(): "
+            "build-r2-matrix output planning failed in _emitted_genome_builds(): "
             f"source_genome_build={source_build!r} is not concrete. Most likely source "
             "build inference was skipped before output path generation. Re-run with DEBUG "
             "logging and report the traceback."
@@ -187,7 +187,7 @@ def _emitted_genome_builds(config: ReferencePanelBuildConfig) -> list[str]:
 
 def _resolve_build_ref_panel_log_path(
     workflow_log_path: Path | None,
-    config: ReferencePanelBuildConfig,
+    config: R2MatrixBuildConfig,
     chrom_sources: Sequence[tuple[str, str]],
 ) -> Path | None:
     """Return a collision-resistant workflow log path for chromosome-scoped runs."""
@@ -202,16 +202,16 @@ def _resolve_build_ref_panel_log_path(
 
 
 def _is_chromosome_scoped_invocation(
-    config: ReferencePanelBuildConfig,
+    config: R2MatrixBuildConfig,
     chrom_sources: Sequence[tuple[str, str]],
 ) -> bool:
     """Return whether this run is scoped to one concrete chromosome input."""
     return len(chrom_sources) == 1 and "@" not in str(config.plink_prefix)
 
 
-def _resolve_build_ref_panel_metadata_path(
+def _resolve_build_metadata_path(
     output_dir: Path,
-    config: ReferencePanelBuildConfig,
+    config: R2MatrixBuildConfig,
     chrom_sources: Sequence[tuple[str, str]],
 ) -> Path:
     """Return a metadata path that does not collide across parallel chromosome runs."""
@@ -222,12 +222,12 @@ def _resolve_build_ref_panel_metadata_path(
 
 
 def _expected_ref_panel_output_paths(
-    config: ReferencePanelBuildConfig,
+    config: R2MatrixBuildConfig,
     chromosomes: Sequence[str],
     *,
     metadata_path: Path,
 ) -> list[Path]:
-    """Return deterministic reference-panel artifact paths that may be written.
+    """Return deterministic R2 matrix artifact paths that may be written.
 
     The conservative preflight list includes build-specific R2 Parquet files and
     metadata sidecars for every emitted chromosome/build pair.
@@ -286,7 +286,7 @@ def _ref_panel_output_family(
     *,
     chromosomes: Sequence[str] | None = None,
 ) -> list[Path]:
-    """Return the build-r2-panel artifact package owned by this invocation.
+    """Return the build-r2-matrix artifact package owned by this invocation.
 
     When ``chromosomes`` is ``None``, the package spans the full output
     directory contract and is appropriate for a full ``@`` chromosome-suite
@@ -324,24 +324,24 @@ def _ref_panel_output_family(
         else:
             paths.extend(dropped_dir / f"chr{chrom}_dropped.tsv.gz" for chrom in scoped_chromosomes)
     if scoped_chromosomes is None:
-        paths.extend(sorted(diagnostics_dir.glob("build-r2-panel*.log")))
+        paths.extend(sorted(diagnostics_dir.glob("build-r2-matrix*.log")))
     else:
-        paths.extend(diagnostics_dir / f"build-r2-panel.chr{chrom}.log" for chrom in scoped_chromosomes)
+        paths.extend(diagnostics_dir / f"build-r2-matrix.chr{chrom}.log" for chrom in scoped_chromosomes)
     paths.extend(Path(path) for path in produced_paths)
     return paths
 
 
-@report_phase(LOGGER, 'publication', 'reference-panel metadata')
-def _write_ref_panel_metadata(
+@report_phase(LOGGER, 'publication', 'R2 matrix metadata')
+def _write_build_metadata(
     path: Path,
     *,
-    config: ReferencePanelBuildConfig,
+    config: R2MatrixBuildConfig,
     global_config: GlobalConfig,
     chromosomes: Sequence[str],
     output_paths: dict[str, list[str]],
     resolved_plink_prefixes: Sequence[str],
 ) -> None:
-    """Write diagnostic metadata for a reference-panel output directory."""
+    """Write diagnostic metadata for an R2 matrix output directory."""
     output_dir = Path(config.output_dir)
     files = {
         key: [_relative_to_output_dir(item, output_dir) for item in values]
@@ -349,7 +349,7 @@ def _write_ref_panel_metadata(
         if key != "metadata"
     }
     payload = {
-        "artifact_type": "ref_panel",
+        "artifact_type": "r2_matrix_build",
         "files": files,
         "snp_identifier": global_config.snp_identifier,
         "genome_build": global_config.genome_build,
@@ -372,23 +372,23 @@ def _relative_to_output_dir(path: str, output_dir: Path) -> str:
         return str(candidate)
 
 
-class ReferencePanelBuilder:
-    """Build R2 panels from PLINK input."""
+class R2MatrixBuilder:
+    """Build R2 matrices from PLINK input."""
 
     def __init__(self, global_config: GlobalConfig | None = None) -> None:
         """Initialize the builder with shared identifier and build defaults."""
         self.global_config = global_config or get_global_config()
         self._workflow_log_path: Path | None = None
 
-    def run(self, config: ReferencePanelBuildConfig) -> ReferencePanelBuildResult:
-        """Build fixed-name R2 panel files for every chromosome.
+    def run(self, config: R2MatrixBuildConfig) -> R2MatrixBuildResult:
+        """Build fixed-name R2 matrix files for every chromosome.
 
         Chromosomes run serially in one worker with 1 BLAS thread.
         The caller's numerical-library settings remain unchanged.
 
         Parameters
         ----------
-        config : ReferencePanelBuildConfig
+        config : R2MatrixBuildConfig
             Public build configuration containing one PLINK prefix token,
             optional genetic maps, optional liftover chain paths, output
             directory, and exactly one LD window. If
@@ -402,13 +402,13 @@ class ReferencePanelBuilder:
             single-chromosome invocations own only that chromosome's package;
             full ``@`` chromosome-suite invocations own the all-chromosome
             output package. Direct calls through this method do not create a
-            workflow log; parsed wrappers add a build-r2-panel workflow log
+            workflow log; parsed wrappers add a build-r2-matrix workflow log
             through the shared logging context.
 
         Returns
         -------
-        ReferencePanelBuildResult
-            Summary with ``panel_name`` inferred from ``config.output_dir`` and
+        R2MatrixBuildResult
+            Summary with ``matrix_name`` inferred from ``config.output_dir`` and
             build-specific artifact paths directly under ``{build}``. The
             result contains data artifacts only, not the workflow log path.
 
@@ -423,10 +423,10 @@ class ReferencePanelBuilder:
     @serial_calculation
     def _run(
         self,
-        config: ReferencePanelBuildConfig,
+        config: R2MatrixBuildConfig,
         *,
         workflow_log_path: Path | None,
-    ) -> ReferencePanelBuildResult:
+    ) -> R2MatrixBuildResult:
         """Shared implementation for direct API and parsed workflow entry points."""
         print_global_config_banner(type(self).__name__, self.global_config)
         output_dir = ensure_output_directory(config.output_dir, label="output directory")
@@ -454,18 +454,18 @@ class ReferencePanelBuilder:
             scope = [chrom for _, chrom in chrom_sources] if _is_chromosome_scoped_invocation(config, chrom_sources) else None
             preflight_output_artifact_family(
                 [workflow_log_path], _ref_panel_output_family(output_dir, [workflow_log_path], chromosomes=scope),
-                overwrite=config.overwrite, label="reference-panel output artifact",
+                overwrite=config.overwrite, label="R2 matrix output artifact",
             )
         try:
             config = self._resolve_source_genome_build(config, resolved_prefixes)
         except (LDSCInputError, LDSCConfigError):
             # Output builds are still unknown; the log alone has been preflighted.
-            with workflow_logging("build-r2-panel", workflow_log_path, log_level=self.global_config.log_level):
+            with workflow_logging("build-r2-matrix", workflow_log_path, log_level=self.global_config.log_level):
                 raise
         snp_identifier_mode = normalize_snp_identifier_mode(self.global_config.snp_identifier)
 
         chromosomes = [chrom for _, chrom in chrom_sources]
-        metadata_path = _resolve_build_ref_panel_metadata_path(output_dir, config, chrom_sources)
+        metadata_path = _resolve_build_metadata_path(output_dir, config, chrom_sources)
         produced_paths = _expected_ref_panel_output_paths(config, chromosomes, metadata_path=metadata_path)
         if workflow_log_path is not None:
             produced_paths.append(workflow_log_path)
@@ -474,12 +474,12 @@ class ReferencePanelBuilder:
             produced_paths,
             _ref_panel_output_family(output_dir, produced_paths, chromosomes=owned_chromosomes),
             overwrite=config.overwrite,
-            label="reference-panel output artifact",
+            label="R2 matrix output artifact",
         )
         (output_dir / "diagnostics").mkdir(parents=True, exist_ok=True)
         issues_path.unlink(missing_ok=True)
 
-        with workflow_logging("build-r2-panel", workflow_log_path, log_level=self.global_config.log_level):
+        with workflow_logging("build-r2-matrix", workflow_log_path, log_level=self.global_config.log_level):
             build_state = self._prepare_build_state(config)
             log_inputs(
                 plink_prefix=config.plink_prefix,
@@ -489,7 +489,7 @@ class ReferencePanelBuilder:
             if identity_mode_family(snp_identifier_mode) == "rsid" and len(_emitted_genome_builds(config)) == 1:
                 LOGGER.info(
                     "Coordinate duplicate filtering applies only for chr_pos-family snp_identifier modes; "
-                    "keeping duplicate CHR/POS rows in rsid source-only reference-panel builds."
+                    "keeping duplicate CHR/POS rows in rsid source-only R2 matrix builds."
                 )
             chrom_sources = self._check_chromosome_selections(
                 chrom_sources, config, build_state, output_dir / "diagnostics" / "input_issues.tsv"
@@ -504,7 +504,7 @@ class ReferencePanelBuilder:
 
             if not chrom_records:
                 raise LDSCInputError(
-                    "build-r2-panel produced no chromosome artifacts from the supplied PLINK inputs. "
+                    "build-r2-matrix produced no chromosome artifacts from the supplied PLINK inputs. "
                     "Most likely every chromosome was removed by the SNP restriction, identity cleanup, "
                     "liftover, duplicate-coordinate filtering, MAF filtering, or missing chromosome data. "
                     "Inspect the error/log counts and any written dropped-SNP reports to identify the failing stage. "
@@ -516,7 +516,7 @@ class ReferencePanelBuilder:
             output_keys = sorted({key for _, paths in chrom_records for key in paths})
             output_paths = {key: [paths[key] for _, paths in chrom_records] for key in output_keys}
             output_paths["metadata"] = [str(metadata_path)]
-            _write_ref_panel_metadata(
+            _write_build_metadata(
                 metadata_path,
                 config=config,
                 global_config=self.global_config,
@@ -524,8 +524,8 @@ class ReferencePanelBuilder:
                 output_paths=output_paths,
                 resolved_plink_prefixes=resolved_prefixes,
             )
-            result = ReferencePanelBuildResult(
-                panel_name=Path(config.output_dir).name,
+            result = R2MatrixBuildResult(
+                matrix_name=Path(config.output_dir).name,
                 chromosomes=[chrom for chrom, _ in chrom_records],
                 output_paths=output_paths,
                 config_snapshot={
@@ -540,19 +540,19 @@ class ReferencePanelBuilder:
 
     def _resolve_source_genome_build(
         self,
-        config: ReferencePanelBuildConfig,
+        config: R2MatrixBuildConfig,
         resolved_prefixes: Sequence[str],
-    ) -> ReferencePanelBuildConfig:
+    ) -> R2MatrixBuildConfig:
         """Return a config whose PLINK source genome build is concrete."""
         if config.source_genome_build not in {"auto", "hg19", "hg38"}:
             raise LDSCConfigError(
-                f"build-r2-panel received unsupported source_genome_build={config.source_genome_build!r}. "
+                f"build-r2-matrix received unsupported source_genome_build={config.source_genome_build!r}. "
                 "Most likely a Python caller bypassed CLI choices with an invalid build token. "
                 "Use `source_genome_build='auto'`, `'hg19'`, or `'hg38'`."
             )
         from .._genome.build_policy import GenomeBuildCheck
 
-        check = GenomeBuildCheck(config.source_genome_build, context="build-r2-panel", option="--source-genome-build", logger=LOGGER)
+        check = GenomeBuildCheck(config.source_genome_build, context="build-r2-matrix", option="--source-genome-build", logger=LOGGER)
         for prefix in resolved_prefixes:
             check.table("--plink-prefix", str(prefix) + ".bim", bim=True)
         check.paths("--ref-panel-snps-file", config.ref_panel_snps_file,
@@ -561,7 +561,7 @@ class ReferencePanelBuilder:
         return dataclass_replace(config, source_genome_build=source_build)
 
     @report_phase(LOGGER, 'validation', 'maps, restrictions, and liftover configuration')
-    def _prepare_build_state(self, config: ReferencePanelBuildConfig) -> _BuildState:
+    def _prepare_build_state(self, config: R2MatrixBuildConfig) -> _BuildState:
         """Resolve optional maps, chain paths, and source-build restrictions.
 
         A chain matching the resolved source build enables opposite-build
@@ -588,14 +588,14 @@ class ReferencePanelBuilder:
         from .._genome.build_policy import GenomeBuildCheck
         for build, paths in (("hg19", hg19_files), ("hg38", hg38_files)):
             if paths:
-                check = GenomeBuildCheck(build, context=f"build-r2-panel {build} genetic map", logger=LOGGER)
+                check = GenomeBuildCheck(build, context=f"build-r2-matrix {build} genetic map", logger=LOGGER)
                 for path in paths:
                     check.table(f"--genetic-map-{build}-sources", path)
                 check.resolve()
         source_build = config.source_genome_build
         if source_build not in {"hg19", "hg38"}:
             raise LDSCInternalError(
-                "build-r2-panel shared-state preparation failed: source_genome_build is "
+                "build-r2-matrix shared-state preparation failed: source_genome_build is "
                 f"{source_build!r}, not a concrete build. Most likely source build inference "
                 "was skipped before state preparation. Re-run with DEBUG logging and report the traceback."
             )
@@ -612,7 +612,7 @@ class ReferencePanelBuilder:
         )
         if matching_chain is not None and identity_mode_family(self.global_config.snp_identifier) == "rsid":
             raise LDSCUsageError(
-                "build-r2-panel cannot use chain liftover in rsID-family SNP identifier modes. "
+                "build-r2-matrix cannot use chain liftover in rsID-family SNP identifier modes. "
                 "Most likely a matching liftover chain was supplied with `--snp-identifier rsid` "
                 "or `rsid_allele_aware`. Use a chr_pos-family SNP identifier mode, or omit "
                 "the matching liftover chain."
@@ -632,7 +632,7 @@ class ReferencePanelBuilder:
                 LOGGER.info(
                     f"Interpreting reference-panel SNP restriction '{restriction_path}' "
                     f"against source_genome_build='{source_build}' PLINK coordinates. "
-                    "GlobalConfig.genome_build is ignored by build-r2-panel."
+                    "GlobalConfig.genome_build is ignored by build-r2-matrix."
                 )
             restriction_keys = _read_ref_panel_snp_restriction(
                 restriction_path,
@@ -651,7 +651,7 @@ class ReferencePanelBuilder:
                 or (target_build == "hg19" and config.genetic_map_hg19_sources is None)
             ):
                 raise LDSCUsageError(
-                    f"build-r2-panel cannot emit {target_build} with `--ld-wind-cm` because "
+                    f"build-r2-matrix cannot emit {target_build} with `--ld-wind-cm` because "
                     f"the {target_build} genetic map was not supplied. Most likely liftover "
                     "enabled an opposite-build output without its matching genetic map. "
                     f"Pass `--genetic-map-{target_build}-sources <path>` or use an SNP/kb window. "
@@ -664,7 +664,7 @@ class ReferencePanelBuilder:
                     f"No {target_build} genetic map was provided; "
                     f"{target_build} metadata CM values will be written as NA. "
                     "These missing genetic distances cannot support later cM-window LD-score calculation. "
-                    f"Supply --genetic-map-{target_build}-sources when building a panel intended for cM windows."
+                    f"Supply --genetic-map-{target_build}-sources when building an R2 matrix intended for cM windows."
                 )
         elif matching_chain is None:
             if nonmatching_chain is not None:
@@ -683,7 +683,7 @@ class ReferencePanelBuilder:
             or (source_build == "hg19" and config.genetic_map_hg19_sources is None)
         ):
             raise LDSCUsageError(
-                f"build-r2-panel cannot use `--ld-wind-cm` because the {source_build} "
+                f"build-r2-matrix cannot use `--ld-wind-cm` because the {source_build} "
                 "genetic map was not supplied. Most likely the source-build map option "
                 "was omitted. Pass the matching `--genetic-map-*-sources` file or use "
                 "`--ld-wind-kb` / `--ld-wind-snps`. "
@@ -696,7 +696,7 @@ class ReferencePanelBuilder:
                 f"No {source_build} genetic map was provided; "
                 f"{source_build} metadata CM values will be written as NA. "
                 "These missing genetic distances cannot support later cM-window LD-score calculation. "
-                f"Supply --genetic-map-{source_build}-sources when building a panel intended for cM windows."
+                f"Supply --genetic-map-{source_build}-sources when building an R2 matrix intended for cM windows."
             )
         return _BuildState(
             genetic_map_hg19=None if hg19_files is None else kernel_builder.load_genetic_map_group(hg19_files),
@@ -715,7 +715,7 @@ class ReferencePanelBuilder:
         """Run SNP selection on every chromosome before any genotype reading.
 
         Autosomes left without SNPs are collected into one error, because a
-        panel missing an autosome silently changes downstream LD scores. Other
+        R2 matrix missing an autosome silently changes downstream LD scores. Other
         chromosomes left without SNPs are skipped with a warning. Returns the
         ``(prefix, chrom)`` pairs that keep SNPs.
         """
@@ -736,7 +736,7 @@ class ReferencePanelBuilder:
                 else:
                     LOGGER.warning(
                         f"Skipping chromosome {chrom}: all {selection.n_bim_snps} SNPs were removed at "
-                        f"{selection.empty_stage}; the panel will not include this chromosome."
+                        f"{selection.empty_stage}; the R2 matrix will not include this chromosome."
                     )
         InputGate('Reference-panel SNP selection', issues_path, issues,
                   troubleshooting=_BUILD_REF_PANEL_EMPTY_DOC).finish()
@@ -746,7 +746,7 @@ class ReferencePanelBuilder:
         self,
         prefix: str,
         chrom: str,
-        config: ReferencePanelBuildConfig,
+        config: R2MatrixBuildConfig,
         build_state: _BuildState,
     ) -> _ChromosomeSelection:
         """Apply the BIM-level SNP selection stages to one chromosome.
@@ -763,7 +763,7 @@ class ReferencePanelBuilder:
         except ValueError as exc:
             if "Usecols do not match columns" in str(exc):
                 raise LDSCInputError(
-                    f"build-r2-panel could not read PLINK BIM file '{prefix}.bim': "
+                    f"build-r2-matrix could not read PLINK BIM file '{prefix}.bim': "
                     "A1 and A2 allele columns are required. Most likely the BIM file "
                     "has fewer than six standard PLINK columns. Provide a complete "
                     ".bim file with CHR/SNP/CM/BP/A1/A2 columns."
@@ -781,7 +781,7 @@ class ReferencePanelBuilder:
         chrom_df = panel_df.loc[panel_df["CHR"] == chrom].copy()
         if len(chrom_df) == 0:
             raise LDSCInputError(
-                f"build-r2-panel found no SNPs for chromosome {chrom} in PLINK prefix "
+                f"build-r2-matrix found no SNPs for chromosome {chrom} in PLINK prefix "
                 f"'{prefix}'. Most likely the `.bim` file does not contain that chromosome "
                 "after chromosome normalization. Pass the correct chromosome-specific PLINK "
                 "prefix or rebuild the PLINK panel with matching chromosome labels."
@@ -816,7 +816,7 @@ class ReferencePanelBuilder:
         identity_result = clean_identity_artifact_table(
             identity_input,
             self.global_config.snp_identifier,
-            context=f"reference panel chromosome {chrom}",
+            context=f"R2 matrix chromosome {chrom}",
             stage="ref_panel_source_identity_cleanup",
             logger=LOGGER,
         )
@@ -828,7 +828,7 @@ class ReferencePanelBuilder:
                 .to_dict(orient="records")
             )
             message = (
-                f"Reference-panel identity cleanup drops on chromosome {chrom}: {dropped_examples}"
+                f"R2 matrix identity cleanup drops on chromosome {chrom}: {dropped_examples}"
             )
             LOGGER.debug(message)
         keep_snps = identity_result.cleaned["_plink_row_index"].to_numpy(dtype=int)
@@ -863,7 +863,7 @@ class ReferencePanelBuilder:
             synchronized_drop_count = before_liftover_collision_count - len(keep_snps)
             if synchronized_drop_count:
                 LOGGER.info(
-                    "Reference-panel liftover synchronized cross-build drops: dropped %d SNPs from all emitted builds "
+                    "R2 matrix liftover synchronized cross-build drops: dropped %d SNPs from all emitted builds "
                     "because they collided in at least one emitted build.",
                     synchronized_drop_count,
                 )
@@ -879,7 +879,7 @@ class ReferencePanelBuilder:
         self,
         prefix: str,
         chrom: str,
-        config: ReferencePanelBuildConfig,
+        config: R2MatrixBuildConfig,
         build_state: _BuildState,
     ) -> dict[str, str] | None:
         """Build all parquet and metadata artifacts for one chromosome.
@@ -889,7 +889,7 @@ class ReferencePanelBuilder:
         Genotype filtering that removes every SNP stops the run for an
         autosome and skips any other chromosome with a warning.
         """
-        LOGGER.info(f"Building reference-panel artifacts for chromosome {chrom} from '{prefix}'.")
+        LOGGER.info(f"Building R2 matrix artifacts for chromosome {chrom} from '{prefix}'.")
         selection = self._select_chromosome_snps(prefix, chrom, config, build_state)
         bim, fam, keep_snps = selection.bim, selection.fam, selection.keep_snps
         hg19_lookup, hg38_lookup = selection.hg19_lookup, selection.hg38_lookup
@@ -931,13 +931,13 @@ class ReferencePanelBuilder:
                 maf_rule = f"MAF below --maf-min {config.maf_min}, " if config.maf_min is not None else ""
                 if chrom in _AUTOSOMES:
                     raise LDSCInputError(
-                        f"build-r2-panel stopped at chromosome {chrom}: PLINK genotype filtering removed all "
+                        f"build-r2-matrix stopped at chromosome {chrom}: PLINK genotype filtering removed all "
                         f"{len(build_keep_snps)} SNPs that passed SNP selection ({maf_rule}monomorphic, or "
-                        "all genotypes missing among the kept individuals). A panel without this autosome "
+                        "all genotypes missing among the kept individuals). An R2 matrix without this autosome "
                         "would change downstream LD scores. Most likely --maf-min is too high or "
                         "--keep-indivs-file selects individuals without variation on this chromosome. "
                         "Correct an unintended threshold or individual selection; any revised filter "
-                        f"changes the panel. Other causes & fixes: {_BUILD_REF_PANEL_EMPTY_DOC}"
+                        f"changes the R2 matrix. Other causes & fixes: {_BUILD_REF_PANEL_EMPTY_DOC}"
                     )
                 LOGGER.warning(
                     f"Skipping chromosome {chrom}: PLINK genotype filtering removed all "
@@ -946,7 +946,7 @@ class ReferencePanelBuilder:
                 return None
             if set(metadata["CHR"]) != {chrom}:
                 raise LDSCInternalError(
-                    f"build-r2-panel PLINK filtering for chromosome {chrom} retained rows "
+                    f"build-r2-matrix PLINK filtering for chromosome {chrom} retained rows "
                     "from multiple chromosomes. Most likely the retained SNP index mapping "
                     "desynchronized from the BIM table. Re-run with DEBUG logging and report the traceback."
                 )
@@ -957,7 +957,7 @@ class ReferencePanelBuilder:
             build_positions = hg19_positions if build == "hg19" else hg38_positions
             if build_positions is None:
                 raise LDSCInputError(
-                    f"build-r2-panel cannot emit {build} artifacts for chromosome {chrom}: "
+                    f"build-r2-matrix cannot emit {build} artifacts for chromosome {chrom}: "
                     "positions for that build are unavailable. Most likely the matching "
                     "liftover chain was omitted or dropped all retained SNPs. Provide the "
                     "matching liftover chain or disable opposite-build emission. "
@@ -981,7 +981,7 @@ class ReferencePanelBuilder:
             if cm_values is not None:
                 # Window on the CM the sidecar will store, which ldscore reads back.
                 cm_values = round_to_sidecar_precision(cm_values)
-            block_left = _r2_panel_block_left(chrom, build, build_positions, cm_values, config)
+            block_left = _r2_matrix_block_left(chrom, build, build_positions, cm_values, config)
             r2_path = Path(config.output_dir) / build / f"chr{chrom}_r2.parquet"
             meta_path = Path(config.output_dir) / build / f"chr{chrom}_meta.tsv.gz"
 
@@ -1153,7 +1153,7 @@ class ReferencePanelBuilder:
                     reason="unmapped_liftover",
                     source_pos_col="source_POS",
                 ),
-                workflow_label="Reference-panel liftover",
+                workflow_label="R2 matrix liftover",
                 sidecar_path=sidecar_path,
             )
             log_liftover_drop_report(
@@ -1164,7 +1164,7 @@ class ReferencePanelBuilder:
                     reason="cross_chromosome_liftover",
                     source_pos_col="source_POS",
                 ),
-                workflow_label="Reference-panel liftover",
+                workflow_label="R2 matrix liftover",
                 sidecar_path=sidecar_path,
             )
             message = (
@@ -1199,7 +1199,7 @@ class ReferencePanelBuilder:
                 target_build=target_build,
                 chain_path=build_state.liftover_chain_paths.get(key),
                 chain_flag_hint=_chain_flag_hint(source_build, target_build),
-                workflow_label="reference-panel liftover",
+                workflow_label="R2 matrix liftover",
             )
             build_state.translator_cache[key] = translator
         return translator.map_positions(chrom, positions)
@@ -1210,7 +1210,7 @@ class ReferencePanelBuilder:
 
 
 def _chain_flag_hint(source_build: str, target_build: str) -> str:
-    """Return the CLI chain flag that corresponds to a reference-panel build pair."""
+    """Return the CLI chain flag that corresponds to an R2 matrix build pair."""
     return f"--liftover-chain-{source_build}-to-{target_build}-file"
 
 
@@ -1241,18 +1241,18 @@ def _position_lookup_for_build(
     return hg19_lookup if genome_build == "hg19" else hg38_lookup
 
 
-def _r2_panel_block_left(
+def _r2_matrix_block_left(
     chrom: str,
     build: str,
     positions: np.ndarray,
     cm_values: np.ndarray | None,
-    config: ReferencePanelBuildConfig,
+    config: R2MatrixBuildConfig,
 ) -> np.ndarray:
     """Return one emitted build's LD-window block-left array."""
     if config.ld_wind_cm is not None:
         if cm_values is None:
             raise LDSCUsageError(
-                f"build-r2-panel cannot compute cM LD windows for chromosome {chrom} "
+                f"build-r2-matrix cannot compute cM LD windows for chromosome {chrom} "
                 f"in {build}: no genetic map values are available. Most likely the "
                 f"{build} genetic map is missing this chromosome or was not supplied. "
                 "Pass the matching genetic map or use an SNP/kb LD window. "
@@ -1260,7 +1260,7 @@ def _r2_panel_block_left(
             )
         if np.isnan(np.asarray(cm_values, dtype=float)).any():
             raise LDSCInputError(
-                "build-r2-panel cannot use cM LD windows because interpolated CM values "
+                "build-r2-matrix cannot use cM LD windows because interpolated CM values "
                 "are missing for retained SNPs. Most likely the genetic map does not cover "
                 "all retained positions. Provide a complete genetic map or use an SNP/kb "
                 f"LD window. Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
@@ -1294,7 +1294,7 @@ def _validate_emitted_build_chr_pos_uniqueness(
     kernel_identifiers.validate_unique_snp_ids(
         build_metadata,
         "chr_pos",
-        context=f"Reference-panel build output {genome_build}[{chrom}]",
+        context=f"R2 matrix build output {genome_build}[{chrom}]",
     )
 
 
@@ -1316,7 +1316,7 @@ def _sort_retained_snps_by_build_position(
     )
     if not lookup:
         raise LDSCInternalError(
-            f"build-r2-panel retained SNP sorting failed for {genome_build}: no position "
+            f"build-r2-matrix retained SNP sorting failed for {genome_build}: no position "
             "lookup is available. Most likely opposite-build emission reached sorting "
             "without a liftover lookup. Re-run with DEBUG logging and report the traceback."
         )
@@ -1334,7 +1334,7 @@ def _resolve_unique_snp_set(
     hg38_lookup: dict[int, int],
     sidecar_path: Path | None = None,
 ) -> tuple[np.ndarray, pd.DataFrame]:
-    """Detect and resolve duplicate coordinate groups for chr_pos panel builds.
+    """Detect and resolve duplicate coordinate groups for chr_pos R2 matrix builds.
 
     Source duplicates are detectable before liftover. Target collisions are
     checked after position lookups are available. Duplicate groups are always
@@ -1364,7 +1364,7 @@ def _resolve_unique_snp_set(
         log_liftover_drop_report(
             LOGGER,
             source_dup_result.report,
-            workflow_label="Reference-panel liftover",
+            workflow_label="R2 matrix liftover",
             sidecar_path=sidecar_path,
         )
         for i, idx in enumerate(keep_list):
@@ -1407,7 +1407,7 @@ def _resolve_unique_snp_set(
         log_liftover_drop_report(
             LOGGER,
             target_dup_result.report,
-            workflow_label="Reference-panel liftover",
+            workflow_label="R2 matrix liftover",
             sidecar_path=sidecar_path,
         )
         for i, idx in enumerate(source_survivors):
@@ -1445,20 +1445,20 @@ def _write_dropped_sidecar(dropped_df: pd.DataFrame, path: Path, chrom: str) -> 
     counts = dropped_df["reason"].value_counts(sort=False)
     count_text = ", ".join(f"{reason}={int(count)}" for reason, count in counts.items())
     LOGGER.info(
-        f"Reference-panel dropped SNPs: {n_dropped} SNPs on chromosome {chrom} "
+        f"R2 matrix dropped SNPs: {n_dropped} SNPs on chromosome {chrom} "
         f"({count_text}); audit sidecar at '{path}'."
     )
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the feature parser for reference-panel generation."""
+    """Build the feature parser for R2 matrix generation."""
     parser = argparse.ArgumentParser(
-        description="Build an R2 panel from a PLINK reference input.",
+        description="Build an R2 matrix from a PLINK reference input.",
         allow_abbrev=False,
     )
-    parser.prog = 'ldsc build-r2-panel'
+    parser.prog = 'ldsc build-r2-matrix'
     parser.formatter_class = CLIHelpFormatter
-    parser.description = 'Build a reference panel of pairwise R2 values and SNP metadata from PLINK genotypes.'
+    parser.description = 'Build an R2 matrix of pairwise R2 values and SNP metadata from PLINK genotypes.'
     inputs = parser.add_argument_group('Inputs and output')
     identity = parser.add_argument_group('SNP identity and source genome build')
     window = parser.add_argument_group('LD window')
@@ -1485,7 +1485,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             'Match SNPs by rsID (rsid) or chromosome and position (chr_pos); allele-aware variants also use '
             'A1/A2. Default: chr_pos_allele_aware; usable alleles are required. Controls duplicate removal, '
-            'SNP-list matching, and the written panel identity.'
+            'SNP-list matching, and the written R2 matrix identity.'
         ),
     )
     identity.add_argument(
@@ -1581,8 +1581,8 @@ def build_parser() -> argparse.ArgumentParser:
         '--min-r2', dest='min_r2', default=0.0, type=float, metavar='VALUE',
         help=(
             'Minimum unbiased R2 to store. Default: 0; zero or negative values keep every pair within the '
-            'window. A positive value discards smaller R2 values; ldscore then rejects the panel, and '
-            'query-r2 reports discarded pairs as NaN with status=absent.'
+            'window. A positive value discards smaller R2 values; ldscore then rejects the R2 matrix, and '
+            'query-r2-matrix reports discarded pairs as NaN with status=absent.'
         ),
     )
     runtime.add_argument(
@@ -1595,8 +1595,8 @@ def build_parser() -> argparse.ArgumentParser:
     runtime.add_argument(
         '--overwrite', action='store_true', default=False,
         help=(
-            "Replace this command's existing panel files and remove obsolete outputs after success. A "
-            'concrete chromosome prefix replaces only that chromosome; a suite replaces the full panel. '
+            "Replace this command's existing R2 matrix files and remove obsolete outputs after success. A "
+            'concrete chromosome prefix replaces only that chromosome; a suite replaces the full R2 matrix. '
             'Default: off; stop if output files exist.'
         ),
     )
@@ -1607,28 +1607,28 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfig, GlobalConfig]:
+def config_from_args(args: argparse.Namespace) -> tuple[R2MatrixBuildConfig, GlobalConfig]:
     """Normalize CLI args into public config objects.
 
     ``--ref-panel-snps-file`` uses the parsed ``--snp-identifier`` value,
     falling back to the registered :class:`GlobalConfig` identifier mode only
     for programmatic namespaces that omit the attribute.
     The PLINK source build remains local to this workflow and is inferred from
-    ``.bim`` coordinates during :meth:`ReferencePanelBuilder.run` when set to
+    ``.bim`` coordinates during :meth:`R2MatrixBuilder.run` when set to
     ``"auto"``.
-    ``GlobalConfig.genome_build`` is ignored by ``build-r2-panel``.
+    ``GlobalConfig.genome_build`` is ignored by ``build-r2-matrix``.
     """
     registered_config = get_global_config()
     snp_identifier = normalize_snp_identifier_mode(args.snp_identifier or registered_config.snp_identifier)
     source_genome_build = normalize_genome_build(args.source_genome_build)
     if source_genome_build not in {"auto", "hg19", "hg38"}:
         raise LDSCConfigError(
-            f"build-r2-panel received invalid `--source-genome-build={args.source_genome_build}`. "
+            f"build-r2-matrix received invalid `--source-genome-build={args.source_genome_build}`. "
             "Most likely the source build was misspelled or is unsupported. Pass "
             "`--source-genome-build auto`, `hg19`, or `hg38`."
         )
 
-    build_config = ReferencePanelBuildConfig(
+    build_config = R2MatrixBuildConfig(
         plink_prefix=args.plink_prefix,
         source_genome_build=source_genome_build,
         genetic_map_hg19_sources=args.genetic_map_hg19_sources,
@@ -1677,37 +1677,37 @@ def _reference_panel_failure_marker_scope(
 
 @materializing_overwrite_guard(
     _reference_panel_failure_marker_scope,
-    command="run_build_ref_panel_from_args(...)",
+    command="run_build_r2_matrix_from_args(...)",
 )
-def run_build_ref_panel_from_args(args: argparse.Namespace) -> ReferencePanelBuildResult:
-    """Run reference-panel building from parsed CLI arguments.
+def run_build_r2_matrix_from_args(args: argparse.Namespace) -> R2MatrixBuildResult:
+    """Run R2 matrix building from parsed CLI arguments.
 
-    The parsed workflow preflights all deterministic panel artifacts plus the
-    selected build-r2-panel log before chromosome processing. The returned
-    ``ReferencePanelBuildResult`` contains panel artifact paths only.
+    The parsed workflow preflights all deterministic R2 matrix artifacts plus the
+    selected build-r2-matrix log before chromosome processing. The returned
+    ``R2MatrixBuildResult`` contains R2 matrix artifact paths only.
     """
 
     build_config, global_config = config_from_args(args)
-    builder = ReferencePanelBuilder(global_config=global_config)
-    builder._workflow_log_path = Path(build_config.output_dir) / "diagnostics" / "build-r2-panel.log"
+    builder = R2MatrixBuilder(global_config=global_config)
+    builder._workflow_log_path = Path(build_config.output_dir) / "diagnostics" / "build-r2-matrix.log"
     return builder.run(build_config)
 
 
-def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
-    """Run the reference-panel builder with CLI-equivalent keyword arguments.
+def run_build_r2_matrix(**kwargs: Any) -> R2MatrixBuildResult:
+    """Run the R2 matrix builder with CLI-equivalent keyword arguments.
 
     The wrapper accepts the same modern I/O and build names as
-    ``ldsc build-r2-panel``. The shared identifier mode comes from the
+    ``ldsc build-r2-matrix``. The shared identifier mode comes from the
     registered ``GlobalConfig``; call ``set_global_config(...)`` before
     invoking this wrapper. ``GlobalConfig.genome_build`` is ignored here; pass
     ``source_genome_build`` for the PLINK input build. Both ``plink_prefix``
     and ``output_dir`` are required because this public workflow materializes
-    a reference-panel artifact family.
+    an R2 matrix artifact family.
 
     Raises
     ------
     LDSCUsageError
-        Before anything is written, when a keyword is not a ``build-r2-panel``
+        Before anything is written, when a keyword is not a ``build-r2-matrix``
         option name, a required one is missing, a value is outside the
         command's choices, a flag is not a bool, or ``snp_identifier``,
         ``genome_build`` or ``log_level`` is passed.
@@ -1719,14 +1719,14 @@ def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
         "genome_build": "pass source_genome_build for the PLINK input build; GlobalConfig.genome_build is not used",
     }
     args = namespace_from_kwargs(
-        "run_build_ref_panel", build_parser(), kwargs, rejected=rejected, log_level=get_global_config().log_level,
+        "run_build_r2_matrix", build_parser(), kwargs, rejected=rejected, log_level=get_global_config().log_level,
     )
-    return run_build_ref_panel_from_args(args)
+    return run_build_r2_matrix_from_args(args)
 
 
-def main(argv: Sequence[str] | None = None) -> ReferencePanelBuildResult:
-    """Command-line entry point for the reference-panel builder."""
+def main(argv: Sequence[str] | None = None) -> R2MatrixBuildResult:
+    """Command-line entry point for the R2 matrix builder."""
 
     parser = build_parser()
     args = parser.parse_args(argv)
-    return run_build_ref_panel_from_args(args)
+    return run_build_r2_matrix_from_args(args)

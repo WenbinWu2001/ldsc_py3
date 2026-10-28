@@ -5,7 +5,7 @@ Last updated on: 2026-10-28
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](../munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
 Downstream identity metadata lives in the `sumstats.parquet` footer (for munged summary statistics) and in `ldscore/metadata.json` (for LD scores).
-Any metadata emitted by `annotate`, `build-r2-panel`, `h2`, `partitioned-h2`, `rg`, query-level, or pair-level outputs is diagnostic provenance for regression.
+Any metadata emitted by `annotate`, `build-r2-matrix`, `h2`, `partitioned-h2`, `rg`, query-level, or pair-level outputs is diagnostic provenance for regression.
 The post-fit `quantile-h2` command is the explicit exception: it consumes one selected `partitioned-h2` model's metadata and coefficient-delete artifact because those files identify the fitted model.
 
 This document inventories metadata, schema metadata, and audit sidecars written by the current LDSC3 workflows.
@@ -34,7 +34,7 @@ blocks the run before outputs are opened. With `--overwrite`, artifacts written
 by the current run are replaced, and stale owned siblings left by incompatible
 flag combinations are removed after the current write succeeds. Sharded
 workflows may scope this owned package to the shard selected by the current
-invocation; for `build-r2-panel`, concrete chromosome runs own only that
+invocation; for `build-r2-matrix`, concrete chromosome runs own only that
 chromosome's files, while full `@` suite runs own the all-chromosome package.
 
 Legacy/root diagnostic names that are no longer in the public layout are not
@@ -112,7 +112,7 @@ for a clean projection. Its fixed fields are `trait_name`, `source_path`,
 `SNP`, `A1`, `A2`, `reason`, and `panel_candidate_count`. It is diagnostic only;
 the in-memory projected table, not this sidecar, enters regression.
 
-### `build-r2-panel`
+### `build-r2-matrix`
 
 ```text
 ref-panel/
@@ -121,14 +121,14 @@ ref-panel/
   diagnostics/
     metadata.json
     metadata.chr<chrom>.json
-    build-r2-panel.log
-    build-r2-panel.chr<chrom>.log
+    build-r2-matrix.log
+    build-r2-matrix.chr<chrom>.log
     dropped_snps/chr<chrom>_dropped.tsv.gz
 ```
 
-The concrete diagnostics files are `metadata.json` and `build-r2-panel.log`
+The concrete diagnostics files are `metadata.json` and `build-r2-matrix.log`
 for multi-chromosome runs. Concrete single-chromosome runs write
-`metadata.chr<chrom>.json` and `build-r2-panel.chr<chrom>.log` so parallel
+`metadata.chr<chrom>.json` and `build-r2-matrix.chr<chrom>.log` so parallel
 per-chromosome invocations can share an output directory without racing on
 shared diagnostics.
 
@@ -136,46 +136,46 @@ shared diagnostics.
 
 | Field | Explanation | Downstream usage |
 | --- | --- | --- |
-| `artifact_type` | Must be `ref_panel`. | None. |
+| `artifact_type` | Must be `r2_matrix_build`. | None. |
 | `files` | Relative map of emitted R² Parquet files, sidecars, and diagnostic files. | None. |
-| `snp_identifier` | SNP identifier mode used for emitted panel artifacts. | None for root metadata. Per-file schema/header metadata carries runtime validation. |
+| `snp_identifier` | SNP identifier mode used for emitted R² matrix artifacts. | None for root metadata. Per-file schema/header metadata carries runtime validation. |
 | `source_genome_build` | Build of source PLINK coordinates. | None for root metadata. |
 | `emitted_genome_builds` | Builds emitted by the builder. | None. |
 | `chromosomes` | Chromosomes emitted by the run. | None. |
 
-### R² panel Parquet and sidecar metadata
+### R² matrix Parquet and sidecar metadata
 
 Runtime compatibility is carried by the Parquet footer and paired SNP sidecar, not the diagnostic JSON. Required columns are `IDX_1`, `IDX_2`, `R2`, and `SIGN_R`; indices reference the exact sidecar row order.
 
 | Field | Location | Downstream usage |
 | --- | --- | --- |
-| `ldsc:artifact_type` | Parquet footer or sidecar header | Identifies `ref_panel_r2` or `ref_panel_metadata` |
-| `ldsc:snp_identifier` | Both | SNP identifier mode of the build; `ldscore` requires an exact match, and `query-r2` accepts this mode or its base form |
+| `ldsc:artifact_type` | Parquet footer or sidecar header | Identifies `r2_matrix` or `ref_panel_metadata` |
+| `ldsc:snp_identifier` | Both | SNP identifier mode of the build; `ldscore` requires an exact match, and `query-r2-matrix` accepts this mode or its base form |
 | `ldsc:genome_build` | Both | Coordinate-build identity |
 | `ldsc:sorted_by_build` | Parquet footer | Declares the build defining index/position order |
 | `ldsc:n_snps`, `ldsc:sidecar_identity_sha256` | Parquet footer | Bind pair indices to the sidecar's SNP count, identity, and order |
-| `ldsc:n_samples` | Parquet footer | Reference sample size (at least 3, equal across a panel's chromosome files) that `query-r2` uses to recover Pearson r |
-| `ldsc:r2_bias` | Parquet footer | Package-built panels store `unbiased` R² |
+| `ldsc:n_samples` | Parquet footer | Reference sample size (at least 3, equal across an R² matrix's chromosome files) that `query-r2-matrix` uses to recover Pearson r |
+| `ldsc:r2_bias` | Parquet footer | R² matrices store `unbiased` R² |
 | `ldsc:r2_encoding`, `ldsc:r2_scale` | Parquet footer | Package output uses `int16_symmetric` with divisor 32767 |
 | `ldsc:min_r2` | Parquet footer | Required build-time sparsification threshold; nonpositive means no R² filtering; `ldscore` rejects a positive value |
 | `ldsc:ld_window_mode`, `ldsc:ld_window_value` | Parquet footer | Build window used for downstream compatibility checks |
 | `ldsc:row_group_size` | Parquet footer | Informational intended row-group size |
 
-See the [complete format contract](r2-panels.md) and `write_r2_parquet` in `src/ldsc/_refpanel/build_kernel.py`.
+See the [complete format contract](r2-matrices.md) and `write_r2_parquet` in `src/ldsc/_refpanel/build_kernel.py`.
 
-### `query-r2`
+### `query-r2-matrix`
 
 ```text
 pair_query/
-  query_r2.tsv
+  query_r2_matrix.tsv
   diagnostics/
     metadata.json
-    query-r2.log
+    query-r2-matrix.log
 ```
 
 The TSV preserves input columns and writes `r2`, nullable `sign_r` (+1/-1), signed Pearson `r`, and `status`. `sign_r` and `r` use query allele orientation; they are not panel-orientation labels. There is no `sign` alias. Missing values are serialized as `NaN`.
 
-Diagnostic metadata records `artifact_type=query_r2_result`, the relative `files` map, `panel_dir`, `snp_identifier`, the requested `genome_build`, `n_samples`, `n_pairs`, and `status_counts`. The empty successful status is counted as `resolved`; other counts use `not_in_panel`, `cross_chromosome`, or `absent`. This JSON is provenance only. Sources: `_query_r2_metadata` in `src/ldsc/_refpanel/query.py` and `QueryR2DirectoryWriter` in `src/ldsc/_refpanel/outputs.py`.
+Diagnostic metadata records `artifact_type=query_r2_matrix_result`, the relative `files` map, `r2_matrix_dir`, `snp_identifier`, the requested `genome_build`, `n_samples`, `n_pairs`, and `status_counts`. The empty successful status is counted as `resolved`; other counts use `not_in_matrix`, `cross_chromosome`, or `absent`. This JSON is provenance only. Sources: `_query_r2_matrix_metadata` in `src/ldsc/_refpanel/query.py` and `QueryR2MatrixDirectoryWriter` in `src/ldsc/_refpanel/outputs.py`.
 
 ### `annotate`
 
@@ -242,7 +242,7 @@ ldscore/
 `ldscore.query.parquet` is present for a single query batch. Multiple batches instead use `ldscore.query.batch00001.parquet` and subsequent ordinals, with `files.query_batch00001` keys. Baseline-only output has no query file. All current directories require the ordered `query_batches` manifest, including an empty list for baseline-only output.
 `query_annotation_status.tsv` is present for BED/gene-list query runs;
 The row-complete audit and per-source summary are present for gene-list runs.
-`ld_window_snp_counts.tsv` is present only for R² panel runs with `--ld-wind-snps`; it records each chromosome's `panel_snps`, `kept_snps`, `ld_wind_snps`, and `counting_basis` (`panel_rows`).
+`ld_window_snp_counts.tsv` is present only for R² matrix runs with `--ld-wind-snps`; it records each chromosome's `panel_snps`, `kept_snps`, `ld_wind_snps`, and `counting_basis` (`panel_rows`).
 `reference_snp_funnel.tsv` is present for every native and indexed run; it records each chromosome's reference-SNP funnel with `funnel`, `chrom`, `backend`, `step_index`, `step`, `removed` (`NA` for a step that did not run) and `remaining`, as described in [reference SNPs on the annotation SNP grid](../ldscore-snp-universes.md#reference-snp-funnel).
 It is owned by the LD-score writer but not listed in the `files` entry of `metadata.json`.
 `ldscore.overlap.parquet` holds the annotation overlap matrix (long form:
@@ -489,7 +489,7 @@ Fields that LDSC3 downstream workflows treat as runtime compatibility-critical:
 - LD-score `metadata.json`: `artifact_type`,
   `snp_identifier`, `genome_build`, `files`, `baseline_columns`,
   `query_columns`, and `counts[].column`.
-- R² panel per-file schema/header metadata when present:
+- R² matrix per-file schema/header metadata when present:
   `ldsc:artifact_type`, `ldsc:snp_identifier`,
   `ldsc:genome_build`, and `ldsc:sorted_by_build`.
 

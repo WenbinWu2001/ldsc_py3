@@ -38,7 +38,7 @@ output.
 
 ## Chromosome scope and pathway coverage
 
-Direct PLINK and R² panel query runs require exactly matching validated baseline/reference chromosome sets.
+Direct PLINK and R² matrix query runs require exactly matching validated baseline/reference chromosome sets.
 Exact inputs and ordinary globs select their actual files; file contents establish chromosome membership.
 A filename such as `*.22.annot.gz` does not prove chr22-only contents.
 Additional chromosomes in matched files participate in scope.
@@ -336,4 +336,4 @@ Producing a single-build catalog from one authoritative source remains the user'
 
 ## File patterns and chromosome coverage
 
-For direct query LD scores, `@` declares all chromosomes 1-22. If a subset is intentional, use quoted `*` patterns or exact paths selecting matching baseline and PLINK chromosome sets. Check the actual matched files and their chromosome contents. Restore missing files when a complete suite was intended. Every selected focal/control gene must still be covered; changing `@` to `*` does not filter genes or permit pathway truncation. Supply the missing chromosome inputs or explicitly revise the lists. `--r2-dir` takes a literal directory with matching chromosome coverage. The scope failure and workflow log include these repair options; see [chromosome coverage troubleshooting](../../user-guide/troubleshooting.md#ldscore-chromosome-coverage-preflight) and [`_ldscore.preflight.validate_direct_scope`](../../../src/ldsc/_ldscore/preflight.py).
+For direct query LD scores, `@` declares all chromosomes 1-22. If a subset is intentional, use quoted `*` patterns or exact paths selecting matching baseline and PLINK chromosome sets. Check the actual matched files and their chromosome contents. Restore missing files when a complete suite was intended. Every selected focal/control gene must still be covered; changing `@` to `*` does not filter genes or permit pathway truncation. Supply the missing chromosome inputs or explicitly revise the lists. `--r2-matrix-dir` takes a literal directory with matching chromosome coverage. The scope failure and workflow log include these repair options; see [chromosome coverage troubleshooting](../../user-guide/troubleshooting.md#ldscore-chromosome-coverage-preflight) and [`_ldscore.preflight.validate_direct_scope`](../../../src/ldsc/_ldscore/preflight.py).

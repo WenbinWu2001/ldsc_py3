@@ -210,7 +210,7 @@ def resolve_file_group(
     """Resolve one or many path tokens into a deterministic concrete file group.
 
     This function is the workflow-layer entry point for group-style inputs such
-    as annotation files, R2 panel files, BED files, and frequency metadata.
+    as annotation files, R2 matrix files, BED files, and frequency metadata.
     Each token may be an exact path, a standard Python glob, or, when
     ``allow_chromosome_suite`` is true, an explicit ``@`` chromosome-suite
     token. All matches across all tokens are concatenated, deduplicated while
@@ -805,11 +805,11 @@ def preflight_output_artifact_family(
 
     Sharded workflows must pass only the package owned by the current shard
     when shards can run concurrently in the same directory. For example, a
-    concrete ``build-r2-panel`` chromosome-1 invocation owns ``chr1`` R2,
+    concrete ``build-r2-matrix`` chromosome-1 invocation owns ``chr1`` R2,
     metadata, dropped-SNP, and chromosome-scoped diagnostic paths only; it must
     not report ``chr2`` outputs as stale. A full ``@`` chromosome-suite
     invocation can pass the all-chromosome package and clean stale siblings
-    across the full panel after success.
+    across the full R2 matrix after success.
     """
     produced = _dedupe_paths(Path(normalize_path_token(path)) for path in produced_paths)
     owned = _dedupe_paths(Path(normalize_path_token(path)) for path in owned_paths)

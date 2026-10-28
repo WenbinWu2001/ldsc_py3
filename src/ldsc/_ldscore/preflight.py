@@ -32,7 +32,7 @@ SCOPE_REPAIR = (
     "to select matching baseline and PLINK chromosome sets, for example 'baseline.*.annot.gz' and 'panel.*'. "
     "For a full-suite run, restore the missing files instead. Every selected query/control gene must be "
     "covered: supply the missing chromosomes or explicitly revise the gene lists. Changing '@' to '*' "
-    "does not filter genes. With --r2-dir, select a directory whose chromosome set matches the baseline; "
+    "does not filter genes. With --r2-matrix-dir, select a directory whose chromosome set matches the baseline; "
     "directory paths do not expand patterns."
 )
 
@@ -51,13 +51,13 @@ class DirectInputPreflight:
 
 
 def read_r2_sidecar_for_chromosome(path, chrom, global_config, *, require_autosomes=False):
-    """Read one R2 panel sidecar, with its MAF checks, and confirm it holds only ``chrom``."""
+    """Read one R2 matrix sidecar, with its MAF checks, and confirm it holds only ``chrom``."""
     metadata = read_metadata_table(path, None, global_config)
     if set(metadata.CHR.astype(str)) != {chrom} or (require_autosomes and chrom not in AUTOSOMES):
         raise LDSCInputError(
-            f"R2 panel SNP sidecar '{path}' does not contain the expected chromosome {chrom}"
+            f"R2 matrix SNP sidecar '{path}' does not contain the expected chromosome {chrom}"
             f"{' within autosomes 1 through 22' if require_autosomes else ''}. "
-            "Restore the sidecar and R2 Parquet file from the same chromosome and panel build; "
+            "Restore the sidecar and R2 Parquet file from the same chromosome and R2 matrix build; "
             "renaming the sidecar does not repair its SNP identities."
         )
     return metadata
@@ -66,7 +66,7 @@ def read_r2_sidecar_for_chromosome(path, chrom, global_config, *, require_autoso
 def inspect_reference_inputs(args, global_config, *, require_autosomes=True, plink_members=None):
     """Validate references before annotation staging; retain scope and PLINK mapping.
 
-    R2 panel integrity requires a streamed pair scan and sidecar identity checks.
+    R2 matrix integrity requires a streamed pair scan and sidecar identity checks.
     PLINK integrity reads BIM/FAM and BED header/size, without correlations.
     The returned evidence is reused by the later content-dependent scope gate.
     """
@@ -79,21 +79,21 @@ def inspect_reference_inputs(args, global_config, *, require_autosomes=True, pli
         issues.append(dict(input_role=role, source=str(source), chrom=chrom,
                            reason=reason, details=str(details), repair=SCOPE_REPAIR))
 
-    r2_dir = getattr(args, "r2_dir", None)
-    if r2_dir:
+    r2_matrix_dir = getattr(args, "r2_matrix_dir", None)
+    if r2_matrix_dir:
         try:
-            root = resolve_r2_build_dir(r2_dir, global_config.genome_build)
+            root = resolve_r2_build_dir(r2_matrix_dir, global_config.genome_build)
             members = sorted({path.name.split("_")[0][3:] for pattern in ("chr*_r2.parquet", "chr*_meta.tsv.gz") for path in root.glob(pattern)}, key=lambda value: (len(value), value))
             if not members:
                 raise LDSCInputError(
-                    f"R2 panel directory '{root}' contains no chromosome R2 Parquet files or SNP sidecars. "
-                    "Set --r2-dir to the matching build-r2-panel output directory and check --genome-build; "
-                    "restore or rebuild the complete panel if its files are missing."
+                    f"R2 matrix directory '{root}' contains no chromosome R2 Parquet files or SNP sidecars. "
+                    "Set --r2-matrix-dir to the matching build-r2-matrix output directory and check --genome-build; "
+                    "restore or rebuild the complete R2 matrix if its files are missing."
                 )
         except (OSError, EOFError, ValueError, LDSCUserError) as exc:
-            issue("reference", r2_dir, "", "invalid_required_input", exc)
+            issue("reference", r2_matrix_dir, "", "invalid_required_input", exc)
             members = []
-        panel = RefPanelLoader(global_config).load(RefPanelConfig(backend="parquet_r2", r2_dir=r2_dir)) if members else None
+        panel = RefPanelLoader(global_config).load(RefPanelConfig(backend="r2_matrix", r2_matrix_dir=r2_matrix_dir)) if members else None
         for chrom in members:
             try:
                 metadata = read_r2_sidecar_for_chromosome(
@@ -108,7 +108,7 @@ def inspect_reference_inputs(args, global_config, *, require_autosomes=True, pli
                     reader.close()
                 sets["reference"].add(chrom)
             except (OSError, EOFError, ValueError, LDSCUserError) as exc:
-                issue("reference", r2_dir, chrom, "invalid_required_input", exc)
+                issue("reference", r2_matrix_dir, chrom, "invalid_required_input", exc)
     else:
         plink_tokens = split_cli_path_tokens(getattr(args, "plink_prefix", None))
         declarations.extend(plink_tokens)
@@ -129,7 +129,7 @@ def inspect_reference_inputs(args, global_config, *, require_autosomes=True, pli
 def inspect_direct_inputs(args, global_config, *, annotation_sources=None, bed_sources=None, annotation_issues=(), reference_inputs=None):
     """Inspect all selected annotation and reference artifacts before filtering.
 
-    Validate BED/BIM/FAM integrity or the complete R2 panel sidecar binding, without
+    Validate BED/BIM/FAM integrity or the complete R2 matrix sidecar binding, without
     computing correlations. Errors from independent files accumulate in one
     table. Input chromosomes are never inferred from annotation filenames.
     """

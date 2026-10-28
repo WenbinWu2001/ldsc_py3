@@ -181,7 +181,7 @@ def test_exported_pair_computes_known_ld_scores_after_cleanup(tmp_path, monkeypa
         regression = tmp_path / 'regression.txt'
         regression.write_text('SNP\nrs1\nrs2\nrs3\n')
         result = run_ldscore(baseline_annot_sources=bundle.output_paths['baseline_annotations'],
-                            query_annot_sources=bundle.output_paths['query_annotations'], r2_dir=args.r2_dir,
+                            query_annot_sources=bundle.output_paths['query_annotations'], r2_matrix_dir=args.r2_matrix_dir,
                             regr_snps_file=regression, regr_snps_exclude_regions='none',
                             ld_wind_snps=2, yes_really=True, output_dir=tmp_path / 'ldscore')
     assert result.read_queries(['focal']).SNP.tolist() == ['rs1', 'rs2', 'rs3']

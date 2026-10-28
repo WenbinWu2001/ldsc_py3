@@ -222,7 +222,7 @@ These fingerprints identify declared inputs/settings and verify row metadata; th
 Earlier index formats are unsupported and must be rebuilt completely with the current package.
 There is no compatibility adapter, migration, or partial component reuse.
 The semantic `index_id` retains content-based identity, now including the selected window unit/value and allele-aware identity where applicable.
-Together with the R² panel sidecar binding ([R² panel format](formats/r2-panels.md#4-index--sidecar-binding)), these are the package's only hashes; routine provenance hashes are not computed.
+Together with the R² matrix sidecar binding ([R² matrix format](formats/r2-matrices.md#4-index--sidecar-binding)), these are the package's only hashes; routine provenance hashes are not computed.
 
 Gene LD-score indexes do not support incremental updates, chromosome append, profile addition, or common-layer reuse.
 Any input or configuration change requires a complete new 1–22 build.

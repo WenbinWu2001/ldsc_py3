@@ -5,5 +5,5 @@ markers = [
     "slow: tests that intentionally use larger data or long-running statistical checks",
     "statistical: stochastic or tolerance-based statistical validation",
     "io: parser, file-format, parquet, PLINK, or CLI filesystem coverage",
-    "file_format_compat: compatibility checks for PLINK and R2 panel file formats rather than old public APIs",
+    "file_format_compat: compatibility checks for PLINK and R2 matrix file formats rather than old public APIs",
 ]

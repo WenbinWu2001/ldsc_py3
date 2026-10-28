@@ -10,7 +10,7 @@ from ldsc.errors import LDSCUsageError
 # Plausible inputs; validation fails before any of them is read.
 _INPUTS = {
     "run_ldscore": {"plink_prefix": "panel", "ld_wind_cm": 1.0},
-    "run_build_ref_panel": {"plink_prefix": "panel.@", "ld_wind_kb": 1.0},
+    "run_build_r2_matrix": {"plink_prefix": "panel.@", "ld_wind_kb": 1.0},
 }
 _SHARED = "set_global_config(GlobalConfig("
 # Each case would otherwise run with a default or a truthy string in place of the intended value.
@@ -26,12 +26,12 @@ _INVALID_KEYWORDS = [
     ("run_ldscore", {"snp_identifier": "rsid"}, _SHARED + "snp_identifier="),
     ("run_ldscore", {"genome_build": "hg19"}, _SHARED + "genome_build="),
     ("run_ldscore", {"log_level": "DEBUG"}, _SHARED + "log_level="),
-    ("run_build_ref_panel", {"maf": 0.01}, "unknown keyword argument(s) maf"),
-    ("run_build_ref_panel", {"source_genome_build": "HG19"}, "source_genome_build='HG19' is not one of"),
-    ("run_build_ref_panel", {"overwrite": "False"}, "overwrite='False' must be False or True"),
-    ("run_build_ref_panel", {"snp_identifier": "rsid"}, _SHARED + "snp_identifier="),
-    ("run_build_ref_panel", {"log_level": "DEBUG"}, _SHARED + "log_level="),
-    ("run_build_ref_panel", {"genome_build": "hg19"}, "pass source_genome_build"),
+    ("run_build_r2_matrix", {"maf": 0.01}, "unknown keyword argument(s) maf"),
+    ("run_build_r2_matrix", {"source_genome_build": "HG19"}, "source_genome_build='HG19' is not one of"),
+    ("run_build_r2_matrix", {"overwrite": "False"}, "overwrite='False' must be False or True"),
+    ("run_build_r2_matrix", {"snp_identifier": "rsid"}, _SHARED + "snp_identifier="),
+    ("run_build_r2_matrix", {"log_level": "DEBUG"}, _SHARED + "log_level="),
+    ("run_build_r2_matrix", {"genome_build": "hg19"}, "pass source_genome_build"),
 ]
 
 
@@ -45,7 +45,7 @@ def test_keyword_workflows_reject_invalid_keywords_before_writing(tmp_path, func
 
 @pytest.mark.parametrize(("function", "required"), [
     ("run_ldscore", ["output_dir"]),
-    ("run_build_ref_panel", ["output_dir", "plink_prefix"]),
+    ("run_build_r2_matrix", ["output_dir", "plink_prefix"]),
 ])
 def test_keyword_workflows_list_every_missing_required_keyword(function, required):
     with pytest.raises(LDSCUsageError, match=re.escape("missing required keyword argument(s)")) as raised:

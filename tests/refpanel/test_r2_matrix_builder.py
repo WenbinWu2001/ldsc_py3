@@ -23,11 +23,11 @@ from ldsc._refpanel import r2_format
 from ldsc._refpanel.r2_format import build_runtime_metadata_table
 from ldsc._refpanel.windows import window_coordinates
 from ldsc._core.snp_identity import IDENTITY_DROP_COLUMNS, RestrictionIdentityKeys, empty_identity_drop_frame
-from ldsc.config import GlobalConfig, ReferencePanelBuildConfig
+from ldsc.config import GlobalConfig, R2MatrixBuildConfig
 from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from ldsc._ldscore import calculator as ldscore_calculator
 from ldsc import reset_global_config, set_global_config
-from ldsc._refpanel import builder as ref_panel_builder
+from ldsc._refpanel import builder as r2_matrix_builder
 
 
 # --- columnar pair-emission test helpers -------------------------------------
@@ -418,7 +418,7 @@ class RetainedSnpOrderingTest(unittest.TestCase):
         hg19_lookup = {10: 2000, 20: 1000, 30: 3000}
         hg38_lookup = {10: 10685988, 20: 10685981, 30: 10686000}
 
-        sorted_snps = ref_panel_builder._sort_retained_snps_by_build_position(
+        sorted_snps = r2_matrix_builder._sort_retained_snps_by_build_position(
             keep_snps,
             genome_build="hg38",
             hg19_lookup=hg19_lookup,
@@ -438,18 +438,18 @@ class RetainedSnpOrderingTest(unittest.TestCase):
         self.assertEqual(max_dist, 1000.0)
 
     def test_cm_window_rejects_missing_interpolated_cm(self):
-        config = ReferencePanelBuildConfig(plink_prefix="plink/panel.@", output_dir="out", ld_wind_cm=1.0,
+        config = R2MatrixBuildConfig(plink_prefix="plink/panel.@", output_dir="out", ld_wind_cm=1.0,
                                            genetic_map_hg19_sources="map.txt")
-        with self.assertRaisesRegex(LDSCInputError, "build-r2-panel cannot use cM LD windows"):
-            ref_panel_builder._r2_panel_block_left(
+        with self.assertRaisesRegex(LDSCInputError, "build-r2-matrix cannot use cM LD windows"):
+            r2_matrix_builder._r2_matrix_block_left(
                 "1", "hg19", np.array([100, 250]), np.array([0.1, np.nan]), config,
             )
 
     def test_cm_window_requires_genetic_map_values(self):
-        config = ReferencePanelBuildConfig(plink_prefix="plink/panel.@", output_dir="out", ld_wind_cm=1.0,
+        config = R2MatrixBuildConfig(plink_prefix="plink/panel.@", output_dir="out", ld_wind_cm=1.0,
                                            genetic_map_hg19_sources="map.txt")
         with self.assertRaisesRegex(LDSCUsageError, "no genetic map values are available"):
-            ref_panel_builder._r2_panel_block_left("1", "hg19", np.array([100, 250]), None, config)
+            r2_matrix_builder._r2_matrix_block_left("1", "hg19", np.array([100, 250]), None, config)
 
 
 class StandardTableFormattingTest(unittest.TestCase):
@@ -483,7 +483,7 @@ class StandardTableFormattingTest(unittest.TestCase):
             meta = pq.read_schema(str(path)).metadata
             self.assertEqual(meta[b"ldsc:sorted_by_build"], b"hg19")
             self.assertEqual(meta[b"ldsc:row_group_size"], b"50000")
-            self.assertEqual(meta[b"ldsc:artifact_type"], b"ref_panel_r2")
+            self.assertEqual(meta[b"ldsc:artifact_type"], b"r2_matrix")
             self.assertEqual(meta[b"ldsc:snp_identifier"], b"rsid_allele_aware")
             self.assertEqual(meta[b"ldsc:genome_build"], b"hg19")
             self.assertEqual(meta[b"ldsc:n_samples"], b"42")
@@ -699,17 +699,17 @@ class StandardTableFormattingTest(unittest.TestCase):
         self.assertTrue(pd.isna(table.loc[0, "CM"]))
 
 
-class ReferencePanelBuildConfigOptionalLiftoverTest(unittest.TestCase):
+class R2MatrixBuildConfigOptionalLiftoverTest(unittest.TestCase):
     def test_output_dir_is_a_required_constructor_argument(self):
         with self.assertRaises(TypeError):
-            ReferencePanelBuildConfig(plink_prefix="plink/panel.@", ld_wind_kb=1)
+            R2MatrixBuildConfig(plink_prefix="plink/panel.@", ld_wind_kb=1)
 
     def test_python_wrapper_requires_output_dir_without_dummy_paths(self):
         with self.assertRaisesRegex(LDSCUsageError, r"missing required keyword argument\(s\) output_dir"):
-            ref_panel_builder.run_build_ref_panel(plink_prefix="plink/panel.@", ld_wind_kb=1)
+            r2_matrix_builder.run_build_r2_matrix(plink_prefix="plink/panel.@", ld_wind_kb=1)
 
     def test_python_api_defaults_missing_maps_for_snp_window(self):
-        config = ReferencePanelBuildConfig(
+        config = R2MatrixBuildConfig(
             plink_prefix="plink/panel.@",
             source_genome_build="hg38",
             output_dir="out",
@@ -721,7 +721,7 @@ class ReferencePanelBuildConfigOptionalLiftoverTest(unittest.TestCase):
         self.assertEqual(config.output_dir, "out")
 
     def test_accepts_missing_chain_and_maps_for_kb_window(self):
-        config = ReferencePanelBuildConfig(
+        config = R2MatrixBuildConfig(
             plink_prefix="plink/panel.@",
             source_genome_build="hg19",
             genetic_map_hg19_sources=None,
@@ -736,7 +736,7 @@ class ReferencePanelBuildConfigOptionalLiftoverTest(unittest.TestCase):
 
     def test_missing_source_map_raises_for_cm_window(self):
         with self.assertRaisesRegex(LDSCConfigError, "ld_wind_cm requires a hg19 genetic map path"):
-            ReferencePanelBuildConfig(
+            R2MatrixBuildConfig(
                 plink_prefix="plink/panel.@",
                 source_genome_build="hg19",
                 genetic_map_hg19_sources=None,
@@ -746,7 +746,7 @@ class ReferencePanelBuildConfigOptionalLiftoverTest(unittest.TestCase):
             )
 
     def test_matching_chain_does_not_require_target_map_for_kb_window(self):
-        config = ReferencePanelBuildConfig(
+        config = R2MatrixBuildConfig(
             plink_prefix="plink/panel.@",
             source_genome_build="hg19",
             genetic_map_hg19_sources="maps/hg19.map",
@@ -760,21 +760,21 @@ class ReferencePanelBuildConfigOptionalLiftoverTest(unittest.TestCase):
         self.assertIsNone(config.genetic_map_hg38_sources)
 
     def test_chain_liftover_emits_source_and_target_builds(self):
-        config = ReferencePanelBuildConfig(
+        config = R2MatrixBuildConfig(
             plink_prefix="plink/panel.@", source_genome_build="hg19", output_dir="out",
             ld_wind_kb=1.0, liftover_chain_hg19_to_hg38_file="chains/hg19ToHg38.over.chain",
         )
-        self.assertEqual(ref_panel_builder._emitted_genome_builds(config), ["hg19", "hg38"])
+        self.assertEqual(r2_matrix_builder._emitted_genome_builds(config), ["hg19", "hg38"])
 
     def test_hm3_quick_liftover_constructor_argument_is_removed(self):
         with self.assertRaises(TypeError):
-            ReferencePanelBuildConfig(
+            R2MatrixBuildConfig(
                 plink_prefix="plink/panel.@", source_genome_build="hg19", output_dir="out",
                 ld_wind_kb=1.0, use_hm3_quick_liftover=True,
             )
 
     def test_non_matching_chain_does_not_require_target_map(self):
-        config = ReferencePanelBuildConfig(
+        config = R2MatrixBuildConfig(
             plink_prefix="plink/panel.@",
             source_genome_build="hg19",
             genetic_map_hg19_sources="maps/hg19.map",
@@ -787,9 +787,9 @@ class ReferencePanelBuildConfigOptionalLiftoverTest(unittest.TestCase):
         self.assertEqual(config.liftover_chain_hg38_to_hg19_file, "chains/hg38ToHg19.over.chain")
 
 
-class ReferencePanelBuildConfigNoDuplicatePolicyTest(unittest.TestCase):
+class R2MatrixBuildConfigNoDuplicatePolicyTest(unittest.TestCase):
     def _base_config(self, **kwargs):
-        return ReferencePanelBuildConfig(
+        return R2MatrixBuildConfig(
             plink_prefix="plink/panel.@",
             source_genome_build="hg19",
             output_dir="out",
@@ -806,13 +806,13 @@ class ReferencePanelBuildConfigNoDuplicatePolicyTest(unittest.TestCase):
             self._base_config(duplicate_position_policy="drop-all")
 
 
-class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
+class R2MatrixBuildConfigFromArgsTest(unittest.TestCase):
     def test_build_parser_defaults_snp_batch_size_to_512(self):
-        parser = ref_panel_builder.build_parser()
+        parser = r2_matrix_builder.build_parser()
         self.assertEqual(parser.get_default("snp_batch_size"), 512)
 
     def test_build_parser_accepts_snp_batch_size(self):
-        parser = ref_panel_builder.build_parser()
+        parser = r2_matrix_builder.build_parser()
         args = parser.parse_args([
             "--plink-prefix", "plink/panel.@",
             "--output-dir", "out",
@@ -822,13 +822,13 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         self.assertEqual(args.snp_batch_size, 64)
 
     def test_build_parser_rejects_removed_hm3_flags(self):
-        parser = ref_panel_builder.build_parser()
+        parser = r2_matrix_builder.build_parser()
         self.assertNotIn("--use-hm3-snps", parser.format_help())
         with self.assertRaises(SystemExit):
             parser.parse_args(["--plink-prefix", "plink/panel.@", "--output-dir", "out", "--ld-wind-kb", "1", "--use-hm3-snps"])
 
     def test_build_parser_rejects_removed_chunk_size_alias(self):
-        parser = ref_panel_builder.build_parser()
+        parser = r2_matrix_builder.build_parser()
         help_text = parser.format_help()
         self.assertIn("--snp-batch-size", help_text)
         self.assertNotIn("--chunk-size", help_text)
@@ -841,23 +841,23 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
             ])
 
     def test_config_from_args_passes_snp_batch_size_to_config(self):
-        parser = ref_panel_builder.build_parser()
+        parser = r2_matrix_builder.build_parser()
         args = parser.parse_args([
             "--plink-prefix", "plink/panel.@",
             "--output-dir", "out",
             "--ld-wind-kb", "1",
             "--snp-batch-size", "64",
         ])
-        build_config, _ = ref_panel_builder.config_from_args(args)
+        build_config, _ = r2_matrix_builder.config_from_args(args)
         self.assertEqual(build_config.snp_batch_size, 64)
 
 
     def test_build_parser_help_does_not_include_duplicate_position_policy(self):
-        parser = ref_panel_builder.build_parser()
+        parser = r2_matrix_builder.build_parser()
         self.assertNotIn("--duplicate-position-policy", parser.format_help())
 
     def test_build_parser_rejects_duplicate_position_policy(self):
-        parser = ref_panel_builder.build_parser()
+        parser = r2_matrix_builder.build_parser()
         with self.assertRaises(SystemExit):
             parser.parse_args([
                 "--plink-prefix", "plink/panel.@",
@@ -867,7 +867,7 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
             ])
 
     def test_build_parser_does_not_accept_genome_build(self):
-        parser = ref_panel_builder.build_parser()
+        parser = r2_matrix_builder.build_parser()
         with self.assertRaises(SystemExit):
             parser.parse_args(
                 [
@@ -883,7 +883,7 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
             )
 
     def test_config_from_args_uses_parser_default_identifier_for_restriction_file(self):
-        parser = ref_panel_builder.build_parser()
+        parser = r2_matrix_builder.build_parser()
         args = parser.parse_args(
             [
                 "--plink-prefix",
@@ -901,7 +901,7 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
 
         set_global_config(GlobalConfig(snp_identifier="chr_pos"))
         try:
-            build_config, global_config = ref_panel_builder.config_from_args(args)
+            build_config, global_config = r2_matrix_builder.config_from_args(args)
         finally:
             reset_global_config()
 
@@ -911,7 +911,7 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         self.assertEqual(global_config.genome_build, "auto")
 
     def test_config_from_args_accepts_explicit_auto_source_genome_build(self):
-        parser = ref_panel_builder.build_parser()
+        parser = r2_matrix_builder.build_parser()
         args = parser.parse_args(
             [
                 "--plink-prefix",
@@ -927,12 +927,12 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
             ]
         )
 
-        build_config, _global_config = ref_panel_builder.config_from_args(args)
+        build_config, _global_config = r2_matrix_builder.config_from_args(args)
 
         self.assertEqual(build_config.source_genome_build, "auto")
 
     def test_config_from_args_uses_explicit_snp_identifier_for_restriction_file(self):
-        parser = ref_panel_builder.build_parser()
+        parser = r2_matrix_builder.build_parser()
         args = parser.parse_args(
             [
                 "--plink-prefix",
@@ -952,14 +952,14 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
             ]
         )
 
-        build_config, global_config = ref_panel_builder.config_from_args(args)
+        build_config, global_config = r2_matrix_builder.config_from_args(args)
 
         self.assertEqual(build_config.source_genome_build, "hg19")
         self.assertIsNone(global_config.genome_build)
         self.assertEqual(global_config.snp_identifier, "rsid")
 
     def test_config_from_args_does_not_require_genome_build_for_chr_pos_mode(self):
-        parser = ref_panel_builder.build_parser()
+        parser = r2_matrix_builder.build_parser()
         args = parser.parse_args(
             [
                 "--plink-prefix",
@@ -979,24 +979,24 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
             ]
         )
 
-        build_config, global_config = ref_panel_builder.config_from_args(args)
+        build_config, global_config = r2_matrix_builder.config_from_args(args)
 
         self.assertEqual(build_config.source_genome_build, "hg19")
         self.assertEqual(global_config.snp_identifier, "chr_pos")
         self.assertEqual(global_config.genome_build, "auto")
 
-    def test_run_build_ref_panel_uses_parser_default_identifier_for_restriction_file(self):
+    def test_run_build_r2_matrix_uses_parser_default_identifier_for_restriction_file(self):
         captured = {}
 
         def fake_run(self, config):
             captured["global_config"] = self.global_config
             captured["config"] = config
-            return ref_panel_builder.ReferencePanelBuildResult(panel_name="out", chromosomes=[])
+            return r2_matrix_builder.R2MatrixBuildResult(matrix_name="out", chromosomes=[])
 
         set_global_config(GlobalConfig(snp_identifier="chr_pos"))
         try:
-            with mock.patch.object(ref_panel_builder.ReferencePanelBuilder, "run", fake_run):
-                ref_panel_builder.run_build_ref_panel(
+            with mock.patch.object(r2_matrix_builder.R2MatrixBuilder, "run", fake_run):
+                r2_matrix_builder.run_build_r2_matrix(
                     plink_prefix="plink/panel.@",
                     source_genome_build="hg19",
                     genetic_map_hg19_sources="maps/hg19.map",
@@ -1011,15 +1011,15 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         self.assertEqual(captured["global_config"].snp_identifier, "chr_pos_allele_aware")
         self.assertEqual(captured["global_config"].genome_build, "auto")
 
-    def test_run_build_ref_panel_uses_snp_batch_size_keyword(self):
+    def test_run_build_r2_matrix_uses_snp_batch_size_keyword(self):
         captured = {}
 
         def fake_run(self, config):
             captured["config"] = config
-            return ref_panel_builder.ReferencePanelBuildResult(panel_name="out", chromosomes=[])
+            return r2_matrix_builder.R2MatrixBuildResult(matrix_name="out", chromosomes=[])
 
-        with mock.patch.object(ref_panel_builder.ReferencePanelBuilder, "run", fake_run):
-            ref_panel_builder.run_build_ref_panel(
+        with mock.patch.object(r2_matrix_builder.R2MatrixBuilder, "run", fake_run):
+            r2_matrix_builder.run_build_r2_matrix(
                 plink_prefix="plink/panel.@",
                 source_genome_build="hg19",
                 genetic_map_hg19_sources="maps/hg19.map",
@@ -1030,9 +1030,9 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
 
         self.assertEqual(captured["config"].snp_batch_size, 64)
 
-    def test_run_build_ref_panel_rejects_explicit_genome_build_keyword(self):
+    def test_run_build_r2_matrix_rejects_explicit_genome_build_keyword(self):
         with self.assertRaisesRegex(LDSCUsageError, "set_global_config"):
-            ref_panel_builder.run_build_ref_panel(
+            r2_matrix_builder.run_build_r2_matrix(
                 plink_prefix="plink/panel.@",
                 source_genome_build="hg19",
                 genetic_map_hg19_sources="maps/hg19.map",
@@ -1043,9 +1043,9 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
                 genome_build="hg38",
             )
 
-    def test_run_build_ref_panel_rejects_explicit_snp_identifier_keyword(self):
+    def test_run_build_r2_matrix_rejects_explicit_snp_identifier_keyword(self):
         with self.assertRaisesRegex(LDSCUsageError, "set_global_config"):
-            ref_panel_builder.run_build_ref_panel(
+            r2_matrix_builder.run_build_r2_matrix(
                 plink_prefix="plink/panel.@",
                 source_genome_build="hg19",
                 genetic_map_hg19_sources="maps/hg19.map",
@@ -1072,7 +1072,7 @@ class DuplicatePositionDropAllTest(unittest.TestCase):
         hg19 = {0: 100, 1: 200, 2: 300}
         hg38 = {0: 1000, 1: 2000, 2: 3000}
 
-        cleaned, dropped = ref_panel_builder._resolve_unique_snp_set("1", chrom_df, keep, hg19, hg38)
+        cleaned, dropped = r2_matrix_builder._resolve_unique_snp_set("1", chrom_df, keep, hg19, hg38)
 
         np.testing.assert_array_equal(cleaned, keep)
         self.assertTrue(dropped.empty)
@@ -1081,7 +1081,7 @@ class DuplicatePositionDropAllTest(unittest.TestCase):
         chrom_df = self._make_chrom_df(["rs1", "rs2", "rs3"], [100, 100, 300])
         keep = np.array([0, 1, 2])
 
-        cleaned, dropped = ref_panel_builder._resolve_unique_snp_set("1", chrom_df, keep, {0: 100, 1: 100, 2: 300}, {})
+        cleaned, dropped = r2_matrix_builder._resolve_unique_snp_set("1", chrom_df, keep, {0: 100, 1: 100, 2: 300}, {})
 
         np.testing.assert_array_equal(cleaned, np.array([2]))
         self.assertEqual(len(dropped), 2)
@@ -1095,7 +1095,7 @@ class DuplicatePositionDropAllTest(unittest.TestCase):
         hg19 = {0: 100, 1: 200, 2: 300}
         hg38 = {0: 5000, 1: 5000, 2: 6000}
 
-        cleaned, dropped = ref_panel_builder._resolve_unique_snp_set("1", chrom_df, keep, hg19, hg38)
+        cleaned, dropped = r2_matrix_builder._resolve_unique_snp_set("1", chrom_df, keep, hg19, hg38)
 
         np.testing.assert_array_equal(cleaned, np.array([2]))
         self.assertEqual(len(dropped), 2)
@@ -1109,7 +1109,7 @@ class DuplicatePositionDropAllTest(unittest.TestCase):
         hg19 = {0: 5000, 1: 5000, 2: 6000}
         hg38 = {}
 
-        cleaned, dropped = ref_panel_builder._resolve_unique_snp_set("1", chrom_df, keep, hg19, hg38)
+        cleaned, dropped = r2_matrix_builder._resolve_unique_snp_set("1", chrom_df, keep, hg19, hg38)
 
         np.testing.assert_array_equal(cleaned, np.array([2]))
         self.assertEqual(len(dropped), 2)
@@ -1121,7 +1121,7 @@ class DuplicatePositionDropAllTest(unittest.TestCase):
         hg19 = {0: 5000, 1: 5000, 2: 6000}
         hg38 = {0: 7000, 1: 7000, 2: 8000}
 
-        cleaned, dropped = ref_panel_builder._resolve_unique_snp_set("1", chrom_df, keep, hg19, hg38)
+        cleaned, dropped = r2_matrix_builder._resolve_unique_snp_set("1", chrom_df, keep, hg19, hg38)
 
         np.testing.assert_array_equal(cleaned, np.array([2]))
         self.assertEqual(len(dropped), 2)
@@ -1131,7 +1131,7 @@ class DuplicatePositionDropAllTest(unittest.TestCase):
         chrom_df = self._make_chrom_df(["rs1", "rs2"], [100, 100])
         keep = np.array([0, 1])
 
-        cleaned, dropped = ref_panel_builder._resolve_unique_snp_set("1", chrom_df, keep, {0: 100, 1: 100}, {})
+        cleaned, dropped = r2_matrix_builder._resolve_unique_snp_set("1", chrom_df, keep, {0: 100, 1: 100}, {})
 
         self.assertEqual(len(cleaned), 0)
         self.assertEqual(len(dropped), 2)
@@ -1140,7 +1140,7 @@ class DuplicatePositionDropAllTest(unittest.TestCase):
         chrom_df = self._make_chrom_df(["rs1", "rs2", "rs3"], [100, 100, 300])
         keep = np.array([0, 1, 2])
 
-        _, dropped = ref_panel_builder._resolve_unique_snp_set("1", chrom_df, keep, {0: 100, 1: 100, 2: 300}, {})
+        _, dropped = r2_matrix_builder._resolve_unique_snp_set("1", chrom_df, keep, {0: 100, 1: 100, 2: 300}, {})
 
         self.assertListEqual(list(dropped.columns), IDENTITY_DROP_COLUMNS)
         self.assertEqual(dropped["CHR"].iloc[0], "1")
@@ -1148,7 +1148,7 @@ class DuplicatePositionDropAllTest(unittest.TestCase):
         self.assertEqual(dropped["target_pos"].dtype.name, "Int64")
 
 
-class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
+class R2MatrixBuilderWorkflowTest(unittest.TestCase):
     def setUp(self):
         # Exercise orchestration with local fake readers and liftover objects.
         # SourceOnlySmokeTest and ParityTest retain the real child boundary.
@@ -1183,7 +1183,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
     def _skip_selection_pre_pass(self):
         """Tests that stub _build_chromosome also stub the SNP-selection pre-pass."""
         return mock.patch.object(
-            ref_panel_builder.ReferencePanelBuilder,
+            r2_matrix_builder.R2MatrixBuilder,
             "_check_chromosome_selections",
             side_effect=lambda chrom_sources, *_args: chrom_sources,
         )
@@ -1200,12 +1200,12 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         Path(str(prefix) + ".bim").write_text("".join(lines), encoding="utf-8")
         return prefix
 
-    def _build_config(self, tmpdir: Path) -> ReferencePanelBuildConfig:
+    def _build_config(self, tmpdir: Path) -> R2MatrixBuildConfig:
         map_hg19 = tmpdir / "hg19.map"
         map_hg38 = tmpdir / "hg38.map"
         map_hg19.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n2 100 0.0\n", encoding="utf-8")
         map_hg38.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n2 100 0.0\n", encoding="utf-8")
-        return ReferencePanelBuildConfig(
+        return R2MatrixBuildConfig(
             plink_prefix=tmpdir / "panel.@",
             source_genome_build="hg19",
             genetic_map_hg19_sources=map_hg19,
@@ -1227,20 +1227,20 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                     ("1", "rs3", 200),
                 ],
             )
-            config = ReferencePanelBuildConfig(
+            config = R2MatrixBuildConfig(
                 plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg19",
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(
+            builder = r2_matrix_builder.R2MatrixBuilder(
                 global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
             )
 
             def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
                 keep = np.asarray(keep_snps, dtype=int)
                 hg19 = {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep}
-                return keep, hg19, {}, ref_panel_builder._empty_unified_drop_frame()
+                return keep, hg19, {}, r2_matrix_builder._empty_unified_drop_frame()
 
             with mock.patch.object(
                 builder,
@@ -1260,7 +1260,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 mock_bed.return_value.n = 1
                 mock_bed.return_value.nextSNPs = lambda: iter([np.array([0.0])])
 
-                with self.assertLogs("LDSC.ref_panel_builder", level="INFO") as log_ctx:
+                with self.assertLogs("LDSC.r2_matrix_builder", level="INFO") as log_ctx:
                     builder.run(config)
 
             sidecar = tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz"
@@ -1284,13 +1284,13 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                     ("1", "rs3", 200),
                 ],
             )
-            config = ReferencePanelBuildConfig(
+            config = R2MatrixBuildConfig(
                 plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg19",
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(
+            builder = r2_matrix_builder.R2MatrixBuilder(
                 global_config=GlobalConfig(
                     snp_identifier="chr_pos",
                     genome_build="hg19",
@@ -1301,7 +1301,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
                 keep = np.asarray(keep_snps, dtype=int)
                 hg19 = {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep}
-                return keep, hg19, {}, ref_panel_builder._empty_unified_drop_frame()
+                return keep, hg19, {}, r2_matrix_builder._empty_unified_drop_frame()
 
             with mock.patch.object(
                 builder,
@@ -1321,7 +1321,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 mock_bed.return_value.n = 1
                 mock_bed.return_value.nextSNPs = lambda: iter([np.array([0.0])])
 
-                with self.assertLogs("LDSC.ref_panel_builder", level="DEBUG") as log_ctx:
+                with self.assertLogs("LDSC.r2_matrix_builder", level="DEBUG") as log_ctx:
                     builder.run(config)
 
             info_text = "\n".join(
@@ -1336,8 +1336,8 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self.assertIn("rs1", debug_text)
 
     def test_resolve_mappable_snp_positions_returns_unmapped_and_cross_chromosome_drop_frame(self):
-        builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos"))
-        build_state = ref_panel_builder._BuildState(
+        builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos"))
+        build_state = r2_matrix_builder._BuildState(
             genetic_map_hg19=None,
             genetic_map_hg38=None,
             liftover_chain_paths={("hg19", "hg38"): "chain.over"},
@@ -1371,13 +1371,13 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100)])
-            config = ReferencePanelBuildConfig(
+            config = R2MatrixBuildConfig(
                 plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg19",
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(
+            builder = r2_matrix_builder.R2MatrixBuilder(
                 global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
             )
 
@@ -1407,14 +1407,14 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             sidecar = tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz"
             sidecar.parent.mkdir(parents=True)
             sidecar.write_text("stale\n", encoding="utf-8")
-            config = ReferencePanelBuildConfig(
+            config = R2MatrixBuildConfig(
                 plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg19",
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
                 overwrite=True,
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(
+            builder = r2_matrix_builder.R2MatrixBuilder(
                 global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
             )
 
@@ -1439,14 +1439,14 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             prefix = self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100)])
             restriction = tmpdir / "restrict.tsv"
             restriction.write_text("SNP\nrs_not_present\n", encoding="utf-8")
-            config = ReferencePanelBuildConfig(
+            config = R2MatrixBuildConfig(
                 plink_prefix=prefix,
                 source_genome_build="hg19",
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
                 ref_panel_snps_file=restriction,
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(
+            builder = r2_matrix_builder.R2MatrixBuilder(
                 global_config=GlobalConfig(snp_identifier="rsid")
             )
 
@@ -1469,20 +1469,20 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                     ("1", "rs3", 200),
                 ],
             )
-            config = ReferencePanelBuildConfig(
+            config = R2MatrixBuildConfig(
                 plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg19",
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(
+            builder = r2_matrix_builder.R2MatrixBuilder(
                 global_config=GlobalConfig(snp_identifier="rsid", genome_build="hg38")
             )
 
             def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
                 keep = np.asarray(keep_snps, dtype=int)
                 hg19 = {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep}
-                return keep, hg19, {}, ref_panel_builder._empty_unified_drop_frame()
+                return keep, hg19, {}, r2_matrix_builder._empty_unified_drop_frame()
 
             with mock.patch.object(
                 builder,
@@ -1502,7 +1502,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 mock_bed.return_value.n = 1
                 mock_bed.return_value.nextSNPs = lambda: iter([np.zeros((1, 3))])
 
-                with self.assertLogs("LDSC.ref_panel_builder", level="INFO") as log_ctx:
+                with self.assertLogs("LDSC.r2_matrix_builder", level="INFO") as log_ctx:
                     result = builder.run(config)
 
             self.assertEqual(result.chromosomes, ["1"])
@@ -1516,19 +1516,19 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
-            config = ReferencePanelBuildConfig(
+            config = R2MatrixBuildConfig(
                 plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg19",
                 liftover_chain_hg19_to_hg38_file=tmpdir / "hg19ToHg38.over.chain",
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(
+            builder = r2_matrix_builder.R2MatrixBuilder(
                 global_config=GlobalConfig(snp_identifier="rsid", genome_build="hg38")
             )
 
             with self._skip_selection_pre_pass(), mock.patch.object(
-                ref_panel_builder.ReferencePanelBuilder,
+                r2_matrix_builder.R2MatrixBuilder,
                 "_build_chromosome",
                 side_effect=AssertionError("chromosome build should not run"),
             ):
@@ -1539,14 +1539,14 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
-            config = ReferencePanelBuildConfig(
+            config = R2MatrixBuildConfig(
                 plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg19",
                 liftover_chain_hg19_to_hg38_file=tmpdir / "hg19ToHg38.over.chain",
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(
+            builder = r2_matrix_builder.R2MatrixBuilder(
                 global_config=GlobalConfig(snp_identifier="rsid_allele_aware")
             )
 
@@ -1563,13 +1563,13 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             Path(str(prefix) + ".bed").write_bytes(b"")
             Path(str(prefix) + ".fam").write_text("fam iid 0 0 0 -9\n", encoding="utf-8")
             Path(str(prefix) + ".bim").write_text("1 rs1 0.0 100\n", encoding="utf-8")
-            config = ReferencePanelBuildConfig(
+            config = R2MatrixBuildConfig(
                 plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg19",
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(
+            builder = r2_matrix_builder.R2MatrixBuilder(
                 global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware")
             )
 
@@ -1588,14 +1588,14 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                     ("1", "rs2", 300, "A", "G"),
                 ],
             )
-            config = ReferencePanelBuildConfig(
+            config = R2MatrixBuildConfig(
                 plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg19",
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
-            build_state = ref_panel_builder._BuildState(genetic_map_hg19=None, genetic_map_hg38=None)
-            builder = ref_panel_builder.ReferencePanelBuilder(
+            build_state = r2_matrix_builder._BuildState(genetic_map_hg19=None, genetic_map_hg38=None)
+            builder = r2_matrix_builder.R2MatrixBuilder(
                 global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware")
             )
             captured = {}
@@ -1620,14 +1620,14 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 with tempfile.TemporaryDirectory() as tmpdir:
                     tmpdir = Path(tmpdir)
                     prefix = self._write_plink_prefix_rows(tmpdir, "panel.1", rows)
-                    config = ReferencePanelBuildConfig(
+                    config = R2MatrixBuildConfig(
                         plink_prefix=tmpdir / "panel.@",
                         source_genome_build="hg19",
                         output_dir=tmpdir / "out",
                         ld_wind_kb=1.0,
                     )
-                    build_state = ref_panel_builder._BuildState(genetic_map_hg19=None, genetic_map_hg38=None)
-                    builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier=mode))
+                    build_state = r2_matrix_builder._BuildState(genetic_map_hg19=None, genetic_map_hg38=None)
+                    builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier=mode))
                     captured = {}
 
                     def stop_after_identity_cleanup(*, keep_snps, **_kwargs):
@@ -1648,14 +1648,14 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 "panel.1",
                 [("1", "rs1", 100, "A", "C"), ("1", "rs1", 200, "N", "N"), ("1", "rs2", 300, "A", "C")],
             )
-            config = ReferencePanelBuildConfig(
+            config = R2MatrixBuildConfig(
                 plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg19",
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
-            build_state = ref_panel_builder._BuildState(genetic_map_hg19=None, genetic_map_hg38=None)
-            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="rsid"))
+            build_state = r2_matrix_builder._BuildState(genetic_map_hg19=None, genetic_map_hg38=None)
+            builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="rsid"))
             captured = {}
 
             def stop_after_identity_cleanup(*, keep_snps, **_kwargs):
@@ -1670,20 +1670,20 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
 
     def _run_chr_pos_build(self, tmpdir: Path, *, kept_snps=(0,), plink_prefix="panel.@"):
         """Run builder.run() with liftover and genotype/R2 work replaced by stubs."""
-        config = ReferencePanelBuildConfig(
+        config = R2MatrixBuildConfig(
             plink_prefix=tmpdir / plink_prefix,
             source_genome_build="hg19",
             output_dir=tmpdir / "out",
             ld_wind_kb=1.0,
         )
-        builder = ref_panel_builder.ReferencePanelBuilder(
+        builder = r2_matrix_builder.R2MatrixBuilder(
             global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
         )
 
         def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
             keep = np.asarray(keep_snps, dtype=int)
             hg19 = {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep}
-            return keep, hg19, {}, ref_panel_builder._empty_unified_drop_frame()
+            return keep, hg19, {}, r2_matrix_builder._empty_unified_drop_frame()
 
         with mock.patch.object(
             builder,
@@ -1723,7 +1723,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self.assertIn("(chromosome 1): all 2 SNPs were removed at identity cleanup", message)
             self.assertIn("(chromosome 3): all 2 SNPs were removed at identity cleanup", message)
             self.assertNotIn("chromosome 2)", message)
-            self.assertIn("build-r2-panel-no-reference-panel-artifacts-were-produced", message)
+            self.assertIn("build-r2-matrix-no-reference-panel-artifacts-were-produced", message)
             caught.exception.mock_bed.assert_not_called()
             issues = pd.read_csv(tmpdir / "out" / "diagnostics" / "input_issues.tsv", sep="\t", dtype=str)
             self.assertEqual(issues.chrom.tolist(), ["1", "3"])
@@ -1761,7 +1761,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
             self._write_dummy_plink_prefix(tmpdir, "panel.2", "2")
             config = self._build_config(tmpdir)
-            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+            builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
             def fake_build(prefix, chrom, config, build_state):
                 out_root = Path(config.output_dir)
@@ -1773,13 +1773,13 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 }
 
             with self._skip_selection_pre_pass(), mock.patch.object(
-                ref_panel_builder.ReferencePanelBuilder,
+                r2_matrix_builder.R2MatrixBuilder,
                 "_build_chromosome",
                 side_effect=fake_build,
             ) as patched:
                 result = builder.run(config)
 
-            self.assertEqual(result.panel_name, "out")
+            self.assertEqual(result.matrix_name, "out")
             self.assertEqual(result.chromosomes, ["1", "2"])
             self.assertEqual(patched.call_count, 2)
             self.assertNotIn("ann", result.output_paths)
@@ -1787,7 +1787,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self.assertEqual(result.output_paths["metadata"], [str(tmpdir / "out" / "diagnostics" / "metadata.json")])
             self.assertFalse((tmpdir / "out" / "metadata.json").exists())
             metadata = json.loads((tmpdir / "out" / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(metadata["artifact_type"], "ref_panel")
+            self.assertEqual(metadata["artifact_type"], "r2_matrix_build")
             self.assertEqual(metadata["snp_identifier"], "chr_pos")
             self.assertEqual(metadata["genome_build"], "hg38")
             self.assertEqual(metadata["chromosomes"], ["1", "2"])
@@ -1808,11 +1808,11 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 ],
             )
 
-    def test_run_build_ref_panel_from_args_writes_workflow_log(self):
+    def test_run_build_r2_matrix_from_args_writes_workflow_log(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
-            parser = ref_panel_builder.build_parser()
+            parser = r2_matrix_builder.build_parser()
             args = parser.parse_args(
                 [
                     "--plink-prefix",
@@ -1834,20 +1834,20 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 }
 
             with self._skip_selection_pre_pass(), mock.patch.object(
-                ref_panel_builder.ReferencePanelBuilder,
+                r2_matrix_builder.R2MatrixBuilder,
                 "_build_chromosome",
                 side_effect=fake_build,
             ):
-                result = ref_panel_builder.run_build_ref_panel_from_args(args)
+                result = r2_matrix_builder.run_build_r2_matrix_from_args(args)
 
-            self.assertTrue((tmpdir / "out" / "diagnostics" / "build-r2-panel.log").exists())
+            self.assertTrue((tmpdir / "out" / "diagnostics" / "build-r2-matrix.log").exists())
             self.assertNotIn("log", result.output_paths)
 
-    def test_run_build_ref_panel_from_args_single_concrete_prefix_writes_chromosome_scoped_log(self):
+    def test_run_build_r2_matrix_from_args_single_concrete_prefix_writes_chromosome_scoped_log(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
-            parser = ref_panel_builder.build_parser()
+            parser = r2_matrix_builder.build_parser()
             args = parser.parse_args(
                 [
                     "--plink-prefix",
@@ -1869,21 +1869,21 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 }
 
             with self._skip_selection_pre_pass(), mock.patch.object(
-                ref_panel_builder.ReferencePanelBuilder,
+                r2_matrix_builder.R2MatrixBuilder,
                 "_build_chromosome",
                 side_effect=fake_build,
             ):
-                result = ref_panel_builder.run_build_ref_panel_from_args(args)
+                result = r2_matrix_builder.run_build_r2_matrix_from_args(args)
 
-            self.assertTrue((tmpdir / "out" / "diagnostics" / "build-r2-panel.chr1.log").exists())
-            self.assertFalse((tmpdir / "out" / "diagnostics" / "build-r2-panel.log").exists())
+            self.assertTrue((tmpdir / "out" / "diagnostics" / "build-r2-matrix.chr1.log").exists())
+            self.assertFalse((tmpdir / "out" / "diagnostics" / "build-r2-matrix.log").exists())
             self.assertNotIn("log", result.output_paths)
 
-    def test_run_build_ref_panel_from_args_single_concrete_prefix_writes_chromosome_scoped_metadata(self):
+    def test_run_build_r2_matrix_from_args_single_concrete_prefix_writes_chromosome_scoped_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
-            parser = ref_panel_builder.build_parser()
+            parser = r2_matrix_builder.build_parser()
             args = parser.parse_args(
                 [
                     "--plink-prefix",
@@ -1906,11 +1906,11 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 }
 
             with self._skip_selection_pre_pass(), mock.patch.object(
-                ref_panel_builder.ReferencePanelBuilder,
+                r2_matrix_builder.R2MatrixBuilder,
                 "_build_chromosome",
                 side_effect=fake_build,
             ):
-                result = ref_panel_builder.run_build_ref_panel_from_args(args)
+                result = r2_matrix_builder.run_build_r2_matrix_from_args(args)
 
             metadata_path = tmpdir / "out" / "diagnostics" / "metadata.chr1.json"
             self.assertEqual(result.output_paths["metadata"], [str(metadata_path)])
@@ -1923,7 +1923,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
             map_hg19 = tmpdir / "hg19.map"
             map_hg19.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n", encoding="utf-8")
-            config = ReferencePanelBuildConfig(
+            config = R2MatrixBuildConfig(
                 plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg19",
                 genetic_map_hg19_sources=map_hg19,
@@ -1931,7 +1931,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+            builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
             def fake_build(prefix, chrom, config, build_state):
                 out_root = Path(config.output_dir)
@@ -1940,9 +1940,9 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                     "meta_hg19": str(out_root / "hg19" / f"chr{chrom}_meta.tsv.gz"),
                 }
 
-            with self.assertLogs("LDSC.ref_panel_builder", level="INFO") as logs:
+            with self.assertLogs("LDSC.r2_matrix_builder", level="INFO") as logs:
                 with self._skip_selection_pre_pass(), mock.patch.object(
-                    ref_panel_builder.ReferencePanelBuilder,
+                    r2_matrix_builder.R2MatrixBuilder,
                     "_build_chromosome",
                     side_effect=fake_build,
                 ):
@@ -1964,10 +1964,10 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             existing = tmpdir / "out" / "hg19" / "chr1_r2.parquet"
             existing.parent.mkdir(parents=True)
             existing.write_text("existing\n", encoding="utf-8")
-            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+            builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
             with self._skip_selection_pre_pass(), mock.patch.object(
-                ref_panel_builder.ReferencePanelBuilder,
+                r2_matrix_builder.R2MatrixBuilder,
                 "_build_chromosome",
                 side_effect=AssertionError("chromosome build should not run"),
             ):
@@ -1984,10 +1984,10 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             existing = tmpdir / "out" / "hg19" / "chr1_r2.parquet"
             existing.parent.mkdir(parents=True)
             existing.write_text("existing\n", encoding="utf-8")
-            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+            builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
             with self._skip_selection_pre_pass(), mock.patch.object(
-                ref_panel_builder.ReferencePanelBuilder,
+                r2_matrix_builder.R2MatrixBuilder,
                 "_build_chromosome",
                 return_value={"r2_hg19": str(existing), "r2_hg38": "r2", "meta_hg19": "m19", "meta_hg38": "m38"},
             ) as patched:
@@ -2005,15 +2005,15 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             root_drop_dir = output_dir / "dropped_snps"
             root_drop_dir.mkdir(parents=True)
             (output_dir / "metadata.json").write_text('{"legacy": true}\n', encoding="utf-8")
-            (output_dir / "build-r2-panel.log").write_text("legacy log\n", encoding="utf-8")
+            (output_dir / "build-r2-matrix.log").write_text("legacy log\n", encoding="utf-8")
             (root_drop_dir / "chr1_dropped.tsv.gz").write_text("legacy drops\n", encoding="utf-8")
-            builder = ref_panel_builder.ReferencePanelBuilder(
+            builder = r2_matrix_builder.R2MatrixBuilder(
                 global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")
             )
-            builder._workflow_log_path = output_dir / "diagnostics" / "build-r2-panel.log"
+            builder._workflow_log_path = output_dir / "diagnostics" / "build-r2-matrix.log"
 
             with self._skip_selection_pre_pass(), mock.patch.object(
-                ref_panel_builder.ReferencePanelBuilder,
+                r2_matrix_builder.R2MatrixBuilder,
                 "_build_chromosome",
                 return_value={
                     "r2_hg19": str(output_dir / "hg19" / "chr1_r2.parquet"),
@@ -2025,11 +2025,11 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 result = builder.run(config)
 
             self.assertEqual((output_dir / "metadata.json").read_text(encoding="utf-8"), '{"legacy": true}\n')
-            self.assertEqual((output_dir / "build-r2-panel.log").read_text(encoding="utf-8"), "legacy log\n")
+            self.assertEqual((output_dir / "build-r2-matrix.log").read_text(encoding="utf-8"), "legacy log\n")
             self.assertEqual((root_drop_dir / "chr1_dropped.tsv.gz").read_text(encoding="utf-8"), "legacy drops\n")
             self.assertEqual(result.chromosomes, ["1"])
             self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
-            self.assertTrue((output_dir / "diagnostics" / "build-r2-panel.log").exists())
+            self.assertTrue((output_dir / "diagnostics" / "build-r2-matrix.log").exists())
 
     def test_builder_run_refuses_stale_owned_artifact_before_chromosome_build(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2039,10 +2039,10 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             stale = tmpdir / "out" / "hg38" / "chr2_r2.parquet"
             stale.parent.mkdir(parents=True)
             stale.write_text("stale\n", encoding="utf-8")
-            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+            builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
             with self._skip_selection_pre_pass(), mock.patch.object(
-                ref_panel_builder.ReferencePanelBuilder,
+                r2_matrix_builder.R2MatrixBuilder,
                 "_build_chromosome",
                 side_effect=AssertionError("chromosome build should not run"),
             ):
@@ -2062,10 +2062,10 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             stale_drop.parent.mkdir(parents=True)
             stale_r2.write_text("stale\n", encoding="utf-8")
             stale_drop.write_text("stale\n", encoding="utf-8")
-            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+            builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
             with self._skip_selection_pre_pass(), mock.patch.object(
-                ref_panel_builder.ReferencePanelBuilder,
+                r2_matrix_builder.R2MatrixBuilder,
                 "_build_chromosome",
                 return_value={
                     "r2_hg19": str(tmpdir / "out" / "hg19" / "chr1_r2.parquet"),
@@ -2095,12 +2095,12 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             sibling_drop.parent.mkdir(parents=True)
             sibling_r2.write_text("sibling\n", encoding="utf-8")
             sibling_drop.write_text("sibling\n", encoding="utf-8")
-            builder = ref_panel_builder.ReferencePanelBuilder(
+            builder = r2_matrix_builder.R2MatrixBuilder(
                 global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")
             )
 
             with self._skip_selection_pre_pass(), mock.patch.object(
-                ref_panel_builder.ReferencePanelBuilder,
+                r2_matrix_builder.R2MatrixBuilder,
                 "_build_chromosome",
                 return_value={
                     "r2_hg19": str(tmpdir / "out" / "hg19" / "chr1_r2.parquet"),
@@ -2121,7 +2121,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
             map_hg38 = tmpdir / "hg38.map"
             map_hg38.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n", encoding="utf-8")
-            config = ReferencePanelBuildConfig(
+            config = R2MatrixBuildConfig(
                 plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg38",
                 genetic_map_hg19_sources=None,
@@ -2129,7 +2129,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+            builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
             def fake_build(prefix, chrom, config, build_state):
                 out_root = Path(config.output_dir)
@@ -2138,9 +2138,9 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                     "meta_hg38": str(out_root / "hg38" / f"chr{chrom}_meta.tsv.gz"),
                 }
 
-            with self.assertLogs("LDSC.ref_panel_builder", level="INFO") as logs:
+            with self.assertLogs("LDSC.r2_matrix_builder", level="INFO") as logs:
                 with self._skip_selection_pre_pass(), mock.patch.object(
-                    ref_panel_builder.ReferencePanelBuilder,
+                    r2_matrix_builder.R2MatrixBuilder,
                     "_build_chromosome",
                     side_effect=fake_build,
                 ):
@@ -2158,7 +2158,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
             map_hg19 = tmpdir / "hg19.map"
             map_hg19.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n", encoding="utf-8")
-            config = ReferencePanelBuildConfig(
+            config = R2MatrixBuildConfig(
                 plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg19",
                 genetic_map_hg19_sources=map_hg19,
@@ -2167,11 +2167,11 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+            builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
-            with self.assertLogs("LDSC.ref_panel_builder", level="INFO") as logs:
+            with self.assertLogs("LDSC.r2_matrix_builder", level="INFO") as logs:
                 with self._skip_selection_pre_pass(), mock.patch.object(
-                    ref_panel_builder.ReferencePanelBuilder,
+                    r2_matrix_builder.R2MatrixBuilder,
                     "_build_chromosome",
                     return_value={"r2_hg19": "r2", "meta_hg19": "m19"},
                 ):
@@ -2180,15 +2180,15 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self.assertTrue(any("ignoring the opposite-direction chain" in message for message in logs.output))
 
     def test_resolve_mappable_snp_positions_skips_liftover_without_matching_chain(self):
-        builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
-        build_state = ref_panel_builder._BuildState(
+        builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+        build_state = r2_matrix_builder._BuildState(
             genetic_map_hg19=pd.DataFrame({"CHR": ["1"], "POS": [100], "CM": [0.0]}),
             genetic_map_hg38=None,
             liftover_chain_paths={("hg19", "hg38"): None, ("hg38", "hg19"): "chains/hg38ToHg19.over.chain"},
         )
         chrom_df = pd.DataFrame({"BP": [100]}, index=[4])
 
-        with mock.patch.object(ref_panel_builder, "LiftOverTranslator") as patched:
+        with mock.patch.object(r2_matrix_builder, "LiftOverTranslator") as patched:
             retained, hg19_lookup, hg38_lookup, drop_frame = builder._resolve_mappable_snp_positions(
                 build_state=build_state,
                 chrom="1",
@@ -2204,8 +2204,8 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         self.assertEqual(len(drop_frame), 0)
 
     def test_resolve_mappable_snp_positions_keeps_hg38_source_positions_without_chain(self):
-        builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
-        build_state = ref_panel_builder._BuildState(
+        builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+        build_state = r2_matrix_builder._BuildState(
             genetic_map_hg19=None,
             genetic_map_hg38=pd.DataFrame({"CHR": ["1"], "POS": [110], "CM": [0.0]}),
             liftover_chain_paths={("hg19", "hg38"): "chains/hg19ToHg38.over.chain", ("hg38", "hg19"): None},
@@ -2235,7 +2235,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(LDSCInputError, "hg19.*1:6265368.*1:6205309:A:C.*1:6205308:A:G"):
-            ref_panel_builder._validate_emitted_build_chr_pos_uniqueness(
+            r2_matrix_builder._validate_emitted_build_chr_pos_uniqueness(
                 metadata=metadata,
                 positions=np.array([6265368, 6265368, 7060000], dtype=np.int64),
                 genome_build="hg19",
@@ -2252,7 +2252,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             }
         )
 
-        ref_panel_builder._validate_emitted_build_chr_pos_uniqueness(
+        r2_matrix_builder._validate_emitted_build_chr_pos_uniqueness(
             metadata=metadata,
             positions=np.array([20, 20], dtype=np.int64),
             genome_build="hg19",
@@ -2268,19 +2268,19 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 "panel.1",
                 [("1", "rs1", 100), ("1", "rs2", 200), ("1", "rs3", 300)],
             )
-            config = ReferencePanelBuildConfig(
+            config = R2MatrixBuildConfig(
                 plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg19",
                 liftover_chain_hg19_to_hg38_file=tmpdir / "hg19ToHg38.over.chain",
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
-            build_state = ref_panel_builder._BuildState(
+            build_state = r2_matrix_builder._BuildState(
                 genetic_map_hg19=None,
                 genetic_map_hg38=None,
                 liftover_chain_paths={("hg19", "hg38"): str(tmpdir / "hg19ToHg38.over.chain")},
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(
+            builder = r2_matrix_builder.R2MatrixBuilder(
                 global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
             )
 
@@ -2307,7 +2307,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 "ldsc._refpanel.builder.PlinkBEDFile",
                 side_effect=bed_instances,
             ) as mock_bed:
-                with self.assertLogs("LDSC.ref_panel_builder", level="INFO") as logs:
+                with self.assertLogs("LDSC.r2_matrix_builder", level="INFO") as logs:
                     builder._build_chromosome(str(prefix), "1", config, build_state)
 
             self.assertEqual([call.kwargs["keep_snps"] for call in mock_bed.call_args_list], [[2], [2]])
@@ -2321,14 +2321,14 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             root = Path(tmpdir)
             rows = load_packaged_reference_table().head(500)
             self._write_plink_prefix_rows(root, 'panel.1', [(str(row.CHR), f'rs{i}', int(row.hg19_POS)) for i, row in enumerate(rows.itertuples())])
-            config = ReferencePanelBuildConfig(plink_prefix=root / 'panel.@', output_dir=root / 'out', ld_wind_kb=1.)
-            builder = ref_panel_builder.ReferencePanelBuilder(GlobalConfig(snp_identifier='rsid'))
+            config = R2MatrixBuildConfig(plink_prefix=root / 'panel.@', output_dir=root / 'out', ld_wind_kb=1.)
+            builder = r2_matrix_builder.R2MatrixBuilder(GlobalConfig(snp_identifier='rsid'))
             captured = []
             def fake_build(prefix, chrom, config, build_state):
                 captured.append(config.source_genome_build)
                 return {'r2_hg19': str(Path(config.output_dir) / 'hg19' / f'chr{chrom}_r2.parquet'),
                         'meta_hg19': str(Path(config.output_dir) / 'hg19' / f'chr{chrom}_meta.tsv.gz')}
-            with mock.patch.object(ref_panel_builder.ReferencePanelBuilder, '_build_chromosome', side_effect=fake_build):
+            with mock.patch.object(r2_matrix_builder.R2MatrixBuilder, '_build_chromosome', side_effect=fake_build):
                 builder.run(config)
             self.assertEqual(captured, ['hg19'])
 
@@ -2337,18 +2337,18 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             restriction = tmpdir / "restrict.tsv"
             restriction.write_text("CHR\thg19_POS\thg38_POS\n1\t100\t110\n", encoding="utf-8")
-            config = ReferencePanelBuildConfig(
+            config = R2MatrixBuildConfig(
                 plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg19",
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
                 ref_panel_snps_file=restriction,
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(
+            builder = r2_matrix_builder.R2MatrixBuilder(
                 global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")
             )
 
-            with self.assertLogs("LDSC.ref_panel_builder", level="INFO") as logs:
+            with self.assertLogs("LDSC.r2_matrix_builder", level="INFO") as logs:
                 build_state = builder._prepare_build_state(config)
 
         self.assertEqual(build_state.restriction_values, {"1:100"})
@@ -2365,18 +2365,18 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 "1\tbad\tbad_pos\n",
                 encoding="utf-8",
             )
-            config = ReferencePanelBuildConfig(
+            config = R2MatrixBuildConfig(
                 plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg19",
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
                 ref_panel_snps_file=restriction,
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(
+            builder = r2_matrix_builder.R2MatrixBuilder(
                 global_config=GlobalConfig(snp_identifier="chr_pos")
             )
 
-            with self.assertLogs("LDSC.ref_panel_builder", level="WARNING") as logs:
+            with self.assertLogs("LDSC.r2_matrix_builder", level="WARNING") as logs:
                 build_state = builder._prepare_build_state(config)
 
         self.assertEqual(build_state.restriction_values, {"1:100"})
@@ -2388,14 +2388,14 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             restriction = tmpdir / "restrict.tsv"
             restriction.write_text("CHR\tPOS\n1\t110\n", encoding="utf-8")
-            config = ReferencePanelBuildConfig(
+            config = R2MatrixBuildConfig(
                 plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg19",
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
                 ref_panel_snps_file=restriction,
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(
+            builder = r2_matrix_builder.R2MatrixBuilder(
                 global_config=GlobalConfig(snp_identifier="chr_pos")
             )
 
@@ -2406,20 +2406,20 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             prefix = self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100), ("1", "rs2", 200)])
-            config = ReferencePanelBuildConfig(
+            config = R2MatrixBuildConfig(
                 plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg19",
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
-            build_state = ref_panel_builder._BuildState(
+            build_state = r2_matrix_builder._BuildState(
                 genetic_map_hg19=None,
                 genetic_map_hg38=None,
                 liftover_chain_paths={("hg19", "hg38"): "chain.over"},
                 restriction_mode="chr_pos",
                 restriction_values={"1:200"},
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos"))
+            builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos"))
             captured = {}
 
             def stop_after_restriction(*, keep_snps, **_kwargs):
@@ -2440,18 +2440,18 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 "panel.1",
                 [("1", "rs1", 100), ("1", "rs2", 100), ("1", "rs3", 300)],
             )
-            config = ReferencePanelBuildConfig(
+            config = R2MatrixBuildConfig(
                 plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg19",
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
-            build_state = ref_panel_builder._BuildState(
+            build_state = r2_matrix_builder._BuildState(
                 genetic_map_hg19=None,
                 genetic_map_hg38=None,
                 liftover_chain_paths={("hg19", "hg38"): "chain.over"},
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos"))
+            builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos"))
             captured = {}
 
             def stop_before_mapping(*, keep_snps, **_kwargs):
@@ -2468,20 +2468,20 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             prefix = self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100), ("1", "rs2", 200)])
-            config = ReferencePanelBuildConfig(
+            config = R2MatrixBuildConfig(
                 plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg19",
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
-            build_state = ref_panel_builder._BuildState(
+            build_state = r2_matrix_builder._BuildState(
                 genetic_map_hg19=None,
                 genetic_map_hg38=None,
                 liftover_chain_paths={("hg19", "hg38"): "chain.over"},
                 restriction_mode="rsid",
                 restriction_values={"rs2"},
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(
+            builder = r2_matrix_builder.R2MatrixBuilder(
                 global_config=GlobalConfig(snp_identifier="rsid", genome_build="hg38")
             )
             captured = {}
@@ -2536,13 +2536,13 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 n_input_rows=1,
                 n_retained_keys=1,
             )
-            config = ReferencePanelBuildConfig(
+            config = R2MatrixBuildConfig(
                 plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg19",
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
-            build_state = ref_panel_builder._BuildState(
+            build_state = r2_matrix_builder._BuildState(
                 genetic_map_hg19=None,
                 genetic_map_hg38=None,
                 liftover_chain_paths={},
@@ -2550,7 +2550,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 restriction_values=restriction.keys,
                 restriction_keys=restriction,
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(
+            builder = r2_matrix_builder.R2MatrixBuilder(
                 global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware")
             )
             captured = {}
@@ -2583,13 +2583,13 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 n_input_rows=2,
                 n_retained_keys=2,
             )
-            config = ReferencePanelBuildConfig(
+            config = R2MatrixBuildConfig(
                 plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg19",
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
-            build_state = ref_panel_builder._BuildState(
+            build_state = r2_matrix_builder._BuildState(
                 genetic_map_hg19=None,
                 genetic_map_hg38=None,
                 liftover_chain_paths={},
@@ -2597,7 +2597,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 restriction_values=restriction.keys,
                 restriction_keys=restriction,
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(
+            builder = r2_matrix_builder.R2MatrixBuilder(
                 global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware")
             )
 
@@ -2607,7 +2607,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                     keep,
                     {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep},
                     {},
-                    ref_panel_builder._empty_unified_drop_frame(),
+                    r2_matrix_builder._empty_unified_drop_frame(),
                 )
 
             with mock.patch.object(
@@ -2642,7 +2642,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             path = Path(tmpdir) / "restrict.tsv"
             path.write_text("CHR\thg19_POS\tREF\n1\t100\tA\n", encoding="utf-8")
 
-            restriction = ref_panel_builder._read_ref_panel_snp_restriction(
+            restriction = r2_matrix_builder._read_ref_panel_snp_restriction(
                 path,
                 "chr_pos",
                 source_genome_build="hg19",
@@ -2660,7 +2660,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             map_hg38 = tmpdir / "hg38.map"
             map_hg19.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n", encoding="utf-8")
             map_hg38.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n", encoding="utf-8")
-            config = ReferencePanelBuildConfig(
+            config = R2MatrixBuildConfig(
                 plink_prefix=str(tmpdir / "panel_*"),
                 source_genome_build="hg19",
                 genetic_map_hg19_sources=map_hg19,
@@ -2669,10 +2669,10 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+            builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
             with self._skip_selection_pre_pass(), mock.patch.object(
-                ref_panel_builder.ReferencePanelBuilder,
+                r2_matrix_builder.R2MatrixBuilder,
                 "_build_chromosome",
                 return_value={"r2_hg19": "r2-19", "r2_hg38": "r2-38", "meta_hg19": "m19", "meta_hg38": "m38"},
             ):
@@ -2680,8 +2680,8 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                     builder.run(config)
 
     def test_map_positions_passes_explicit_chain_path_to_translator(self):
-        builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
-        build_state = ref_panel_builder._BuildState(
+        builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+        build_state = r2_matrix_builder._BuildState(
             genetic_map_hg19=pd.DataFrame({"CHR": ["1"], "POS": [100], "CM": [0.0]}),
             genetic_map_hg38=pd.DataFrame({"CHR": ["1"], "POS": [100], "CM": [0.0]}),
             liftover_chain_paths={("hg38", "hg19"): "chains/hg38ToHg19.over.chain"},
@@ -2693,7 +2693,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             cross_chrom_count=0,
         )
 
-        with mock.patch.object(ref_panel_builder, "LiftOverTranslator") as patched:
+        with mock.patch.object(r2_matrix_builder, "LiftOverTranslator") as patched:
             patched.return_value.map_positions.return_value = expected
             result = builder._map_positions(
                 build_state=build_state,
@@ -2709,7 +2709,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             target_build="hg19",
             chain_path="chains/hg38ToHg19.over.chain",
             chain_flag_hint="--liftover-chain-hg38-to-hg19-file",
-            workflow_label="reference-panel liftover",
+            workflow_label="R2 matrix liftover",
         )
 
 
@@ -2720,7 +2720,7 @@ class RefPanelOutputFamilyTest(unittest.TestCase):
             existing_r2 = out / "hg19" / "chr1_r2.parquet"
             existing_meta = out / "hg38" / "chr2_meta.tsv.gz"
             existing_drop = out / "diagnostics" / "dropped_snps" / "chr2_dropped.tsv.gz"
-            existing_log = out / "diagnostics" / "build-r2-panel.chr2.log"
+            existing_log = out / "diagnostics" / "build-r2-matrix.chr2.log"
             produced = out / "hg19" / "chr6_r2.parquet"
             existing_r2.parent.mkdir(parents=True)
             existing_meta.parent.mkdir(parents=True)
@@ -2730,7 +2730,7 @@ class RefPanelOutputFamilyTest(unittest.TestCase):
             existing_drop.write_text("drop\n", encoding="utf-8")
             existing_log.write_text("log\n", encoding="utf-8")
 
-            family = ref_panel_builder._ref_panel_output_family(out, [produced])
+            family = r2_matrix_builder._ref_panel_output_family(out, [produced])
 
             self.assertIn(existing_r2, family)
             self.assertIn(existing_meta, family)
@@ -2745,19 +2745,19 @@ class RefPanelOutputFamilyTest(unittest.TestCase):
             scratch.parent.mkdir(parents=True)
             scratch.write_text("unknown\n", encoding="utf-8")
 
-            family = ref_panel_builder._ref_panel_output_family(out, [])
+            family = r2_matrix_builder._ref_panel_output_family(out, [])
 
             self.assertNotIn(scratch, family)
 
 
-class ReferencePanelBuilderSourceOnlySmokeTest(unittest.TestCase):
+class R2MatrixBuilderSourceOnlySmokeTest(unittest.TestCase):
     def test_hm3_chr22_subset_builds_source_only_without_liftover_chain_or_map(self):
         prefix = MINIMAL_EXTERNAL_FIXTURES / "plink" / "hm3_chr22_subset"
         if not (Path(str(prefix) + ".bed").exists() and Path(str(prefix) + ".bim").exists() and Path(str(prefix) + ".fam").exists()):
             self.skipTest("minimal chr22 PLINK fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            build_result = ref_panel_builder.run_build_ref_panel(
+            build_result = r2_matrix_builder.run_build_r2_matrix(
                 plink_prefix=str(prefix),
                 source_genome_build="hg38",
                 genetic_map_hg19_sources=None,
@@ -2788,7 +2788,7 @@ class ReferencePanelBuilderSourceOnlySmokeTest(unittest.TestCase):
             self.skipTest("minimal chr22 PLINK fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            build_result = ref_panel_builder.run_build_ref_panel(
+            build_result = r2_matrix_builder.run_build_r2_matrix(
                 plink_prefix=str(prefix),
                 source_genome_build="hg38",
                 genetic_map_hg19_sources=None,
@@ -2812,7 +2812,7 @@ class ReferencePanelBuilderSourceOnlySmokeTest(unittest.TestCase):
             self.skipTest("minimal chr22 PLINK fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            build_result = ref_panel_builder.run_build_ref_panel(
+            build_result = r2_matrix_builder.run_build_r2_matrix(
                 plink_prefix=str(prefix),
                 source_genome_build="hg38",
                 genetic_map_hg19_sources=None,
@@ -2835,7 +2835,7 @@ class ReferencePanelBuilderSourceOnlySmokeTest(unittest.TestCase):
     _HAS_BITARRAY and _HAS_PYARROW and _HAS_PYLIFTOVER,
     "bitarray, pyarrow, and pyliftover are required for the smoke/parity builder test",
 )
-class ReferencePanelBuilderParityTest(unittest.TestCase):
+class R2MatrixBuilderParityTest(unittest.TestCase):
     def test_hm3_chr22_subset_writes_target_r2_and_metadata_with_missing_cm_when_target_map_is_absent(self):
         resources = _find_resources_root()
         if resources is None:
@@ -2850,7 +2850,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
             self.skipTest("minimal hg38 genetic-map fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            build_result = ref_panel_builder.run_build_ref_panel(
+            build_result = r2_matrix_builder.run_build_r2_matrix(
                 plink_prefix=str(prefix),
                 source_genome_build="hg38",
                 genetic_map_hg19_sources=None,
@@ -2889,7 +2889,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
         if not map_hg38.exists():
             self.skipTest("minimal hg38 genetic-map fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
 
-        real_bed = ref_panel_builder.PlinkBEDFile
+        real_bed = r2_matrix_builder.PlinkBEDFile
         live_refs: list[weakref.ref] = []
         alive_at_construction: list[int] = []
 
@@ -2905,7 +2905,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
                 "ldsc._refpanel.builder.PlinkBEDFile",
                 side_effect=tracking_bed,
             ):
-                build_result = ref_panel_builder.run_build_ref_panel(
+                build_result = r2_matrix_builder.run_build_r2_matrix(
                     plink_prefix=str(prefix),
                     source_genome_build="hg38",
                     genetic_map_hg19_sources=None,
@@ -2941,7 +2941,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with self.assertRaisesRegex(LDSCUsageError, "cannot emit hg19.*hg19 genetic map was not supplied"):
-                ref_panel_builder.run_build_ref_panel(
+                r2_matrix_builder.run_build_r2_matrix(
                     plink_prefix=str(prefix),
                     source_genome_build="hg38",
                     genetic_map_hg19_sources=None,
@@ -2969,7 +2969,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            build_result = ref_panel_builder.run_build_ref_panel(
+            build_result = r2_matrix_builder.run_build_r2_matrix(
                 plink_prefix=str(prefix),
                 source_genome_build="hg38",
                 genetic_map_hg19_sources=str(map_hg19),
@@ -3007,7 +3007,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
                 parquet = ldscore_calculator.run_ldscore(
                     output_dir=str(tmpdir / "parquet"),
                     baseline_annot_sources=str(baseline),
-                    r2_dir=str(tmpdir / "panel" / "hg38"),
+                    r2_matrix_dir=str(tmpdir / "panel" / "hg38"),
                     ld_wind_snps=10,
                     snp_batch_size=64,
                 )
@@ -3048,7 +3048,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
 
             # Baseline dual-build run (no exclusion).
-            base_result = ref_panel_builder.run_build_ref_panel(
+            base_result = r2_matrix_builder.run_build_r2_matrix(
                 plink_prefix=str(prefix),
                 source_genome_build="hg38",
                 genetic_map_hg19_sources=str(map_hg19),
@@ -3076,7 +3076,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
             )
 
             # Explicitly restricted dual-build run.
-            excl_result = ref_panel_builder.run_build_ref_panel(
+            excl_result = r2_matrix_builder.run_build_r2_matrix(
                 plink_prefix=str(prefix),
                 source_genome_build="hg38",
                 genetic_map_hg19_sources=str(map_hg19),
@@ -3262,7 +3262,7 @@ def _read_meta(path) -> pd.DataFrame:
 
 
 def test_build_ref_panel_parser_rejects_region_pruning_flags():
-    parser = ref_panel_builder.build_parser()
+    parser = r2_matrix_builder.build_parser()
     for tokens in (
         ("--regr-snps-exclude-regions", "mhc-and-centromeres"),
         ("--exclude-regions", "mhc-and-centromeres"),
@@ -3272,7 +3272,7 @@ def test_build_ref_panel_parser_rejects_region_pruning_flags():
         with pytest.raises(SystemExit):
             parser.parse_args(["--plink-prefix", "p", "--output-dir", "o", "--ld-wind-kb", "1000", *tokens])
     with pytest.raises(TypeError):
-        ReferencePanelBuildConfig(
+        R2MatrixBuildConfig(
             plink_prefix="p", source_genome_build="hg19", output_dir="o", ld_wind_kb=1000,
             regr_snps_exclude_regions=("mhc",),
         )
@@ -3398,7 +3398,7 @@ def test_successful_build_keeps_caller_logger_level(tmp_path, ldsc_logger_at_war
         Path(config.genetic_map_hg19_sources).write_text("CHR POS CM\n1 100 0.1\n")
         Path(config.genetic_map_hg38_sources).write_text("CHR POS CM\n1 100 0.1\n")
         _write_plink_trio(tmp_path / "panel.1", ["1"])
-        builder = ref_panel_builder.ReferencePanelBuilder()
+        builder = r2_matrix_builder.R2MatrixBuilder()
         with calculation_body(), mock.patch.object(
             builder, "_prepare_build_state", return_value=mock.sentinel.state
         ), mock.patch.object(
@@ -3424,9 +3424,9 @@ def test_failed_build_keeps_caller_logger_level(tmp_path, monkeypatch, ldsc_logg
     (tmp_path / "panel.bed").write_bytes(b"\x6c\x1b\x01" + bytes(len(frame)))
     keep = tmp_path / "keep.tsv"
     coordinates(1, "hg19", 2).to_csv(keep, sep="\t", index=False)
-    args = ref_panel_builder.build_parser().parse_args([
+    args = r2_matrix_builder.build_parser().parse_args([
         "--plink-prefix", str(prefix), "--output-dir", str(tmp_path / "out"), "--source-genome-build", "auto",
         "--snp-identifier", "chr_pos", "--ref-panel-snps-file", str(keep), "--ld-wind-kb", "1", "--log-level", "DEBUG"])
     with pytest.raises(LDSCInputError, match="Genome-build consistency"):
-        ref_panel_builder.run_build_ref_panel_from_args(args)
+        r2_matrix_builder.run_build_r2_matrix_from_args(args)
     assert ldsc_logger_at_warning.level == logging.WARNING

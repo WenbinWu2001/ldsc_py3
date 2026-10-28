@@ -37,7 +37,7 @@ def test_direct_file_queries_use_shards_and_leave_only_persistent_outputs(tmp_pa
     monkeypatch.setattr(ldscore_calculator, '_stage_chromosome_drops', stage_diagnostics)
     output = tmp_path/'out'
     result = run_ldscore(output_dir=output,baseline_annot_sources=args.baseline_annot_sources,
-        query_annot_sources=str(query),r2_dir=args.r2_dir,
+        query_annot_sources=str(query),r2_matrix_dir=args.r2_matrix_dir,
         regr_snps_file=regression,regr_snps_exclude_regions='none',
         ld_wind_snps=2,yes_really=True,query_batch_size=batch_size)
     assert result.read_queries(result.query_columns).SNP.tolist() == ['rs1','rs3']
@@ -61,7 +61,7 @@ def test_direct_results_keep_complete_persistent_drop_records(tmp_path, monkeypa
     regression = tmp_path / "regression.txt"
     regression.write_text("SNP\nrs1\nrs3\n")
     output = tmp_path / "out"
-    result = run_ldscore(output_dir=output, baseline_annot_sources=str(path), r2_dir=args.r2_dir,
+    result = run_ldscore(output_dir=output, baseline_annot_sources=str(path), r2_matrix_dir=args.r2_matrix_dir,
                         regr_snps_file=regression, regr_snps_exclude_regions="none",
                         ld_wind_snps=2, yes_really=True)
     assert not list(output.glob(".ldsc-annotation-*"))
@@ -80,17 +80,17 @@ def _observe_prepared_chromosome(*args, **kwargs):
     import os
     import weakref
     from ldsc._ldscore import calculator as ldscore_calculator
-    from ldsc._refpanel.adapters import ParquetR2RefPanel
+    from ldsc._refpanel.adapters import R2MatrixRefPanel
     previous = []
     loads = []
-    original = ParquetR2RefPanel.prepare_chromosome
+    original = R2MatrixRefPanel.prepare_chromosome
     def measured(self,chrom,*args,**kwargs):
         assert all(reference() is None for reference in previous)
         state = original(self,chrom,*args,**kwargs)
         previous[:] = [weakref.ref(state),weakref.ref(state.metadata),weakref.ref(state.annotations)]
         loads.append(chrom)
         return state
-    ParquetR2RefPanel.prepare_chromosome = measured
+    R2MatrixRefPanel.prepare_chromosome = measured
     try:
         result = ldscore_calculator._compute_one_chromosome(*args, **kwargs)
         assert all(reference() is None for reference in previous)
@@ -98,7 +98,7 @@ def _observe_prepared_chromosome(*args, **kwargs):
             stream.write('\n'.join(loads) + '\n')
         return result
     finally:
-        ParquetR2RefPanel.prepare_chromosome = original
+        R2MatrixRefPanel.prepare_chromosome = original
 
 
 def test_sequential_run_releases_prepared_chromosome_before_loading_next(tmp_path,monkeypatch):
@@ -113,7 +113,7 @@ def test_sequential_run_releases_prepared_chromosome_before_loading_next(tmp_pat
     events = tmp_path/'prepared-loads.txt'
     monkeypatch.setenv('LDSC_TEST_PREPARED_LOADS', str(events))
     monkeypatch.setattr(ldscore_calculator, '_compute_one_chromosome', _observe_prepared_chromosome)
-    run_ldscore(output_dir=str(tmp_path/'out'),r2_dir=str(panel),
+    run_ldscore(output_dir=str(tmp_path/'out'),r2_matrix_dir=str(panel),
         regr_snps_file=str(regression),regr_snps_exclude_regions='none',
         ld_wind_kb=1,yes_really=True,workers=1)
     assert events.read_text().splitlines() == ['1','2']

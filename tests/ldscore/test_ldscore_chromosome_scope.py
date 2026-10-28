@@ -15,7 +15,7 @@ def write_inputs(tmp_path):
     prefix.with_suffix(".bim").write_text("22 rs1 0 10 A C\n")
     prefix.with_suffix(".fam").write_text("F I 0 0 0 -9\n")
     prefix.with_suffix(".bed").write_bytes(b"\x6c\x1b\x01\x00")
-    return Namespace(baseline_annot_sources=str(baseline), plink_prefix=str(prefix), r2_dir=None,
+    return Namespace(baseline_annot_sources=str(baseline), plink_prefix=str(prefix), r2_matrix_dir=None,
                      query_annot_sources=None, query_annot_bed_sources=None)
 
 
@@ -98,7 +98,7 @@ def write_r2_inputs(tmp_path):
                      snp_identifier="rsid", min_r2=0.0, n_snps=3, sidecar_identity_sha256=sidecar_identity_sha256(metadata),
                      ld_window_mode="snps", ld_window_value=10.0)
     metadata.assign(base=1).to_csv(args.baseline_annot_sources, sep="\t", index=False)
-    args.plink_prefix, args.r2_dir = None, str(directory)
+    args.plink_prefix, args.r2_matrix_dir = None, str(directory)
     return args
 
 
@@ -134,7 +134,7 @@ def test_parquet_gene_workflow_distinguishes_valid_zero_support(tmp_path, maf_mi
     catalog.write_text("gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\nG1\tONE\t22\t10\t10\thg19\n")
     regression.write_text("SNP\nrs1\nrs2\nrs3\n")
     argv = ["--output-dir", str(tmp_path / "out"), "--baseline-annot-sources", inputs.baseline_annot_sources,
-            "--r2-dir", inputs.r2_dir, "--query-annot-gene-list-sources", str(genes),
+            "--r2-matrix-dir", inputs.r2_matrix_dir, "--query-annot-gene-list-sources", str(genes),
             "--gene-coordinate-file", str(catalog), "--genome-build", "hg19", "--snp-identifier", "rsid",
             "--padding-bp", "0", "--ld-wind-snps", "2", "--yes-really", "--regr-snps-file", str(regression),
             "--regr-snps-exclude-regions", "none"]

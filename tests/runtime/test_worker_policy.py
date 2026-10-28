@@ -125,5 +125,5 @@ def test_worker_cpu_discovery_delegates_to_joblib(monkeypatch, cpu_count, expect
 def test_direct_python_wrapper_rejects_invalid_workers(tmp_path, workers):
     from ldsc import run_ldscore
     with pytest.raises(LDSCConfigError, match="workers"):
-        run_ldscore(r2_dir="missing", ld_wind_cm=1, output_dir=tmp_path / "out", workers=workers)
+        run_ldscore(r2_matrix_dir="missing", ld_wind_cm=1, output_dir=tmp_path / "out", workers=workers)
     assert not (tmp_path / "out").exists()

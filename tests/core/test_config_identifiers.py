@@ -15,7 +15,7 @@ from ldsc.config import (
     GlobalConfig,
     LDScoreConfig,
     MungeConfig,
-    ReferencePanelBuildConfig,
+    R2MatrixBuildConfig,
     RefPanelConfig,
     RegressionConfig,
     normalize_genome_build,
@@ -251,9 +251,9 @@ class WorkflowConfigTest(unittest.TestCase):
             RefPanelConfig(backend="bad")
 
     def test_ref_panel_config_rejects_removed_sample_size(self):
-        # Package R2 panels are already unbiased; no reader-side sample-size correction remains.
+        # Package R2 matrices are already unbiased; no reader-side sample-size correction remains.
         with self.assertRaises(TypeError):
-            RefPanelConfig(backend="parquet_r2", sample_size=100)
+            RefPanelConfig(backend="r2_matrix", sample_size=100)
 
     def test_ldscore_config_requires_one_window(self):
         config = LDScoreConfig(ld_wind_cm=1.0)
@@ -296,12 +296,12 @@ class WorkflowConfigTest(unittest.TestCase):
         # before a build instead of producing a panel no reader accepts.
         for value in (float("nan"), float("inf"), float("-inf")):
             with self.subTest(min_r2=value), self.assertRaisesRegex(ldsc.LDSCConfigError, "min_r2"):
-                ReferencePanelBuildConfig(
+                R2MatrixBuildConfig(
                     plink_prefix="plink/panel.@", output_dir="out", ld_wind_kb=100.0, min_r2=value
                 )
 
     def test_ref_panel_build_config_validates_required_fields(self):
-        default_source = ReferencePanelBuildConfig(
+        default_source = R2MatrixBuildConfig(
             plink_prefix="plink/panel.@",
             genetic_map_hg19_sources="maps/hg19.txt",
             genetic_map_hg38_sources="maps/hg38.txt",
@@ -310,14 +310,14 @@ class WorkflowConfigTest(unittest.TestCase):
         )
         self.assertEqual(default_source.source_genome_build, "auto")
         with self.assertRaisesRegex(ldsc.LDSCConfigError, "source_genome_build"):
-            ReferencePanelBuildConfig(
+            R2MatrixBuildConfig(
                 plink_prefix="plink/panel.@",
                 source_genome_build=None,
                 output_dir="out",
                 ld_wind_kb=100.0,
             )
 
-        config = ReferencePanelBuildConfig(
+        config = R2MatrixBuildConfig(
             plink_prefix="plink/panel.@",
             source_genome_build="GRCh38",
             genetic_map_hg19_sources="maps/hg19.txt",
@@ -337,7 +337,7 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertTrue(config.overwrite)
 
         with self.assertRaisesRegex(ldsc.LDSCConfigError, "ld_wind_cm"):
-            ReferencePanelBuildConfig(
+            R2MatrixBuildConfig(
                 plink_prefix="plink/panel",
                 source_genome_build="hg19",
                 genetic_map_hg19_sources=None,
@@ -347,7 +347,7 @@ class WorkflowConfigTest(unittest.TestCase):
                 ld_wind_cm=1.0,
             )
         with self.assertRaises(ldsc.LDSCConfigError):
-            ReferencePanelBuildConfig(
+            R2MatrixBuildConfig(
                 plink_prefix="plink/panel",
                 source_genome_build="hg19",
                 genetic_map_hg19_sources="maps/hg19.txt",
@@ -357,7 +357,7 @@ class WorkflowConfigTest(unittest.TestCase):
                 ld_wind_kb=100.0,
                 ld_wind_cm=1.0,
             )
-        source_only = ReferencePanelBuildConfig(
+        source_only = R2MatrixBuildConfig(
             plink_prefix="plink/panel",
             source_genome_build="hg38",
             genetic_map_hg19_sources=None,
@@ -369,7 +369,7 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertIsNone(source_only.genetic_map_hg19_sources)
 
     def test_ref_panel_build_config_normalizes_optional_paths(self):
-        config = ReferencePanelBuildConfig(
+        config = R2MatrixBuildConfig(
             plink_prefix=Path("plink") / "panel",
             source_genome_build="hg19",
             genetic_map_hg19_sources=Path("maps") / "hg19.txt",
@@ -393,7 +393,7 @@ class WorkflowConfigTest(unittest.TestCase):
     def test_ref_panel_build_config_rejects_removed_hm3_flags(self):
         for kwargs in ({"use_hm3_snps": True}, {"use_hm3_quick_liftover": True}):
             with self.subTest(kwargs=kwargs), self.assertRaises(TypeError):
-                ReferencePanelBuildConfig(
+                R2MatrixBuildConfig(
                     plink_prefix="plink/panel", source_genome_build="hg19", output_dir="out",
                     ld_wind_snps=500, **kwargs,
                 )
@@ -459,16 +459,16 @@ class WorkflowConfigTest(unittest.TestCase):
 
     def test_ref_panel_config_normalizes_path_fields(self):
         config = RefPanelConfig(
-            backend="parquet_r2",
+            backend="r2_matrix",
             plink_prefix=Path("plink") / "panel",
-            r2_dir=Path("r2_panel") / "hg38",
+            r2_matrix_dir=Path("r2_matrix") / "hg38",
             ref_panel_snps_file=Path("filters") / "snps.txt",
             keep_indivs_file=Path("filters") / "samples.keep",
             maf_min=0.02,
         )
-        self.assertEqual(config.backend, "parquet_r2")
+        self.assertEqual(config.backend, "r2_matrix")
         self.assertEqual(config.plink_prefix, "plink/panel")
-        self.assertEqual(config.r2_dir, "r2_panel/hg38")
+        self.assertEqual(config.r2_matrix_dir, "r2_matrix/hg38")
         self.assertEqual(config.ref_panel_snps_file, "filters/snps.txt")
         self.assertEqual(config.keep_indivs_file, "filters/samples.keep")
         self.assertEqual(config.maf_min, 0.02)
@@ -498,22 +498,22 @@ class WorkflowConfigTest(unittest.TestCase):
             gene_coordinate_file=Path("genes") / "catalog.tsv.gz",
         )
         ref = RefPanelConfig(
-            backend="parquet_r2",
+            backend="r2_matrix",
             plink_prefix=Path("plink") / "panel",
-            r2_dir=Path("r2_panel") / "hg38",
+            r2_matrix_dir=Path("r2_matrix") / "hg38",
         )
         self.assertEqual(raw.raw_sumstats_file, "sumstats/trait.tsv.gz")
         self.assertEqual(annot.baseline_annot_sources, ("baseline/base.1.annot.gz",))
         self.assertEqual(annot.query_annot_gene_list_sources, ("genes/immune.txt.gz",))
         self.assertEqual(annot.gene_coordinate_file, "genes/catalog.tsv.gz")
         self.assertEqual(ref.plink_prefix, "plink/panel")
-        self.assertEqual(ref.r2_dir, "r2_panel/hg38")
+        self.assertEqual(ref.r2_matrix_dir, "r2_matrix/hg38")
 
     def test_ref_panel_config_has_no_genome_build_field(self):
-        config = RefPanelConfig(backend="parquet_r2")
+        config = RefPanelConfig(backend="r2_matrix")
         self.assertFalse(hasattr(config, "genome_build"))
         with self.assertRaises(TypeError):
-            RefPanelConfig(backend="parquet_r2", genome_build="hg38")
+            RefPanelConfig(backend="r2_matrix", genome_build="hg38")
 
     def test_public_configs_accept_single_string_tokens_for_plural_fields(self):
         annot = AnnotationBuildConfig(
@@ -521,16 +521,16 @@ class WorkflowConfigTest(unittest.TestCase):
             query_annot_gene_list_sources="genes/*.txt.gz",
             gene_coordinate_file="genes/catalog.tsv.gz",
         )
-        ref = RefPanelConfig(backend="parquet_r2", r2_dir="r2_panel/hg38")
+        ref = RefPanelConfig(backend="r2_matrix", r2_matrix_dir="r2_matrix/hg38")
         self.assertEqual(annot.baseline_annot_sources, ("baseline.@.annot.gz",))
         self.assertEqual(annot.query_annot_gene_list_sources, ("genes/*.txt.gz",))
-        self.assertEqual(ref.r2_dir, "r2_panel/hg38")
+        self.assertEqual(ref.r2_matrix_dir, "r2_matrix/hg38")
 
     def test_removed_public_config_fields_are_rejected(self):
         with self.assertRaises(TypeError):
             LDScoreConfig(ld_wind_snps=10, keep_individuals_path="samples.keep")
         with self.assertRaises(TypeError):
-            ReferencePanelBuildConfig(
+            R2MatrixBuildConfig(
                 panel_label="EUR",
                 plink_prefix="plink/panel",
                 source_genome_build="hg19",
@@ -849,7 +849,7 @@ class RestrictionReadersTest(unittest.TestCase):
 
 import pytest
 
-from ldsc.config import RefPanelConfig, ReferencePanelBuildConfig
+from ldsc.config import RefPanelConfig, R2MatrixBuildConfig
 from ldsc.errors import LDSCConfigError
 
 
@@ -861,7 +861,7 @@ def test_refpanelconfig_region_fields_are_removed():
         RefPanelConfig(backend="plink", plink_prefix="x", exclude_regions_bed=("/tmp/a.bed",))
     for field in ("exclude_regions", "regr_snps_exclude_regions"):
         with pytest.raises(TypeError):
-            ReferencePanelBuildConfig(
+            R2MatrixBuildConfig(
                 plink_prefix="x", output_dir="o", ld_wind_snps=1, **{field: ("mhc",)}
             )
 

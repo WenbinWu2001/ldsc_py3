@@ -26,7 +26,7 @@ def test_ldscore_collects_all_build_evidence_before_error(tmp_path):
     coordinates(1, "hg19", n=2).to_csv(keep, sep="\t", index=False)
     bed = tmp_path / "regions.bed"
     bed.write_text("1\t0\t100\n")
-    args = Namespace(baseline_annot_sources=paths, r2_dir=None, plink_prefix=None,
+    args = Namespace(baseline_annot_sources=paths, r2_matrix_dir=None, plink_prefix=None,
                      regr_snps_file=str(keep), query_annot_bed_sources=[str(bed)])
     with pytest.raises(LDSCInputError) as caught:
         _resolve_ldscore_chr_pos_genome_build(args, "auto")
@@ -79,8 +79,8 @@ def test_restriction_prefers_matching_build_column(tmp_path):
 
 
 def test_panel_cm_auto_waits_for_inference(tmp_path):
-    from ldsc import ReferencePanelBuildConfig
-    config = ReferencePanelBuildConfig(plink_prefix='panel', output_dir=tmp_path,
+    from ldsc import R2MatrixBuildConfig
+    config = R2MatrixBuildConfig(plink_prefix='panel', output_dir=tmp_path,
         source_genome_build='auto', ld_wind_cm=1,
         genetic_map_hg19_sources='hg19.map', genetic_map_hg38_sources='hg38.map')
     assert config.source_genome_build == 'auto'
@@ -88,15 +88,15 @@ def test_panel_cm_auto_waits_for_inference(tmp_path):
 
 @pytest.mark.parametrize('requested, fails', [('auto', True), ('hg19', False)])
 def test_panel_keep_list_requires_evidence_only_in_auto(tmp_path, requested, fails):
-    from ldsc import ReferencePanelBuildConfig, ReferencePanelBuilder, GlobalConfig
+    from ldsc import R2MatrixBuildConfig, R2MatrixBuilder, GlobalConfig
     prefix = tmp_path / 'panel'
     frame = coordinates(1, 'hg19').assign(SNP=lambda f: 'rs' + f.POS.astype(str), CM=0, A1='A', A2='C')
     frame[['CHR', 'SNP', 'CM', 'POS', 'A1', 'A2']].to_csv(str(prefix)+'.bim', sep='\t', header=False, index=False)
     keep = tmp_path / 'keep.tsv'
     coordinates(1, 'hg38', 2).to_csv(keep, sep='\t', index=False)
-    config = ReferencePanelBuildConfig(plink_prefix=str(prefix), source_genome_build=requested,
+    config = R2MatrixBuildConfig(plink_prefix=str(prefix), source_genome_build=requested,
         output_dir=tmp_path / 'out', ld_wind_kb=100, ref_panel_snps_file=keep)
-    builder = ReferencePanelBuilder(GlobalConfig(snp_identifier='chr_pos'))
+    builder = R2MatrixBuilder(GlobalConfig(snp_identifier='chr_pos'))
     if fails:
         with pytest.raises(LDSCInputError, match='--source-genome-build hg19') as caught:
             builder._resolve_source_genome_build(config, [str(prefix)])
@@ -222,7 +222,7 @@ def test_keep_list_generic_fallback_only_when_matching_build_column_absent(tmp_p
     frame = coordinates(1, 'hg38').assign(hg19_POS=lambda f: f.POS + 100)
     frame.to_csv(path, index=False)
     check = GenomeBuildCheck('auto', context='test')
-    check.declared('--r2-dir', 'panel', 'hg38')
+    check.declared('--r2-matrix-dir', 'panel', 'hg38')
     check.paths('--regr-snps-file', path, restriction_mode='chr_pos')
     assert check.resolve() == 'hg38'
 
@@ -236,14 +236,14 @@ def test_metadata_and_alternative_columns_are_trusted_without_inference(tmp_path
     pq.write_table(table, reference)
     pd.DataFrame({'CHR': [1], 'hg19_POS': [123], 'hg38_POS': [456], 'POS': [999]}).to_csv(keep, sep='\t', index=False)
     check = GenomeBuildCheck('auto', context='test')
-    check.table('--r2-dir', reference)
+    check.table('--r2-matrix-dir', reference)
     check.paths('--regr-snps-file', keep, restriction_mode='chr_pos')
     assert check.resolve() == 'hg19'
     assert check.inferences == []
 
 
 def test_panel_auto_failure_is_written_to_workflow_log(tmp_path, monkeypatch):
-    from ldsc._refpanel import builder as ref_panel_builder
+    from ldsc._refpanel import builder as r2_matrix_builder
     monkeypatch.setattr('ldsc._runtime.worker_runtime._INITIALIZED', True)
     prefix = tmp_path / 'panel'
     frame = coordinates(1, 'hg19').assign(SNP=lambda f: 'rs' + f.POS.astype(str), CM=0, A1='A', A2='C')
@@ -253,12 +253,12 @@ def test_panel_auto_failure_is_written_to_workflow_log(tmp_path, monkeypatch):
     keep = tmp_path / 'keep.tsv'
     coordinates(1, 'hg19', 2).to_csv(keep, sep='\t', index=False)
     output = tmp_path / 'out'
-    args = ref_panel_builder.build_parser().parse_args([
+    args = r2_matrix_builder.build_parser().parse_args([
         '--plink-prefix', str(prefix), '--output-dir', str(output), '--source-genome-build', 'auto',
         '--snp-identifier', 'chr_pos', '--ref-panel-snps-file', str(keep), '--ld-wind-kb', '1'])
     with pytest.raises(LDSCInputError, match='Genome-build consistency'):
-        ref_panel_builder.run_build_ref_panel_from_args(args)
-    logs = list((output / 'diagnostics').glob('build-r2-panel*.log'))
+        r2_matrix_builder.run_build_r2_matrix_from_args(args)
+    logs = list((output / 'diagnostics').glob('build-r2-matrix*.log'))
     assert len(logs) == 1
     report = logs[0].read_text()
     assert 'keep.tsv' in report and 'unresolved:' in report and '--source-genome-build hg19' in report
@@ -271,7 +271,7 @@ def test_ldscore_plink_only_auto_resolves_from_bim(tmp_path):
     frame[['CHR', 'SNP', 'CM', 'POS', 'A1', 'A2']].to_csv(str(prefix)+'.bim', sep='\t', header=False, index=False)
     (tmp_path / 'panel.bed').write_bytes(b'\x6c\x1b\x01' + bytes(len(frame)))
     (tmp_path / 'panel.fam').write_text('f i 0 0 1 -9\n')
-    args = Namespace(plink_prefix=str(prefix), r2_dir=None, snp_identifier='chr_pos')
+    args = Namespace(plink_prefix=str(prefix), r2_matrix_dir=None, snp_identifier='chr_pos')
     assert _resolve_ldscore_chr_pos_genome_build(args, 'auto') == 'hg38'
 
 
@@ -291,7 +291,7 @@ def test_conflicting_r2_footer_declarations_are_both_reported(tmp_path):
     table = pa.table({'IDX_1': [0]}).replace_schema_metadata({b'ldsc:genome_build': b'hg19', b'ldsc:sorted_by_build': b'hg38'})
     pq.write_table(table, path)
     check = GenomeBuildCheck('auto', context='test')
-    check.table('--r2-dir', path)
+    check.table('--r2-matrix-dir', path)
     with pytest.raises(LDSCInputError, match='Conflicting genome-build evidence') as caught:
         check.resolve()
     assert 'ldsc:genome_build' in str(caught.value) and 'ldsc:sorted_by_build' in str(caught.value)
@@ -308,12 +308,12 @@ def test_r2_sidecar_declaration_participates_with_an_explicit_build(tmp_path):
     with gzip.open(tmp_path / 'chr1_meta.tsv.gz', 'wt') as stream:
         stream.write('# ldsc:genome_build=hg38\nCHR\tPOS\n1\t123\n')
     check = GenomeBuildCheck('auto', context='test')
-    check.table('--r2-dir', path)
+    check.table('--r2-matrix-dir', path)
     with pytest.raises(LDSCInputError, match='Conflicting genome-build evidence') as caught:
         check.resolve()
     assert 'chr1_r2.parquet' in str(caught.value) and 'chr1_meta.tsv.gz' in str(caught.value)
     explicit = GenomeBuildCheck('hg19', context='test')
-    explicit.table('--r2-dir', path)
+    explicit.table('--r2-matrix-dir', path)
     with pytest.raises(LDSCInputError, match='hg38') as caught:
         explicit.resolve()
     assert 'chr1_meta.tsv.gz' in str(caught.value)
@@ -418,13 +418,13 @@ def test_munge_explicit_source_build_checks_selected_column_and_metadata(tmp_pat
 
 
 def test_panel_explicit_source_build_checks_keep_list_declaration(tmp_path):
-    from ldsc import GlobalConfig, ReferencePanelBuilder, ReferencePanelBuildConfig
+    from ldsc import GlobalConfig, R2MatrixBuilder, R2MatrixBuildConfig
     keep = tmp_path / 'keep.tsv'
     keep.write_text('# ldsc:genome_build=hg38\nCHR\tPOS\n1\t123\n')
-    config = ReferencePanelBuildConfig(plink_prefix='panel', output_dir=tmp_path / 'out',
+    config = R2MatrixBuildConfig(plink_prefix='panel', output_dir=tmp_path / 'out',
         source_genome_build='hg19', ref_panel_snps_file=keep, ld_wind_kb=1)
     with pytest.raises(LDSCInputError, match='keep.tsv'):
-        ReferencePanelBuilder(GlobalConfig(snp_identifier='chr_pos'))._resolve_source_genome_build(config, [])
+        R2MatrixBuilder(GlobalConfig(snp_identifier='chr_pos'))._resolve_source_genome_build(config, [])
 
 
 def test_declared_footer_and_column_must_agree(tmp_path):
@@ -452,5 +452,5 @@ def test_ldscore_selects_one_available_panel_build(tmp_path, requested):
             {b'ldsc:genome_build': build.encode()}), child / 'chr1_r2.parquet')
     baseline = tmp_path / 'baseline.annot'
     baseline.write_text('# ldsc:genome_build=hg19\nCHR\tPOS\tbase\n1\t123\t1\n')
-    args = Namespace(r2_dir=root, baseline_annot_sources=[baseline], snp_identifier='chr_pos')
+    args = Namespace(r2_matrix_dir=root, baseline_annot_sources=[baseline], snp_identifier='chr_pos')
     assert _resolve_ldscore_chr_pos_genome_build(args, requested) == 'hg19'

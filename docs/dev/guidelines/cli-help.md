@@ -121,7 +121,7 @@ Established names outside these rules: `--plink-prefix`, `--pairs`, `--prevalenc
 Naming decisions to keep:
 
 - Keep `--plink-prefix` rather than forcing it into the `*_file` or `*_sources` rule, because a PLINK input is the stem of a `.bed`, `.bim` and `.fam` trio.
-- Use `--r2-dir` / `r2_dir` for a package-built R² panel; it mirrors `--plink-prefix` as the single reference-panel input for its backend.
+- Use `--r2-matrix-dir` / `r2_matrix_dir` for a package-built R² matrix; it mirrors `--plink-prefix` as the single reference-panel input for its backend.
 - Do not add `--output-name` or `--panel-name`: output file names are fixed, and users name a run by naming its output directory.
 - Keep `--output-dir` required for commands that write results; `plot` and `convert-h2-scale` keep their fixed derived destinations without a CLI override.
 

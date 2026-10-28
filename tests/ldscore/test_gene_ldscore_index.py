@@ -2015,7 +2015,7 @@ def test_indexed_control_gene_list_file_must_resolve_to_a_file(tmp_path):
 @pytest.mark.parametrize("forbidden", [
     ("--baseline-annot-sources", "baseline.annot.gz"),
     ("--plink-prefix", "panel"),
-    ("--r2-dir", "r2"),
+    ("--r2-matrix-dir", "r2"),
     ("--snp-identifier", "chr_pos_allele_aware"),
     ("--genome-build", "hg19"),
     ("--gene-exclude-regions", "none"),

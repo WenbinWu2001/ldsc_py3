@@ -1,9 +1,9 @@
 # Command-line reference
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 LDSC3 provides one command, `ldsc`, with one subcommand per workflow; `python -m ldsc` is equivalent.
-This page lists every option of every subcommand, taken from the parser (`ldsc.cli.build_parser()`) on 2026-10-27.
+This page lists every option of every subcommand, taken from the parser (`ldsc.cli.build_parser()`) on 2026-10-28.
 `ldsc <command> --help` shows the same text for the installed version, and a future documentation build will generate this page.
 Task guides are in the [user guide](../user-guide/index.md).
 
@@ -23,7 +23,7 @@ Task guides are in the [user guide](../user-guide/index.md).
 | [`infer-genome-build`](#ldsc-infer-genome-build) | Inspect an artifact's genome build without writing files. |
 | [`annotate`](#ldsc-annotate) | Find SNPs covered by BED intervals or gene boundaries. |
 | [`ldscore`](#ldsc-ldscore) | Compute LD scores. |
-| [`build-r2-panel`](#ldsc-build-r2-panel) | Build pairwise R2 panels from PLINK genotypes. |
+| [`build-r2-matrix`](#ldsc-build-r2-matrix) | Build pairwise R2 matrices from PLINK genotypes. |
 | [`build-gene-ldscore-index`](#ldsc-build-gene-ldscore-index) | Build a reusable gene LD-score index. |
 | [`convert-ldsc2-ldscores`](#ldsc-convert-ldsc2-ldscores) | Convert selected legacy LD-score suites to LDSC3 format. |
 | [`munge-sumstats`](#ldsc-munge-sumstats) | Munge GWAS summary statistics. |
@@ -31,7 +31,7 @@ Task guides are in the [user guide](../user-guide/index.md).
 | [`partitioned-h2`](#ldsc-partitioned-h2) | Estimate partitioned heritability with independent query models. |
 | [`quantile-h2`](#ldsc-quantile-h2) | Summarize fitted heritability across annotation quantiles. |
 | [`rg`](#ldsc-rg) | Estimate genetic correlation. |
-| [`query-r2`](#ldsc-query-r2) | Query R2 for SNP pairs from a reference panel. |
+| [`query-r2-matrix`](#ldsc-query-r2-matrix) | Look up R2 for SNP pairs in an R2 matrix. |
 | [`convert-h2-scale`](#ldsc-convert-h2-scale) | Convert a saved observed-scale SNP heritability estimate to liability scale. |
 | [`plot`](#ldsc-plot) | Plot a saved LDSC3 result. |
 
@@ -69,15 +69,15 @@ Compute LD scores.
 
 | Option | Description |
 | --- | --- |
-| `--plink-prefix` | PLINK .bed/.bim/.fam filename prefix or chromosome suite stem. Direct mode requires exactly one of --plink-prefix or --r2-dir. Cannot be combined with --gene-ldscore-index-dir; no default. Direct query runs require every declared chromosome member. Quote patterns: '*' matches filename text; '@' substitutes chromosome numbers 1-22 by default. Use '*' to select available files for a chromosome subset where allowed. |
-| `--r2-dir` | Precomputed reference-panel directory containing chrN_r2.parquet and required chrN_meta.tsv.gz files. The LD window must use the unit the panel was built with and be no wider. Direct mode requires exactly one of --r2-dir or --plink-prefix. Cannot be combined with --gene-ldscore-index-dir; no default. |
+| `--plink-prefix` | PLINK .bed/.bim/.fam filename prefix or chromosome suite stem. Direct mode requires exactly one of --plink-prefix or --r2-matrix-dir. Cannot be combined with --gene-ldscore-index-dir; no default. Direct query runs require every declared chromosome member. Quote patterns: '*' matches filename text; '@' substitutes chromosome numbers 1-22 by default. Use '*' to select available files for a chromosome subset where allowed. |
+| `--r2-matrix-dir` | R2 matrix directory written by build-r2-matrix, containing chrN_r2.parquet and required chrN_meta.tsv.gz files. The LD window must use the unit the R2 matrix was built with and be no wider. Direct mode requires exactly one of --r2-matrix-dir or --plink-prefix. Cannot be combined with --gene-ldscore-index-dir; no default. |
 | `--gene-ldscore-index-dir` | Use a complete prebuilt gene LD-score index instead of a live reference panel. Requires --query-annot-gene-list-sources; cannot be combined with direct-input or direct-computation flags. If omitted, compute LD scores directly. |
 | `--output-dir` | Required. Required destination for LD-score tables, SNP counts, and diagnostics. |
 | `--genome-build` | Genome build for coordinate matching and gene intervals. Required for coordinate-family modes; direct gene-list runs default to auto. Auto checks all coordinate inputs and shards; concrete builds must agree with input declarations. Other rsid runs need no build. Gene-list runs also use this build for --regr-snps-exclude-regions. With --gene-ldscore-index-dir, inherit its build and omit this flag. |
 | `--snp-identifier` | Match SNPs by rsID (rsid) or chromosome and position (chr_pos); allele-aware variants also use A1/A2. Default: chr_pos_allele_aware; usable alleles are required. With --gene-ldscore-index-dir, inherit the stored identity and omit this flag. |
 | `--ld-wind-cm` | Maximum LD-window distance on either side of each SNP, in centiMorgans; requires usable genetic-map coordinates. No default; specify exactly one of --ld-wind-snps, --ld-wind-kb, or --ld-wind-cm. Direct mode only. |
 | `--ld-wind-kb` | Maximum LD-window distance on either side of each SNP, in kilobases. No default; specify exactly one of --ld-wind-snps, --ld-wind-kb, or --ld-wind-cm. Direct mode only. |
-| `--ld-wind-snps` | Maximum LD-window distance on either side of each SNP, counted in retained SNPs with --plink-prefix and in panel rows with --r2-dir. No default; specify exactly one of --ld-wind-snps, --ld-wind-kb, or --ld-wind-cm. Direct mode only. |
+| `--ld-wind-snps` | Maximum LD-window distance on either side of each SNP, counted in retained SNPs with --plink-prefix and in R2 matrix rows with --r2-matrix-dir. No default; specify exactly one of --ld-wind-snps, --ld-wind-kb, or --ld-wind-cm. Direct mode only. |
 | `--baseline-annot-sources` | Baseline annotation tables: comma-separated paths, '*' or '@' patterns (see --plink-prefix for pattern rules). Required with direct query inputs. If omitted without queries, use a single all-SNP baseline. Cannot be combined with --gene-ldscore-index-dir. |
 | `--query-annot-sources` | Query annotation tables: comma-separated paths, '*' or '@' patterns (see --plink-prefix for pattern rules). Requires --baseline-annot-sources; cannot be combined with --query-annot-bed-sources, --query-annot-gene-list-sources, or --gene-ldscore-index-dir. If omitted, add no table-based queries. |
 | `--query-annot-bed-sources` | BED files whose intervals define query SNPs; accepts comma-separated paths or '*' patterns. Requires --baseline-annot-sources; cannot be combined with --query-annot-sources, --query-annot-gene-list-sources, or --gene-ldscore-index-dir. If omitted, add no BED queries. '@' is not expanded; see --plink-prefix for wildcard and quoting rules. |
@@ -89,7 +89,7 @@ Compute LD scores.
 | `--gene-exclude-regions` | Exclude genes overlapping MHC before extending their intervals; none excludes no genes. Default: none for direct gene-list input. With --gene-ldscore-index-dir, use the stored policy and omit this flag. |
 | `--ref-panel-snps-file` | Headered SNP identity table restricting the reference SNPs contributing to LD scores. If omitted, use all otherwise eligible reference SNPs. Extra columns are ignored and duplicate keys collapse. Direct mode only; rejected with --gene-ldscore-index-dir. Supply an exact file path; patterns are not expanded. |
 | `--regr-snps-file` | Headered SNP identity table selecting the regression SNPs: stored output rows and regression weights. If omitted, use bundled HapMap3 SNPs. --regr-snps-exclude-regions then applies. Direct mode only; rejected with --gene-ldscore-index-dir. Accepts an exact path or a quoted '*' pattern matching exactly one file; '@' is not expanded. |
-| `--keep-indivs-file` | File listing one individual ID (IID) per row to retain from PLINK genotypes. Requires --plink-prefix; cannot be used with --r2-dir or --gene-ldscore-index-dir. If omitted, retain all individuals. Supply an exact file path; patterns are not expanded. |
+| `--keep-indivs-file` | File listing one individual ID (IID) per row to retain from PLINK genotypes. Requires --plink-prefix; cannot be used with --r2-matrix-dir or --gene-ldscore-index-dir. If omitted, retain all individuals. Supply an exact file path; patterns are not expanded. |
 | `--maf-min` | Keep reference SNPs with MAF at or above this value, in [0, 0.5]. If omitted, apply no additional MAF threshold. Direct mode only; indexed runs inherit their reference selection. |
 | `--regr-snps-exclude-regions` | Exclude MHC, centromeres, both, or neither from regression SNPs after --regr-snps-file or HapMap3 selection. Default: mhc-and-centromeres. Reference SNPs and annotation counts are unchanged. Direct mode only; indexed runs inherit this setting. |
 | `--common-maf-min` | Minimum MAF for common-SNP annotation counts, including the boundary. Default: 0.05; does not filter reference SNPs. Direct mode only; indexed runs inherit their count threshold. |
@@ -99,19 +99,19 @@ Compute LD scores.
 | `--yes-really` | Allow an LD window covering an entire chromosome, bypassing the usual guard. Default: off; reject whole-chromosome windows. Direct mode only. |
 | `--workers` | Maximum simultaneous chromosomes in direct or indexed mode. Default: 1, one worker. Positive N requests at most N workers; -1 uses the detected available CPU count from joblib.cpu_count(); -2 uses one fewer (minimum one). Reject zero and positive requests above the detected count, then cap by available tasks. Each worker uses 1 BLAS thread, in serial and parallel execution. Detection does not measure idle CPUs or read your scheduler allocation; choose a value consistent with that allocation. More workers can use more memory. |
 | `--query-batch-size` | Maximum number of query annotations processed at once. Default: 100; use a smaller positive value to reduce memory. Each completed batch has its own query file; direct mode repeats reference traversal. |
-| `--snp-batch-size` | Number of reference SNPs processed per PLINK genotype batch. Default: 512; larger batches use more memory. LD scores do not depend on it. Ignored with --r2-dir; rejected with --gene-ldscore-index-dir. |
+| `--snp-batch-size` | Number of reference SNPs processed per PLINK genotype batch. Default: 512; larger batches use more memory. LD scores do not depend on it. Ignored with --r2-matrix-dir; rejected with --gene-ldscore-index-dir. |
 | `--overwrite` | Replace this command's existing output files and remove obsolete outputs from an earlier run. Default: off; stop if output files already exist. |
 | `--log-level` | Set detail in the workflow log. DEBUG includes troubleshooting details. INFO includes progress and summaries. WARNING includes warnings and errors. ERROR includes errors only. Each level includes more severe messages. Default: INFO. Run headers and completion status are always recorded. |
 
-## `ldsc build-r2-panel`
+## `ldsc build-r2-matrix`
 
-Build pairwise R2 panels from PLINK genotypes.
+Build pairwise R2 matrices from PLINK genotypes.
 
 | Option | Description |
 | --- | --- |
 | `--plink-prefix` | Required. Required PLINK .bed/.bim/.fam filename prefix; chromosome suite stems are also accepted. Quote patterns: '*' matches filename text; '@' substitutes chromosome numbers 1-22 by default. Use '*' to select available files for a chromosome subset where allowed. |
 | `--output-dir` | Required. Required destination for R2 Parquet files, chromosome SNP metadata, and diagnostics. |
-| `--snp-identifier` | Match SNPs by rsID (rsid) or chromosome and position (chr_pos); allele-aware variants also use A1/A2. Default: chr_pos_allele_aware; usable alleles are required. Controls duplicate removal, SNP-list matching, and the written panel identity. |
+| `--snp-identifier` | Match SNPs by rsID (rsid) or chromosome and position (chr_pos); allele-aware variants also use A1/A2. Default: chr_pos_allele_aware; usable alleles are required. Controls duplicate removal, SNP-list matching, and the written R2 matrix identity. |
 | `--source-genome-build` | Genome build of input PLINK coordinates. Default: auto, check every BIM shard and coordinate keep list before filtering. Concrete builds must agree with input declarations; cM maps follow the resolved build. |
 | `--ld-wind-cm` | Maximum pair distance on either side of each SNP, in centiMorgans. Requires --genetic-map-hg19-sources or --genetic-map-hg38-sources for each emitted build. No default; specify exactly one of --ld-wind-snps, --ld-wind-kb, or --ld-wind-cm. |
 | `--ld-wind-kb` | Maximum pair distance on either side of each SNP, in kilobases. No default; specify exactly one of --ld-wind-snps, --ld-wind-kb, or --ld-wind-cm. |
@@ -123,9 +123,9 @@ Build pairwise R2 panels from PLINK genotypes.
 | `--genetic-map-hg38-sources` | hg38 genetic-map files for deriving SNP centiMorgan coordinates. Accepts exact paths, '*' and '@' patterns; see --plink-prefix for pattern rules. Required with --ld-wind-cm when hg38 output is written; otherwise optional with no map supplied by default. |
 | `--liftover-chain-hg19-to-hg38-file` | Chain file enabling additional hg38 output from hg19 coordinates. Requires coordinate-based --snp-identifier; invalid for rsID-family modes. If omitted, do not convert hg19 input to hg38. Supply an exact file path; patterns are not expanded. |
 | `--liftover-chain-hg38-to-hg19-file` | Chain file enabling additional hg19 output from hg38 coordinates. Requires coordinate-based --snp-identifier; invalid for rsID-family modes. If omitted, do not convert hg38 input to hg19. Supply an exact file path; patterns are not expanded. |
-| `--min-r2` | Minimum unbiased R2 to store. Default: 0; zero or negative values keep every pair within the window. A positive value discards smaller R2 values; ldscore then rejects the panel, and query-r2 reports discarded pairs as NaN with status=absent. |
+| `--min-r2` | Minimum unbiased R2 to store. Default: 0; zero or negative values keep every pair within the window. A positive value discards smaller R2 values; ldscore then rejects the R2 matrix, and query-r2-matrix reports discarded pairs as NaN with status=absent. |
 | `--snp-batch-size` | Number of reference SNPs processed per genotype batch. Default: 512; larger batches may improve speed but use more memory. Stored pairs do not depend on it. |
-| `--overwrite` | Replace this command's existing panel files and remove obsolete outputs after success. A concrete chromosome prefix replaces only that chromosome; a suite replaces the full panel. Default: off; stop if output files exist. |
+| `--overwrite` | Replace this command's existing R2 matrix files and remove obsolete outputs after success. A concrete chromosome prefix replaces only that chromosome; a suite replaces the full R2 matrix. Default: off; stop if output files exist. |
 | `--log-level` | Set detail in the workflow log. DEBUG includes troubleshooting details. INFO includes progress and summaries. WARNING includes warnings and errors. ERROR includes errors only. Each level includes more severe messages. Default: INFO. Run headers and completion status are always recorded. |
 
 ## `ldsc build-gene-ldscore-index`
@@ -275,7 +275,7 @@ Summarize fitted heritability across annotation quantiles.
 | `--target-annotation` | Required. Required unique column name in --target-annot-sources whose values define the quantiles. |
 | `--output-dir` | Required. Required destination for quantile heritability, standardized coefficients, and diagnostics. |
 | `--baseline-annot-sources` | Required. Required original baseline annotation files used to fit the selected model. Accepts exact paths, '*' and '@' patterns; see --target-annot-sources for pattern rules. Resupply their original values and SNP coverage. |
-| `--ref-metadata-sources` | Required. Required reference SNP metadata files with chromosome, position, SNP ID, and MAF; allele-aware matching also uses A1/A2. Accepts exact paths, '*' and '@' patterns; see --target-annot-sources for pattern rules. Use original R2 panel sidecars or PLINK metadata exported by ldscore --export-ref-metadata. |
+| `--ref-metadata-sources` | Required. Required reference SNP metadata files with chromosome, position, SNP ID, and MAF; allele-aware matching also uses A1/A2. Accepts exact paths, '*' and '@' patterns; see --target-annot-sources for pattern rules. Use original R2 matrix sidecars or PLINK metadata exported by ldscore --export-ref-metadata. |
 | `--query-annot-sources` | Original query annotation tables for the selected per-query fit; accepts paths, '*' and '@' patterns (see --target-annot-sources). Cannot be combined with --query-annot-bed-sources or --query-annot-gene-list-sources. Omit for baseline-only fits; per-query fits require their matching source. |
 | `--query-annot-bed-sources` | Original BED query files for the selected per-query fit; accepts paths or '*' patterns. Cannot be combined with --query-annot-sources or --query-annot-gene-list-sources. Omit for other query types; reproduce the original --padding-bp. '@' is not expanded; see --target-annot-sources for wildcard and quoting rules. |
 | `--query-annot-gene-list-sources` | Original one-column gene-list files for the selected per-query fit. Requires --gene-coordinate-file; cannot be combined with --query-annot-sources or --query-annot-bed-sources. Omit for other query types; reproduce the original gene settings. Accepts '*' patterns (see --target-annot-sources); '@' is not expanded. |
@@ -313,17 +313,17 @@ Estimate genetic correlation.
 | `--overwrite` | Replace this command's existing output files and remove obsolete outputs from an earlier run. Default: off; stop if output files already exist. |
 | `--log-level` | Set detail in the workflow log. DEBUG includes troubleshooting details. INFO includes progress and summaries. WARNING includes warnings and errors. ERROR includes errors only. Each level includes more severe messages. Default: INFO. Run headers and completion status are always recorded. |
 
-## `ldsc query-r2`
+## `ldsc query-r2-matrix`
 
-Query R2 for SNP pairs from a reference panel.
+Look up R2 for SNP pairs in an R2 matrix.
 
 | Option | Description |
 | --- | --- |
-| `--panel-dir` | Required. Required reference-panel directory produced by build-r2-panel, or its root containing genome-build subdirectories. Use --genome-build to select a subdirectory when needed. |
+| `--r2-matrix-dir` | Required. Required R2 matrix directory produced by build-r2-matrix, or its root containing genome-build subdirectories. Use --genome-build to select a subdirectory when needed. |
 | `--pairs` | Required. Required TSV/CSV of SNP pairs; use - to read standard input. Endpoint columns use _1/_2 suffixes and must match --snp-identifier, including allele columns for allele-aware matching. |
-| `--output-dir` | Required. Required destination for query_r2.tsv (r2, sign_r, r, status plus input columns) and diagnostics. sign_r and r use query allele orientation. |
-| `--genome-build` | Select the hg19 or hg38 subdirectory under --panel-dir. If omitted, use the supplied build-specific directory or its sole available build; ambiguous build roots require a selection. |
-| `--snp-identifier` | SNP matching rule for pair endpoints: the mode recorded by the panel (the default) or the base form of that mode (rsid or chr_pos), which ignores alleles. Pair columns must support the selected mode. |
+| `--output-dir` | Required. Required destination for query_r2_matrix.tsv (r2, sign_r, r, status plus input columns) and diagnostics. sign_r and r use query allele orientation. |
+| `--genome-build` | Select the hg19 or hg38 subdirectory under --r2-matrix-dir. If omitted, use the supplied build-specific directory or its sole available build; ambiguous build roots require a selection. |
+| `--snp-identifier` | SNP matching rule for pair endpoints: the mode recorded by the R2 matrix (the default) or the base form of that mode (rsid or chr_pos), which ignores alleles. Pair columns must support the selected mode. |
 | `--overwrite` | Replace this command's existing output files and remove obsolete outputs from an earlier run. Default: off; stop if output files already exist. |
 | `--log-level` | Set detail in the workflow log. DEBUG includes troubleshooting details. INFO includes progress and summaries. WARNING includes warnings and errors. ERROR includes errors only. Each level includes more severe messages. Default: INFO. Run headers and completion status are always recorded. |
 

@@ -40,7 +40,7 @@ Allele columns in SNP restriction files and sidecars also accept genome-oriented
 | `A2` | `A2`, `ALLELE2`, `ALLELE_2`, `OTHER_ALLELE`, `NON_EFFECT_ALLELE`, `ALT`, `NEA` |
 
 SNP restriction files in coordinate-family modes also accept a build-specific position column: the prefix `hg19_`, `hg37_` or `grch37_` (hg19) or `hg38_` or `grch38_` (hg38), followed by `pos`, `bp`, `position`, `base_pair` or `basepair`.
-`build-r2-panel` chooses the column from the source genome build of the PLINK files; `ldscore` and `munge-sumstats` use the genome build resolved for the run.
+`build-r2-matrix` chooses the column from the source genome build of the PLINK files; `ldscore` and `munge-sumstats` use the genome build resolved for the run.
 
 ### Raw summary statistics
 
@@ -79,7 +79,7 @@ Sample-size selection, INFO-list columns and `--infer-only` are described in the
 
 | Input | Column names |
 | --- | --- |
-| R² panel pair files | Fixed columns `IDX_1`, `IDX_2`, `R2` and `SIGN_R`, with no aliases; the sidecar uses the shared metadata aliases. |
+| R² matrix pair files | Fixed columns `IDX_1`, `IDX_2`, `R2` and `SIGN_R`, with no aliases; the sidecar uses the shared metadata aliases. |
 | Genetic maps | The cM column accepts `CM`, `GENETIC_MAP_CM`, `GENETICMAPCM`, `GENETIC_MAP(CM)` and `GENETICMAP(CM)`; this family is defined in `src/ldsc/_refpanel/build_kernel.py`, the only alias family outside the registry. |
 | Package-written artifacts | Munged summary statistics, annotation files and LD-score directories are read with canonical names only, which catches schema drift in files the package wrote. |
 
@@ -225,7 +225,7 @@ unordered, strand-aware set; orientation is never used for identity (a summary-s
 `A1`=effect and a panel `A1`=minor still match, with any disagreement resolved as
 a sign flip at alignment).
 
-**Panel and query correlation signs:** stored `SIGN_R` is boolean and describes correlation between panel A1 (minor-allele) dosages. In allele-aware `query-r2` results, nullable `sign_r` (+1/-1) and Pearson `r` are harmonized to query A1 dosages, which need not be minor alleles. Swapping one endpoint's allele order reverses the returned sign but leaves R² unchanged. Base modes return missing `sign_r` and `r`.
+**R² matrix and query correlation signs:** stored `SIGN_R` is boolean and describes correlation between R² matrix A1 (minor-allele) dosages. In allele-aware `query-r2-matrix` results, nullable `sign_r` (+1/-1) and Pearson `r` are harmonized to query A1 dosages, which need not be minor alleles. Swapping one endpoint's allele order reverses the returned sign but leaves R² unchanged. Base modes return missing `sign_r` and `r`.
 
 Aliases such as `REFERENCE_ALLELE` are interpreted in the signed-statistic sense
 only. They do not claim that `A1` is the genome reference allele.
@@ -314,7 +314,7 @@ alleles participate in allele-aware matching.
 `CM` (genetic-map distance) and `MAF` (allele frequency) are population-specific and belong to the reference panel, not the annotation.
 Annotation files carry only `CHR`/`POS` (+ optional `SNP`, `A1`, `A2`); `SNP` is required only in rsID-family modes.
 `CM` is optional on read and any input `CM`/`MAF` values are **ignored** (the reader reduces `CM` to a NaN placeholder and never carries `MAF`).
-For LD-score calculation, `CM` and `MAF` come exclusively from the reference panel: the R² panel sidecar (`chrN_meta.tsv.gz`) for the R² panel backend, and the `.bim`/genotypes (or an interpolated genetic map) for the PLINK backend.
+For LD-score calculation, `CM` and `MAF` come exclusively from the reference panel: the R² matrix sidecar (`chrN_meta.tsv.gz`) for the R² matrix backend, and the `.bim`/genotypes (or an interpolated genetic map) for the PLINK backend.
 `annotate` output keeps the legacy positional `CHR BP SNP CM` layout but writes the explicit missing token **`NA`** for `CM` and **no** `MAF` column, so every row has the same field count as its header while the artifacts stay population-agnostic.
 Readers normalize `NA` back to a missing `CM`; annotation value columns must be numeric and non-missing.
 This `BP` spelling is a narrow text-interoperability choice, not a promise that LDSC3 output is supported as legacy input.

@@ -1,6 +1,6 @@
 # Calculate LD scores
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 `ldsc ldscore` computes LD scores from a reference panel and writes them to an LD-score directory.
 The regression commands `h2`, `rg` and `partitioned-h2` read that directory through `--ldscore-dir` and never recompute LD scores, so one LD-score directory serves every trait you analyze with the same reference panel and annotations.
@@ -13,7 +13,7 @@ A worked example from summary statistics to regression is in the [guided tutoria
 
 | Input | Options | Notes |
 | --- | --- | --- |
-| Reference panel | exactly one of `--plink-prefix` or `--r2-dir` | PLINK `.bed/.bim/.fam` genotypes, or an R² panel written by `build-r2-panel` (see [Build and query R² panels](r2-panels.md)). |
+| Reference panel | exactly one of `--plink-prefix` or `--r2-matrix-dir` | PLINK `.bed/.bim/.fam` genotypes, or an R² matrix written by `build-r2-matrix` (see [Build and query R² matrices](r2-matrices.md)). |
 | LD window | exactly one of `--ld-wind-cm`, `--ld-wind-kb` or `--ld-wind-snps` | No default. |
 | SNP identifier mode and genome build | `--snp-identifier`, `--genome-build` | The default mode is `chr_pos_allele_aware`, which needs `--genome-build` (`auto`, `hg19` or `hg38`). |
 | Baseline annotations | `--baseline-annot-sources` | Optional; required when you add query annotations. |
@@ -24,11 +24,11 @@ Where to find reference panels and baseline annotations is described in [referen
 
 ## Compute unpartitioned LD scores
 
-This command computes LD scores for SNP heritability and genetic correlation from an R² panel:
+This command computes LD scores for SNP heritability and genetic correlation from an R² matrix:
 
 ```bash
 ldsc ldscore \
-  --r2-dir /path/to/r2-panel/hg38 \
+  --r2-matrix-dir /path/to/r2-matrix/hg38 \
   --snp-identifier chr_pos_allele_aware \
   --genome-build hg38 \
   --ld-wind-cm 1.0 \
@@ -36,9 +36,9 @@ ldsc ldscore \
 ```
 
 With no baseline and no query annotations, LDSC3 creates one all-ones baseline annotation named `base` over the retained reference SNPs, so the output has the ordinary layout with `base` as its only LD-score column.
-An R² panel stores only the SNP pairs inside the LD window it was built with, so the requested LD window must use the same unit as the panel's LD window and be no wider; this command needs a panel built with an LD window of at least 1 cM.
+An R² matrix stores only the SNP pairs inside the LD window it was built with, so the requested LD window must use the same unit as the R² matrix's LD window and be no wider; this command needs a panel built with an LD window of at least 1 cM.
 
-To compute from PLINK genotypes instead, replace `--r2-dir` with `--plink-prefix`:
+To compute from PLINK genotypes instead, replace `--r2-matrix-dir` with `--plink-prefix`:
 
 ```bash
 ldsc ldscore \
@@ -77,7 +77,7 @@ Pass prebuilt annotation tables (`.annot` or `.annot.gz`) with `--baseline-annot
 ```bash
 ldsc ldscore \
   --baseline-annot-sources "/path/to/baseline/baseline.@.annot.gz" \
-  --r2-dir /path/to/r2-panel/hg38 \
+  --r2-matrix-dir /path/to/r2-matrix/hg38 \
   --snp-identifier chr_pos_allele_aware \
   --genome-build hg38 \
   --ld-wind-cm 1.0 \
@@ -107,7 +107,7 @@ BED queries are projected in memory, without writing intermediate annotation fil
 ldsc ldscore \
   --baseline-annot-sources "/path/to/baseline/baseline.@.annot.gz" \
   --query-annot-bed-sources "beds/*.bed" \
-  --r2-dir /path/to/r2-panel/hg38 \
+  --r2-matrix-dir /path/to/r2-matrix/hg38 \
   --snp-identifier chr_pos_allele_aware \
   --genome-build hg38 \
   --ld-wind-cm 1.0 \
@@ -152,7 +152,7 @@ The full definitions are in [reference and regression SNPs](../../reference/ldsc
 | `--regr-snps-exclude-regions` | Region-exclusion preset removed from the regression SNPs: `none`, `mhc`, `centromeres` or `mhc-and-centromeres` (default). Reference SNPs and counts are unchanged. |
 
 SNP restriction files act only through the SNP identity columns of the current SNP identifier mode: repeated SNPs count once, and other columns such as `CM` or `MAF` are ignored.
-`CM` and `MAF` always come from the reference panel, never from annotation files: an R² panel takes them from its sidecar, and PLINK input takes `CM` from the `.bim` file (or a genetic map) and `MAF` from the genotypes.
+`CM` and `MAF` always come from the reference panel, never from annotation files: an R² matrix takes them from its sidecar, and PLINK input takes `CM` from the `.bim` file (or a genetic map) and `MAF` from the genotypes.
 The region presets are listed in [region-exclusion presets](../../reference/formats/region-exclusion-presets.md).
 
 ## Choose the LD window
@@ -161,27 +161,27 @@ Give exactly one of `--ld-wind-cm`, `--ld-wind-kb` or `--ld-wind-snps`; each is 
 
 - `--ld-wind-cm` needs usable `CM` values.
   With PLINK input, supply `--genetic-map-hg19-sources` or `--genetic-map-hg38-sources` (comma-separated exact file paths) when the `.bim` `CM` column is uninformative; an all-zero or constant `CM` stops the run, and `--yes-really` does not override that check ([troubleshooting](../troubleshooting.md#ldscore-unusable-cm-for-ld-wind-cm)).
-  With an R² panel, `CM` comes from the sidecar and the genetic-map options do not apply.
-- With an R² panel, the LD window must use the unit the panel was built with and be no wider than the panel's LD window.
-- `--ld-wind-snps` counts retained SNPs with PLINK input but panel rows with an R² panel, so the two differ when a run keeps only part of the panel; every R² panel run with `--ld-wind-snps` writes the per-chromosome counts to `diagnostics/ld_window_snp_counts.tsv`.
+  With an R² matrix, `CM` comes from the sidecar and the genetic-map options do not apply.
+- With an R² matrix, the LD window must use the unit the R² matrix was built with and be no wider than the R² matrix's LD window.
+- `--ld-wind-snps` counts retained SNPs with PLINK input but sidecar rows with an R² matrix, so the two differ when a run keeps only part of the R² matrix; every R² matrix run with `--ld-wind-snps` writes the per-chromosome counts to `diagnostics/ld_window_snp_counts.tsv`.
 - `--yes-really` allows an LD window that covers a whole chromosome, which is otherwise rejected.
 
-LDSC3 sums exactly the SNP pairs inside the requested LD window for both PLINK and R² panel input, so PLINK LD scores do not depend on `--snp-batch-size` and equal legacy LDSC run with `--chunk-size 1`.
-PLINK and R² panel LD scores still differ slightly, because the R² panel stores R² at reduced precision and may use a different `CM` source.
-The measured difference from published legacy LD scores is in the [legacy LDSC flag map](../../reference/legacy-flag-map.md#exact-plink-ld-windows), and the R² panel window rules are in the [R² panel format](../../reference/formats/r2-panels.md#37-ld-windows-and-sidecar-values-in-ldscore).
+LDSC3 sums exactly the SNP pairs inside the requested LD window for both PLINK and R² matrix input, so PLINK LD scores do not depend on `--snp-batch-size` and equal legacy LDSC run with `--chunk-size 1`.
+PLINK and R² matrix LD scores still differ slightly, because the R² matrix stores R² at reduced precision and may use a different `CM` source.
+The measured difference from published legacy LD scores is in the [legacy LDSC flag map](../../reference/legacy-flag-map.md#exact-plink-ld-windows), and the R² matrix window rules are in the [R² matrix format](../../reference/formats/r2-matrices.md#37-ld-windows-and-sidecar-values-in-ldscore).
 
 ## PLINK input
 
 `--plink-prefix` accepts an exact prefix (`panel.22`), a plain stem (`1000G.EUR.QC.` or `panel_chr`), a quoted glob (`"panel.*"`) or a chromosome suite (`"panel.@"`).
 Every selected prefix needs a complete `.bed/.bim/.fam` trio, and the chromosome of each trio comes from its `.bim` contents, not its file name ([PLINK prefix resolution](../../reference/input-paths.md#plink-prefix-resolution)).
 `--snp-batch-size` (default 512) sets how many SNPs each genotype batch processes; it changes speed and memory but never the LD scores, and larger batches are not faster beyond about 512 to 1024 ([measurements](../../dev/design/memory-and-cpu.md#direct-ld-score-computation)).
-It is ignored with `--r2-dir`.
+It is ignored with `--r2-matrix-dir`.
 `--export-ref-metadata` also writes `ref_metadata/chrN_meta.tsv.gz` with the effective `CM` and other reference metadata, without changing the `.bim` files.
 
 ## Genome build
 
 The coordinate-family modes `chr_pos` and `chr_pos_allele_aware` need `--genome-build`; rsID-family runs without gene lists need none, and direct gene-list runs default to `auto`.
-`--genome-build auto` checks all coordinate inputs together: annotation files, `.bim` files or R² panel sidecars, the gene coordinate catalog and coordinate-based SNP restriction files must agree.
+`--genome-build auto` checks all coordinate inputs together: annotation files, `.bim` files or R² matrix sidecars, the gene coordinate catalog and coordinate-based SNP restriction files must agree.
 A concrete `hg19` or `hg38` must agree with any genome build those inputs declare, and it is used for unlabeled coordinates; `ldscore` never converts coordinates.
 To check a file's genome build before a run, use `ldsc infer-genome-build`.
 See [genome-build inference, checking and overrides](../concepts/snp-identity-and-genome-build.md#genome-build-inference-checking-and-overrides) and the [full policy](../../reference/snp-identity-and-genome-build.md#genome-build-policy).
@@ -227,6 +227,6 @@ A missing output directory is created, unrelated files are kept, and a failed ov
 
 - LD-score directories written by earlier versions of LDSC3 without the `query_batches` manifest or SNP identity provenance in `metadata.json` are rejected; regenerate them.
 - To use published legacy LD scores, convert them with `ldsc convert-ldsc2-ldscores` rather than passing the legacy files to regression; see [Migrating from legacy LDSC](migrating-from-legacy-ldsc.md).
-- The LD-score computation itself is specified in [LD-score computation from R² panels](../../reference/methods/ld-score-computation.md).
+- The LD-score computation itself is specified in [LD-score computation from R² matrices](../../reference/methods/ld-score-computation.md).
 
 For the Python API, see [Python usage](../python-usage.md#ld-scores).

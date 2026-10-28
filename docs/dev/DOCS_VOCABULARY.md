@@ -12,14 +12,15 @@ Rules for writers and terms still under proposal follow the term tables.
 | Term | Definition | Avoid | API/CLI identifier |
 | --- | --- | --- | --- |
 | LD score regression (LDSC) | The method: regression of GWAS $\chi^2$ statistics on LD scores, used to estimate SNP heritability, genetic correlation and partitioned heritability. In prose, "LDSC" means the method only. | "LD-score regression", "LD Score Regression" | |
-| LDSC3 | This Python 3 package (distribution `ldsc`, version 2.0b0). | "the refactored package", "ldsc3", "the new LDSC" | import `ldsc`; command `ldsc` |
-| LDSC2 | The original Python 2 software (bulik/ldsc). | "legacy LDSC", "original LDSC", "upstream LDSC", "Python 2 LDSC" | `convert-ldsc2-ldscores` |
+| LDSC3 | This Python 3 package (distribution `ldsc`, version 2.0b0); a provisional name. | "the refactored package", "ldsc3", "the new LDSC" | import `ldsc`; command `ldsc` |
+| legacy LDSC | The original Python 2 software (bulik/ldsc) that LDSC3 replaces. Before a file or format, "legacy" means one that legacy LDSC reads or writes, as in "legacy LD-score files". | "LDSC2", "original LDSC", "upstream LDSC", "Python 2 LDSC", "the legacy codebase" | `convert-ldsc2-ldscores` |
 | partitioned heritability | The analysis that decomposes SNP heritability across annotations fitted jointly with the baseline, and its results. | "partitioned LDSC", "pLDSC", "stratified LDSC", "partitioned h2" in prose | `partitioned-h2`; `RegressionRunner.estimate_partitioned_h2` |
 | stratified LD score regression (S-LDSC) | The published method that estimates partitioned heritability (Finucane et al. 2015); used only when naming that method. | "S-LDSC" before the full name | |
 | cell-type enrichment | The analysis that fits one query annotation per cell type and compares their heritability contributions. | "cell-specific LDSC" | `partitioned-h2` |
 | LDSC-SEG | The published method for cell-type enrichment from specifically expressed genes (Finucane et al. 2018); used only when naming that method. | | |
 
-The digit in LDSC2 and LDSC3 is the Python version, not the software version.
+The digit in LDSC3 is the Python version, not the software version.
+Write "legacy LDSC", not a version number, for the original software; "legacy" alone refers only to legacy LDSC and its files, never to an earlier LDSC3 version.
 `ldsc` in code font is the command and the import name, never a prose name.
 The software title in `README.md` and `CITATION.cff` is the distribution name, `ldsc`.
 On each page that names S-LDSC, the first mention gives the full name and citation, for example "partitioned heritability, estimated with stratified LD score regression (S-LDSC; Finucane et al. 2015)", so that searches for "S-LDSC" find the page.
@@ -130,6 +131,7 @@ These identifiers differ from the prose term or from each other; they are record
 - Prose "R²" corresponds to the identifiers `R2`, `r2_dir` and `build-r2-panel`.
 - `--count-kind common|all` on the command line corresponds to `RegressionConfig.use_common_counts` in Python.
 - Prose "gene coordinate catalog" corresponds to the flag `--gene-coordinate-file`.
+- Prose "legacy LDSC" corresponds to the identifiers that contain `ldsc2`, such as `convert-ldsc2-ldscores`.
 
 ## Rules for writers
 

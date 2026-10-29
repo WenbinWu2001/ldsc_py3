@@ -238,7 +238,7 @@ Each test file sits in the folder of the domain package whose code it mainly exe
 Tests of shared machinery that every workflow uses, such as output writers, workflow logs, failure markers, workers and input preflight, are in `tests/runtime/`.
 Tests of the root shell and of the package as a whole are in `tests/package/`.
 Shared helpers and `fixtures/` stay at the top of `tests/`; tests import them, and one another, by full module path, for example `from tests.annotation.test_annotate_streaming import inputs`.
-Each test folder has an `__init__.py`, so `pytest` and `python -m unittest discover -s tests -p 'test*.py'` both find every folder.
+Each test folder has an `__init__.py`, which makes those full module paths importable.
 
 | Area | Main tests |
 | --- | --- |

@@ -1,6 +1,6 @@
 # Developer Guide
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-29
 
 This guide is for contributors to LDSC3.
 The working rules for any change, including design confirmation, testing and documentation, are in [`AGENTS.md`](../../AGENTS.md) at the repository root.
@@ -11,10 +11,8 @@ Use the editable development installation from [installation](../user-guide/inst
 
 ```bash
 pytest
-python -m unittest discover -s tests -p 'test*.py' -v
 ```
 
-Run the two runners one after the other, not at the same time.
 Tests do not add `src` to the Python path; they rely on the editable installation.
 Golden NPZ files under `tests/fixtures/golden/` are fixed expectations: restore a missing one from version control instead of regenerating it.
 The fixtures are described in [`tests/fixtures/README.md`](../../tests/fixtures/README.md).

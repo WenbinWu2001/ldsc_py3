@@ -133,6 +133,7 @@ These terms are for the developer guide and contributor documentation.
 | domain package | A private package under `src/ldsc/` that holds one area of the package, such as `_annotation` or `_ldscore`. | "domain subpackage" | `src/ldsc/_<domain>/` |
 | tier | A level in the one-directional import order of the domain packages, enforced by `tests/package/test_layering.py`. | "layer", which names the CLI, workflow and output layers | `PACKAGE_TIERS` and `SHELL_TIERS` in `tests/package/test_layering.py` |
 | root shell | The modules at the package root that belong to no domain package: `__init__`, `__main__`, `cli`, `config` and `errors`. | "public shell", "shell" | |
+| LD-score producer | The direct or indexed source of one query batch's chromosome results, which `_ldscore.batch_execution` runs one batch at a time. | "producer" or "fragment producer" alone | `_DirectProducer` in `src/ldsc/_ldscore/calculator.py`; `_IndexedProducer` in `src/ldsc/_ldscore/gene_index/batches.py` |
 
 ## Identifier differences
 
@@ -168,4 +169,3 @@ Add a row when a concept appears under several names: the concept, the proposed 
 
 | Concept | Proposed term | Variants and locations |
 | --- | --- | --- |
-| The direct or indexed source of one query batch's chromosome results, which `_ldscore.batch_execution` runs (`_DirectProducer` in `src/ldsc/_ldscore/calculator.py`, `_IndexedProducer` in `src/ldsc/_ldscore/gene_index/batches.py`) | LD-score producer | "producer" (`docs/dev/architecture.md:399`, `docs/dev/architecture.md:405`, `docs/reference/parallel-execution.md:82`, `docs/dev/design/memory-and-cpu.md:628`, `src/ldsc/_ldscore/fragments.py:29`); "fragment producers" (`docs/dev/architecture.md:414`); "producer-owned" (`docs/dev/code-structure.md:133`). Distinct sense to keep apart: "the producer" as the batch iterator the writer closes (`docs/dev/architecture.md:406`, `docs/dev/design/memory-and-cpu.md:415`, `src/ldsc/_ldscore/fragments.py:3`) |

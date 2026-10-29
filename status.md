@@ -17,7 +17,7 @@ The user confirmed the design in a grilling session on 2026-10-29 (architecture 
 - Deviation from the confirmed design: the direct producer stays in `calculator.py`, because moving it to `direct_batches.py` would create an import cycle.
 - Evidence: synthetic fixture outputs recorded after `9059346` (direct prebuilt, BED, gene-list and synthetic-base runs, index construction, indexed scoring and the in-memory path) matched exactly after each later commit; the comparison script and outputs stayed outside the repository.
   The full pytest and unittest suites passed after each commit.
-- Open: the proposed glossary term "LD-score producer" in `docs/dev/DOCS_VOCABULARY.md` awaits the user's approval.
+- The user approved the glossary term "LD-score producer" on 2026-10-29.
 - Not done, out of scope: removing `_allow_partial_for_tests`, one LD-score publication path, and sharing the gene-list diagnostic sequence.
 
 ## Completed: domain subpackage reorganization of `src/ldsc`

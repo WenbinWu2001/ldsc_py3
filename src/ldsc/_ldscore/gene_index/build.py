@@ -107,6 +107,7 @@ from .artifact import (
     _write_index_artifact,
     _write_json,
     calculate_index_id,
+    index_global_config,
 )
 from .scoring import _load_gene_ldscore_index
 
@@ -770,13 +771,8 @@ def _run_gene_ldscore_index_build(
         genome_build=config.genome_build,
         gene_exclude_regions=config.gene_exclude_regions,
     )
-    # Package-wide rsID identity deliberately carries no coordinate-build
-    # semantics. The index independently records the explicit projection build.
-    global_config = (
-        GlobalConfig(snp_identifier=config.snp_identifier)
-        if identity_mode_family(config.snp_identifier) == "rsid"
-        else GlobalConfig(snp_identifier=config.snp_identifier, genome_build=config.genome_build)
-    )
+    # The index independently records the explicit projection build.
+    global_config = index_global_config(config.snp_identifier, config.genome_build)
     regression_path = Path(config.regr_snps_file or packaged_hm3_curated_map_path())
     from ..._runtime.preflight import InputGate
     from ..._runtime.progress import PhaseProgress

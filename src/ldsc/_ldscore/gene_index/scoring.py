@@ -21,6 +21,8 @@ import pandas as pd
 from ..._annotation.gene_lists import GeneCatalog, GeneSourceSelection, select_index_eligible_gene_indices
 from ..._annotation.storage import AnnotationWorkspace
 from ..._core.snp_identity import normalize_snp_identifier_mode
+from ...config import GlobalConfig
+from ..outputs import common_count_config
 from .artifact import (
     IndexChromosomeData,
     _INDEX_FORMAT_VERSION,
@@ -28,6 +30,7 @@ from .artifact import (
     _load_index_chromosome,
     _read_json,
     calculate_index_id,
+    index_global_config,
     inspect_index_paths,
 )
 from .atoms import ChromosomeAtomModel, assemble_atom_selector
@@ -75,6 +78,16 @@ class LoadedGeneLDScoreIndex:
     baseline_columns: tuple[str, ...]
     gene_support: pd.Series
     reference_snp_funnel: pd.DataFrame
+
+    @property
+    def global_config(self) -> GlobalConfig:
+        """Identity settings the index binds; indexed output records them."""
+        return index_global_config(self.snp_identifier, self.genome_build)
+
+    @property
+    def count_config(self) -> dict:
+        """Common-SNP count metadata for the ``common_maf_min`` the index used."""
+        return common_count_config(self.index_identity["common_maf_min"])
 
     def load_chromosome(self, chrom: str) -> IndexChromosomeData:
         """Load one owned chromosome payload; callers release it after use.

@@ -1182,10 +1182,9 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 kernel_ldscore.compute_counts(metadata, annotations)
 
     def test_count_config_records_inclusive_operator(self):
-        from ldsc._ldscore.calculator import _count_config_from_ldscore_config
-        from ldsc.config import LDScoreConfig
+        from ldsc._ldscore.outputs import common_count_config
 
-        cfg = _count_config_from_ldscore_config(LDScoreConfig(ld_wind_cm=1.0, common_maf_min=0.05))
+        cfg = common_count_config(0.05)
         self.assertEqual(cfg["common_reference_snp_maf_operator"], ">=")
 
     def test_regression_mask_from_keys_uses_identity_restriction_match_kind(self):

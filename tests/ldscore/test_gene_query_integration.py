@@ -37,12 +37,14 @@ def inputs(tmp_path):
     return prefix, baseline, regression, catalog
 
 
-def direct_args(tmp_path, inputs, sources, *, policy="strict", control=None, name="direct"):
+def direct_args(tmp_path, inputs, sources, *, policy="strict", control=None, name="direct",
+                mode="rsid", common_maf_min="0.05"):
     prefix, baseline, regression, catalog = inputs
     argv = ["--output-dir", str(tmp_path / name), "--baseline-annot-sources", str(baseline),
             "--query-annot-gene-list-sources", ",".join(map(str, sources)), "--gene-coordinate-file", str(catalog),
             "--padding-bp", "0",
-            "--plink-prefix", str(prefix), "--genome-build", "hg19", "--snp-identifier", "rsid",
+            "--plink-prefix", str(prefix), "--genome-build", "hg19", "--snp-identifier", mode,
+            "--common-maf-min", common_maf_min,
             "--ld-wind-cm", "0.2", "--regr-snps-file", str(regression), "--regr-snps-exclude-regions", "none"]
     if policy == "resolved-only":
         argv += ["--allow-unresolved-genes"]
@@ -51,12 +53,13 @@ def direct_args(tmp_path, inputs, sources, *, policy="strict", control=None, nam
     return build_parser().parse_args(argv)
 
 
-def build_index(tmp_path, inputs):
+def build_index(tmp_path, inputs, *, mode="rsid", common_maf_min="0.05"):
     prefix, baseline, regression, catalog = inputs
     args = index_workflow.build_parser().parse_args([
         "--output-dir", str(tmp_path / "index"), "--baseline-annot-sources", str(baseline),
         "--plink-prefix", str(prefix), "--gene-coordinate-file", str(catalog),
-        "--genome-build", "hg19", "--snp-identifier", "rsid", "--ld-wind-cm", "0.2",
+        "--genome-build", "hg19", "--snp-identifier", mode, "--ld-wind-cm", "0.2",
+        "--common-maf-min", common_maf_min,
         "--gene-exclude-regions", "none", "--regr-snps-exclude-regions", "none",
         "--regr-snps-file", str(regression),
     ])
@@ -179,6 +182,31 @@ def test_real_direct_and_indexed_outputs_agree(tmp_path, inputs, policy):
         assert all((tmp_path / name / path).exists() for path in metadata["files"].values())
     log = (tmp_path / "direct/diagnostics/ldscore.log").read_text()
     assert "Chromosomes resolved and entering the analysis: 1" in log
+
+
+@pytest.mark.parametrize("mode,common_maf_min", [
+    ("chr_pos_allele_aware", "0.05"), ("rsid_allele_aware", "0.05"), ("chr_pos", "0.2")])
+def test_indexed_output_records_the_index_identity_and_common_threshold(tmp_path, inputs, mode, common_maf_min):
+    prefix, _, regression, _ = inputs
+    bim = pd.read_csv(prefix.with_suffix(".bim"), sep="\t", header=None,
+                      names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+    bim[["CHR", "POS", "SNP", "A1", "A2"]].to_csv(regression, sep="\t", index=False)
+    query = tmp_path / "query.txt"
+    query.write_text("G1\n")
+    settings = dict(mode=mode, common_maf_min=common_maf_min)
+    direct = run_ldscore_from_args(direct_args(tmp_path, inputs, [query], **settings))
+    indexed = run_indexed_ldscore(
+        build_index(tmp_path, inputs, **settings), query_gene_list_sources=[query],
+        output_dir=tmp_path / "indexed", _allow_partial_for_tests=True,
+    )
+    build = None if mode.startswith("rsid") else "hg19"
+    for name, result in (("direct", direct), ("indexed", indexed)):
+        assert (result.config_snapshot.snp_identifier, result.config_snapshot.genome_build) == (mode, build)
+        metadata = json.loads((tmp_path / name / "metadata.json").read_text())
+        assert (metadata["snp_identifier"], metadata["genome_build"]) == (mode, build)
+        assert metadata["count_config"] == {
+            "common_reference_snp_maf_min": float(common_maf_min), "common_reference_snp_maf_operator": ">="}
+        assert metadata["overlap_config"]["common_maf_min"] == float(common_maf_min)
 
 
 @pytest.mark.parametrize("policy", ["strict", "resolved-only"])

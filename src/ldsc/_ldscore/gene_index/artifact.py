@@ -22,9 +22,10 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 
-from ..._core.snp_identity import clean_identity_artifact_table
+from ..._core.snp_identity import clean_identity_artifact_table, identity_mode_family
 from ..._refpanel.funnel import FUNNEL_COLUMNS, funnel_from_records, funnel_records
 from .atoms import AtomStatistics, ChromosomeAtomModel, validate_ldscore_operator
+from ...config import GlobalConfig
 from ...errors import LDSCInputError, LDSCInternalError
 
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
@@ -45,6 +46,18 @@ def _semantic_sha256(payload: dict) -> str:
 def calculate_index_id(index_identity: dict) -> str:
     """Return the immutable semantic identity of one complete index."""
     return _semantic_sha256(index_identity)
+
+
+def index_global_config(snp_identifier: str, genome_build: str) -> GlobalConfig:
+    """Return the identity settings an index binds: its literal mode and build.
+
+    The index always records its explicit hg19/hg38 build. rsID-family
+    identity carries no coordinate build, so the build is dropped here instead
+    of triggering GlobalConfig's warning about an ignored build.
+    """
+    if identity_mode_family(snp_identifier) == "rsid":
+        return GlobalConfig(snp_identifier=snp_identifier)
+    return GlobalConfig(snp_identifier=snp_identifier, genome_build=genome_build)
 
 
 def _remove_gene_index_transaction(path: Path, *, published: bool) -> bool:

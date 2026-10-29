@@ -76,6 +76,7 @@ from .outputs import (
     LDScoreDirectoryWriter,
     LDScoreOutputConfig,
     REGRESSION_LD_SCORE_COLUMN,
+    common_count_config,
 )
 from .._runtime.paths import (
     ensure_output_directory,
@@ -644,7 +645,7 @@ class LDScoreCalculator:
         result = self._aggregate_chromosome_results(
             chromosome_results,
             global_config=global_config,
-            count_config=_count_config_from_ldscore_config(ldscore_config),
+            count_config=common_count_config(ldscore_config.common_maf_min),
         )
         result = dataclass_replace(
             result,
@@ -1128,14 +1129,6 @@ def _count_records_from_totals(
             record["common_reference_snp_count"] = float(common_counts[idx])
         records.append(record)
     return records
-
-
-def _count_config_from_ldscore_config(ldscore_config: LDScoreConfig) -> dict[str, Any]:
-    """Return count metadata for common-SNP count vectors."""
-    return {
-        "common_reference_snp_maf_min": float(ldscore_config.common_maf_min),
-        "common_reference_snp_maf_operator": ">=",
-    }
 
 
 def build_parser() -> argparse.ArgumentParser:

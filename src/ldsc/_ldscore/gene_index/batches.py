@@ -131,7 +131,6 @@ def indexed_results(index, batch, declarations, control, width, root, workers, s
     chromosome at a time. Index loading repeats for each batch. A failed task
     must finish pool shutdown before its batch workspace is removed.
     """
-    from ...config import GlobalConfig
     from ..calculator import _init_worker
     from ..fragments import StagedLDScoreBatch
     from ..overlap_table import LDScoreOverlap
@@ -141,8 +140,6 @@ def indexed_results(index, batch, declarations, control, width, root, workers, s
     root.mkdir()
     workers = resolve_worker_count(workers, len(index.chromosomes))
     baseline_columns = [*index.baseline_columns, *(["gene_control"] if control is not None else [])]
-    config = GlobalConfig(snp_identifier="rsid") if index.snp_identifier == "rsid" else GlobalConfig(
-        snp_identifier="chr_pos", genome_build=index.genome_build)
     total_batches = (len(declarations) + width - 1) // width
     with ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn"),
                              initializer=_init_worker,
@@ -190,8 +187,8 @@ def indexed_results(index, batch, declarations, control, width, root, workers, s
                         baseline_table=baseline,
                         query_fragments=tuple(directory / f"chr{chrom}" / "query.parquet" for chrom in index.chromosomes),
                         count_records=counts, baseline_columns=baseline_columns, query_columns=retained,
-                        count_config={"common_reference_snp_maf_min": 0.05, "common_reference_snp_maf_operator": ">="},
-                        config_snapshot=config, overlap=overlap.select_queries(retained), query_statuses=finalized,
+                        count_config=index.count_config,
+                        config_snapshot=index.global_config, overlap=overlap.select_queries(retained), query_statuses=finalized,
                         gene_list_batch=batch, chromosome_scope=scope,
                         index_provenance={"index_id": index.index_id, "index_snp_identifier": index.snp_identifier,
                                           "index_genome_build": index.genome_build},

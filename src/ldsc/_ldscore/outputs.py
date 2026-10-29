@@ -77,10 +77,15 @@ REGRESSION_LD_SCORE_COLUMN = "regression_ld_scores"
 QUERY_STATUS_COLUMNS = ["query", "source", "input_type", "status", "reason", "n_annotation_snps", "details"]
 
 
-DEFAULT_COUNT_CONFIG = {
-    "common_reference_snp_maf_min": 0.05,
-    "common_reference_snp_maf_operator": ">=",
-}
+def common_count_config(common_maf_min: float) -> dict[str, Any]:
+    """Return count metadata for common-SNP counts, ``MAF >= common_maf_min``."""
+    return {
+        "common_reference_snp_maf_min": float(common_maf_min),
+        "common_reference_snp_maf_operator": ">=",
+    }
+
+
+DEFAULT_COUNT_CONFIG = common_count_config(0.05)
 
 
 @dataclass(frozen=True)

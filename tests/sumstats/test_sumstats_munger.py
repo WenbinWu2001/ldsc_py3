@@ -1,5 +1,6 @@
 from pathlib import Path
 import contextlib
+from dataclasses import replace
 import gzip
 import importlib.util
 import io
@@ -407,7 +408,7 @@ class SumstatsMungerTest(unittest.TestCase):
                             output_dir=tmpdir / "run", info_min=0.8),
                 global_config=GlobalConfig(snp_identifier="rsid"),
             )
-            copy = SumstatsMunger().write_output(table.subset_to(["rs1"]), tmpdir / "copy")
+            copy = SumstatsMunger().write_output(replace(table, data=table.data.copy()), tmpdir / "copy")
             self.assertEqual(qc_keys(copy), (b"0.8", b""))
 
             hand_built = sumstats_workflow.SumstatsTable(
@@ -1287,50 +1288,6 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertIn(str(sidecar), log_text)
             self.assertIn("unmapped_liftover=1", log_text)
             self.assertNotIn("rs_drop", log_text)
-
-    def test_sumstats_table_uses_chr_pos_identity_when_configured(self):
-        table = sumstats_workflow.SumstatsTable(
-            data=pd.DataFrame(
-                {
-                    "SNP": ["rs_label_1", "1:200"],
-                    "CHR": ["1", "1"],
-                    "POS": [100, 200],
-                    "Z": [1.0, 2.0],
-                    "N": [100.0, 100.0],
-                }
-            ),
-            has_alleles=False,
-            source_path=None,
-            trait_name="trait",
-            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-        )
-        metadata = pd.DataFrame({"SNP": ["different_2", "different_1"], "CHR": ["1", "1"], "POS": [200, 100]})
-
-        self.assertEqual(table.snp_identifiers().tolist(), ["1:100", "1:200"])
-        self.assertEqual(table.subset_to({"1:200"}).data["SNP"].tolist(), ["1:200"])
-        self.assertEqual(table.align_to_metadata(metadata).data["SNP"].tolist(), ["1:200", "rs_label_1"])
-
-    def test_sumstats_table_unknown_config_defaults_to_chr_pos_identity(self):
-        table = sumstats_workflow.SumstatsTable(
-            data=pd.DataFrame(
-                {
-                    "SNP": ["rs_label_1", "1:200"],
-                    "CHR": ["1", "1"],
-                    "POS": [100, 200],
-                    "Z": [1.0, 2.0],
-                    "N": [100.0, 100.0],
-                }
-            ),
-            has_alleles=False,
-            source_path=None,
-            trait_name="trait",
-            config_snapshot=None,
-        )
-        metadata = pd.DataFrame({"SNP": ["different_2", "different_1"], "CHR": ["1", "1"], "POS": [200, 100]})
-
-        self.assertEqual(table.snp_identifiers().tolist(), ["1:100", "1:200"])
-        self.assertEqual(table.subset_to({"1:200"}).data["SNP"].tolist(), ["1:200"])
-        self.assertEqual(table.align_to_metadata(metadata).data["SNP"].tolist(), ["1:200", "rs_label_1"])
 
     def test_run_accepts_merged_munge_config(self):
         with tempfile.TemporaryDirectory() as tmpdir:

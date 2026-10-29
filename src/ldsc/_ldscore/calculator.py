@@ -211,14 +211,6 @@ class ChromLDScoreResult:
                 snp_identifier=getattr(self.config_snapshot, "snp_identifier", "chr_pos_allele_aware"),
             )
 
-    def summary(self) -> dict[str, Any]:
-        """Return a compact summary of chromosome-level retained rows."""
-        return {
-            "chrom": self.chrom,
-            "n_rows": len(self.baseline_table),
-            "count_columns": [record["column"] for record in self.count_records],
-        }
-
 
 @dataclass(frozen=True)
 class LDScoreResult:
@@ -354,14 +346,6 @@ class LDScoreResult:
             return None
         metadata = [name for name in ("CHR", "SNP", "POS", "A1", "A2") if name in self.query_table]
         return self.query_table.loc[:, metadata + list(columns)].reset_index(drop=True)
-
-    def summary(self) -> dict[str, Any]:
-        """Return a compact cross-chromosome summary."""
-        return {
-            "n_rows": len(self.baseline_table),
-            "chromosomes": [result.chrom for result in self.chromosome_results],
-            "count_columns": [record["column"] for record in self.count_records],
-        }
 
 
 def _log_annotation_classification(result):

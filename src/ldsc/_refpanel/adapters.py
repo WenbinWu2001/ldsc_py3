@@ -188,28 +188,6 @@ class RefPanel(ABC):
         """
         raise NotImplementedError
 
-    def filter_to_snps(self, chrom: str, snps: set[str] | list[str]) -> pd.DataFrame:
-        """Subset chromosome metadata to the requested SNP identifiers."""
-        metadata = self.load_metadata(chrom)
-        keys = _snp_id_series_for_matching(
-            metadata,
-            self.global_config.snp_identifier,
-            context=f"reference-panel SNP filtering for chromosome {chrom}",
-        )
-        keep = keys.isin(set(snps))
-        return metadata.loc[keep].reset_index(drop=True)
-
-    def summary(self) -> dict[str, Any]:
-        """Summarize backend type and source paths."""
-        return {
-            "backend": self.spec.backend,
-            "chromosomes": self.available_chromosomes(),
-            "source": {
-                "plink_prefix": self.spec.plink_prefix,
-                "r2_matrix_dir": self.spec.r2_matrix_dir,
-            },
-        }
-
     def _apply_maf_filter(self, metadata: pd.DataFrame, chrom: str) -> pd.DataFrame:
         """Apply the retained-panel MAF filter from ``RefPanelConfig`` when set."""
         maf_min = self.spec.maf_min

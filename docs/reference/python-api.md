@@ -1,6 +1,6 @@
 # Python API reference
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-29
 
 The supported Python interface is the set of names exported by the `ldsc` package (`ldsc.__all__`, 84 names on 2026-10-27).
 Modules whose names start with an underscore, including the domain packages such as `ldsc._ldscore`, are private even when a name defined there is re-exported.
@@ -22,7 +22,6 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 
 | Name | Summary |
 | --- | --- |
-| `assign_legacy_quantiles` | Assign finite target values with the legacy LDSC continuous-annotation rule. |
 | `build_gene_ldscore_index` | Build and transactionally publish one complete gene LD-score index. |
 | `compute_quantile_h2` | Project one fitted joint model onto target-defined quantiles. |
 | `compute_standardized_coefficients` | Compute paper-compatible fixed-scale standardized coefficients. |
@@ -90,7 +89,6 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | `PartitionedH2BatchResult` | Compact batch summary and valid persistent artifacts for every fitted model. |
 | `PlotArtifact` | One saved LDSC3 figure and its live Matplotlib objects. |
 | `PreparedRegressionInputs` | Shared trait alignment before model-dependent column/count filtering. |
-| `QuantileAssignment` | Legacy-compatible quantile membership and realized boundaries. |
 | `QuantileH2Result` | Compact result family returned by `run_quantile_h2()`. |
 | `RawSumstatsInference` | Header-level inference report for one raw summary-statistics file. |
 | `RefPanelLoader` | Instantiate the backend requested by a `RefPanelConfig`. |

@@ -13,7 +13,6 @@ import ldsc
 from ldsc.errors import LDSCInputError
 from ldsc._regression.quantile_storage import target_chunks
 from ldsc._regression.quantile_h2 import (
-    assign_legacy_quantiles,
     compute_quantile_h2,
     compute_standardized_coefficients,
     load_fitted_partitioned_model,
@@ -36,18 +35,6 @@ class QuantileH2NumericsTest(unittest.TestCase):
             self.assertEqual(excluded.tolist(), [True, False])
             self.assertTrue(math.isnan(values.iloc[0]))
             self.assertEqual(values.iloc[1], 1.5)
-
-    def test_legacy_boundaries_keep_ties_in_lower_quantile(self):
-        assignment = assign_legacy_quantiles(np.array([0.0, 1.0, 1.0, 2.0, 3.0]), 2)
-
-        self.assertEqual(assignment.quantile.tolist(), [1, 1, 1, 2, 2])
-        self.assertEqual(assignment.lower.tolist(), [0.0, 1.0])
-        self.assertEqual(assignment.upper.tolist(), [1.0, 3.0])
-        self.assertEqual(assignment.counts.tolist(), [3, 2])
-
-    def test_empty_quantiles_are_rejected(self):
-        with self.assertRaisesRegex(LDSCInputError, "empty quantile"):
-            assign_legacy_quantiles(np.ones(5), 3)
 
     def test_projection_matches_hand_worked_jackknife_example(self):
         result = compute_quantile_h2(
@@ -304,6 +291,28 @@ class QuantileH2WorkflowTest(unittest.TestCase):
         log = (output / "diagnostics" / "quantile-h2.log").read_text(encoding="utf-8")
         self.assertNotIn("fingerprint", log.lower())
         np.testing.assert_allclose(result.quantile_h2["h2_obs"], [0.45, 0.35])
+
+    def _write_target(self, values):
+        rows = "".join(f"1\t{10 * (k + 1)}\trs{k + 1}\t{value}\n" for k, value in enumerate(values))
+        (self.root / "target.tsv").write_text("CHR\tPOS\tSNP\ttarget\n" + rows, encoding="utf-8")
+
+    def test_legacy_boundaries_keep_ties_in_lower_quantile(self):
+        # Boundary index i is floor(i * (n - 1) / q + 0.5): sorted values 0, 1, 1, 3 give
+        # boundaries 0, 1, 3, and both tied values stay in the lower quantile.
+        self._write_target([0, 1, 1, 3])
+
+        result = run_quantile_h2_from_args(self.args)
+
+        self.assertEqual(result.quantile_h2["n_snps"].tolist(), [3, 1])
+        self.assertEqual(result.quantile_h2["target_value_lower"].tolist(), [0.0, 1.0])
+        self.assertEqual(result.quantile_h2["target_value_upper"].tolist(), [1.0, 3.0])
+
+    def test_empty_quantiles_are_rejected(self):
+        self._write_target([1, 1, 1, 1])
+        self.args.num_quantiles = 3
+
+        with self.assertRaisesRegex(LDSCInputError, "empty quantile"):
+            run_quantile_h2_from_args(self.args)
 
     def test_run_quantile_h2_takes_the_command_option_names(self):
         # Single path tokens may be plain strings, as in the documented example.

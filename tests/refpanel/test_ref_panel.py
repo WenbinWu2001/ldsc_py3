@@ -3,7 +3,6 @@ import gzip
 import importlib
 import tempfile
 import unittest
-from unittest import mock
 
 import pandas as pd
 import pytest
@@ -143,14 +142,6 @@ class PlinkRefPanelTest(unittest.TestCase):
         metadata = panel.load_metadata("22")
         self.assertEqual(metadata.loc[:, ["CHR", "SNP", "CM", "POS"]].columns.tolist(), ["CHR", "SNP", "CM", "POS"])
         self.assertGreater(len(metadata), 0)
-
-    def test_filter_to_snps_rsid(self):
-        panel = PlinkRefPanel(
-            GlobalConfig(snp_identifier="rsid"),
-            RefPanelConfig(backend="plink", plink_prefix=str(PLINK_PREFIX)),
-        )
-        filtered = panel.filter_to_snps("22", set(PLINK_SNPS))
-        self.assertEqual(set(filtered["SNP"]), set(PLINK_SNPS))
 
     def test_matching_ids_use_rsid_family(self):
         metadata = pd.DataFrame({"SNP": ["rs1", "rs2"], "A1": ["A", "A"], "A2": ["C", "G"]})
@@ -685,21 +676,6 @@ class ParquetRefPanelTest(unittest.TestCase):
             self.assertEqual(panel.available_chromosomes(), ["1", "2"])
             metadata = panel.load_metadata("2")
             self.assertEqual(metadata["CHR"].tolist(), ["2"])
-
-    def test_filter_to_snps_chr_pos(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_dir = Path(tmpdir) / "panel" / "hg38"
-            _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet")
-            _write_meta_sidecar(
-                build_dir / "chr1_meta.tsv.gz",
-                "CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n1\t20\trs2\t0.2\t0.3\n",
-            )
-            panel = R2MatrixRefPanel(
-                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir), chromosomes=("1",)),
-            )
-            filtered = panel.filter_to_snps("1", {"1:20"})
-            self.assertEqual(filtered["POS"].tolist(), [20])
 
     def test_r2_matrix_dir_sidecar_metadata_loading_by_chromosome(self):
         with tempfile.TemporaryDirectory() as tmpdir:

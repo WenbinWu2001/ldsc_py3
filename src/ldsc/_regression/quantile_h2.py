@@ -70,75 +70,6 @@ STANDARDIZED_COEFFICIENT_COLUMNS = [
 ]
 
 
-@dataclass(frozen=True)
-class QuantileAssignment:
-    """Legacy-compatible quantile membership and realized boundaries.
-
-    Attributes
-    ----------
-    quantile : (n_snps,) ndarray of int
-        One-based quantile labels in the original SNP order.
-    lower, upper : (n_quantiles,) ndarray
-        Realized target-value bounds ordered from low to high.
-    counts : (n_quantiles,) ndarray of int
-        Number of eligible SNPs assigned to each quantile.
-    """
-
-    quantile: np.ndarray
-    lower: np.ndarray
-    upper: np.ndarray
-    counts: np.ndarray
-
-
-def assign_legacy_quantiles(values: Sequence[float] | np.ndarray, n_quantiles: int = 5) -> QuantileAssignment:
-    """Assign finite target values with the legacy LDSC continuous-annotation rule.
-
-    Boundary index ``i`` is ``floor(i * (n - 1) / Q + 0.5)``. The first
-    interval includes both bounds; subsequent intervals exclude the lower and
-    include the upper bound, so ties remain in the lower-valued quantile.
-
-    Parameters
-    ----------
-    values : (n_snps,) array_like
-        Finite numeric target values after explicit missing-token exclusions.
-    n_quantiles : int, optional
-        Requested number of quantiles. Must be at least two. Default is 5.
-
-    Returns
-    -------
-    QuantileAssignment
-        Membership, bounds, and counts in low-to-high order.
-
-    Raises
-    ------
-    LDSCInputError
-        If values are empty or nonfinite, fewer than two quantiles are
-        requested, or the realized boundaries produce an empty quantile.
-    """
-    if int(n_quantiles) != n_quantiles or n_quantiles < 2:
-        raise LDSCInputError("quantile-h2 requires --num-quantiles to be an integer of at least 2.")
-    array = np.asarray(values, dtype=np.float64).reshape(-1)
-    if not len(array) or not np.isfinite(array).all():
-        raise LDSCInputError("quantile-h2 target values must be nonempty, numeric, and finite after exclusions.")
-    sorted_values = np.sort(array, kind="stable")
-    boundary_indices = np.floor(np.arange(n_quantiles + 1) * (len(array) - 1) / n_quantiles + 0.5).astype(int)
-    boundaries = sorted_values[boundary_indices]
-    labels = np.searchsorted(boundaries[1:], array, side="left") + 1
-    counts = np.bincount(labels, minlength=n_quantiles + 1)[1:]
-    if np.any(counts == 0):
-        empty = (np.flatnonzero(counts == 0) + 1).tolist()
-        raise LDSCInputError(
-            f"quantile-h2 produced an empty quantile: {empty}. Target-value ties do not provide enough "
-            "distinct realized intervals; reduce --num-quantiles or use a less discrete target annotation."
-        )
-    return QuantileAssignment(
-        quantile=labels.astype(np.int64),
-        lower=boundaries[:-1].astype(np.float64),
-        upper=boundaries[1:].astype(np.float64),
-        counts=counts.astype(np.int64),
-    )
-
-
 @serial_calculation
 def compute_quantile_h2(
     *,
@@ -897,8 +828,6 @@ def main(argv: Sequence[str] | None = None) -> QuantileH2Result:
 __all__ = [
     "QUANTILE_H2_COLUMNS",
     "STANDARDIZED_COEFFICIENT_COLUMNS",
-    "QuantileAssignment",
-    "assign_legacy_quantiles",
     "compute_quantile_h2",
     "compute_standardized_coefficients",
     "add_quantile_h2_arguments",

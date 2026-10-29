@@ -204,58 +204,6 @@ class SumstatsTable:
                 "with A1/A2 column hints or use a base --snp-identifier mode (rsid or chr_pos)."
             )
 
-    def snp_identifiers(self) -> pd.Series:
-        """Return the active SNP identifiers for this table."""
-        mode = _sumstats_table_identifier_mode(self.config_snapshot)
-        return effective_merge_key_series(
-            self.data,
-            mode,
-            context=f"summary-statistics identifiers for {self.source_path or self.trait_name or 'sumstats'}",
-        ).astype("string")
-
-    def subset_to(self, snps: set[str] | list[str]) -> "SumstatsTable":
-        """Return a copy restricted to ``snps`` while preserving metadata."""
-        keep = self.snp_identifiers().isin(set(snps))
-        return SumstatsTable(
-            data=self.data.loc[keep].reset_index(drop=True),
-            has_alleles=self.has_alleles,
-            source_path=self.source_path,
-            trait_name=self.trait_name,
-            provenance=dict(self.provenance),
-            config_snapshot=self.config_snapshot,
-        )
-
-    def align_to_metadata(self, metadata: pd.DataFrame) -> "SumstatsTable":
-        """Inner-join the table to ``metadata`` using the active identifier mode."""
-        mode = _sumstats_table_identifier_mode(self.config_snapshot)
-        left = pd.DataFrame(
-            {
-                "_ldsc_sumstats_key": effective_merge_key_series(
-                    metadata,
-                    mode,
-                    context="summary-statistics metadata alignment left table",
-                )
-            }
-        ).dropna(subset=["_ldsc_sumstats_key"])
-        right = self.data.copy()
-        right["_ldsc_sumstats_key"] = effective_merge_key_series(
-            right,
-            mode,
-            context=f"summary-statistics metadata alignment for {self.source_path or self.trait_name or 'sumstats'}",
-        )
-        right = right.dropna(subset=["_ldsc_sumstats_key"])
-        merged = pd.merge(left, right, how="inner", on="_ldsc_sumstats_key", sort=False).drop(
-            columns=["_ldsc_sumstats_key"]
-        )
-        return SumstatsTable(
-            data=merged.reset_index(drop=True),
-            has_alleles=self.has_alleles,
-            source_path=self.source_path,
-            trait_name=self.trait_name,
-            provenance=dict(self.provenance),
-            config_snapshot=self.config_snapshot,
-        )
-
     def summary(self) -> dict[str, Any]:
         """Summarize the retained rows and provenance fields."""
         return {
@@ -292,13 +240,6 @@ class MungeRunSummary:
     used_n_rule: str
     output_paths: dict[str, str]
     qc_thresholds: dict[str, float | None]
-
-
-def _sumstats_table_identifier_mode(config_snapshot: GlobalConfig | None) -> str:
-    """Return the mode used for table-local identity helpers."""
-    if config_snapshot is None:
-        return "chr_pos"
-    return normalize_snp_identifier_mode(config_snapshot.snp_identifier)
 
 
 def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> SumstatsTable:

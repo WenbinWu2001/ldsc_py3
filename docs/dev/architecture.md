@@ -240,7 +240,7 @@ It resolves annotation and reference-panel inputs, selects the gene-coordinate-c
 Its private `_DirectProducer` is the direct LD-score producer: each task computes one chromosome from the reference panel.
 Writing workers stage their post-kernel float32 query scores through `_ldscore.direct_batches.stage_direct_chromosome` and return baseline data, scientific statistics, diagnostic descriptors, and exact variation summaries.
 `_ldscore.batch_execution` runs the query batches; the parent combines statistics and filters queries after every chromosome succeeds, then yields `StagedLDScoreBatch` to the shared writer without constructing a genome-wide query matrix.
-Prepared no-output calculations run their one batch through the same producer tasks and retain the materialized `LDScoreResult` path.
+Prepared no-output calculations run their one batch through the same LD-score producer tasks and retain the materialized `LDScoreResult` path.
 Writing workflows retain `diagnostics/ldscore.log` and per-chromosome logs.
 Query-local BED/gene failures are status records; a run continues when at least one query is usable.
 Chromosome workers return only the typed `EmptyReferenceSNPs` outcome as a skip, carrying the error's reference-SNP funnel; other failures propagate independently of diagnostic wording.
@@ -396,22 +396,22 @@ The writer stores run metadata once, and `_regression.quantile_h2.load_fitted_pa
 | `LDScoreCalculator.run` | Own the direct run's persistent worker pool and logs; the writing path runs `_DirectProducer` batches through `run_query_batches`, and owned fragment workspace remains live through consumption or worker shutdown |
 | `_ldscore.direct_batches.stage_direct_chromosome` | Stage direct post-kernel float32 query scores and return baseline plus scientific/diagnostic summaries instead of query matrices |
 | `_ldscore.gene_index.batches.indexed_results` | Own the indexed run's persistent pool; `_IndexedProducer` reloads and releases one chromosome operator per task and reduces compact float64 statistics in index order |
-| `_ldscore.query_variation.summarize_variation`, `combine_variation` | Exact global variation from first values and within-chromosome flags, preserving each producer's precision |
+| `_ldscore.query_variation.summarize_variation`, `combine_variation` | Exact global variation from first values and within-chromosome flags, preserving each LD-score producer's precision |
 | `_ldscore.fragments.StagedLDScoreBatch`, `write_query_fragments` | Private batch descriptor and ordered validation/publication from direct float32 or indexed float64 fragments; delete each consumed fragment without a genome-wide query array |
 | `_ldscore.batch_publication._LDScorePublication`, `write_ldscore_batches` | Retain explicit shared publication state while releasing each materialized or staged batch; publish canonical artifacts after success and clean owned scratch on handled failure |
 | `LDScoreSource.read_queries` | Explicit selected-query reads across manifest files in requested order, without caching or a width cap |
 
 `LDScoreDirectoryWriter.write_batches()` consumes materialized `LDScoreResult` values or private `StagedLDScoreBatch` descriptors behind the same publication interface.
-Its publication record retains the baseline, counts, overlap, provenance, and diagnostics, without retaining the producer's query values, SNP sets, or chromosome results.
+Its publication record retains the baseline, counts, overlap, provenance, and diagnostics, without retaining the LD-score producer's query values, SNP sets, or chromosome results.
 The producer owns active fragments through consumption or worker shutdown; the writer closes the producer before removing publication staging on handled failure.
 Fragment validation consumes tables directly and checks row alignment once per fragment, without constructing partial result objects.
 
 `tests/ldscore/test_ldscore_query_batches.py` verifies numerical precision, zero writes for prepared single-batch calculation, batch lifetimes, publication, and overwrite cleanup.
 `tests/ldscore/test_gene_index_streaming.py` covers operator ownership, known union scores, and serial/parallel agreement.
-`tests/ldscore/test_batch_execution.py` covers, for any producer, the shared persistent pool, one batch in flight, per-batch status filtering and finalization, cancellation of pending tasks, and worker shutdown before scratch removal.
+`tests/ldscore/test_batch_execution.py` covers, for any LD-score producer, the shared persistent pool, one batch in flight, per-batch status filtering and finalization, cancellation of pending tasks, and worker shutdown before scratch removal.
 `tests/ldscore/test_indexed_batch_staging.py` covers operator and parent-frame lifetimes, exact pre-narrowing variation, skipped batches, and cleanup after row-validation failure.
 `tests/ldscore/test_direct_batch_staging.py` covers real-kernel materialized/streamed parity, global filtering, parent-frame release, failure cleanup, and real PLINK gene audits, identity drops, chromosome scope, and reference exports.
-`_annotation.query_outcomes.finalize_query_measurements` shares count/variation decisions across materialized direct results and both fragment producers.
+`_annotation.query_outcomes.finalize_query_measurements` shares count/variation decisions across materialized direct results and both LD-score producers.
 `tests/annotation/test_annotation_format.py` and `tests/annotation/test_annotation_storage.py` cover automatic exact binary classification, packed storage, bounded decoding, and logical column order.
 Public annotation reads and final Parquet LD values stay float32; LD accumulation, annotation sums, and overlap products use float64.
 Reference SNPs, regression SNPs, and fit-time validation are unchanged.

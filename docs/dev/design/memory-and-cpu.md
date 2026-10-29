@@ -1,6 +1,6 @@
 # Memory and CPU efficiency design
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-29
 
 <a id="annotation-and-workflow-memory-design"></a>
 
@@ -409,7 +409,7 @@ Root `metadata.json.query_batches` records each file, ordered query columns, and
 Baseline, counts, and overlap are shared once.
 `_ldscore/batch_publication.py` stages all query files inside the output directory, publishes after successful computation, and writes metadata last.
 Its `_LDScorePublication` record retains only the shared baseline, counts, overlap, provenance, and diagnostic descriptors needed for publication.
-Materialized query tables, producer SNP sets, chromosome results, and staged query paths remain with the active batch and can be released before the next batch is requested.
+Materialized query tables, the LD-score producer's SNP sets, chromosome results, and staged query paths remain with the active batch and can be released before the next batch is requested.
 `_ldscore.source.validate_ldscore_baseline_table()` checks the shared baseline before deferred reads; `validate_ldscore_query_table()` checks either a complete materialized query table or one fragment against the corresponding baseline rows.
 Each fragment has one row-alignment check, with the existing allele-aware identity and row-order rules.
 Handled failure closes the producer and removes owned staging while retaining available diagnostics.
@@ -625,7 +625,7 @@ Do not extrapolate a short indexed run by multiplying its elapsed time by the nu
 
 Before changing a buffer, identify who owns it, whether another process borrows it, its dtype/shape, and the event that releases it.
 Bound producers as well as consumers: deleting consumed files is insufficient if all batches can be produced first.
-Preserve float64 calculation and each producer's established query-filtering precision; do not replace exact variation summaries with extrema or sums that mishandle missing values.
+Preserve float64 calculation and each LD-score producer's established query-filtering precision; do not replace exact variation summaries with extrema or sums that mishandle missing values.
 Avoid trading one removed allocation for hidden per-tile dtype conversion, sparse slicing, or IPC copies.
 
 Validate both scientific results and resource lifetimes.

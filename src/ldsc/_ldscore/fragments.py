@@ -26,7 +26,7 @@ class StagedLDScoreBatch:
     ``query_fragments`` retain direct post-kernel float32 scores or indexed
     float64 scores before public narrowing, in chromosome/SNP order.
     ``query_columns`` are finalized using variation summaries in the respective
-    producer precision; reads select only these retained columns.
+    LD-score producer's precision; reads select only these retained columns.
     This internal descriptor is neither a materialized ``LDScoreResult`` nor
     a persistent ``LDScoreSource`` and must not escape its producer lifetime.
     """

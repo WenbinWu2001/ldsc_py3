@@ -35,8 +35,8 @@ if TYPE_CHECKING:
 class _LDScorePublication:
     """Retain only shared artifacts and metadata while consuming query batches.
 
-    Query values, producer SNP sets, and chromosome results remain owned by
-    the active batch. Diagnostic paths here refer to publication staging.
+    Query values, the LD-score producer's SNP sets, and chromosome results
+    remain owned by the active batch. Diagnostic paths here refer to publication staging.
     """
 
     baseline_table: pd.DataFrame

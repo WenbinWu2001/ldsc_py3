@@ -7,7 +7,7 @@ import numpy as np
 
 @dataclass(frozen=True)
 class ScoreVariation:
-    """First values and within-chromosome flags in the producer's precision."""
+    """First values and within-chromosome flags in the LD-score producer's precision."""
 
     first: np.ndarray | None
     varying: np.ndarray

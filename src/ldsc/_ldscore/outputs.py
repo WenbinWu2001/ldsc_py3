@@ -228,11 +228,13 @@ class LDScoreDirectoryWriter:
         -----
         Each query batch is privately written under the output directory and
         released before requesting the next result. Staged batches are read
-        one chromosome at a time. Their producers finalize retained queries
-        at direct post-kernel float32 or indexed float64 precision; the writer
-        narrows retained values to public float32 without changing eligibility.
+        one chromosome at a time. Retained queries arrive finalized at the
+        LD-score producer's precision, direct post-kernel float32 or indexed
+        float64; the writer narrows retained values to public float32 without
+        changing eligibility.
         Publication retains only the shared baseline, counts, overlap, and
-        provenance/diagnostics, without copying all producer result fields.
+        provenance/diagnostics, without copying every field of the LD-score
+        producer's results.
         One query batch uses ``ldscore.query.parquet``; multiple batches use
         numbered files. After
         all batches succeed, the writer publishes shared artifacts and the

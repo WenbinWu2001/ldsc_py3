@@ -79,7 +79,7 @@ LD and index-building tasks use chromosome-specific staged inputs and outputs; i
 Direct writing workers stage post-kernel float32 query scores and return baseline data, scientific statistics, variation summaries, and diagnostic descriptors.
 Indexed scoring reloads operators for each batch, stages lossless float64 Parquet fragments, and returns only compact counts, overlaps, and variation summaries.
 Both scoring workflows keep their worker pool alive across batches and final publication.
-The shared writer consumes one chromosome fragment at a time in the producer's chromosome order and removes the active batch before submitting another.
+The shared writer consumes one chromosome fragment at a time in the LD-score producer's chromosome order and removes the active batch before submitting another.
 Raw query scratch therefore scales with batch width rather than the total number of queries; privately staged final output files still grow with the run's total output.
 The direct no-output API retains its materialized result path.
 More workers require more private model/chromosome memory.

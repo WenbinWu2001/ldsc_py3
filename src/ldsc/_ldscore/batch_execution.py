@@ -1,4 +1,4 @@
-"""Run LD-score query batches for direct and indexed producers.
+"""Run LD-score query batches for the direct and indexed LD-score producers.
 
 An LD-score producer computes one chromosome per task for the active query
 batch and reduces the chromosome results to one staged batch; this module owns

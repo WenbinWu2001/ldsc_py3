@@ -1,4 +1,4 @@
-"""Query batches run one at a time through the caller's pool for any producer."""
+"""Query batches run one at a time through the caller's pool for any LD-score producer."""
 
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager

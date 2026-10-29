@@ -71,7 +71,6 @@ def iter_pairs(**kwargs):
 
 
 _HAS_BITARRAY = importlib.util.find_spec("bitarray") is not None
-_HAS_PYARROW = importlib.util.find_spec("pyarrow") is not None
 _HAS_PYLIFTOVER = importlib.util.find_spec("pyliftover") is not None
 MINIMAL_EXTERNAL_FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "minimal_external_resources"
 
@@ -453,21 +452,6 @@ class RetainedSnpOrderingTest(unittest.TestCase):
 
 
 class StandardTableFormattingTest(unittest.TestCase):
-    @unittest.skipIf(_HAS_PYARROW, "pyarrow dependency is installed")
-    def test_write_r2_parquet_requires_pyarrow_for_canonical_output(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "chr1.parquet"
-            with self.assertRaises(ImportError) as ctx:
-                r2_format.write_r2_parquet(
-                    pair_chunks=dict_chunks([{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]),
-                    path=path, genome_build="hg19", n_samples=10,
-                    snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
-                    ld_window_mode="kb", ld_window_value=1000.0,
-                )
-            self.assertIn("requires pyarrow", str(ctx.exception))
-            self.assertNotIn("fastparquet", str(ctx.exception))
-
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
     def test_write_r2_parquet_stores_provenance_metadata(self):
         import pyarrow.parquet as pq
 
@@ -489,7 +473,6 @@ class StandardTableFormattingTest(unittest.TestCase):
             self.assertEqual(meta[b"ldsc:n_samples"], b"42")
             self.assertEqual(meta[b"ldsc:r2_bias"], b"unbiased")
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
     def test_write_r2_parquet_records_min_r2_metadata(self):
         import pyarrow.parquet as pq
 
@@ -524,7 +507,6 @@ class StandardTableFormattingTest(unittest.TestCase):
                     )
                 self.assertFalse(path.exists())
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
     def test_write_r2_parquet_records_ld_window_metadata(self):
         import pyarrow.parquet as pq
 
@@ -546,7 +528,6 @@ class StandardTableFormattingTest(unittest.TestCase):
             self.assertEqual(metadata[b"ldsc:ld_window_mode"], b"kb")
             self.assertEqual(metadata[b"ldsc:ld_window_value"], b"1000.0")
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
     def test_write_r2_parquet_uses_zstd_level_9(self):
         import pyarrow as pa
         import pyarrow.parquet as pq
@@ -602,7 +583,6 @@ class StandardTableFormattingTest(unittest.TestCase):
                     )
             self.assertIn("snappy", str(cm.warning).lower())
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_write_r2_parquet_uses_delta_encoding_for_idx2(self):
         import pyarrow as pa
         import pyarrow.parquet as pq
@@ -2832,8 +2812,8 @@ class R2MatrixBuilderSourceOnlySmokeTest(unittest.TestCase):
 
 
 @unittest.skipUnless(
-    _HAS_BITARRAY and _HAS_PYARROW and _HAS_PYLIFTOVER,
-    "bitarray, pyarrow, and pyliftover are required for the smoke/parity builder test",
+    _HAS_BITARRAY and _HAS_PYLIFTOVER,
+    "bitarray and pyliftover are required for the smoke/parity builder test",
 )
 class R2MatrixBuilderParityTest(unittest.TestCase):
     def test_hm3_chr22_subset_writes_target_r2_and_metadata_with_missing_cm_when_target_map_is_absent(self):
@@ -3103,7 +3083,6 @@ class R2MatrixBuilderParityTest(unittest.TestCase):
 
 
 class R2QuantizationTest(unittest.TestCase):
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_quantize_r2_endpoint_is_exact(self):
         from ldsc._refpanel import build_kernel as kb
         from ldsc._refpanel.r2_format import R2_QUANT_SCALE, _quantize_r2
@@ -3116,7 +3095,6 @@ class R2QuantizationTest(unittest.TestCase):
         # endpoint round-trips to EXACTLY 1.0
         self.assertEqual(float(np.float32(32767) / np.float32(R2_QUANT_SCALE)), 1.0)
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_quantize_r2_precision_within_half_step(self):
         from ldsc._refpanel import build_kernel as kb
         from ldsc._refpanel.r2_format import R2_QUANT_SCALE, _quantize_r2
@@ -3124,7 +3102,6 @@ class R2QuantizationTest(unittest.TestCase):
         decoded = _quantize_r2(r2).astype(np.float32) / np.float32(R2_QUANT_SCALE)
         self.assertLessEqual(float(np.max(np.abs(decoded - r2))), 2e-5)
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_write_r2_parquet_stores_int16_with_bss_and_scale_metadata(self):
         import pyarrow as pa
         import pyarrow.parquet as pq
@@ -3158,7 +3135,6 @@ class IndexWriterTest(unittest.TestCase):
             {"i": 1, "j": 2, "R2": 0.3, "sign": "+"},
         ]
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_writes_four_columns_and_binding_metadata(self):
         import pyarrow.parquet as pq
         from ldsc._refpanel import build_kernel as kb
@@ -3179,7 +3155,6 @@ class IndexWriterTest(unittest.TestCase):
             self.assertEqual(meta["ldsc:sidecar_identity_sha256"], "deadbeef" * 8)
             self.assertEqual(meta["ldsc:sorted_by_build"], "hg19")
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_asserts_idx1_sort_invariant(self):
         from ldsc._refpanel import build_kernel as kb
         from ldsc._refpanel import r2_format

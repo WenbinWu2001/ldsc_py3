@@ -23,18 +23,12 @@ from ldsc.errors import LDSCInputError, LDSCInternalError, LDSCUsageError
 from ldsc._annotation.overlap import OverlapContribution
 from ldsc._ldscore.overlap_table import LDScoreOverlap
 
-try:
-    from ldsc._ldscore.calculator import LDScoreResult
-    from ldsc import cli
-    from ldsc._regression import runner as regression_runner
-    from ldsc._regression.runner import RegressionRunner
-    from ldsc._sumstats.munger import SumstatsTable
-    from ldsc._annotation.builder import AnnotationBundle
-except ImportError:
-    LDScoreResult = None
-    RegressionRunner = None
-    SumstatsTable = None
-    AnnotationBundle = None
+from ldsc._ldscore.calculator import LDScoreResult
+from ldsc import cli
+from ldsc._regression import runner as regression_runner
+from ldsc._regression.runner import RegressionRunner
+from ldsc._sumstats.munger import SumstatsTable
+from ldsc._annotation.builder import AnnotationBundle
 
 
 @contextlib.contextmanager
@@ -50,7 +44,6 @@ def _stub_h2_kernel(estimator):
         yield kernel
 
 
-@unittest.skipIf(RegressionRunner is None, "regression_runner module is not available")
 class RegressionWorkflowTest(unittest.TestCase):
     def setUp(self):
         reset_global_config()

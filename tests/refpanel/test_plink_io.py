@@ -1,5 +1,4 @@
 from pathlib import Path
-import importlib
 import tempfile
 import gzip
 import unittest
@@ -11,17 +10,16 @@ import pandas as pd
 
 
 from ldsc._core import plink_files as ps
+from ldsc._ldscore import compute as ld
+from ldsc._refpanel.plink import PlinkBEDFile
+from ldsc._refpanel.r2_format import SortedR2BlockReader, build_index_remap
+from ldsc._refpanel.windows import get_block_lefts
 from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError
 
 try:
     import bitarray as ba
-    from ldsc._ldscore import compute as ld
-    from ldsc._refpanel.plink import PlinkBEDFile
-    from ldsc._refpanel.r2_format import SortedR2BlockReader, build_index_remap
-    from ldsc._refpanel.windows import get_block_lefts
 except ModuleNotFoundError:
     ba = None
-    ld = None
 
 
 PLINK_FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "plink"
@@ -43,15 +41,6 @@ def dict_chunks(rows):
     return [pair_chunk(rows)] if rows else iter([])
 
 
-def _has_module(name: str) -> bool:
-    try:
-        importlib.import_module(name)
-        return True
-    except Exception:
-        return False
-
-
-@unittest.skipIf(ld is None or ba is None, "bitarray dependency is not installed")
 class LDScoreHelpersTest(unittest.TestCase):
     def test_get_block_lefts(self):
         cases = [
@@ -66,7 +55,7 @@ class LDScoreHelpersTest(unittest.TestCase):
         self.assertTrue(np.issubdtype(get_block_lefts(np.arange(3), 1).dtype, np.integer))
 
 
-@unittest.skipIf(ld is None or ba is None, "bitarray dependency is not installed")
+@unittest.skipIf(ba is None, "bitarray dependency is not installed")
 class PlinkBedFileTest(unittest.TestCase):
     def setUp(self):
         self.snp_count = 8
@@ -150,10 +139,6 @@ class PlinkBedFileTest(unittest.TestCase):
         x32 = bed.nextSNPs(width, dtype=np.float32)
         self.assertEqual(x32.dtype, np.float32)
         np.testing.assert_allclose(x32, x64, rtol=1e-4, atol=1e-5)
-
-
-@unittest.skipIf(ld is None, "ldscore kernel is not available")
-@unittest.skipUnless(_has_module("pyarrow"), "pyarrow dependency is not installed")
 
 
 class IndexParquetRuntimeTest(unittest.TestCase):

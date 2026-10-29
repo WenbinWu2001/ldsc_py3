@@ -2,7 +2,6 @@ from pathlib import Path
 import contextlib
 from dataclasses import replace
 import gzip
-import importlib.util
 import io
 import tempfile
 import unittest
@@ -14,26 +13,15 @@ import pandas as pd
 from pandas.testing import assert_series_equal
 
 
-_HAS_PYARROW = importlib.util.find_spec("pyarrow") is not None
-
+import ldsc
 from ldsc.config import GlobalConfig, MungeConfig
-
-try:
-    import ldsc
-    from ldsc._sumstats import munger as sumstats_workflow
-    from ldsc._sumstats import munge_kernel as kernel_munge
-    from ldsc._sumstats import munge_input
-    from ldsc._core.snp_identity import IDENTITY_DROP_COLUMNS
-    from ldsc._sumstats.munger import SumstatsMunger
-except ImportError:
-    ldsc = None
-    kernel_munge = None
-    sumstats_workflow = None
-    IDENTITY_DROP_COLUMNS = None
-    SumstatsMunger = None
+from ldsc._sumstats import munger as sumstats_workflow
+from ldsc._sumstats import munge_kernel as kernel_munge
+from ldsc._sumstats import munge_input
+from ldsc._core.snp_identity import IDENTITY_DROP_COLUMNS
+from ldsc._sumstats.munger import SumstatsMunger
 
 
-@unittest.skipIf(SumstatsMunger is None, "sumstats_munger module is not available")
 class SumstatsMungerTest(unittest.TestCase):
 
     DROPPED_SNP_DTYPES = {
@@ -621,7 +609,6 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.config_snapshot.genome_build, "hg19")
             self.assertEqual(table.data["POS"].tolist(), [100])
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_load_sumstats_reads_footer_parquet_with_exact_one_glob(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -671,7 +658,6 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.data.columns.tolist(), ["SNP", "N", "Z"])
             self.assertEqual(table.data.loc[0, "SNP"], "rs1")
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_load_sumstats_rejects_footerless_parquet(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -683,7 +669,6 @@ class SumstatsMungerTest(unittest.TestCase):
             with self.assertRaisesRegex(ldsc.LDSCInputError, "missing required LDSC3 identity footer"):
                 ldsc.load_sumstats(sumstats_file)
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_load_sumstats_recovers_trait_name_from_footer(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -696,7 +681,6 @@ class SumstatsMungerTest(unittest.TestCase):
 
             self.assertEqual(table.trait_name, "MDD")
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_load_sumstats_explicit_trait_name_overrides_footer(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -709,7 +693,6 @@ class SumstatsMungerTest(unittest.TestCase):
 
             self.assertEqual(table.trait_name, "SCZ")
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_load_sumstats_leaves_trait_name_unset_without_stored_or_explicit_name(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -725,7 +708,6 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertIsNone(ldsc.load_sumstats(parquet_file).trait_name)
             self.assertIsNone(ldsc.load_sumstats(legacy_file).trait_name)
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_write_output_round_trips_loaded_table_without_trait_name(self):
         import pyarrow.parquet as pq
 
@@ -741,7 +723,6 @@ class SumstatsMungerTest(unittest.TestCase):
             footer = pq.read_schema(tmpdir / "second" / "sumstats.parquet").metadata
             self.assertEqual(footer[b"ldsc:trait_name"], b"")
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_load_sumstats_reads_chr_pos_footer_parquet_with_exact_one_glob(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -762,7 +743,6 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
             self.assertFalse(any("cannot recover the GlobalConfig" in str(item.message) for item in caught))
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_load_sumstats_rejects_allele_aware_artifact_without_alleles(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -782,7 +762,6 @@ class SumstatsMungerTest(unittest.TestCase):
             ):
                 ldsc.load_sumstats(sumstats_file)
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_load_sumstats_rejects_chr_pos_artifact_with_missing_base_identity(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -818,7 +797,6 @@ class SumstatsMungerTest(unittest.TestCase):
             with self.assertRaisesRegex(ldsc.LDSCInputError, "unsupported file suffix.*run munge-sumstats first"):
                 ldsc.load_sumstats(path)
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for default parquet output")
     def test_run_munges_and_writes_parquet_by_default(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -860,7 +838,6 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertNotIn("metadata_json", summary.output_paths)
             self.assertEqual(summary.inferred_columns["detected_format"], "plain")
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for default parquet output")
     def test_run_base_rsid_without_allele_columns_defaults_to_allele_free_table(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -909,7 +886,6 @@ class SumstatsMungerTest(unittest.TestCase):
             # tsv.gz carries no embedded metadata and no metadata.json sidecar is written.
             self.assertFalse((tmpdir / "munged" / "metadata.json").exists())
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_run_writes_both_formats_and_lists_outputs_in_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -935,7 +911,6 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(footer[b"ldsc:artifact_type"], b"sumstats")
             self.assertEqual(footer[b"ldsc:trait_name"], b"trait")
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_run_overwrite_removes_unselected_sumstats_sibling(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -1004,7 +979,6 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertTrue((output_dir / "diagnostics" / "sumstats.log").exists())
             self.assertTrue((output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz").exists())
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_write_output_accepts_output_format(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -1042,7 +1016,6 @@ class SumstatsMungerTest(unittest.TestCase):
 
             self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_write_output_overwrite_removes_unselected_sumstats_sibling(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -1065,7 +1038,6 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertFalse((output_dir / "sumstats.metadata.json").exists())
             self.assertFalse(stale.exists())
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_parquet_output_sorts_by_chr_pos_records_row_groups_and_preserves_precision(self):
         import pyarrow.parquet as pq
 
@@ -1112,7 +1084,6 @@ class SumstatsMungerTest(unittest.TestCase):
             footer = parquet_file.schema_arrow.metadata
             self.assertEqual(footer[b"ldsc:artifact_type"], b"sumstats")
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for default parquet output")
     def test_run_writes_thin_sidecar_and_logs_coordinate_liftover_provenance(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -1786,7 +1757,6 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(dropped["SNP"].tolist(), ["rs_bad", "rs_ambiguous"])
             self.assertEqual(dropped["reason"].tolist(), ["invalid_allele", "strand_ambiguous_allele"])
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_load_sumstats_rejects_duplicate_effective_keys(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -2955,7 +2925,6 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertFalse(any("cannot recover the GlobalConfig" in str(item.message) for item in caught))
 
 
-@unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
 class SumstatsParquetFooterTest(unittest.TestCase):
     def _frame(self):
         return pd.DataFrame(

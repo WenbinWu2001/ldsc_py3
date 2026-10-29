@@ -12,8 +12,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-pa = pytest.importorskip("pyarrow")
-pq = pytest.importorskip("pyarrow.parquet")
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from ldsc.config import GlobalConfig, RefPanelConfig
 from ldsc.errors import LDSCInputError

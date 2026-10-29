@@ -9,7 +9,6 @@ parallel path is exercised end-to-end through `SortedR2BlockReader`, not a mock.
 from __future__ import annotations
 from tests.annotation_fixtures import make_annotation_bundle
 
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -19,9 +18,6 @@ import pandas as pd
 import pytest
 
 from ldsc.errors import EmptyReferenceSNPs, LDSCInputError
-
-_HAS_PYARROW = importlib.util.find_spec("pyarrow") is not None
-pytestmark = pytest.mark.skipif(not _HAS_PYARROW, reason="pyarrow is required for R2 matrices")
 
 
 # --- Fixture builders -------------------------------------------------------

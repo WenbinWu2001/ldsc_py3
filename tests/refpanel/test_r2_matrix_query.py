@@ -11,7 +11,6 @@ from ldsc._refpanel.r2_format import write_r2_parquet, write_runtime_metadata_si
 from ldsc._core.snp_identity import sidecar_identity_sha256
 from ldsc._refpanel.query import unbiased_r2_to_pearson_r
 
-pytest.importorskip("pyarrow")
 
 
 def build_test_panel(

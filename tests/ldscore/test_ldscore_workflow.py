@@ -26,48 +26,33 @@ from ldsc.config import ConfigMismatchError, GlobalConfig
 from ldsc.errors import LDSCInputError, LDSCInternalError, LDSCUsageError
 from ldsc._annotation.query_outcomes import QueryAnnotationStatus, emit_gene_gate_b_notice
 
-try:
-    from ldsc import (
-        AnnotationBuildConfig,
-        AnnotationBuilder,
-        AnnotationBundle,
-        LDScoreConfig,
-        PlinkRefPanel,
-        RefPanelConfig,
-    )
-    from ldsc._ldscore import calculator as ldscore_workflow
-    from ldsc._ldscore.calculator import (
-        build_parser,
-        _normalize_run_args,
-        _resolve_regression_region_build,
-    )
-    from ldsc._core import plink_files as kernel_formats
-    from ldsc._ldscore import compute as kernel_ldscore
-    from ldsc._annotation.overlap import compute_overlap
-    from ldsc._refpanel import plink as plink_bed
-    from ldsc._refpanel import adapters as ref_panel_adapters, r2_format, windows as ld_windows
-    from ldsc._refpanel.prepared import ChromosomeAnnotations
-    from ldsc._refpanel.r2_format import validate_ldscore_window_within_r2_matrix_window
-    from ldsc._refpanel.windows import (
-        assert_cm_usable,
-        validate_window_positions_sorted,
-        window_coordinates,
-    )
-    from ldsc._core.snp_identity import RestrictionIdentityKeys, empty_identity_drop_frame
-except ImportError:
-    AnnotationBuildConfig = None
-    AnnotationBuilder = None
-    AnnotationBundle = None
-    LDScoreConfig = None
-    PlinkRefPanel = None
-    RefPanelConfig = None
-    kernel_formats = None
-    ldscore_workflow = None
-    build_parser = None
-    _normalize_run_args = None
-    kernel_ldscore = None
-    RestrictionIdentityKeys = None
-    empty_identity_drop_frame = None
+from ldsc import (
+    AnnotationBuildConfig,
+    AnnotationBuilder,
+    AnnotationBundle,
+    LDScoreConfig,
+    PlinkRefPanel,
+    RefPanelConfig,
+)
+from ldsc._ldscore import calculator as ldscore_workflow
+from ldsc._ldscore.calculator import (
+    build_parser,
+    _normalize_run_args,
+    _resolve_regression_region_build,
+)
+from ldsc._core import plink_files as kernel_formats
+from ldsc._ldscore import compute as kernel_ldscore
+from ldsc._annotation.overlap import compute_overlap
+from ldsc._refpanel import plink as plink_bed
+from ldsc._refpanel import adapters as ref_panel_adapters, r2_format, windows as ld_windows
+from ldsc._refpanel.prepared import ChromosomeAnnotations
+from ldsc._refpanel.r2_format import validate_ldscore_window_within_r2_matrix_window
+from ldsc._refpanel.windows import (
+    assert_cm_usable,
+    validate_window_positions_sorted,
+    window_coordinates,
+)
+from ldsc._core.snp_identity import RestrictionIdentityKeys, empty_identity_drop_frame
 
 
 PLINK_FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "plink"
@@ -85,7 +70,6 @@ def dict_chunks(rows):
     return [(i, j, r2, sign)]
 
 
-_HAS_PYARROW = importlib.util.find_spec("pyarrow") is not None
 _HAS_BITARRAY = importlib.util.find_spec("bitarray") is not None
 
 
@@ -133,7 +117,6 @@ def _write_legacy_r2_parquet(path: Path) -> None:
 
 
 class R2AutoLoadCLITest(unittest.TestCase):
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
     def test_package_parquet_metadata_duplicates_remain_invariant_failures(self):
         from ldsc._refpanel.adapters import R2MatrixRefPanel
 
@@ -168,7 +151,6 @@ class R2AutoLoadCLITest(unittest.TestCase):
                 panel.load_metadata("1")
 
 
-@unittest.skipIf(ldscore_workflow is None, "ldscore_workflow module is not available")
 class LDScoreWorkflowTest(unittest.TestCase):
     def test_build_parser_genome_build_help_documents_chr_pos_requirement(self):
         help_text = " ".join(ldscore_workflow.build_parser().format_help().split())
@@ -296,7 +278,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
             with self.assertRaisesRegex(LDSCInputError, "Genome-build consistency check failed"):
                 ldscore_workflow._normalize_run_args(args)
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
     def test_auto_genome_build_uses_r2_schema_metadata_not_directory_name(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             r2_matrix_dir = Path(tmpdir) / "hg38"
@@ -323,7 +304,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(normalized_args.genome_build, "hg19")
         self.assertEqual(global_config.genome_build, "hg19")
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
     def test_auto_genome_build_uses_single_child_r2_schema_metadata_not_child_name(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             r2_parent = Path(tmpdir) / "panel"
@@ -350,7 +330,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(normalized_args.genome_build, "hg19")
         self.assertEqual(global_config.genome_build, "hg19")
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
     def test_auto_genome_build_requires_selection_among_r2_alternatives(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             r2_parent = Path(tmpdir) / "panel"
@@ -2206,7 +2185,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertIsNone(normalized_args.genome_build)
         self.assertIsNone(global_config.genome_build)
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
     def test_normalize_run_args_chr_pos_auto_rejects_annotation_r2_build_mismatch(self):
         from ldsc._genome.build_inference import load_packaged_reference_table
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2405,10 +2383,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
             np.testing.assert_allclose(result.baseline_table["base"].to_numpy(), expected_ld)
 
 
-@unittest.skipIf(kernel_ldscore is None, "ldscore kernel is not available")
 class LDScoreParquetNormalizationTest(unittest.TestCase):
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet reader coverage")
     def test_sorted_r2_block_reader_rejects_auto_genome_build_at_kernel_boundary(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "raw_chr1.parquet"
@@ -2538,7 +2514,6 @@ class IndexReaderDecodeTest(unittest.TestCase):
                             sidecar_identity_sha256=sidecar_identity_sha256(full), ld_window_mode="kb", ld_window_value=1000.0)
         return r2, full
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_streaming_drops_unretained_endpoint(self):
         from ldsc._refpanel.r2_format import SortedR2BlockReader
         with tempfile.TemporaryDirectory() as tmp:
@@ -2563,7 +2538,6 @@ class IndexReaderDecodeTest(unittest.TestCase):
 
 
 class R2MatrixWindowValidationTest(unittest.TestCase):
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_ldscore_accepts_equal_recorded_r2_matrix_window(self):
         from ldsc._refpanel import build_kernel as kb
         from ldsc._refpanel import r2_format
@@ -2610,7 +2584,6 @@ class R2MatrixWindowValidationTest(unittest.TestCase):
                 chrom="1",
             )
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_ldscore_rejects_window_wider_than_recorded_r2_matrix_window(self):
         from ldsc._refpanel import build_kernel as kb
         from ldsc._refpanel import r2_format
@@ -2659,7 +2632,6 @@ class R2MatrixWindowValidationTest(unittest.TestCase):
                     chrom="1",
                 )
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_ldscore_rejects_any_strictly_larger_same_mode_window(self):
         from ldsc._refpanel import build_kernel as kb
         from ldsc._refpanel import r2_format
@@ -2706,7 +2678,6 @@ class R2MatrixWindowValidationTest(unittest.TestCase):
                     chrom="1",
                 )
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_ldscore_rejects_requested_window_mode_differing_from_r2_matrix_mode(self):
         from ldsc._refpanel import build_kernel as kb
         from ldsc._refpanel import r2_format
@@ -2763,7 +2734,6 @@ class R2MatrixWindowValidationTest(unittest.TestCase):
 class IndexCrossModeParityTest(unittest.TestCase):
     """One index parquet must produce identical LD scores in all four modes."""
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_ld_scores_identical_across_modes_from_one_index_parquet(self):
         from ldsc._refpanel import build_kernel as kb
         from ldsc._refpanel import r2_format
@@ -2817,7 +2787,6 @@ class IndexCrossModeParityTest(unittest.TestCase):
 
 
 class RawSchemaRejectedTest(unittest.TestCase):
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_legacy_raw_schema_is_rejected(self):
         from ldsc._refpanel.r2_format import SortedR2BlockReader
         with tempfile.TemporaryDirectory() as tmp:
@@ -2831,7 +2800,6 @@ class RawSchemaRejectedTest(unittest.TestCase):
 
 
 class R2DequantizationTest(unittest.TestCase):
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_reader_dequantizes_int16_panel_to_float32(self):
         from ldsc._refpanel import build_kernel as kb
         from ldsc._refpanel import r2_format

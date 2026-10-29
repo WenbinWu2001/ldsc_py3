@@ -286,7 +286,6 @@ class PlinkRefPanelTest(unittest.TestCase):
 
 
 class ParquetRefPanelTest(unittest.TestCase):
-    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_missing_sidecar_is_a_hard_error(self):
         from ldsc._refpanel import build_kernel as kb
         from ldsc._refpanel import r2_format
@@ -308,7 +307,6 @@ class ParquetRefPanelTest(unittest.TestCase):
             with self.assertRaisesRegex(LDSCInputError, "sidecar"):
                 panel.load_metadata("1")
 
-    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_r2_matrix_dir_loads_sidecar_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
@@ -325,7 +323,6 @@ class ParquetRefPanelTest(unittest.TestCase):
             self.assertEqual(metadata["SNP"].tolist(), ["rs1", "rs2"])
             self.assertEqual(metadata["CM"].round(3).tolist(), [0.1, 0.2])
 
-    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_r2_matrix_dir_loads_allele_metadata_sidecar_in_allele_aware_mode(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
@@ -349,7 +346,6 @@ class ParquetRefPanelTest(unittest.TestCase):
             self.assertEqual(metadata["A1"].tolist(), ["A", "A"])
             self.assertEqual(metadata["A2"].tolist(), ["C", "G"])
 
-    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_metadata_sidecar_missing_alleles_is_malformed_in_allele_aware_mode(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
@@ -370,7 +366,6 @@ class ParquetRefPanelTest(unittest.TestCase):
             with self.assertRaisesRegex(LDSCInputError, "malformed.*A1/A2"):
                 panel.load_metadata("1")
 
-    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_package_canonical_r2_rejects_missing_identity_schema_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
@@ -385,7 +380,6 @@ class ParquetRefPanelTest(unittest.TestCase):
             with self.assertRaisesRegex(LDSCInputError, "ldsc:artifact_type is missing"):
                 panel.build_reader("1")
 
-    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_package_metadata_sidecar_rejects_missing_identity_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
@@ -407,7 +401,6 @@ class ParquetRefPanelTest(unittest.TestCase):
             ):
                 panel.load_metadata("1")
 
-    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_package_metadata_sidecar_rejects_identity_mismatch(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
@@ -426,7 +419,6 @@ class ParquetRefPanelTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "snp_identifier mismatch"):
                 panel.load_metadata("1")
 
-    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_package_canonical_r2_rejects_snp_identifier_mismatch(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
@@ -441,7 +433,6 @@ class ParquetRefPanelTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "snp_identifier mismatch"):
                 panel.build_reader("1")
 
-    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_concrete_build_rejects_conflicting_r2_declaration(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
@@ -456,7 +447,6 @@ class ParquetRefPanelTest(unittest.TestCase):
             with self.assertRaisesRegex(LDSCInputError, "Conflicting genome-build evidence"):
                 panel.build_reader("1")
 
-    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_r2_matrix_dir_requires_r2_for_requested_chromosome(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
@@ -469,7 +459,6 @@ class ParquetRefPanelTest(unittest.TestCase):
             with self.assertRaisesRegex(LDSCInputError, "chr1_r2.parquet"):
                 panel.load_metadata("1")
 
-    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_r2_matrix_dir_missing_metadata_hard_fails_when_configured(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
@@ -482,7 +471,6 @@ class ParquetRefPanelTest(unittest.TestCase):
             with self.assertRaisesRegex(LDSCInputError, "metadata sidecar"):
                 panel.load_metadata("1")
 
-    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_r2_matrix_dir_top_level_root_descends_by_genome_build(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir) / "panel"
@@ -495,7 +483,6 @@ class ParquetRefPanelTest(unittest.TestCase):
 
             self.assertEqual(panel.available_chromosomes(), ["1"])
 
-    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_r2_matrix_dir_top_level_root_rejects_ambiguous_build(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir) / "panel"
@@ -510,7 +497,6 @@ class ParquetRefPanelTest(unittest.TestCase):
             with self.assertRaisesRegex(LDSCInputError, "ambiguous"):
                 panel.available_chromosomes()
 
-    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_r2_matrix_dir_top_level_root_rejects_build_dirs_even_when_only_one_has_r2(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir) / "panel"
@@ -710,7 +696,6 @@ class ParquetRefPanelTest(unittest.TestCase):
             with self.assertRaisesRegex(AssertionError, "workflow entry"):
                 panel.load_metadata("1")
 
-    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_build_reader(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"

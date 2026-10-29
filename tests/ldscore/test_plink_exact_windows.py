@@ -15,7 +15,6 @@ import pytest
 from ldsc import cli
 
 pytest.importorskip("bitarray")
-pytest.importorskip("pyarrow")
 
 PLINK = Path(__file__).resolve().parents[1] / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
 IDENTITY = ["--snp-identifier", "chr_pos"]

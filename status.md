@@ -41,7 +41,9 @@ The user asked for each to be diagnosed and given a failing test first; each was
 - `4f71e9f`: pytest is the only test runner; `AGENTS.md` (and `CLAUDE.md`, a link to it) and the developer docs no longer run `python -m unittest discover`.
 - Missing reference MAF, verified on 2026-10-29: not a reachable defect.
   The R2 matrix sidecar reader rejects a missing or out-of-range MAF, and PLINK genotype QC removes all-missing and monomorphic SNPs, so neither `compute_counts()` (which raises) nor `annotation_statistics()` (which would omit common counts) ever receives missing MAF.
-- Open: removing the public names that only tests use waits on the user's confirmation of the candidate list.
+- `13e95ce`: with the user's confirmation, removed the public names that had no production caller and no use in user-facing docs: `assign_legacy_quantiles` and `QuantileAssignment`, `SumstatsTable.subset_to`, `align_to_metadata` and `snp_identifiers`, `RefPanel.filter_to_snps`, and the `summary()` methods of `RefPanel`, `LDScoreResult` and `ChromLDScoreResult` (a breaking change).
+  The legacy quantile-boundary tests now run through `run_quantile_h2_from_args`.
+  Public names that user-facing docs use were kept, among them `RegressionRunner.estimate_partitioned_h2`, which `docs/reference/index.md` lists.
 
 ## Proposed: index construction through the shared LD-score kernel
 

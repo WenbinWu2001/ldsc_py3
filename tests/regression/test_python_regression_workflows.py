@@ -163,3 +163,20 @@ def test_run_rg_rejects_a_single_prevalence_number(tmp_path):
         ldsc.run_rg(ldscore_dir="ld", sumstats_sources=["a", "b"], output_dir=str(tmp_path / "out"),
                     samp_prev=0.5, pop_prev=0.01)
     assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize("command", ["h2", "partitioned-h2"])
+def test_commands_record_the_absolute_ldscore_directory(tmp_path, monkeypatch, command):
+    _, sumstats = _inputs(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    cli.main([command, "--ldscore-dir", "ld", "--sumstats-file", sumstats, "--output-dir", str(tmp_path / "out"),
+              "--num-blocks", "6"])
+    assert _metadata(tmp_path / "out")["ldscore_dir"] == str((tmp_path / "ld").resolve())
+
+
+def test_caller_metadata_records_the_absolute_ldscore_directory(tmp_path, monkeypatch):
+    table, source = batch_inputs(tmp_path / "ld")
+    monkeypatch.chdir(tmp_path)
+    ldsc.RegressionRunner(source.config_snapshot, ldsc.RegressionConfig(num_blocks=6)).estimate_partitioned_h2_batch(
+        table, source, output_dir=tmp_path / "out", metadata={"ldscore_dir": "ld", "trait_name": "trait"})
+    assert _metadata(tmp_path / "out")["ldscore_dir"] == str((tmp_path / "ld").resolve())

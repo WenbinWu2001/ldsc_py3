@@ -464,10 +464,12 @@ def load_fitted_partitioned_model(result_dir: str | Path) -> FittedPartitionedMo
             "regenerate fitted-result files."
         )
     ldscore_dir = Path(str(ldscore_value))
-    if not ldscore_dir.is_dir():
-        candidate = (root / ldscore_dir).resolve()
-        if candidate.is_dir():
-            ldscore_dir = candidate
+    if not ldscore_dir.is_absolute():
+        raise LDSCInputError(
+            f"quantile-h2 fitted-model metadata records a relative LD-score directory '{ldscore_value}', which "
+            "cannot be located reliably. Rerun partitioned-h2, which records the absolute path, or set ldscore_dir "
+            "in the fitted-model metadata to the directory's absolute path."
+        )
     if not ldscore_dir.is_dir():
         raise LDSCInputError(
             f"quantile-h2 cannot resolve linked LD-score directory '{ldscore_value}'. Restore that directory "

@@ -2372,7 +2372,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     },
                     "trait_name": "trait",
                     "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
-                    "ldscore_dir": str(ldscore_dir),
+                    "ldscore_dir": str(ldscore_dir.resolve()),
                     "effective_snp_identifier": "rsid",
                     "genome_build": None,
                     "identity_downgrade_applied": False,

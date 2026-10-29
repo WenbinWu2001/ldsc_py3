@@ -1137,6 +1137,8 @@ class RegressionRunner:
             defaults["ldscore_dir"] = str(Path(source_metadata).resolve().parent)
         for name, value in defaults.items():
             metadata.setdefault(name, value)
+        if metadata.get("ldscore_dir"):
+            metadata["ldscore_dir"] = _absolute_ldscore_dir(metadata["ldscore_dir"])
         with AnnotationWorkspace(output_dir) as workspace:
             with _log_phase_timing("shared regression preparation"):
                 prepared = self.prepare_inputs(sumstats_table, ldscore_result, config=config)
@@ -2329,6 +2331,15 @@ def _concise_rg_row(full_row: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _absolute_ldscore_dir(value) -> str | None:
+    """Return the absolute LD-score directory to record, resolving a relative value against the working directory.
+
+    Saved results link to their LD-score directory, which ``quantile-h2``
+    reopens from any working directory, so a relative path would be ambiguous.
+    """
+    return None if value is None else str(Path(normalize_path_token(str(value))).resolve())
+
+
 def _h2_metadata(
     args,
     sumstats_table: SumstatsTable,
@@ -2343,7 +2354,7 @@ def _h2_metadata(
         "artifact_type": "h2_result",
         "trait_name": _trait_label(sumstats_table),
         "sumstats_file": getattr(args, "sumstats_file", None),
-        "ldscore_dir": getattr(args, "ldscore_dir", None),
+        "ldscore_dir": _absolute_ldscore_dir(getattr(args, "ldscore_dir", None)),
         "effective_snp_identifier": dataset.effective_snp_identifier,
         "genome_build": None if config_snapshot is None else getattr(config_snapshot, "genome_build", None),
         "identity_downgrade_applied": dataset.identity_downgrade_applied,

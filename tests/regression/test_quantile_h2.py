@@ -7,6 +7,7 @@ import unittest
 
 import numpy as np
 import pandas as pd
+import pytest
 
 import ldsc
 from ldsc.errors import LDSCInputError
@@ -426,3 +427,20 @@ class QuantileH2WorkflowTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_loader_rejects_a_relative_ldscore_directory(tmp_path, monkeypatch):
+    # A same-named directory in the working directory must not be read silently.
+    (tmp_path / "elsewhere" / "ldscores").mkdir(parents=True)
+    model_dir = tmp_path / "fit" / "query"
+    (model_dir.parent / "ldscores").mkdir(parents=True)
+    model_dir.mkdir()
+    (model_dir / "metadata.json").write_text(
+        json.dumps({"ldscore_dir": "ldscores", "retained_ld_columns": ["base", "query"]}), encoding="utf-8")
+    pd.DataFrame({"category": ["base", "query"], "coefficient": [0.1, 0.2], "coefficient_se": [0.01, 0.02]}
+                 ).to_csv(model_dir / "partitioned_h2_full.tsv", sep="\t", index=False)
+    pd.DataFrame({"delete_block": [0, 1], "base": [0.09, 0.11], "query": [0.19, 0.21]}
+                 ).to_parquet(model_dir / "coefficient_delete_values.parquet", index=False)
+    monkeypatch.chdir(tmp_path / "elsewhere")
+    with pytest.raises(LDSCInputError, match="relative"):
+        load_fitted_partitioned_model(model_dir)

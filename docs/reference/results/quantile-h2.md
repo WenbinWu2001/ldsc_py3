@@ -1,6 +1,6 @@
 # Continuous-Annotation Quantile Heritability: Technical Contract
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-29
 
 Quantile calculation runs in one worker with **1 BLAS thread**, including input overlap products and post-fit projection.
 See [parallel execution](../parallel-execution.md) for native-limit verification and Python process startup.
@@ -43,6 +43,8 @@ Per-query metadata uses `global_metadata: "../../metadata.json"` to reference th
 The fitted-model loader combines it with model-specific metadata before reconstructing annotations and counts; model-specific fields take precedence.
 Copy the complete regression result directory, including `diagnostics/metadata.json`, when relocating a fitted query.
 Missing or invalid shared references fail with a repair message.
+The shared metadata's `ldscore_dir` links the fit to its LD-score directory: `partitioned-h2` records that directory's absolute path, however `--ldscore-dir` was written, so `quantile-h2` finds it from any working directory.
+A relative or missing `ldscore_dir` stops the run; after moving the LD-score directory, set `ldscore_dir` to its new absolute path.
 
 ## Required resupplied data
 

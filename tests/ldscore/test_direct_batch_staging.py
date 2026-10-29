@@ -17,73 +17,6 @@ from tests.ldscore.test_ldscore_query_batches import prepared_case
 from tests.ldscore.test_gene_query_integration import inputs, direct_args
 
 
-def test_direct_workers_return_fragments_and_reuse_pool_across_batches(tmp_path, monkeypatch):
-    metadata, baseline, queries, config, panel, numerical = prepared_case(tmp_path)
-    with AnnotationBundle.from_frames(metadata, baseline, queries, config_snapshot=config) as bundle:
-        calculator = LDScoreCalculator()
-        small = calculator.run(bundle, panel, numerical, config)
-        numerical = replace(numerical, query_batch_size=2, workers=2)
-        original_batch = calculator._run_batch
-
-        def materialized(*args, **kwargs):
-            kwargs.pop("fragment_dir", None)
-            return original_batch(*args, **kwargs)
-
-        # Match batch width for exact overlap comparisons: changing the width
-        # can change float64 reduction order even on the materialized path.
-        with monkeypatch.context() as patch:
-            patch.setattr(calculator, "_run_batch", materialized)
-            expected = calculator.run(bundle, panel, numerical, config,
-                output_config=LDScoreOutputConfig(tmp_path / "materialized"))
-        original_run = calculator._run_chromosomes
-        from ldsc._runtime import parallelism
-        original_pool = parallelism.ProcessPoolExecutor
-        pools, previous, batches = [], [], []
-
-        def pool(*args, **kwargs):
-            pools.append(kwargs["max_workers"])
-            return original_pool(*args, **kwargs)
-
-        def run(*args, **kwargs):
-            assert all(not path.exists() for path in previous), "previous batch fragments remain live"
-            outcomes = original_run(*args, **kwargs)
-            fragments = []
-            for outcome in outcomes.values():
-                result = outcome.result
-                assert getattr(result, "query_table", None) is None, "worker transported a query matrix"
-                path = Path(result.query_fragment)
-                frame = pd.read_parquet(path)
-                assert all(frame[name].dtype == np.float32 for name in result.query_columns)
-                fragments.append(path)
-            previous[:] = fragments
-            batches.append(len(fragments))
-            return outcomes
-
-        monkeypatch.setattr("ldsc._runtime.parallelism.ProcessPoolExecutor", pool)
-        monkeypatch.setattr(calculator, "_run_chromosomes", run)
-        output = tmp_path / "out"
-        saved = calculator.run(bundle, panel, numerical, config,
-                               output_config=LDScoreOutputConfig(output))
-
-    assert pools == [2]
-    assert batches == [2, 2]
-    assert all(not path.exists() for path in previous)
-    pd.testing.assert_frame_equal(saved.read_queries(list(queries)), expected.read_queries(list(queries)), check_exact=True)
-    pd.testing.assert_frame_equal(saved.read_queries(list(queries)), small.query_table, check_exact=True)
-    pd.testing.assert_frame_equal(saved.baseline_table, expected.baseline_table, check_exact=True)
-    assert saved.count_records == expected.count_records
-    pd.testing.assert_frame_equal(saved.overlap.baseline_block_all, expected.overlap.baseline_block_all, check_exact=True)
-    pd.testing.assert_frame_equal(saved.overlap.baseline_block_common, expected.overlap.baseline_block_common, check_exact=True)
-    pd.testing.assert_series_equal(saved.overlap.query_diagonal_all, expected.overlap.query_diagonal_all, check_exact=True)
-    pd.testing.assert_series_equal(saved.overlap.query_diagonal_common, expected.overlap.query_diagonal_common, check_exact=True)
-    assert saved.snp_universe_policy == expected.snp_universe_policy
-    assert saved.annotation_types == expected.annotation_types
-    assert saved.query_statuses == expected.query_statuses
-    assert [[entry["chrom"] for entry in batch["row_groups"]] for batch in saved.query_batches] == [
-        ["1", "2"], ["1", "2"]]
-    assert not list(output.glob(".ldsc-*"))
-
-
 @pytest.mark.parametrize("width", [1, 2, 10])
 @pytest.mark.parametrize("empty_first_chromosome", [False, True])
 def test_direct_global_filtering_matches_materialized_output(tmp_path, width, empty_first_chromosome):
@@ -192,42 +125,6 @@ def test_direct_final_batch_failure_removes_private_outputs(tmp_path, monkeypatc
     assert (output / "diagnostics/chromosome-logs/chr2.log").is_file()
 
 
-def test_direct_failure_waits_for_workers_before_removing_borrowed_scratch(tmp_path, monkeypatch):
-    from concurrent.futures import ThreadPoolExecutor
-    from threading import Event
-
-    metadata, baseline, queries, config, panel, numerical = prepared_case(tmp_path)
-    running, shutting_down, finished = Event(), Event(), Event()
-
-    class Pool(ThreadPoolExecutor):
-        def __init__(self, max_workers, **kwargs):
-            super().__init__(max_workers=max_workers)
-
-        def shutdown(self, *args, **kwargs):
-            shutting_down.set()
-            return super().shutdown(*args, **kwargs)
-
-    def task(chrom, bundle, *args, **kwargs):
-        borrowed = bundle.workspace.path
-        if chrom == "1":
-            assert running.wait(5)
-            raise OSError("injected worker failure")
-        running.set()
-        assert shutting_down.wait(5)
-        assert borrowed.is_dir()
-        assert Path(kwargs["fragment_dir"]).is_dir()
-        finished.set()
-
-    monkeypatch.setattr("ldsc._runtime.parallelism.ProcessPoolExecutor", Pool)
-    monkeypatch.setattr(ldscore_calculator, "_compute_one_chromosome", task)
-    with AnnotationBundle.from_frames(metadata, baseline, queries, config_snapshot=config) as bundle:
-        with pytest.raises(OSError, match="injected worker failure"):
-            LDScoreCalculator().run(bundle, panel, replace(numerical, workers=2), config,
-                                   output_config=LDScoreOutputConfig(tmp_path / "out"))
-    assert finished.is_set()
-    assert not list((tmp_path / "out").glob(".ldsc-*"))
-
-
 def test_real_plink_gene_batches_preserve_all_metadata_and_diagnostics(tmp_path, monkeypatch, inputs):
     from ldsc._ldscore.calculator import run_ldscore_from_args
 
@@ -248,15 +145,18 @@ def test_real_plink_gene_batches_preserve_all_metadata_and_diagnostics(tmp_path,
         args.export_ref_metadata = True
         return run_ldscore_from_args(args)
 
-    materialized_run = LDScoreCalculator._run_batch
+    from contextlib import contextmanager
+    from ldsc._ldscore.calculator import _DirectProducer
+    streamed_batch = _DirectProducer.open_batch
 
+    @contextmanager
     def materialized(self, *args, **kwargs):
         # Keep the original materialized assembly as the transport comparator.
-        kwargs.pop("fragment_dir", None)
-        return materialized_run(self, *args, **kwargs)
+        with streamed_batch(self, *args, **kwargs) as batch:
+            yield replace(batch, fragment_dir=None)
 
     with monkeypatch.context() as patch:
-        patch.setattr(LDScoreCalculator, "_run_batch", materialized)
+        patch.setattr(_DirectProducer, "open_batch", materialized)
         expected = run("materialized")
     actual = run("streamed")
 

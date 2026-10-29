@@ -819,7 +819,9 @@ class LDScoreWorkflowTest(unittest.TestCase):
             QueryAnnotationStatus("q_bad", "bad.bed", "bed", "skipped", "malformed_input"),
         )
 
-        finalized = ldscore_workflow.finalize_query_statuses(result, statuses)
+        from ldsc._annotation.query_outcomes import finalize_query_statuses
+
+        finalized = finalize_query_statuses(result, statuses)
 
         self.assertEqual(finalized.query_columns, ["q_good"])
         self.assertEqual(finalized.query_table.columns.tolist(), ["CHR", "SNP", "POS", "q_good"])

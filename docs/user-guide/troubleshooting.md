@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-29
 
 This reference expands run-aborting `ldsc` errors with at least three distinct plausible causes, following the [current logging and error-message guide](../dev/design/logging.md#diagnostics-and-troubleshooting).
 It also retains guidance for failed-run artifacts, documented query omissions, and cleanup warnings that users need to interpret.
@@ -669,7 +669,7 @@ Inspect `diagnostics/reference_snp_funnel.tsv` when it was written, to see which
 
 A chromosome emptied by `--ref-panel-snps-file` or genotype QC is skipped with a WARNING instead; check its funnel rows if that skip was not intended.
 
-**Developer reference:** `_refpanel.adapters._align_annotations()` during `RefPanel.prepare_chromosome()`, the gene-support pass `_apply_direct_gene_gate_b()`, and the batch check in `_ldscore.calculator.LDScoreCalculator._run_batch()` · **Exception:** `LDSCInputError`
+**Developer reference:** `_refpanel.adapters._align_annotations()` during `RefPanel.prepare_chromosome()`, the gene-support pass `_apply_direct_gene_gate_b()`, and the batch check in `_ldscore.calculator._DirectProducer.reduce()` · **Exception:** `LDSCInputError`
 
 <a id="ldscore-r2-matrix-is-incompatible"></a>
 

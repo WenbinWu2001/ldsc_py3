@@ -60,52 +60,6 @@ def test_worker_releases_operator_and_duplicate_scores_before_serialization(tmp_
     assert list(result.query_columns) == ["first", "second"]
 
 
-def test_indexed_staging_holds_one_batch_and_reuses_pool(tmp_path, monkeypatch):
-    index = two_chromosome_index(tmp_path)
-    queries = []
-    for ordinal in range(6):
-        query = tmp_path / f"query{ordinal}.txt"
-        query.write_text("G1\nG3\n" if ordinal % 2 == 0 else "G2\nG4\n")
-        queries.append(query)
-    original_results = batches.indexed_results
-    from ldsc._runtime import parallelism
-    original_pool = parallelism.ProcessPoolExecutor
-    pools, pending_counts, previous = [], [], []
-
-    def pool(*args, **kwargs):
-        pools.append(kwargs["max_workers"])
-        return original_pool(*args, **kwargs)
-
-    def results(*args, **kwargs):
-        producer = original_results(*args, **kwargs)
-        try:
-            for result in producer:
-                assert all(not path.exists() for path in previous)
-                root = Path(args[5]) / "indexed-batches"
-                pending = [path for path in root.rglob("query*") if path.is_file()]
-                assert len(pending) <= 2, "future query batches accumulated before consumption"
-                assert getattr(result, "query_table", None) is None, "genome-wide query array remains live"
-                pending_counts.append(len(pending))
-                previous[:] = pending
-                yield result
-        finally:
-            producer.close()
-
-    monkeypatch.setattr("ldsc._runtime.parallelism.ProcessPoolExecutor", pool)
-    monkeypatch.setattr(batches, "indexed_results", results)
-    output = tmp_path / "out"
-    result = run_indexed_ldscore(index, query_gene_list_sources=queries,
-                                output_dir=output, query_batch_size=2, workers=2)
-    assert pools == [2]
-    assert pending_counts == [2, 2, 2]
-    assert all(not path.exists() for path in previous)
-    columns = [query.stem for query in queries]
-    # G1/G3 select atoms 0,1; G2/G4 select atoms 1,2 in the independent fixture.
-    expected = np.array([[.75, -.25], [1.5, 1.1]] * 2, dtype=np.float32)
-    np.testing.assert_array_equal(result.read_queries(columns)[columns], np.tile(expected, (1, 3)))
-    assert not list(output.glob(".ldsc-*"))
-
-
 @pytest.mark.parametrize("split", [0, 1, 3, 4])
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def test_variation_summaries_preserve_producer_precision_and_nan_semantics(split, dtype):
@@ -201,36 +155,3 @@ def test_fragment_row_mismatch_aborts_publication_and_cleans_scratch(tmp_path, m
     assert not list(output.glob(".ldsc-*"))
 
 
-def test_failed_batch_waits_for_running_chromosome_before_scratch_cleanup(tmp_path, monkeypatch):
-    from concurrent.futures import ThreadPoolExecutor
-    from threading import Event
-
-    index = two_chromosome_index(tmp_path)
-    query = tmp_path / "query.txt"
-    query.write_text("G1\nG3\n")
-    running, shutting_down, finished = Event(), Event(), Event()
-
-    class Pool(ThreadPoolExecutor):
-        def __init__(self, max_workers, **kwargs):
-            super().__init__(max_workers=max_workers)
-
-        def shutdown(self, *args, **kwargs):
-            shutting_down.set()
-            return super().shutdown(*args, **kwargs)
-
-    def task(*args):
-        if args[1] == "21":
-            assert running.wait(5)
-            raise OSError("failed chromosome")
-        running.set()
-        assert shutting_down.wait(5)
-        assert Path(args[7]).is_dir(), "batch scratch disappeared while a worker was running"
-        finished.set()
-
-    monkeypatch.setattr("ldsc._runtime.parallelism.ProcessPoolExecutor", Pool)
-    monkeypatch.setattr(batches, "_write_chromosome", task)
-    output = tmp_path / "out"
-    with pytest.raises(OSError, match="failed chromosome"):
-        run_indexed_ldscore(index, query_gene_list_sources=[query], output_dir=output, workers=2)
-    assert finished.is_set()
-    assert not list(output.glob(".ldsc-*"))

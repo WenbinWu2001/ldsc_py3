@@ -1,27 +1,28 @@
-"""Compute one indexed query batch before advancing to the next.
+"""The indexed LD-score producer: one stored chromosome operator per task.
 
-A persistent pool reloads one chromosome operator per task and writes lossless
-float64 Parquet in batch-owned scratch. Only compact measurements return to the
+``_ldscore.batch_execution`` runs one query batch at a time through a
+persistent pool. Each task reloads one chromosome operator and writes lossless
+float64 Parquet in batch-owned scratch; only compact measurements return to the
 parent. The output writer consumes chromosome fragments in canonical order;
 no genome-wide query table or future-batch score fragments are retained.
 """
 
-from concurrent.futures.process import BrokenProcessPool
+from contextlib import contextmanager
 from dataclasses import dataclass
 import logging
 from pathlib import Path
-from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from ..._runtime.progress import PhaseProgress
-from ..._runtime.parallelism import chromosome_pool, resolve_worker_count, run_chromosome_tasks
+from ..._runtime.parallelism import chromosome_pool, resolve_worker_count
 from ..._runtime.worker_runtime import initialize_worker
-from ..diagnostics import chromosome_log, report_chromosome_failure
-from ..query_variation import ScoreVariation, summarize_variation, combine_variation
+from ..batch_execution import run_query_batches
+from ..diagnostics import chromosome_log
+from ..query_variation import ScoreVariation, summarize_variation
 from .atoms import assemble_indexed_ld_scores, assemble_selected_atom_statistics
 
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
@@ -99,27 +100,81 @@ def _write_chromosome(index, chrom, batch, declarations, control_resolution, ord
         return _ChromosomeBatchSummary(query_counts, query_blocks, variation, baseline_statistics)
 
 
-def _write_chromosomes(executor, index, batch, declarations, control, ordinal, total_batches, root, workers, log_paths):
-    """Collect compact measurements in index order using the shared scheduler."""
-    summaries = {}
-    stage = f"indexed batch {ordinal + 1}/{total_batches}"
+class _IndexedProducer:
+    """Indexed LD-score producer: each task projects one chromosome's stored operator.
 
-    def submit(chrom):
-        LOGGER.info("Starting chromosome %s indexed LD-score computation; batch %d/%d.", chrom, ordinal + 1, total_batches)
-        return executor.submit(_write_chromosome, index, chrom, batch, declarations, control,
-                               ordinal, total_batches, root, log_paths.get(chrom))
+    The first batch also stages and combines the shared baseline and its
+    statistics, which later batches reuse. ``reduce`` combines the compact
+    float64 summaries in index order; query scores stay in the workers'
+    fragments.
+    """
 
-    def collect(chrom, result):
-        summaries[chrom] = result
-        LOGGER.info("Finished chromosome %s indexed LD-score computation; batch %d/%d.", chrom, ordinal + 1, total_batches)
+    batch_name, phase, task = "indexed batch", "indexed LD-score assembly", "indexed LD-score computation"
 
-    def on_failure(error, failed_chrom, outstanding):
-        report_chromosome_failure(error, outstanding if isinstance(error, BrokenProcessPool)
-                                  else [failed_chrom] if failed_chrom is not None else outstanding,
-                                  log_paths, stage, LOGGER)
+    def __init__(self, index, gene_batch, declarations, control, width, scope, log_paths):
+        self.index = index
+        self.gene_batch = gene_batch
+        self.declarations = declarations
+        self.control = control
+        self.scope = scope
+        self.log_paths = log_paths or {}
+        self.logger = LOGGER
+        self.chromosomes = index.chromosomes
+        self.total_batches = (len(declarations) + width - 1) // width
+        self.baseline_columns = [*index.baseline_columns, *(["gene_control"] if control is not None else [])]
+        self.baseline = self.baseline_statistics = None
 
-    run_chromosome_tasks(index.chromosomes, workers, submit, collect, on_failure)
-    return [summaries[chrom] for chrom in index.chromosomes]
+    @contextmanager
+    def open_batch(self, ordinal, query_columns, statuses, scratch):
+        """Select the batch's gene-list declarations; workers write into ``scratch``."""
+        selected = set(query_columns)
+        yield SimpleNamespace(ordinal=ordinal, root=scratch,
+                              declarations=[item for item in self.declarations if item["query"] in selected])
+
+    def submit(self, pool, chrom, batch, label):
+        """Submit one chromosome's projection for the batch's declarations."""
+        return pool.submit(_write_chromosome, self.index, chrom, self.gene_batch, batch.declarations, self.control,
+                           batch.ordinal, self.total_batches, batch.root, self.log_paths.get(chrom))
+
+    def reduce(self, results, batch):
+        """Sum chromosome counts and overlap blocks into one staged batch."""
+        from ..fragments import StagedLDScoreBatch
+        from ..overlap_table import LDScoreOverlap
+
+        index, directory = self.index, batch.root
+        summaries = [results[chrom] for chrom in self.chromosomes]
+        if batch.ordinal == 0:
+            self.baseline = pd.concat([pd.read_parquet(directory / f"chr{chrom}" / "baseline.parquet", use_threads=False)
+                                       for chrom in self.chromosomes], ignore_index=True)
+            self.baseline_statistics = [sum(item.baseline_statistics[pos] for item in summaries) for pos in range(3)]
+        baseline_counts, baseline_blocks, totals = self.baseline_statistics
+        baseline_columns = self.baseline_columns
+        query_columns = [item["query"] for item in batch.declarations]
+        query_counts = sum(item.counts for item in summaries)
+        query_blocks = sum(item.blocks for item in summaries)
+        block = np.concatenate([baseline_blocks, query_blocks], axis=2)
+        all_columns = [*baseline_columns, *query_columns]
+        overlap = LDScoreOverlap(
+            baseline_block_all=pd.DataFrame(block[0], index=baseline_columns, columns=all_columns),
+            baseline_block_common=pd.DataFrame(block[1], index=baseline_columns, columns=all_columns),
+            query_diagonal_all=pd.Series(query_counts[0], index=query_columns),
+            query_diagonal_common=pd.Series(query_counts[1], index=query_columns),
+            total_all_reference_snps=float(totals[0]), total_common_reference_snps=float(totals[1]))
+        counts = [{"group": group, "column": name, "all_reference_snp_count": float(values[0, pos]),
+                   "common_reference_snp_count": float(values[1, pos])}
+                  for group, columns, values in [("baseline", baseline_columns, baseline_counts),
+                                                 ("query", query_columns, query_counts)]
+                  for pos, name in enumerate(columns)]
+        staged = StagedLDScoreBatch(
+            baseline_table=self.baseline,
+            query_fragments=tuple(directory / f"chr{chrom}" / "query.parquet" for chrom in self.chromosomes),
+            count_records=counts, baseline_columns=baseline_columns, query_columns=query_columns,
+            count_config=index.count_config, config_snapshot=index.global_config, overlap=overlap,
+            query_statuses=(), gene_list_batch=self.gene_batch, chromosome_scope=self.scope,
+            index_provenance={"index_id": index.index_id, "index_snp_identifier": index.snp_identifier,
+                              "index_genome_build": index.genome_build},
+            reference_snp_funnel=index.reference_snp_funnel)
+        return staged, [item.variation for item in summaries]
 
 
 def indexed_results(index, batch, declarations, control, width, root, workers, statuses, scope, log_paths=None):
@@ -127,69 +182,12 @@ def indexed_results(index, batch, declarations, control, width, root, workers, s
 
     Workers retain one chromosome's float64 arrays. The parent retains the
     shared baseline and compact summaries, while the writer reads one query
-    chromosome at a time. Index loading repeats for each batch. A failed task
-    must finish pool shutdown before its batch workspace is removed.
+    chromosome at a time. Index loading repeats for each batch. Batch
+    scratch lives under ``root``.
     """
-    from ..fragments import StagedLDScoreBatch
-    from ..overlap_table import LDScoreOverlap
-    from ..._annotation.query_outcomes import finalize_query_measurements
-
-    root = Path(root) / "indexed-batches"
-    root.mkdir()
     workers = resolve_worker_count(workers, len(index.chromosomes))
-    baseline_columns = [*index.baseline_columns, *(["gene_control"] if control is not None else [])]
-    total_batches = (len(declarations) + width - 1) // width
+    producer = _IndexedProducer(index, batch, declarations, control, width, scope, log_paths)
     with chromosome_pool(workers, operation="ldscore chromosome computation", initializer=initialize_worker,
-                         initargs=(logging.getLogger("LDSC").getEffectiveLevel(),)) as executor:
-        for ordinal, start in enumerate(range(0, len(declarations), width)):
-            active = declarations[start:start + width]
-            with TemporaryDirectory(prefix=f"batch-{ordinal + 1:05d}-", dir=root) as temporary:
-                directory = Path(temporary)
-                try:
-                    summaries = _write_chromosomes(executor, index, batch, active, control, ordinal,
-                                                   total_batches, directory, workers, log_paths or {})
-                except BaseException:
-                    executor.shutdown(wait=True)
-                    raise
-                if ordinal == 0:
-                    baseline = pd.concat([pd.read_parquet(directory / f"chr{chrom}" / "baseline.parquet",
-                                                         use_threads=False) for chrom in index.chromosomes], ignore_index=True)
-                    baseline_counts, baseline_blocks, totals = [sum(item.baseline_statistics[pos] for item in summaries)
-                                                               for pos in range(3)]
-                with PhaseProgress(LOGGER, "batch", f"indexed LD-score assembly {ordinal + 1}/{total_batches}",
-                                   len(active)) as progress:
-                    query_columns = [item["query"] for item in active]
-                    query_counts = sum(item.counts for item in summaries)
-                    query_blocks = sum(item.blocks for item in summaries)
-                    varying = dict(zip(query_columns, combine_variation(
-                        (item.variation for item in summaries), len(active)), strict=True))
-                    active_statuses = tuple(status for status in statuses if status.query in varying or (
-                        ordinal == 0 and status.status not in {"ok", "warning"}))
-                    finalized, retained = finalize_query_measurements(
-                        active_statuses, dict(zip(query_columns, query_counts[0], strict=True)), varying)
-                    block = np.concatenate([baseline_blocks, query_blocks], axis=2)
-                    all_columns = [*baseline_columns, *query_columns]
-                    overlap = LDScoreOverlap(
-                        baseline_block_all=pd.DataFrame(block[0], index=baseline_columns, columns=all_columns),
-                        baseline_block_common=pd.DataFrame(block[1], index=baseline_columns, columns=all_columns),
-                        query_diagonal_all=pd.Series(query_counts[0], index=query_columns),
-                        query_diagonal_common=pd.Series(query_counts[1], index=query_columns),
-                        total_all_reference_snps=float(totals[0]), total_common_reference_snps=float(totals[1]))
-                    counts = [{"group": group, "column": name, "all_reference_snp_count": float(values[0, pos]),
-                               "common_reference_snp_count": float(values[1, pos])}
-                              for group, columns, values in [("baseline", baseline_columns, baseline_counts),
-                                                             ("query", query_columns, query_counts)]
-                              for pos, name in enumerate(columns) if group == "baseline" or name in retained]
-                    result = StagedLDScoreBatch(
-                        baseline_table=baseline,
-                        query_fragments=tuple(directory / f"chr{chrom}" / "query.parquet" for chrom in index.chromosomes),
-                        count_records=counts, baseline_columns=baseline_columns, query_columns=retained,
-                        count_config=index.count_config,
-                        config_snapshot=index.global_config, overlap=overlap.select_queries(retained), query_statuses=finalized,
-                        gene_list_batch=batch, chromosome_scope=scope,
-                        index_provenance={"index_id": index.index_id, "index_snp_identifier": index.snp_identifier,
-                                          "index_genome_build": index.genome_build},
-                        reference_snp_funnel=index.reference_snp_funnel)
-                    yield result
-                    del result
-                    progress.completed = len(active)
+                         initargs=(logging.getLogger("LDSC").getEffectiveLevel(),)) as pool:
+        yield from run_query_batches(producer, [item["query"] for item in declarations], statuses, width=width,
+                                     pool=pool, workers=workers, scratch_root=root)

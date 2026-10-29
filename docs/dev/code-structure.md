@@ -129,6 +129,7 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 | `ldsc._ldscore.calculator` | LD-score orchestration, gene-coordinate-catalog build selection, direct prepared-SNP support measurement, optional synthetic `base`, aggregation, and output routing through shared query finalization |
 | `ldsc._ldscore.preflight` | validates direct annotation/reference contents and chromosome equality; enforces complete `@` declarations, authoritative glob matches, and consolidated required-input diagnostics |
 | `ldsc._ldscore.direct_annotation`, `ldsc._ldscore.direct_batches` | direct BED/gene query integration into an LD-score run and staged direct query scores |
+| `ldsc._ldscore.batch_execution` | the query-batch loop shared by the direct and indexed LD-score producers: one batch in flight through the run's persistent pool, failure shutdown before scratch removal, and query-status finalization |
 | `ldsc._ldscore.fragments`, `ldsc._ldscore.batch_publication` | producer-owned chromosome fragments written one query frame at a time against the shared baseline, and publication of complete LD-score directories |
 | `ldsc._ldscore.diagnostics`, `ldsc._ldscore.query_variation` | chromosome logs, batch context and task/pool failure reporting; exact query-column variation across chromosomes |
 | `ldsc._ldscore.source` | canonical directory loading, manifest/schema and table/identity validation shared with writers, resident baseline/count/overlap metadata, and uncached selected-query reads |

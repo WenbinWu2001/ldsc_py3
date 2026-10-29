@@ -48,11 +48,11 @@ There are no nested chromosome/model pools.
 The parent coordinates inputs, collection, aggregation, and publication.
 
 Direct scoring, indexed scoring, and index construction share the private `run_chromosome_tasks()` function in [`_runtime/parallelism.py`](../../src/ldsc/_runtime/parallelism.py).
-They also create their spawn worker pool with the private `chromosome_pool()` context in the same module.
 It bounds outstanding futures by the resolved worker count, tracks their chromosomes, and collects each ready group before submitting replacements, using the same path for one or multiple workers.
 On an observed exception it attempts cancellation and passes the original error, current chromosome, and outstanding chromosomes to the workflow's failure callback.
+The same three workflows create their spawn worker pool with the private `chromosome_pool()` context in the same module.
 The workflow retains task preparation, result processing, progress and diagnostics, the executor's lifetime, and all temporary-file and publication responsibilities.
-Direct and indexed LD explicitly wait for their persistent executors to shut down on failure before the current query-batch workspace closes; an outer pool context alone would close too late.
+Direct and indexed LD run their query batches through the shared [`_ldscore/batch_execution.py`](../../src/ldsc/_ldscore/batch_execution.py), which waits for the persistent executor to shut down on failure before the current query-batch workspace closes; an outer pool context alone would close too late.
 Index construction exits its executor context before its enclosing workspace is cleaned up.
 Regression retains its separate process communication and memory-mapping implementation.
 
@@ -122,7 +122,7 @@ Handled computation failures remove these files with the run's scratch.
 Final file publication retains its existing behavior, without additional transactions or rollback; the gene LD-score index builder retains its existing atomic publication transaction.
 Interruption handling is unchanged, and forced termination can leave temporary files.
 Regression's separate explicit `continue_on_query_error` policy is unchanged.
-See [`_ldscore/diagnostics.py`](../../src/ldsc/_ldscore/diagnostics.py), [`LDScoreCalculator.run`](../../src/ldsc/_ldscore/calculator.py), and [`indexed_results`](../../src/ldsc/_ldscore/gene_index/batches.py).
+See [`_ldscore/diagnostics.py`](../../src/ldsc/_ldscore/diagnostics.py), [`_ldscore/batch_execution.py`](../../src/ldsc/_ldscore/batch_execution.py), [`LDScoreCalculator.run`](../../src/ldsc/_ldscore/calculator.py), and [`indexed_results`](../../src/ldsc/_ldscore/gene_index/batches.py).
 
 Representative chromosome scaling, full-genome memory, HPC Arrow I/O, and repeated serial work remain benchmarking topics.
 The uniform BLAS policy is a confirmed resource policy, not a claim of universally optimal performance.

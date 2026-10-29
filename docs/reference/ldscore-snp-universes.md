@@ -1,6 +1,6 @@
 # Reference and regression SNPs
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-29
 
 This table distinguishes the SNP sets used by canonical LD score regression (LDSC) and by stratified LD score regression (S-LDSC; Finucane et al. 2015).
 It is especially important for MHC and pericentromeric exclusions.
@@ -54,7 +54,7 @@ For PLINK panels the grid step runs before genotype QC, so a reference-panel SNP
 For R² matrices the MAF floor comes from the sidecar and runs before the grid step.
 Both funnels of a chromosome end at the same count: the reference SNPs that enter LD scores, SNP counts and overlap.
 The counts come from one reference preparation per chromosome per run; later query batches and the gene-list support pass add nothing.
-Sources: `ReferenceSNPFunnel` in [_refpanel/funnel.py](../../src/ldsc/_refpanel/funnel.py), `_align_annotations()` and each panel's `prepare_chromosome()` in [_refpanel/adapters.py](../../src/ldsc/_refpanel/adapters.py), and `LDScoreCalculator._run_batch()` in [_ldscore/calculator.py](../../src/ldsc/_ldscore/calculator.py).
+Sources: `ReferenceSNPFunnel` in [_refpanel/funnel.py](../../src/ldsc/_refpanel/funnel.py), `_align_annotations()` and each panel's `prepare_chromosome()` in [_refpanel/adapters.py](../../src/ldsc/_refpanel/adapters.py), and `_DirectProducer.reduce()` in [_ldscore/calculator.py](../../src/ldsc/_ldscore/calculator.py).
 
 ### Empty chromosomes
 

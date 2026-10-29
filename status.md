@@ -1,9 +1,24 @@
 # Status
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-29
 
-Branch `restructure`; checked on 2026-10-28 after the move to per-domain test folders.
+Branch `restructure`; checked on 2026-10-29.
 Nothing below is in progress; each open item needs the user's go-ahead.
+
+## Completed: one batch execution path for direct and indexed LD scores (2026-10-29)
+
+The user confirmed the design in a grilling session on 2026-10-29 (architecture review candidate 1) and authorized its implementation the same day.
+
+- `9059346` (`fix(ldscore): inherit index settings in output`): indexed output records the index's SNP identifier mode and common-SNP MAF threshold through `LoadedGeneLDScoreIndex.global_config` and `count_config`.
+  Before, every allele-aware index was recorded as `chr_pos` and every threshold as 0.05, so `h2` refused allele-aware summary statistics against these LD scores without `--allow-identity-downgrade`, and always failed for an `rsid_allele_aware` index.
+- `af47332`: dead-code cleanup, including the public `LDScoreCalculator.run(config_snapshot=...)` parameter (a breaking change) and four duplicated worker-count tests.
+- `77b0133`: `_runtime.parallelism.chromosome_pool()` creates the spawn pool for direct scoring, indexed scoring and index construction; a crashed worker raises `LDSCInternalError` in all three.
+- `d4d9b4a`: `src/ldsc/_ldscore/batch_execution.py` runs the query batches for both LD-score producers, `_DirectProducer` in `calculator.py` and `_IndexedProducer` in `gene_index/batches.py`.
+- Deviation from the confirmed design: the direct producer stays in `calculator.py`, because moving it to `direct_batches.py` would create an import cycle.
+- Evidence: synthetic fixture outputs recorded after `9059346` (direct prebuilt, BED, gene-list and synthetic-base runs, index construction, indexed scoring and the in-memory path) matched exactly after each later commit; the comparison script and outputs stayed outside the repository.
+  The full pytest and unittest suites passed after each commit.
+- Open: the proposed glossary term "LD-score producer" in `docs/dev/DOCS_VOCABULARY.md` awaits the user's approval.
+- Not done, out of scope: removing `_allow_partial_for_tests`, one LD-score publication path, and sharing the gene-list diagnostic sequence.
 
 ## Completed: domain subpackage reorganization of `src/ldsc`
 

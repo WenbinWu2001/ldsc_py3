@@ -1,7 +1,7 @@
 
 # Lessons
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-29
 
 ## Refactoring must preserve attribution outside removable banners
 
@@ -284,3 +284,9 @@ Last updated on: 2026-10-28
 - Summary/root cause/correction: Registering a read-only helper in the shared CLI also admitted it to failure-marker handling, which examines raw `--overwrite` and `--output-dir` arguments before the command parser rejects them.
   Exclude read-only helpers from that lifecycle before parsing; test rejected write options against an existing input directory and assert that no failure marker or other file appears.
   Internal-error advice must also omit workflow-only logging options and stale workflow-log pointers for the helper; see `tests/genome/test_genome_build_inspection.py`.
+
+## Recorded run settings must come from the artifact that binds them
+
+- Summary/root cause/correction: Indexed LD-score output rebuilt its `GlobalConfig` with a literal `== "rsid"` comparison and hardcoded the common-SNP threshold as 0.05, so every allele-aware index was recorded as `chr_pos` and every `--common-maf-min` as 0.05; regression then rejected allele-aware summary statistics against those LD scores.
+  The index already stored the correct values, and the only direct-versus-indexed test used `rsid` at 0.05, the one setting where the rebuilt values were right.
+  Read recorded settings from the artifact that binds them (`LoadedGeneLDScoreIndex.global_config` and `count_config`), keep a mode-family rule in one helper, and give parity tests a non-default mode and threshold; see `test_indexed_output_records_the_index_identity_and_common_threshold` in `tests/ldscore/test_gene_query_integration.py`.

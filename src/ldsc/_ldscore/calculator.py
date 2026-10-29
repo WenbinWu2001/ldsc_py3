@@ -1406,8 +1406,6 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
     has_queries = any(_has_cli_tokens(getattr(args, name, None)) for name in (
         "query_annot_gene_list_sources", "query_annot_bed_sources", "query_annot_sources",
     ))
-    if has_queries and not _has_cli_tokens(getattr(args, "baseline_annot_sources", None)):
-        raise LDSCUsageError(_QUERY_REQUIRES_BASELINE_MESSAGE)
     option_values = dict(vars(args))
     option_values.update(bfile=getattr(args, 'plink_prefix', None), keep=getattr(args, 'keep_indivs_file', None))
     _validate_run_args(argparse.Namespace(**option_values))
@@ -1785,23 +1783,10 @@ def _validate_run_args(args: argparse.Namespace) -> None:
     This validator intentionally lives in the workflow layer rather than in the
     kernel because optional baseline synthesis is a public orchestration rule:
     the numerical kernels still receive an explicit annotation bundle.
+    ``_validate_gene_list_mode_args`` has already checked the gene-list
+    options. The workflow calls this again after normalization, when an
+    ``auto`` genome build has been resolved.
     """
-    has_gene_lists = _has_cli_tokens(getattr(args, "query_annot_gene_list_sources", None))
-    if not has_gene_lists and (
-        getattr(args, "gene_exclude_regions", "none") != "none"
-        or getattr(args, "control_gene_list_file", None) is not None
-        or getattr(args, "gene_coordinate_file", None) is not None
-        or getattr(args, "gene_list_resolution_policy", "strict") != "strict"
-    ):
-        raise LDSCUsageError(
-            "Gene coordinate, exclusion, control-list, and resolution policy options are valid only with "
-            "gene-list query annotations. Remove the gene-specific option or use gene-list mode."
-        )
-    if has_gene_lists and getattr(args, "gene_coordinate_file", None) is None:
-        raise LDSCUsageError(
-            "Live gene-list mode requires --gene-coordinate-file. Supply a one-build, one-based "
-            "gene-coordinate TSV/TSV.GZ; there is no packaged catalog fallback."
-        )
     if not _has_cli_tokens(args.baseline_annot_sources) and (
         _has_cli_tokens(args.query_annot_sources)
         or _has_cli_tokens(getattr(args, "query_annot_bed_sources", None))

@@ -19,8 +19,6 @@ from .._annotation.storage import AnnotationShard, ColumnStore
 from .preflight import validate_direct_scope
 from .._annotation.semantics import require_unique_annotation_names
 from ..errors import LDSCInputError
-from .outputs import LDScoreDirectoryWriter
-from .._annotation.query_outcomes import gene_list_gate_a_message
 
 
 def prepare_direct_annotations(args, config, spec, workspace, output_config, *, declared_inputs, reference_inputs, batch=None):
@@ -41,11 +39,6 @@ def prepare_direct_annotations(args, config, spec, workspace, output_config, *, 
             records = failure_issues.to_dict('records') if failure_issues is not None else [input_issue('alignment','annotation sources','','invalid_required_input',exc)]
             validate_direct_scope(args,config,batch,output_config,annotation_issues=records,bed_sources=bed_sources,reference_inputs=reference_inputs)
         raise
-    if batch is not None:
-        batch = validate_gene_query_names(batch, prepared.baseline_columns)
-    if batch is not None and batch.has_fatal_gate_a_issues:
-        LDScoreDirectoryWriter().write_gene_list_preflight(batch,output_config)
-        raise LDSCInputError(gene_list_gate_a_message(batch))
     scope = {}
     if has_queries:
         batch, scope = validate_direct_scope(args,config,batch,output_config,

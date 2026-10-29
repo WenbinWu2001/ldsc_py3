@@ -1,7 +1,9 @@
-"""Worker budgets and bounded chromosome scheduling for LDSC3 workflows.
+"""Worker budgets, the spawn worker pool, and bounded chromosome scheduling.
 
 Requests use joblib.cpu_count() directly as the detected available CPU budget.
 Native numerical-library thread settings are owned by the workflow workers.
+``chromosome_pool`` turns a crashed worker into one ``LDSCInternalError`` for
+every chromosome workflow.
 """
 
 import logging

@@ -309,3 +309,40 @@ def test_indexed_missing_components_are_reported_together(tmp_path, inputs):
     issues = pd.read_csv(tmp_path / "indexed/diagnostics/input_issues.tsv", sep="\t")
     assert len(issues) == 2
     assert not (tmp_path / "indexed/diagnostics/gene_list_audit.tsv.gz").exists()
+
+
+@pytest.mark.parametrize("mode", ["direct", "indexed"])
+def test_unusable_queries_log_written_diagnostics_and_statuses_in_both_modes(tmp_path, inputs, mode):
+    from ldsc._runtime.workflow_logging import workflow_logging
+
+    zero = tmp_path / "zero.txt"
+    zero.write_text("G0\n")
+    output = tmp_path / mode
+    with pytest.raises(LDSCInputError, match="zero_annotation_snps"):
+        if mode == "direct":
+            run_ldscore_from_args(direct_args(tmp_path, inputs, [zero], name=mode))
+        else:
+            index = build_index(tmp_path, inputs)
+            with workflow_logging("ldscore", output / "diagnostics/ldscore.log"):
+                run_indexed_ldscore(index, query_gene_list_sources=[zero], output_dir=output,
+                                    _allow_partial_for_tests=True)
+    log = (output / "diagnostics/ldscore.log").read_text()
+    assert f"query_status{' ' * 7}{output / 'diagnostics/query_annotation_status.tsv'}" in log
+    assert "Query annotation status summary: total=1, ok=0, warning=0, skipped=1" in log
+    assert "Genes with zero retained SNP support: role=focal" in log
+
+
+def test_indexed_input_preflight_failure_keeps_earlier_outputs(tmp_path, inputs):
+    index = build_index(tmp_path, inputs)
+    focal = tmp_path / "focal.txt"
+    focal.write_text("G1\n")
+    output = tmp_path / "indexed"
+    run_indexed_ldscore(index, query_gene_list_sources=[focal], output_dir=output, _allow_partial_for_tests=True)
+    with pytest.raises(LDSCInputError, match="preflight"):
+        run_indexed_ldscore(index, query_gene_list_sources=[tmp_path / "missing.txt"], output_dir=output,
+                            overwrite=True, _allow_partial_for_tests=True)
+    issues = pd.read_csv(output / "diagnostics/input_issues.tsv", sep="\t")
+    assert issues.reason.tolist() == ["missing_required_input"]
+    assert json.loads((output / "diagnostics/chromosome_scope.json").read_text())["validation_status"] == "failed"
+    # A failed input preflight leaves the earlier run's outputs in place.
+    assert (output / "metadata.json").exists() and (output / "ldscore.query.parquet").exists()

@@ -284,6 +284,9 @@ Indexed output is still a self-contained LD-score directory written by `LDScoreD
 Architecture invariant: online assembly uses only the explicitly named complete index and never discovers an index or falls back to live computation.
 
 Gene-query eligibility and finalization are shared by direct and indexed computation in `_annotation/query_outcomes.py`: coverage after explicit exclusions, resolution/support reason precedence, required-control/all-skipped viability, and aligned pruning of scientific columns and metadata. `_ldscore/preflight.py` validates direct input chromosome contents, exact baseline/reference set agreement, complete `@` declarations, and authoritative glob matches. Neither helper is a general workflow framework; reference preparation and indexed atom support remain backend-specific. See [the detailed coverage contract](../reference/results/gene-list-diagnostics.md#chromosome-scope-and-pathway-coverage).
+Both modes stop through the same sequences in `_ldscore/diagnostics.py`: `fail_gene_list_resolution()` for rejected gene-list identifiers or names, and `fail_unusable_queries()` for unusable queries or controls, which writes the query diagnostics, logs the written paths, gene-list rejections, SNP support and query statuses, and raises; `log_query_outcomes()` logs the same summaries after a successful run.
+Runs that stop before calculation describe their diagnostics with `_ldscore.outputs.QueryDiagnostics`.
+After a failed input preflight, `LDScoreDirectoryWriter.write_input_preflight_diagnostics()` writes `input_issues.tsv` and `chromosome_scope.json` and leaves an earlier run's outputs in place, as for every input gate; the other diagnostics writers reconcile stale owned outputs.
 
 ### `ldsc._sumstats.munger`
 

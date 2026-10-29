@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import gzip
 import json
-import os
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
@@ -86,6 +85,21 @@ def common_count_config(common_maf_min: float) -> dict[str, Any]:
 
 
 DEFAULT_COUNT_CONFIG = common_count_config(0.05)
+
+
+@dataclass(frozen=True)
+class QueryDiagnostics:
+    """Diagnostics of an LD-score run that stopped before calculation.
+
+    The writer's diagnostics methods write each record that is present:
+    ``chromosome_scope.json``, ``input_issues.tsv``, the query statuses, and
+    the gene-list audit and resolution summary.
+    """
+
+    chromosome_scope: dict
+    query_statuses: tuple = ()
+    gene_list_batch: Any = None
+    input_issues: pd.DataFrame | None = None
 
 
 @dataclass(frozen=True)
@@ -278,6 +292,19 @@ class LDScoreDirectoryWriter:
         stale_paths = family.preflight(overwrite=output_config.overwrite)
         self._write_query_diagnostic_files(result, paths)
         remove_output_artifacts(stale_paths)
+        return {name: str(path) for name, path in paths.items()}
+
+    @classmethod
+    def write_input_preflight_diagnostics(cls, diagnostics: QueryDiagnostics, output_dir) -> dict[str, str]:
+        """Write the diagnostics of a failed input preflight, keeping earlier outputs.
+
+        The input preflight runs before any calculation, so an input mistake
+        such as a mistyped path leaves an earlier run's owned outputs in place;
+        unlike ``write_query_diagnostics``, this neither checks for nor removes
+        them. The caller has already run the output-family preflight.
+        """
+        paths = cls.artifact_family(output_dir, diagnostics, diagnostics_only=True).paths
+        cls._write_query_diagnostic_files(diagnostics, paths)
         return {name: str(path) for name, path in paths.items()}
 
     def write(self, result: Any, output_config: LDScoreOutputConfig) -> dict[str, str]:

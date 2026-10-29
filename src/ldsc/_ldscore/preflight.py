@@ -235,9 +235,8 @@ def inspect_direct_inputs(args, global_config, *, annotation_sources=None, bed_s
 def validate_direct_scope(args, global_config, batch, output_config, **prepared_inputs):
     """Write available batch diagnostics and fail once after scope inspection."""
     import logging
-    from types import SimpleNamespace
 
-    from .outputs import LDScoreDirectoryWriter
+    from .outputs import LDScoreDirectoryWriter, QueryDiagnostics
     from .._annotation.query_outcomes import assess_gene_coverage, gene_query_statuses, gene_control_errors
 
     logger = logging.getLogger("LDSC.ldscore_calculator")
@@ -257,8 +256,8 @@ def validate_direct_scope(args, global_config, batch, output_config, **prepared_
         scope = {**evidence.scope, "validation_status": "failed", "analysis_chromosomes": []}
         for error in errors:
             logger.warning("Input preflight: %s", error)
-        diagnostic = SimpleNamespace(gene_list_batch=batch, query_statuses=gene_query_statuses(batch) if batch is not None else (),
-                                     chromosome_scope=scope, input_issues=evidence.issues)
+        diagnostic = QueryDiagnostics(scope, query_statuses=gene_query_statuses(batch) if batch is not None else (),
+                                      gene_list_batch=batch, input_issues=evidence.issues)
         LDScoreDirectoryWriter().write_query_diagnostics(diagnostic, output_config)
         raise LDSCInputError("LD-score input/coverage preflight failed: " + "; ".join(errors[:10]) +
                              ". Complete diagnostics: diagnostics/input_issues.tsv, diagnostics/chromosome_scope.json, and gene-list audit/summary when applicable. "

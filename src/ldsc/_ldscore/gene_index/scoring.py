@@ -11,7 +11,6 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Sequence
 
 import numpy as np
@@ -40,6 +39,10 @@ from ..._runtime.progress import advance, report_phase
 from ...errors import LDSCInputError
 
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
+
+# Chromosome scope recorded when the index or its inputs fail validation.
+_FAILED_INDEX_SCOPE = {"selection": "validated_immutable_index", "chromosomes": None,
+                       "analysis_chromosomes": [], "validation_status": "failed"}
 
 
 @dataclass(frozen=True)
@@ -445,19 +448,15 @@ def run_indexed_ldscore(
     validate_workers(workers)
     output_dir = normalize_path_token(output_dir)
     from ..._runtime.preflight import inspect_declared_inputs
-    from ..outputs import LDScoreDirectoryWriter
+    from ..outputs import LDScoreDirectoryWriter, QueryDiagnostics
     LDScoreDirectoryWriter.artifact_family(output_dir).preflight(overwrite=overwrite)
     try:
         inspect_declared_inputs(files=[('query genes', query_gene_list_sources), ('control genes', control_gene_list_file)],
             checks=[('index', index_dir, lambda: inspect_index_paths(index_dir))],
             issues_path=Path(output_dir)/'diagnostics/input_issues.tsv')
     except LDSCInputError as exc:
-        diagnostic = SimpleNamespace(input_issues=exc.input_issues, chromosome_scope={
-            'selection': 'validated_immutable_index', 'chromosomes': None,
-            'analysis_chromosomes': [], 'validation_status': 'failed'})
-        LDScoreDirectoryWriter._write_query_diagnostic_files(diagnostic, {
-            'input_issues': Path(output_dir)/'diagnostics/input_issues.tsv',
-            'chromosome_scope': Path(output_dir)/'diagnostics/chromosome_scope.json'})
+        LDScoreDirectoryWriter.write_input_preflight_diagnostics(
+            QueryDiagnostics(_FAILED_INDEX_SCOPE, input_issues=exc.input_issues), output_dir)
         raise
     with AnnotationWorkspace(output_dir) as workspace:
         return _run_indexed_ldscore_in_workspace(
@@ -483,7 +482,8 @@ def _run_indexed_ldscore_in_workspace(
     gene_control_errors,
     gene_viability_errors,
 )
-    from ..outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
+    from ..diagnostics import fail_gene_list_resolution, fail_unusable_queries, log_query_outcomes
+    from ..outputs import LDScoreDirectoryWriter, LDScoreOutputConfig, QueryDiagnostics
 
     try:
         index = _load_gene_ldscore_index(index_dir, _allow_partial_for_tests=_allow_partial_for_tests)
@@ -494,11 +494,9 @@ def _run_indexed_ldscore_in_workspace(
             "input_role": "index", "source": str(index_dir), "chrom": "", "reason": "invalid_required_input",
             "details": str(exc), "repair": "Restore or rebuild the complete immutable autosomes 1-22 index.",
         }], columns=ISSUE_COLUMNS))
-        diagnostic = SimpleNamespace(input_issues=issues, chromosome_scope={
-            "selection": "validated_immutable_index", "chromosomes": None,
-            "analysis_chromosomes": [], "validation_status": "failed",
-        })
-        LDScoreDirectoryWriter().write_query_diagnostics(diagnostic, LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite))
+        LDScoreDirectoryWriter().write_query_diagnostics(
+            QueryDiagnostics(_FAILED_INDEX_SCOPE, input_issues=issues),
+            LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite))
         raise
     projection_build = str(index.index_identity.get("projection_build"))
     gene_policy = str(index.index_identity.get("gene_exclude_regions", "none"))
@@ -513,19 +511,9 @@ def _run_indexed_ldscore_in_workspace(
         resolution_policy=gene_list_resolution_policy,
         gene_exclude_regions=gene_policy,
     )
-    from ..._annotation.query_outcomes import (
-    gene_list_gate_a_message,
-    log_gene_list_rejections,
-    log_gene_list_snp_support,
-    log_query_annotation_statuses,
-)
+    output_config = LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite)
     if batch.has_fatal_gate_a_issues:
-        LDScoreDirectoryWriter().write_gene_list_preflight(
-            batch,
-            LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite),
-        )
-        log_gene_list_rejections(batch)
-        raise LDSCInputError(gene_list_gate_a_message(batch))
+        fail_gene_list_resolution(batch, output_config)
     batch, coverage_errors = assess_gene_coverage(batch, index.chromosomes)
     scope = {"chromosomes": list(index.chromosomes), "analysis_chromosomes": list(index.chromosomes),
              "selection": "validated_immutable_index", "index_id": index.index_id,
@@ -533,9 +521,9 @@ def _run_indexed_ldscore_in_workspace(
     LOGGER.info("Chromosomes resolved and entering the analysis: %s.", ", ".join(index.chromosomes))
     coverage_errors.extend(gene_control_errors(batch))
     if coverage_errors:
-        diagnostic = SimpleNamespace(query_statuses=gene_query_statuses(batch), gene_list_batch=batch,
-                                     chromosome_scope={**scope, "validation_status": "failed", "analysis_chromosomes": []})
-        LDScoreDirectoryWriter().write_query_diagnostics(diagnostic, LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite))
+        LDScoreDirectoryWriter().write_query_diagnostics(QueryDiagnostics(
+            {**scope, "validation_status": "failed", "analysis_chromosomes": []},
+            query_statuses=gene_query_statuses(batch), gene_list_batch=batch), output_config)
         raise LDSCInputError("; ".join(coverage_errors))
     batch = batch.with_snp_support(index.gene_support)
     statuses = gene_query_statuses(batch)
@@ -551,15 +539,8 @@ def _run_indexed_ldscore_in_workspace(
     control_resolution = batch.selection("control", 0) if control_gene_list_file is not None else None
     control_errors = gene_viability_errors(batch, statuses)
     if control_errors:
-        diagnostic_result = SimpleNamespace(query_statuses=statuses, gene_list_batch=batch, chromosome_scope=scope)
-        LDScoreDirectoryWriter().write_query_diagnostics(
-            diagnostic_result,
-            LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite),
-        )
-        log_gene_list_rejections(batch)
-        log_gene_list_snp_support(batch)
-        log_query_annotation_statuses(statuses)
-        raise LDSCInputError("; ".join(control_errors))
+        fail_unusable_queries(QueryDiagnostics(scope, query_statuses=statuses, gene_list_batch=batch),
+                              "; ".join(control_errors), output_config)
     if any(item["query"] == "gene_control" for item in usable):
         raise LDSCInputError(
             "Query name 'gene_control' collides with the reserved fixed control column. "
@@ -579,12 +560,9 @@ def _run_indexed_ldscore_in_workspace(
         results = indexed_results(index, batch, usable, control_resolution, query_batch_size,
                                   workspace.path, workers, statuses, scope, log_paths)
         result = LDScoreDirectoryWriter().write_batches(
-            results, LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite),
-            query_status_order=[status.query for status in statuses])
+            results, output_config, query_status_order=[status.query for status in statuses])
         log_reference_snp_funnel_warning(index.reference_snp_funnel, result.output_paths["reference_snp_funnel"])
-        log_gene_list_rejections(result.gene_list_batch)
-        log_gene_list_snp_support(result.gene_list_batch)
-        log_query_annotation_statuses(result.query_statuses)
+        log_query_outcomes(result.gene_list_batch, result.query_statuses)
         return result
 
 

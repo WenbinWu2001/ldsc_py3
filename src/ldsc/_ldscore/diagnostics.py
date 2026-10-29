@@ -1,4 +1,9 @@
-"""Run-owned LD-score logs, independent of disposable scientific scratch."""
+"""Run-owned LD-score logs and the shared stop-with-diagnostics sequences.
+
+Logs are independent of disposable scientific scratch. Direct and indexed
+scoring stop on rejected gene lists and unusable queries through the same
+write-diagnostics, log, raise sequences defined here.
+"""
 
 from contextlib import contextmanager, nullcontext
 import logging
@@ -70,6 +75,50 @@ def report_chromosome_failure(error, pending, paths, batch, logger=LOGGER):
     else:
         logger.error("LD-score task failed; %s; %s; %s: %s. %s", batch, tasks, type(error).__name__, error,
                      " ".join(getattr(error, "__notes__", [])))
+
+
+def fail_gene_list_resolution(batch, output_config):
+    """Stop on rejected gene-list identifiers or query names (Gate A).
+
+    Writes the gene-list audit and resolution summary, logs the rejections,
+    and raises the consolidated ``LDSCInputError``.
+    """
+    from .._annotation.query_outcomes import gene_list_gate_a_message, log_gene_list_rejections
+    from ..errors import LDSCInputError
+    from .outputs import LDScoreDirectoryWriter
+
+    LDScoreDirectoryWriter().write_gene_list_preflight(batch, output_config)
+    log_gene_list_rejections(batch)
+    raise LDSCInputError(gene_list_gate_a_message(batch))
+
+
+def fail_unusable_queries(diagnostics, message, output_config):
+    """Stop when the queries or the gene control cannot be used.
+
+    ``diagnostics`` (an annotation bundle or ``QueryDiagnostics``) supplies the
+    query statuses, gene-list batch, and chromosome scope to write. The written
+    paths, gene-list rejections and SNP support, and query statuses go to the
+    workflow log before ``LDSCInputError(message)`` is raised.
+    """
+    from .._runtime.workflow_logging import log_outputs
+    from ..errors import LDSCInputError
+    from .outputs import LDScoreDirectoryWriter
+
+    log_outputs(**LDScoreDirectoryWriter().write_query_diagnostics(diagnostics, output_config))
+    log_query_outcomes(diagnostics.gene_list_batch, diagnostics.query_statuses)
+    raise LDSCInputError(message)
+
+
+def log_query_outcomes(gene_list_batch, statuses) -> None:
+    """Log gene-list rejections and SNP support, then query statuses, after their diagnostics are written."""
+    from .._annotation.query_outcomes import (
+        log_gene_list_rejections, log_gene_list_snp_support, log_query_annotation_statuses,
+    )
+
+    if gene_list_batch is not None:
+        log_gene_list_rejections(gene_list_batch)
+        log_gene_list_snp_support(gene_list_batch)
+    log_query_annotation_statuses(statuses)
 
 
 def reference_snp_funnel_path(output_dir) -> str:

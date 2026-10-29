@@ -40,7 +40,10 @@ from .._runtime.serial_calculation import serial_calculation
 from .diagnostics import (
     chromosome_log,
     emit_reference_snp_funnel_notice,
+    fail_gene_list_resolution,
+    fail_unusable_queries,
     ldscore_logs,
+    log_query_outcomes,
     log_reference_snp_funnel_warning,
     reference_snp_funnel_path,
 )
@@ -103,9 +106,7 @@ from .._core.snp_identity import RestrictionIdentityKeys
 from .._core.row_alignment import assert_same_snp_rows, sort_frame_by_genomic_position
 from ..errors import EmptyReferenceSNPs, LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from .._annotation.query_outcomes import (
-    QueryAnnotationStatus, gene_query_statuses, gene_viability_errors,
-    log_gene_list_rejections, log_gene_list_snp_support,
-    log_query_annotation_statuses, all_query_annotations_skipped_message,
+    QueryAnnotationStatus, gene_query_statuses, gene_viability_errors, all_query_annotations_skipped_message,
     emit_bed_query_notice, emit_gene_gate_b_notice, emit_resolved_only_notice,
 )
 
@@ -1445,10 +1446,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
                 batch = validate_gene_query_names(batch, {column for path in declared_inputs.baseline
                     for column in declared_inputs.columns[path]})
                 if batch.has_fatal_gate_a_issues:
-                    from .._annotation.query_outcomes import gene_list_gate_a_message
-                    LDScoreDirectoryWriter().write_gene_list_preflight(batch, output_config)
-                    log_gene_list_rejections(batch)
-                    raise LDSCInputError(gene_list_gate_a_message(batch))
+                    fail_gene_list_resolution(batch, output_config)
             if normalized_args is None:
                 normalized_args, global_config = _normalize_run_args(args,gene_catalog=catalog)
             print_global_config_banner("run_ldscore_from_args",global_config)
@@ -1486,25 +1484,16 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
                 regression_region_presets=", ".join(regression_regions.source_labels) if regression_regions else "none")
             if getattr(normalized_args,"gene_catalog_build",None) is not None:
                 LOGGER.info("Gene-list catalog projection build: %s (selected from --genome-build and baseline/reference-panel evidence).",normalized_args.gene_catalog_build)
-            calculator = LDScoreCalculator()
             if annotation_bundle.gene_list_batch is not None:
                 annotation_bundle, gate_b_error = _apply_direct_gene_gate_b(annotation_bundle,ref_panel,ldscore_config,global_config)
                 if gate_b_error:
-                    log_outputs(**calculator.output_writer.write_query_diagnostics(annotation_bundle,output_config))
-                    log_gene_list_rejections(annotation_bundle.gene_list_batch)
-                    log_gene_list_snp_support(annotation_bundle.gene_list_batch)
-                    raise LDSCInputError(gate_b_error)
+                    fail_unusable_queries(annotation_bundle, gate_b_error, output_config)
             statuses = annotation_bundle.query_statuses
             if statuses and not annotation_bundle.query_columns:
-                log_outputs(**calculator.output_writer.write_query_diagnostics(annotation_bundle,output_config))
-                log_query_annotation_statuses(statuses)
-                raise LDSCInputError(all_query_annotations_skipped_message(statuses))
-            result = calculator._run(annotation_bundle,ref_panel,ldscore_config,global_config,
+                fail_unusable_queries(annotation_bundle, all_query_annotations_skipped_message(statuses), output_config)
+            result = LDScoreCalculator()._run(annotation_bundle,ref_panel,ldscore_config,global_config,
                 output_config=output_config,regression_snps=regression_snps,regression_regions=regression_regions)
-            if result.gene_list_batch is not None:
-                log_gene_list_rejections(result.gene_list_batch)
-                log_gene_list_snp_support(result.gene_list_batch)
-            log_query_annotation_statuses(result.query_statuses)
+            log_query_outcomes(result.gene_list_batch, result.query_statuses)
             log_outputs(**result.output_paths)
             if bool(getattr(args,"_emit_query_console_notices",False)):
                 emit_gene_gate_b_notice(result.query_statuses,result.gene_list_batch,command="ldscore")

@@ -11,14 +11,19 @@ The user confirmed the design in a grilling session on 2026-10-29 (architecture 
 
 - `9059346` (`fix(ldscore): inherit index settings in output`): indexed output records the index's SNP identifier mode and common-SNP MAF threshold through `LoadedGeneLDScoreIndex.global_config` and `count_config`.
   Before, every allele-aware index was recorded as `chr_pos` and every threshold as 0.05, so `h2` refused allele-aware summary statistics against these LD scores without `--allow-identity-downgrade`, and always failed for an `rsid_allele_aware` index.
-- `af47332`: dead-code cleanup, including the public `LDScoreCalculator.run(config_snapshot=...)` parameter (a breaking change) and four duplicated worker-count tests.
-- `77b0133`: `_runtime.parallelism.chromosome_pool()` creates the spawn pool for direct scoring, indexed scoring and index construction; a crashed worker raises `LDSCInternalError` in all three.
-- `d4d9b4a`: `src/ldsc/_ldscore/batch_execution.py` runs the query batches for both LD-score producers, `_DirectProducer` in `calculator.py` and `_IndexedProducer` in `gene_index/batches.py`.
+- `80ee1f7`: dead-code cleanup, including the public `LDScoreCalculator.run(config_snapshot=...)` parameter (a breaking change) and four duplicated worker-count tests.
+- `cc1f3e5`: `_runtime.parallelism.chromosome_pool()` creates the spawn pool for direct scoring, indexed scoring and index construction; a crashed worker raises `LDSCInternalError` in all three.
+- `9d77843`: `src/ldsc/_ldscore/batch_execution.py` runs the query batches for both LD-score producers, `_DirectProducer` in `calculator.py` and `_IndexedProducer` in `gene_index/batches.py`.
+- `224b0da` and `580f9ad`: the user approved the glossary term "LD-score producer", and docs and docstrings use it.
+- `e034c8c`: direct scoring no longer repeats the gene-list name check (Gate A) or the gene-option, coordinate-file and query-requires-baseline argument checks, none of which could fire a second time.
 - Deviation from the confirmed design: the direct producer stays in `calculator.py`, because moving it to `direct_batches.py` would create an import cycle.
-- Evidence: synthetic fixture outputs recorded after `9059346` (direct prebuilt, BED, gene-list and synthetic-base runs, index construction, indexed scoring and the in-memory path) matched exactly after each later commit; the comparison script and outputs stayed outside the repository.
-  The full pytest and unittest suites passed after each commit.
-- The user approved the glossary term "LD-score producer" on 2026-10-29.
-- Not done, out of scope: removing `_allow_partial_for_tests`, one LD-score publication path, and sharing the gene-list diagnostic sequence.
+- Evidence: synthetic fixture outputs recorded after `9059346` (direct prebuilt, BED, gene-list and synthetic-base runs, index construction, indexed scoring and the in-memory path) matched exactly after each later code commit; the comparison script and outputs stayed outside the repository.
+  The full pytest and unittest suites passed after each code commit.
+- Remaining items from the candidate 1 audit entry, each awaiting the user's decision:
+  - the gene-list support, coverage and control checks and their "write diagnostics, log, raise" sequence are still written separately in `run_ldscore_from_args` with `_apply_direct_gene_gate_b()` and in `_run_indexed_ldscore_in_workspace()`;
+  - indexed scoring writes input-preflight diagnostics through the private `LDScoreDirectoryWriter._write_query_diagnostic_files()` and passes `SimpleNamespace` stand-ins at four sites in `gene_index/scoring.py`;
+  - index construction computes LD scores with its own kernel code rather than `compute.compute_chromosome()`, a separable step with numerical risk.
+- Not done, out of scope: removing `_allow_partial_for_tests` and one LD-score publication path.
 
 ## Completed: domain subpackage reorganization of `src/ldsc`
 

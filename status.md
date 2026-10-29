@@ -35,13 +35,20 @@ The user asked for each to be diagnosed and given a failing test first; each was
 - `7dbf370`: seven config constructors now catch the `LDSCConfigError` their normalizers raise, so users see the message naming the field and its valid values.
 - Fixture outputs still matched the commit-1 baseline exactly; the full pytest and unittest suites passed.
 
+## Completed: review decisions of 2026-10-29
+
+- `1b8830d`: each `rg` trait pair applies the `h2` collinearity check (condition number above 1e5) on its own regression rows, with `h2`'s rule that the check needs a stored overlap matrix and two or more LD-score columns; a collinear pair is recorded as a failed pair.
+- `4f71e9f`: pytest is the only test runner; `AGENTS.md` (and `CLAUDE.md`, a link to it) and the developer docs no longer run `python -m unittest discover`.
+- Missing reference MAF, verified on 2026-10-29: not a reachable defect.
+  The R2 matrix sidecar reader rejects a missing or out-of-range MAF, and PLINK genotype QC removes all-missing and monomorphic SNPs, so neither `compute_counts()` (which raises) nor `annotation_statistics()` (which would omit common counts) ever receives missing MAF.
+- Open: removing the public names that only tests use waits on the user's confirmation of the candidate list.
+
 ## Proposed: index construction through the shared LD-score kernel
 
 Split out of architecture review candidate 1 on 2026-10-29; awaiting the user's go-ahead.
 
 - `build-gene-ldscore-index` assembles each chromosome's LD scores and counts in `build_plink_index_chromosome()` (`src/ldsc/_ldscore/gene_index/build.py`) by calling the kernel primitives `ld_scores_from_genotypes()` and `compute_counts()` itself, instead of going through `compute_chromosome()` in `src/ldsc/_ldscore/compute.py`.
 - Unifying them changes numerical code: it needs exact golden comparison of index payloads and indexed LD scores, preferably on a full reference panel, and must keep the shared PLINK projection pass for regression-weight LD scores (see `lessons.md`).
-- A related review finding, not yet verified: the review reported that index construction and direct scoring treat missing reference MAF differently (`compute_counts()` in `compute.py` raises, while `annotation_statistics()` in `_annotation/overlap.py` omits common counts).
 
 ## Completed: domain subpackage reorganization of `src/ldsc`
 

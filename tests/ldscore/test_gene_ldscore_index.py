@@ -1008,7 +1008,7 @@ def test_build_index_python_config_requires_identity_and_build():
 
 def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_path, monkeypatch):
     from tests.worker_fixtures import local_task_pool
-    monkeypatch.setattr(gene_ldscore_index, "ProcessPoolExecutor", local_task_pool)
+    monkeypatch.setattr("ldsc._runtime.parallelism.ProcessPoolExecutor", local_task_pool)
     chromosome, catalog, index_identity = _artifact_payload()
     identity_rows = chromosome.baseline_rows[["CHR", "POS", "SNP"]].copy()
     baseline_path = tmp_path / "baseline.22.annot.gz"
@@ -1125,7 +1125,7 @@ def test_completed_chromosome_is_durably_staged_before_other_workers_finish(
     tmp_path, monkeypatch
 ):
     from tests.worker_fixtures import local_task_pool
-    monkeypatch.setattr(gene_ldscore_index, "ProcessPoolExecutor", local_task_pool)
+    monkeypatch.setattr("ldsc._runtime.parallelism.ProcessPoolExecutor", local_task_pool)
     chromosome, output, args = _configure_two_chromosome_builder(tmp_path, monkeypatch)
     first_started = threading.Event()
     release_first = threading.Event()
@@ -1207,7 +1207,7 @@ def test_completed_chromosome_is_durably_staged_before_other_workers_finish(
 
 def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path, monkeypatch):
     from tests.worker_fixtures import local_task_pool
-    monkeypatch.setattr(gene_ldscore_index, "ProcessPoolExecutor", local_task_pool)
+    monkeypatch.setattr("ldsc._runtime.parallelism.ProcessPoolExecutor", local_task_pool)
     chromosome, catalog, index_identity = _artifact_payload()
     identity_rows = chromosome.baseline_rows[["CHR", "POS", "SNP"]].copy()
     baseline_path = tmp_path / "baseline.22.annot.gz"
@@ -1291,7 +1291,7 @@ def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path,
 
 def test_chromosome_failure_cleans_staged_shards_without_publication(tmp_path, monkeypatch):
     from tests.worker_fixtures import local_task_pool
-    monkeypatch.setattr(gene_ldscore_index, "ProcessPoolExecutor", local_task_pool)
+    monkeypatch.setattr("ldsc._runtime.parallelism.ProcessPoolExecutor", local_task_pool)
     chromosome, output, args = _configure_two_chromosome_builder(tmp_path, monkeypatch)
     first_durable = threading.Event()
 

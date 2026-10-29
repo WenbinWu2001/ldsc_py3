@@ -68,7 +68,8 @@ def test_indexed_staging_holds_one_batch_and_reuses_pool(tmp_path, monkeypatch):
         query.write_text("G1\nG3\n" if ordinal % 2 == 0 else "G2\nG4\n")
         queries.append(query)
     original_results = batches.indexed_results
-    original_pool = batches.ProcessPoolExecutor
+    from ldsc._runtime import parallelism
+    original_pool = parallelism.ProcessPoolExecutor
     pools, pending_counts, previous = [], [], []
 
     def pool(*args, **kwargs):
@@ -90,7 +91,7 @@ def test_indexed_staging_holds_one_batch_and_reuses_pool(tmp_path, monkeypatch):
         finally:
             producer.close()
 
-    monkeypatch.setattr(batches, "ProcessPoolExecutor", pool)
+    monkeypatch.setattr("ldsc._runtime.parallelism.ProcessPoolExecutor", pool)
     monkeypatch.setattr(batches, "indexed_results", results)
     output = tmp_path / "out"
     result = run_indexed_ldscore(index, query_gene_list_sources=queries,
@@ -226,7 +227,7 @@ def test_failed_batch_waits_for_running_chromosome_before_scratch_cleanup(tmp_pa
         assert Path(args[7]).is_dir(), "batch scratch disappeared while a worker was running"
         finished.set()
 
-    monkeypatch.setattr(batches, "ProcessPoolExecutor", Pool)
+    monkeypatch.setattr("ldsc._runtime.parallelism.ProcessPoolExecutor", Pool)
     monkeypatch.setattr(batches, "_write_chromosome", task)
     output = tmp_path / "out"
     with pytest.raises(OSError, match="failed chromosome"):

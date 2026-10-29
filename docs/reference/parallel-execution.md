@@ -1,6 +1,6 @@
 # Parallel execution
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-29
 
 Use `workers` in Python or `--workers` in the CLI to choose task concurrency.
 The default is one worker on both laptops and HPC systems.
@@ -48,9 +48,10 @@ There are no nested chromosome/model pools.
 The parent coordinates inputs, collection, aggregation, and publication.
 
 Direct scoring, indexed scoring, and index construction share the private `run_chromosome_tasks()` function in [`_runtime/parallelism.py`](../../src/ldsc/_runtime/parallelism.py).
+They also create their spawn worker pool with the private `chromosome_pool()` context in the same module.
 It bounds outstanding futures by the resolved worker count, tracks their chromosomes, and collects each ready group before submitting replacements, using the same path for one or multiple workers.
 On an observed exception it attempts cancellation and passes the original error, current chromosome, and outstanding chromosomes to the workflow's failure callback.
-The workflow retains task preparation, result processing, progress and diagnostics, executor ownership, and all temporary-file and publication responsibilities.
+The workflow retains task preparation, result processing, progress and diagnostics, the executor's lifetime, and all temporary-file and publication responsibilities.
 Direct and indexed LD explicitly wait for their persistent executors to shut down on failure before the current query-batch workspace closes; an outer pool context alone would close too late.
 Index construction exits its executor context before its enclosing workspace is cleaned up.
 Regression retains its separate process communication and memory-mapping implementation.
@@ -105,6 +106,7 @@ The main log records overall progress and each chromosome's diagnostic path.
 Chromosome logs append across batches in the same run and record detailed execution and full Python exception tracebacks.
 A subsequent run follows `--overwrite`: refuse existing owned artifacts by default, or reset owned logs for an explicitly authorized replacement.
 An abnormal worker termination may produce no traceback; the main log lists affected in-flight tasks without guessing which chromosome caused the crash.
+Direct `ldscore`, indexed `ldscore` and `build-gene-ldscore-index` then stop with `LDSCInternalError`, which names the interrupted work and asks you to check memory limits or retry with fewer `--workers`.
 Low-level `LDScoreCalculator.run(..., output_config=None)` remains a no-file-output API for already-prepared single-batch inputs.
 
 Any required chromosome failure fails the run.
@@ -124,4 +126,4 @@ See [`_ldscore/diagnostics.py`](../../src/ldsc/_ldscore/diagnostics.py), [`LDSco
 
 Representative chromosome scaling, full-genome memory, HPC Arrow I/O, and repeated serial work remain benchmarking topics.
 The uniform BLAS policy is a confirmed resource policy, not a claim of universally optimal performance.
-Tested behavior is in [`test_worker_policy.py`](../../tests/runtime/test_worker_policy.py), [`test_execution_policy.py`](../../tests/runtime/test_execution_policy.py), and [`test_ldscore_parallelism.py`](../../tests/ldscore/test_ldscore_parallelism.py).
+Tested behavior is in [`test_worker_policy.py`](../../tests/runtime/test_worker_policy.py), [`test_execution_policy.py`](../../tests/runtime/test_execution_policy.py), [`test_chromosome_pool.py`](../../tests/runtime/test_chromosome_pool.py), and [`test_ldscore_parallelism.py`](../../tests/ldscore/test_ldscore_parallelism.py).

@@ -70,11 +70,12 @@ def test_direct_chromosome_logs_append_across_batches_and_reset_on_overwrite(tmp
     from ldsc._ldscore import calculator as direct
     from tests.ldscore.test_ldscore_query_batches import prepared_case
     pools = []
-    original_pool = direct.ProcessPoolExecutor
+    from ldsc._runtime import parallelism
+    original_pool = parallelism.ProcessPoolExecutor
     def pool(**kwargs):
         pools.append(kwargs["max_workers"])
         return original_pool(**kwargs)
-    monkeypatch.setattr(direct, "ProcessPoolExecutor", pool)
+    monkeypatch.setattr("ldsc._runtime.parallelism.ProcessPoolExecutor", pool)
     metadata, baseline, queries, config, panel, numerical = prepared_case(tmp_path)
     bundle = AnnotationBundle.from_frames(metadata, baseline, queries, config_snapshot=config)
     destination = tmp_path / "out"
@@ -216,7 +217,7 @@ def test_direct_waits_for_running_worker_before_query_batch_cleanup(tmp_path, mo
 
     # Real futures/threads make cancellation fail for the running borrower.
     # Scientific calculations and child runtime settings are tested separately.
-    monkeypatch.setattr(direct, "ProcessPoolExecutor", Pool)
+    monkeypatch.setattr("ldsc._runtime.parallelism.ProcessPoolExecutor", Pool)
     monkeypatch.setattr(direct, "_compute_one_chromosome", task)
     monkeypatch.setattr(_annotation_queries, "execution_query_bundle", batch)
     with pytest.raises(ValueError) as raised:
@@ -264,8 +265,9 @@ def test_abnormal_ld_termination_reports_unconfirmed_source_and_retains_logs(tmp
         monkeypatch.setattr(indexed, "_write_chromosome", _crash_indexed_task)
         run = lambda: run_indexed_ldscore(index, query_gene_list_sources=[query], output_dir=output, workers=2, _allow_partial_for_tests=True)
     before = {child.pid for child in mp.active_children()}
-    with pytest.raises((LDSCInternalError, BrokenProcessPool)):
+    with pytest.raises(LDSCInternalError) as raised:
         run()
+    assert isinstance(raised.value.__cause__, BrokenProcessPool)
     assert {child.pid for child in mp.active_children()} == before
     main = (output / "diagnostics/ldscore.log").read_text()
     assert "Affected in-flight tasks:" in main

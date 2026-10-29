@@ -36,7 +36,8 @@ def test_direct_workers_return_fragments_and_reuse_pool_across_batches(tmp_path,
             expected = calculator.run(bundle, panel, numerical, config,
                 output_config=LDScoreOutputConfig(tmp_path / "materialized"))
         original_run = calculator._run_chromosomes
-        original_pool = ldscore_calculator.ProcessPoolExecutor
+        from ldsc._runtime import parallelism
+        original_pool = parallelism.ProcessPoolExecutor
         pools, previous, batches = [], [], []
 
         def pool(*args, **kwargs):
@@ -58,7 +59,7 @@ def test_direct_workers_return_fragments_and_reuse_pool_across_batches(tmp_path,
             batches.append(len(fragments))
             return outcomes
 
-        monkeypatch.setattr(ldscore_calculator, "ProcessPoolExecutor", pool)
+        monkeypatch.setattr("ldsc._runtime.parallelism.ProcessPoolExecutor", pool)
         monkeypatch.setattr(calculator, "_run_chromosomes", run)
         output = tmp_path / "out"
         saved = calculator.run(bundle, panel, numerical, config,
@@ -217,7 +218,7 @@ def test_direct_failure_waits_for_workers_before_removing_borrowed_scratch(tmp_p
         assert Path(kwargs["fragment_dir"]).is_dir()
         finished.set()
 
-    monkeypatch.setattr(ldscore_calculator, "ProcessPoolExecutor", Pool)
+    monkeypatch.setattr("ldsc._runtime.parallelism.ProcessPoolExecutor", Pool)
     monkeypatch.setattr(ldscore_calculator, "_compute_one_chromosome", task)
     with AnnotationBundle.from_frames(metadata, baseline, queries, config_snapshot=config) as bundle:
         with pytest.raises(OSError, match="injected worker failure"):

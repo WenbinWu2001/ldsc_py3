@@ -1,6 +1,6 @@
 # Code Structure
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-29
 
 This is the authoritative contributor entry for LDSC3.
 Start here to locate a change.
@@ -89,7 +89,7 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 | `ldsc._runtime.workflow_logging` | shared workflow logging context, `LDSC` logger level handling, lifecycle audit lines, CLI console-handler routing (file-authoritative, console error-only) with run-aborting traceback capture, durable authorized-overwrite failure markers without rollback, and log-only formatting helpers |
 | `ldsc._runtime.cli_help` | shared `CLIHelpFormatter` keeps flag names and paths intact when help descriptions wrap; `CHROMOSOME_PATH_HELP` and `SCALAR_PATH_HELP` supply verified path syntax; workflow parsers own their descriptions and argument groups |
 | `ldsc._runtime.workflow_kwargs` | validate Python keyword arguments for `run_ldscore`, `run_build_r2_matrix`, `run_h2`, `run_partitioned_h2`, `run_rg`, and `run_quantile_h2` against the command parser before any write; run the regression and post-fit workflows under a failure marker naming the Python function |
-| `ldsc._runtime.parallelism` | shared `workers` validation, joblib detected CPU budgets, task caps, and execution summaries |
+| `ldsc._runtime.parallelism` | shared `workers` validation, joblib detected CPU budgets, task caps, execution summaries, chromosome task scheduling, and the spawn worker pool that turns a crashed worker into `LDSCInternalError` |
 | `ldsc._runtime.worker_runtime`, `ldsc._runtime.serial_calculation` | fixed one-BLAS-thread worker policy, runtime verification, independent Arrow limits, and controlled standalone numerical calls |
 | `ldsc._genome.build_inference` | public `chr_pos` build and coordinate-basis inference helpers |
 | `ldsc._genome.build_policy`, `ldsc._genome.build_inspection` | the build policy workflows apply to their inputs and read-only build inspection of saved artifacts (`infer-genome-build`) |

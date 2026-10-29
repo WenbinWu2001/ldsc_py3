@@ -1,6 +1,6 @@
 # Architecture
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-29
 
 LDSC3 (distribution `ldsc`) is the Python 3 package that replaces legacy LDSC.
 It reads optional SNP-level annotations, PLINK reference panels or R² matrices, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to the computation modules of its private domain packages; and writes LDSC3 artifacts that can be chained into later runs.
@@ -348,6 +348,7 @@ Regression model preparation borrows aligned read-only columns through `Regressi
 `tests/regression/test_regression_memory.py` covers shared-input immutability, repeated fits, and independent weighted least-squares agreement.
 
 `_runtime.parallelism` validates `workers` against the detected available CPU count from `joblib.cpu_count()`, then caps concurrency by chromosomes or complete query-plus-baseline models.
+Its `chromosome_pool()` creates the spawn pool for direct scoring, indexed scoring and index construction, and turns a crashed worker into `LDSCInternalError` in all three.
 There is no custom CPU detector, Slurm parsing, CPU binding, or automatic memory budget.
 The default of one still uses one worker; direct and indexed LD reuse their pools across query batches, and regression reuses mapped-input workers across model batches.
 Gene LD-score index construction now passes staged chromosome descriptors to spawned processes and collects compact persisted-component metadata.

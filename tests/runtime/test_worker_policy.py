@@ -49,33 +49,27 @@ def test_cli_rejects_invalid_workers(module, value, capsys):
     (3, -1, 2), (3, -2, 2), (3, -3, 1), (3, -20, 1),
 ])
 def test_workflows_share_detected_budget_and_managed_processes(tmp_path, monkeypatch, cpus, workers, expected):
-    import os
     import numpy as np
     from ldsc._ldscore.gene_index import build as builder
     from ldsc._ldscore import calculator as direct
     from ldsc._ldscore.gene_index import scoring as _gene_index_scoring
     from ldsc._ldscore.gene_index.scoring import _load_gene_ldscore_index
-    from ldsc._ldscore.gene_index import batches as indexed
     from ldsc import RegressionRunner, RegressionConfig
     from tests.ldscore.test_plink_workflow_resolution import write_inputs, index_args
     from tests.regression.test_regression_streaming import batch_inputs
 
     monkeypatch.setattr("joblib.cpu_count", lambda: cpus)
     monkeypatch.setenv("SLURM_CPUS_PER_TASK", "1")
+    from ldsc._runtime import parallelism
     calls = {"build": [], "direct": [], "indexed": []}
+    workflow = ["build"]
+    executor = parallelism.ProcessPoolExecutor
 
-    def observe(module, attribute, workflow):
-        executor = getattr(module, attribute)
+    def construct(*args, **kwargs):
+        calls[workflow[0]].append(kwargs["max_workers"])
+        return executor(*args, **kwargs)
 
-        def construct(*args, **kwargs):
-            calls[workflow].append(kwargs["max_workers"])
-            return executor(*args, **kwargs)
-
-        monkeypatch.setattr(module, attribute, construct)
-
-    observe(builder, "ProcessPoolExecutor", "build")
-    observe(direct, "ProcessPoolExecutor", "direct")
-    observe(indexed, "ProcessPoolExecutor", "indexed")
+    monkeypatch.setattr(parallelism, "ProcessPoolExecutor", construct)
     write_inputs(tmp_path)
     token = str(tmp_path / "1000G.EUR.QC.*")
     args = index_args(tmp_path, token, tmp_path / "index", workers=workers)
@@ -84,6 +78,7 @@ def test_workflows_share_detected_budget_and_managed_processes(tmp_path, monkeyp
     index = _load_gene_ldscore_index(path, _allow_partial_for_tests=True)
     np.testing.assert_array_equal(index.gene_support, [4, 4])
 
+    workflow[0] = "direct"
     args = direct.build_parser().parse_args([
         "--baseline-annot-sources", str(tmp_path / "baseline.annot"),
         "--plink-prefix", token, "--snp-identifier", "chr_pos", "--genome-build", "hg19",
@@ -94,6 +89,7 @@ def test_workflows_share_detected_budget_and_managed_processes(tmp_path, monkeyp
     result = direct.run_ldscore_from_args(args)
     np.testing.assert_allclose(result.baseline_table["base"], np.ones(8), atol=1e-7)
 
+    workflow[0] = "indexed"
     query = tmp_path / "query.txt"
     query.write_text("G21\n")
     result = _gene_index_scoring.run_indexed_ldscore(path, query_gene_list_sources=[query], workers=workers,

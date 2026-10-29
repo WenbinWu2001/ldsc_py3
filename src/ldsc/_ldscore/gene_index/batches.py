@@ -6,11 +6,9 @@ parent. The output writer consumes chromosome fragments in canonical order;
 no genome-wide query table or future-batch score fragments are retained.
 """
 
-from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
 import logging
-import multiprocessing
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -20,7 +18,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from ..._runtime.progress import PhaseProgress
-from ..._runtime.parallelism import resolve_worker_count, run_chromosome_tasks
+from ..._runtime.parallelism import chromosome_pool, resolve_worker_count, run_chromosome_tasks
+from ..._runtime.worker_runtime import initialize_worker
 from ..diagnostics import chromosome_log, report_chromosome_failure
 from ..query_variation import ScoreVariation, summarize_variation, combine_variation
 from .atoms import assemble_indexed_ld_scores, assemble_selected_atom_statistics
@@ -131,7 +130,6 @@ def indexed_results(index, batch, declarations, control, width, root, workers, s
     chromosome at a time. Index loading repeats for each batch. A failed task
     must finish pool shutdown before its batch workspace is removed.
     """
-    from ..calculator import _init_worker
     from ..fragments import StagedLDScoreBatch
     from ..overlap_table import LDScoreOverlap
     from ..._annotation.query_outcomes import finalize_query_measurements
@@ -141,9 +139,8 @@ def indexed_results(index, batch, declarations, control, width, root, workers, s
     workers = resolve_worker_count(workers, len(index.chromosomes))
     baseline_columns = [*index.baseline_columns, *(["gene_control"] if control is not None else [])]
     total_batches = (len(declarations) + width - 1) // width
-    with ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn"),
-                             initializer=_init_worker,
-                             initargs=(None, None, logging.getLogger("LDSC").getEffectiveLevel())) as executor:
+    with chromosome_pool(workers, operation="ldscore chromosome computation", initializer=initialize_worker,
+                         initargs=(logging.getLogger("LDSC").getEffectiveLevel(),)) as executor:
         for ordinal, start in enumerate(range(0, len(declarations), width)):
             active = declarations[start:start + width]
             with TemporaryDirectory(prefix=f"batch-{ordinal + 1:05d}-", dir=root) as temporary:

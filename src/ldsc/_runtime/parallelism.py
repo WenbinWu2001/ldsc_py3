@@ -6,10 +6,38 @@ Native numerical-library thread settings are owned by the workflow workers.
 
 import logging
 import argparse
-from concurrent.futures import FIRST_COMPLETED, wait
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+from concurrent.futures.process import BrokenProcessPool
+from contextlib import contextmanager
+import multiprocessing
 import joblib
 
+from ..errors import LDSCInternalError
+
 LOGGER = logging.getLogger("LDSC.parallelism")
+
+
+@contextmanager
+def chromosome_pool(workers, *, operation, initializer=None, initargs=()):
+    """Own one spawn worker pool for a workflow run.
+
+    ``operation`` names the work, such as ``"ldscore chromosome computation"``,
+    in the error raised when a worker process terminates abnormally: the
+    ``BrokenProcessPool`` from task submission or from a result becomes
+    ``LDSCInternalError`` with the original exception as its cause. Leaving the
+    block shuts the pool down normally, waiting for running workers, so release
+    scratch that tasks borrow only after the block.
+    """
+    with ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn"),
+                             initializer=initializer, initargs=initargs) as pool:
+        try:
+            yield pool
+        except BrokenProcessPool as error:
+            raise LDSCInternalError(
+                f"{operation} aborted: a worker process terminated abnormally. "
+                "The workflow log lists the chromosomes that were in flight. "
+                "Check memory limits or retry with fewer `--workers`."
+            ) from error
 
 
 def run_chromosome_tasks(chromosomes, workers, submit, collect, on_failure):

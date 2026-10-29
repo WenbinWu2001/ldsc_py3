@@ -1507,7 +1507,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         # Output ownership is tested here with a deliberately mocked calculator.
         from tests.worker_fixtures import calculation_body, local_task_pool
         self.enterContext(calculation_body())
-        self.enterContext(mock.patch.object(ldscore_workflow, "ProcessPoolExecutor", local_task_pool))
+        self.enterContext(mock.patch("ldsc._runtime.parallelism.ProcessPoolExecutor", local_task_pool))
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             output_dir = tmpdir / "ldscore_result"
@@ -1843,7 +1843,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         # Output ownership is tested here with a deliberately mocked calculator.
         from tests.worker_fixtures import calculation_body, local_task_pool
         self.enterContext(calculation_body())
-        self.enterContext(mock.patch.object(ldscore_workflow, "ProcessPoolExecutor", local_task_pool))
+        self.enterContext(mock.patch("ldsc._runtime.parallelism.ProcessPoolExecutor", local_task_pool))
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             output_dir = tmpdir / "ldscore_result"
@@ -1897,7 +1897,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         # Output ownership is tested here with a deliberately mocked calculator.
         from tests.worker_fixtures import calculation_body, local_task_pool
         self.enterContext(calculation_body())
-        self.enterContext(mock.patch.object(ldscore_workflow, "ProcessPoolExecutor", local_task_pool))
+        self.enterContext(mock.patch("ldsc._runtime.parallelism.ProcessPoolExecutor", local_task_pool))
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             output_dir = tmpdir / "ldscore_result"
@@ -1952,7 +1952,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         # Output ownership is tested here with a deliberately mocked calculator.
         from tests.worker_fixtures import calculation_body, local_task_pool
         self.enterContext(calculation_body())
-        self.enterContext(mock.patch.object(ldscore_workflow, "ProcessPoolExecutor", local_task_pool))
+        self.enterContext(mock.patch("ldsc._runtime.parallelism.ProcessPoolExecutor", local_task_pool))
         from ldsc._annotation.overlap import OverlapContribution
 
         with tempfile.TemporaryDirectory() as tmpdir:

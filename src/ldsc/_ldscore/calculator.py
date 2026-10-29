@@ -24,13 +24,11 @@ serial execution; workers are reused across query batches.
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from contextlib import ExitStack
 from tempfile import TemporaryDirectory
 from dataclasses import dataclass, field, replace as dataclass_replace
 import logging
-import multiprocessing as mp
 import os
 from pathlib import Path
 import sys
@@ -54,7 +52,9 @@ from .query_variation import combine_variation
 from .._core.chromosomes import chrom_sort_key
 from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
 from .._runtime.workflow_logging import LOG_LEVEL_HELP
-from .._runtime.parallelism import WORKERS_HELP, parse_workers, resolve_worker_count, run_chromosome_tasks, validate_workers
+from .._runtime.parallelism import (
+    WORKERS_HELP, chromosome_pool, parse_workers, resolve_worker_count, run_chromosome_tasks, validate_workers,
+)
 from .._runtime.progress import report_phase, PhaseProgress
 from .._annotation.storage import TsvDiagnostics
 from .source import LDScoreSource
@@ -507,8 +507,8 @@ class LDScoreCalculator:
             worker_count = resolve_worker_count(ldscore_config.workers, len(chromosomes))
             export_root = (stack.enter_context(TemporaryDirectory(prefix=".ldsc-ref-", dir=output_dir))
                            if ldscore_config.export_ref_metadata else None)
-            pool = stack.enter_context(ProcessPoolExecutor(
-                max_workers=worker_count, mp_context=mp.get_context("spawn"), initializer=_init_worker,
+            pool = stack.enter_context(chromosome_pool(
+                worker_count, operation="ldscore chromosome computation", initializer=_init_worker,
                 initargs=(regression_snps, regression_regions, global_config.log_level)))
             LOGGER.info(_format_ldscore_start_message(annotation_bundle, len(annotation_bundle.chromosomes)))
             cm_source, maf_source = _reference_metadata_sources(ref_panel)
@@ -708,13 +708,8 @@ class LDScoreCalculator:
                                       else [failed_chrom] if failed_chrom is not None else outstanding,
                                       paths, batch_label, LOGGER)
             # This is normal executor shutdown, before releasing staged inputs.
+            # chromosome_pool turns a crashed worker into the workflow error.
             pool.shutdown(wait=True)
-            if isinstance(error, BrokenProcessPool):
-                raise LDSCInternalError(
-                    "ldscore chromosome computation aborted: a worker process terminated abnormally. "
-                    "See the workflow log for affected in-flight chromosomes and their diagnostic paths. "
-                    "Check memory limits or retry with fewer `--workers`."
-                ) from error
 
         run_chromosome_tasks(chromosomes, worker_count, submit, collect, on_failure)
         return outcomes

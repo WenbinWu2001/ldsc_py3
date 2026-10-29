@@ -13,8 +13,6 @@ complete reload-validated transaction is published as an index.
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ProcessPoolExecutor
-import multiprocessing as mp
 from contextlib import closing, contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -41,7 +39,9 @@ from scipy import sparse
 from ..._runtime.worker_runtime import initialize_worker, native_thread_state
 from ..._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP
 from ..._runtime.workflow_logging import LOG_LEVEL_HELP
-from ..._runtime.parallelism import WORKERS_HELP, parse_workers, resolve_worker_count, run_chromosome_tasks
+from ..._runtime.parallelism import (
+    WORKERS_HELP, chromosome_pool, parse_workers, resolve_worker_count, run_chromosome_tasks,
+)
 from ..._runtime.progress import report_phase
 from .. import compute as kernel_ldscore
 from ..diagnostics import emit_reference_snp_funnel_notice, log_reference_snp_funnel_warning
@@ -825,8 +825,8 @@ def _run_gene_ldscore_index_build(
 
 
         max_workers = resolve_worker_count(config.workers, len(chromosomes))
-        with ProcessPoolExecutor(max_workers=max_workers, mp_context=mp.get_context("spawn"),
-                                 initializer=initialize_worker, initargs=(args.log_level,)) as pool:
+        with chromosome_pool(max_workers, operation="build-gene-ldscore-index chromosome construction",
+                             initializer=initialize_worker, initargs=(args.log_level,)) as pool:
             completed = {}
             def submit(chrom):
                 LOGGER.info("Starting chromosome %s gene-index construction.", chrom)

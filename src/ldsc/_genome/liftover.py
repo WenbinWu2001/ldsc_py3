@@ -184,7 +184,7 @@ class SumstatsLiftoverRequest:
         """Normalize build and path fields, then validate method-level shape."""
         try:
             target_build = normalize_genome_build(self.target_build)
-        except ValueError as exc:
+        except LDSCConfigError as exc:
             raise LDSCConfigError(
                 f"Could not configure summary-statistics liftover: output_genome_build={self.target_build!r} is invalid. "
                 "Most likely the target build is misspelled or unsupported. "
@@ -248,7 +248,7 @@ class Hm3DualBuildLifter:
         try:
             source = normalize_genome_build(self.source_build)
             target = normalize_genome_build(self.target_build)
-        except ValueError as exc:
+        except LDSCConfigError as exc:
             raise LDSCConfigError(
                 "Could not configure HM3 quick liftover: source or target genome build is invalid. "
                 "Most likely the build label is misspelled. Use hg19 or hg38."

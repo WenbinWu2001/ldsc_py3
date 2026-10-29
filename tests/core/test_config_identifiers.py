@@ -880,3 +880,34 @@ def test_open_text_reads_utf8_and_any_case_gzip_suffix(tmp_path):
     for path in (plain, compressed, str(compressed)):
         with open_text(path) as handle:
             assert handle.read() == "SNP\nrs1é\n"
+
+
+def _bad_config_cases():
+    from ldsc.config import GlobalConfig, MungeConfig, R2MatrixBuildConfig
+    from ldsc._genome.liftover import Hm3DualBuildLifter, SumstatsLiftoverRequest
+
+    return [
+        (lambda: GlobalConfig(snp_identifier="rsidd"),
+         "Could not construct GlobalConfig: snp_identifier='rsidd' is invalid."),
+        (lambda: GlobalConfig(snp_identifier="chr_pos", genome_build="hg99"),
+         "Could not construct GlobalConfig: genome_build='hg99' is invalid."),
+        (lambda: R2MatrixBuildConfig(plink_prefix="panel", output_dir="out", source_genome_build="hg99"),
+         "Could not construct R2MatrixBuildConfig: source_genome_build='hg99' is invalid."),
+        (lambda: MungeConfig(source_genome_build="hg99"),
+         "Could not construct MungeConfig: source_genome_build='hg99' is invalid."),
+        (lambda: MungeConfig(source_genome_build="hg19", output_genome_build="hg99"),
+         "Could not construct MungeConfig: output_genome_build='hg99' is invalid."),
+        (lambda: SumstatsLiftoverRequest(target_build="hg99"),
+         "Could not configure summary-statistics liftover: output_genome_build='hg99' is invalid."),
+        (lambda: Hm3DualBuildLifter(source_build="hg99", target_build="hg38", map_path="map.tsv"),
+         "Could not configure HM3 quick liftover: source or target genome build is invalid."),
+    ]
+
+
+@pytest.mark.parametrize("case", range(7))
+def test_invalid_build_or_mode_reports_the_configs_own_message(case):
+    make, message = _bad_config_cases()[case]
+    with pytest.raises(LDSCConfigError) as raised:
+        make()
+    assert str(raised.value).startswith(message)
+    assert isinstance(raised.value.__cause__, LDSCConfigError)

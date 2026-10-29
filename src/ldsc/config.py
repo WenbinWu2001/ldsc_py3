@@ -185,7 +185,7 @@ class GlobalConfig:
         """Initialize global workflow assumptions with mode-aware defaults."""
         try:
             snp_identifier = normalize_snp_identifier_mode(snp_identifier)  # type: ignore[assignment]
-        except ValueError as exc:
+        except LDSCConfigError as exc:
             raise LDSCConfigError(
                 f"Could not construct GlobalConfig: snp_identifier={snp_identifier!r} is invalid. "
                 "Most likely the identifier mode is misspelled. "
@@ -205,7 +205,7 @@ class GlobalConfig:
         object.__setattr__(self, "snp_identifier", mode)
         try:
             genome_build = normalize_genome_build(self.genome_build)
-        except ValueError as exc:
+        except LDSCConfigError as exc:
             raise LDSCConfigError(
                 f"Could not construct GlobalConfig: genome_build={self.genome_build!r} is invalid. "
                 "Most likely the genome build name is misspelled or unsupported. "
@@ -826,7 +826,7 @@ class R2MatrixBuildConfig:
         object.__setattr__(self, "plink_prefix", normalize_required_path(self.plink_prefix))
         try:
             source_genome_build = normalize_genome_build(self.source_genome_build)
-        except ValueError as exc:
+        except LDSCConfigError as exc:
             raise LDSCConfigError(
                 f"Could not construct R2MatrixBuildConfig: source_genome_build={self.source_genome_build!r} is invalid. "
                 "Most likely the genome build name is misspelled or unsupported. "
@@ -1048,7 +1048,7 @@ class MungeConfig:
             raise LDSCConfigError(_invalid_choice_message("MungeConfig", "sumstats_format", self.sumstats_format, "'auto', 'plain', 'daner-old', or 'daner-new'"))
         try:
             source_genome_build = normalize_genome_build(self.source_genome_build)
-        except ValueError as exc:
+        except LDSCConfigError as exc:
             raise LDSCConfigError(
                 f"Could not construct MungeConfig: source_genome_build={self.source_genome_build!r} is invalid. "
                 "Most likely the genome build name is misspelled or unsupported. "
@@ -1062,7 +1062,7 @@ class MungeConfig:
             )
         try:
             output_genome_build = normalize_genome_build(self.output_genome_build)
-        except ValueError as exc:
+        except LDSCConfigError as exc:
             raise LDSCConfigError(
                 f"Could not construct MungeConfig: output_genome_build={self.output_genome_build!r} is invalid. "
                 "Most likely the output genome build name is misspelled or unsupported. "

@@ -567,6 +567,7 @@ cannot resolve uniquely. Start with
 `diagnostics/gene_list_resolution_summary.tsv`, then filter
 `diagnostics/gene_list_audit.tsv.gz` by the affected `source` and
 `disposition == 'rejected'`.
+Direct and indexed runs also stop here when a query name, taken from its source filename, matches a baseline annotation column, a reserved metadata column, or `gene_control`; the summary records `annotation_name_collision`, and renaming the source file fixes it.
 After gene-list validation succeeds, `diagnostics/query_annotation_status.tsv` distinguishes empty lists, lists with no resolved genes, queries with no SNP support, and queries whose LD scores are constant on the SNP rows used for regression.
 Support on retained reference SNPs and variation on regression SNPs are different checks: a fully supported query can still have constant LD scores on the regression SNPs.
 Skipped queries are omitted from LD-score outputs; usable sibling queries continue, and a requested control never disappears silently.

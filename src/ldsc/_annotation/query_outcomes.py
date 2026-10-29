@@ -68,6 +68,26 @@ class QueryAnnotationStatus:
         }
 
 
+def validate_gene_query_names(batch, baseline_columns):
+    """Record gene-list query names that would collide with output columns (Gate A).
+
+    A query named like a baseline annotation, or a focal query named like a
+    reserved metadata column or ``gene_control``, gets the
+    ``annotation_name_collision`` reason, so the run stops at Gate A together
+    with any rejected identifiers instead of after LD-score calculation.
+    """
+    summary = batch.summary.copy()
+    reserved = {'gene_control', 'CHR', 'SNP', 'POS', 'BP', 'CM', 'A1', 'A2', 'MAF'}
+    invalid = summary['query'].isin(baseline_columns) | (
+        summary.input_role.eq('focal') & summary['query'].isin(reserved))
+    if invalid.any():
+        summary.loc[invalid, 'source_status'] = 'error'
+        summary.loc[invalid, 'source_reasons'] = summary.loc[invalid, 'source_reasons'].fillna('').map(
+            lambda reason: ';'.join(filter(None, (reason, 'annotation_name_collision'))))
+        batch = replace(batch, summary=summary, has_fatal_gate_a_issues=True)
+    return batch
+
+
 def assess_gene_coverage(batch, chromosomes):
     """Assess unique post-exclusion selections without altering resolver truth.
 

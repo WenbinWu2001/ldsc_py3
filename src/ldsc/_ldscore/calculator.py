@@ -1402,7 +1402,8 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
     from .._annotation.gene_lists import GeneCatalog
     from .._annotation.gene_query_storage import resolve_gene_lists_staged, persistent_gene_diagnostics
     from .._annotation.storage import AnnotationWorkspace
-    from .direct_annotation import prepare_direct_annotations, prepare_synthetic_base, validate_gene_query_names
+    from .._annotation.query_outcomes import validate_gene_query_names
+    from .direct_annotation import prepare_direct_annotations, prepare_synthetic_base
 
     has_queries = any(_has_cli_tokens(getattr(args, name, None)) for name in (
         "query_annot_gene_list_sources", "query_annot_bed_sources", "query_annot_sources",

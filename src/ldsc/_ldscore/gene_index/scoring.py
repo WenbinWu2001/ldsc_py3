@@ -481,6 +481,7 @@ def _run_indexed_ldscore_in_workspace(
     gene_query_statuses,
     gene_control_errors,
     gene_viability_errors,
+    validate_gene_query_names,
 )
     from ..diagnostics import fail_gene_list_resolution, fail_unusable_queries, log_query_outcomes
     from ..outputs import LDScoreDirectoryWriter, LDScoreOutputConfig, QueryDiagnostics
@@ -512,6 +513,7 @@ def _run_indexed_ldscore_in_workspace(
         gene_exclude_regions=gene_policy,
     )
     output_config = LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite)
+    batch = validate_gene_query_names(batch, index.baseline_columns)
     if batch.has_fatal_gate_a_issues:
         fail_gene_list_resolution(batch, output_config)
     batch, coverage_errors = assess_gene_coverage(batch, index.chromosomes)
@@ -541,12 +543,6 @@ def _run_indexed_ldscore_in_workspace(
     if control_errors:
         fail_unusable_queries(QueryDiagnostics(scope, query_statuses=statuses, gene_list_batch=batch),
                               "; ".join(control_errors), output_config)
-    if any(item["query"] == "gene_control" for item in usable):
-        raise LDSCInputError(
-            "Query name 'gene_control' collides with the reserved fixed control column. "
-            "Rename the query gene-list file so its query name differs from gene_control."
-        )
-
     if "gene_control" in index.baseline_columns:
         raise LDSCInputError(
             "Index supplied baseline columns contain reserved name 'gene_control'. "

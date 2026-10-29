@@ -6,7 +6,6 @@ integrity is checked before preparation, and that evidence is reused when
 content-derived annotation scope becomes available.
 """
 
-from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -90,17 +89,3 @@ def prepare_synthetic_base(panel, config, workspace):
         raise LDSCInputError('ldscore could not build the synthetic `base` annotation: no retained reference-panel SNP metadata rows were available. Check the panel and SNP restrictions.')
     return AnnotationBundle(shards,['base'],[],workspace,config_snapshot=config,
         source_summary={'baseline':'synthetic all-ones base annotation from retained reference-panel metadata'})
-
-
-def validate_gene_query_names(batch, baseline_columns):
-    """Record header-detectable gene query collisions alongside identifier issues."""
-    summary = batch.summary.copy()
-    reserved = {'gene_control', 'CHR', 'SNP', 'POS', 'BP', 'CM', 'A1', 'A2', 'MAF'}
-    invalid = summary['query'].isin(baseline_columns) | (
-        summary.input_role.eq('focal') & summary['query'].isin(reserved))
-    if invalid.any():
-        summary.loc[invalid, 'source_status'] = 'error'
-        summary.loc[invalid, 'source_reasons'] = summary.loc[invalid, 'source_reasons'].fillna('').map(
-            lambda reason: ';'.join(filter(None, (reason, 'annotation_name_collision'))))
-        batch = replace(batch, summary=summary, has_fatal_gate_a_issues=True)
-    return batch

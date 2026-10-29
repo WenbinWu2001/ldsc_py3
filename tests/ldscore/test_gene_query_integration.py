@@ -83,6 +83,24 @@ def test_direct_gate_a_reports_naming_and_identifier_issues_together(tmp_path, i
     assert len(audit) == 2
 
 
+@pytest.mark.parametrize("name", ["base", "SNP", "gene_control"])
+def test_indexed_gate_a_rejects_colliding_query_names_before_computation(tmp_path, inputs, name):
+    from ldsc._runtime.workflow_logging import workflow_logging
+
+    index = build_index(tmp_path, inputs)
+    named = tmp_path / f"{name}.txt"
+    named.write_text("G1\n")
+    output = tmp_path / "indexed"
+    with pytest.raises(LDSCInputError, match="annotation_name_collision"):
+        with workflow_logging("ldscore", output / "diagnostics/ldscore.log"):
+            run_indexed_ldscore(index, query_gene_list_sources=[named], output_dir=output,
+                                _allow_partial_for_tests=True)
+    summary = pd.read_csv(output / "diagnostics/gene_list_resolution_summary.tsv", sep="\t").set_index("query")
+    assert summary.loc[name, "source_status"] == "error"
+    assert "annotation_name_collision" in summary.loc[name, "source_reasons"]
+    assert "Starting chromosome" not in (output / "diagnostics/ldscore.log").read_text()
+
+
 def test_direct_log_has_preparation_milestones_and_one_exclusion_summary(tmp_path, inputs):
     catalog = inputs[3]
     with catalog.open("a") as stream:

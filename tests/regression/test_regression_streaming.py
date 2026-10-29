@@ -474,3 +474,64 @@ def test_invalid_query_batch_size_stops_before_input_loading(tmp_path, monkeypat
     with pytest.raises(ValueError, match="query_batch_size"):
         cli.main(["partitioned-h2", "--sumstats-file", "missing", "--ldscore-dir", "missing",
                   "--output-dir", str(tmp_path / "out"), "--query-batch-size", str(size)])
+
+
+def _near_collinear_rg_inputs(tmp_path, *, with_overlap, shared_rows_only=False):
+    """Two baseline LD-score columns, ``dup`` nearly twice ``base``, and two allele-aware traits.
+
+    With ``shared_rows_only``, the traits cover SNPs 0-39 and 20-59 and ``dup``
+    tracks ``base`` only on the shared SNPs 20-39, so only the pair is collinear.
+    """
+    frame = h2_dataset().merged
+    rng = np.random.default_rng(1)
+    dup = 2 * frame.base + 1e-6 * rng.standard_normal(60)
+    if shared_rows_only:
+        outside = np.r_[0:20, 40:60]
+        dup[outside] = rng.uniform(1., 60., outside.size)
+    baseline = frame[["SNP", "base"]].assign(
+        CHR=["1"] * 30 + ["2"] * 30, POS=np.tile(np.arange(1, 31), 2), regression_ld_scores=1., dup=dup,
+    )
+    overlap = None
+    if with_overlap:
+        block = np.array([[1000., 2000.], [2000., 4000.]])
+        overlap = LDScoreOverlap.from_contribution(
+            OverlapContribution(block, block, np.array([]), np.array([]), 1000, 1000),
+            baseline_columns=["base", "dup"], query_columns=[],
+        )
+    source = LDScoreResult(
+        baseline, None, [{"group": "baseline", "column": column, "all_reference_snp_count": count,
+                          "common_reference_snp_count": count} for column, count in [("base", 1000.), ("dup", 2000.)]],
+        ["base", "dup"], [], frozenset(), frozenset(baseline.SNP), [],
+        config_snapshot=workflow.GlobalConfig(snp_identifier="rsid"), overlap=overlap,
+    )
+    LDScoreDirectoryWriter().write(source, LDScoreOutputConfig(output_dir=tmp_path))
+    data = frame[["SNP", "Z", "N"]].assign(A1="A", A2="G")
+    rows = [slice(0, 40), slice(20, 60)] if shared_rows_only else [slice(None), slice(None)]
+    tables = [workflow.SumstatsTable(data=data.iloc[row].assign(Z=data.Z.iloc[row] * sign).reset_index(drop=True),
+                                     trait_name=name, has_alleles=True, source_path=name,
+                                     config_snapshot=source.config_snapshot)
+              for name, sign, row in [("first", 1., rows[0]), ("second", -1., rows[1])]]
+    return tables, load_ldscore_from_dir(str(tmp_path))
+
+
+def test_rg_pair_fit_stops_on_a_collinear_design_when_overlap_is_stored(tmp_path):
+    (first, second), source = _near_collinear_rg_inputs(tmp_path, with_overlap=True)
+    runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(num_blocks=6))
+    with pytest.raises(workflow.LDSCInputError, match="design matrix is collinear"):
+        runner.estimate_rg(first, second, source)
+
+
+def test_rg_pair_fit_skips_the_collinearity_check_without_stored_overlap(tmp_path):
+    (first, second), source = _near_collinear_rg_inputs(tmp_path, with_overlap=False)
+    runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(num_blocks=6))
+    assert runner.estimate_rg(first, second, source) is not None
+
+
+def test_rg_pairs_record_a_pair_collinear_only_on_shared_snps_as_failed(tmp_path, caplog):
+    tables, source = _near_collinear_rg_inputs(tmp_path, with_overlap=True, shared_rows_only=True)
+    runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(num_blocks=6))
+    with caplog.at_level("WARNING", logger="LDSC"):
+        result = runner.estimate_rg_pairs(tables, source)
+    assert len(result.h2_per_trait) == 2
+    assert result.rg_full["status"].tolist() == ["failed"]
+    assert "design matrix is collinear" in caplog.text

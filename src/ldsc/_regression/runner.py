@@ -233,7 +233,8 @@ class RGRegressionDataset:
     """Merged genetic-correlation dataset built from two traits and LD scores.
 
     ``legacy_sumstats_drops`` combines projection diagnostics for both traits
-    before pairwise allele harmonization.
+    before pairwise allele harmonization. ``ldscore_overlap`` lets the pair fit
+    apply the same collinearity check as h2.
     """
     merged: pd.DataFrame
     ref_ld_columns: list[str]
@@ -247,6 +248,7 @@ class RGRegressionDataset:
     config_snapshot: GlobalConfig | None = None
     effective_snp_identifier: str = "chr_pos_allele_aware"
     identity_downgrade_applied: bool = False
+    ldscore_overlap: "LDScoreOverlap | None" = None
     legacy_sumstats_drops: pd.DataFrame = field(
         default_factory=lambda: pd.DataFrame(columns=LEGACY_SUMSTATS_DROP_COLUMNS)
     )
@@ -810,6 +812,7 @@ class RegressionRunner:
             config_snapshot=ldscore_result.config_snapshot,
             effective_snp_identifier=identifier_mode,
             identity_downgrade_applied=identity.downgrade_applied,
+            ldscore_overlap=ldscore_result.overlap,
             legacy_sumstats_drops=legacy_drops,
         )
         dataset.validate()
@@ -1278,10 +1281,12 @@ class RegressionRunner:
         two_step = config.two_step_cutoff
         if two_step is None and intercept_hsq is None and len(dataset.retained_ld_columns) == 1:
             two_step = 30
+        x = np.asarray(merged[dataset.retained_ld_columns])
+        _raise_on_model_collinearity(dataset, x)
         fitted = reg.RG(
             np.asarray(merged[["Z1"]]),
             np.asarray(merged[["Z2"]]),
-            np.asarray(merged[dataset.retained_ld_columns]),
+            x,
             np.asarray(merged[[dataset.weight_column]]),
             np.asarray(merged[["N1"]]),
             np.asarray(merged[["N2"]]),
@@ -2738,13 +2743,15 @@ def _add_jackknife_model_context(error, merged, columns, intercept):
             ]
 
 
-def _raise_on_model_collinearity(dataset: RegressionDataset, x: np.ndarray) -> None:
+def _raise_on_model_collinearity(dataset: RegressionDataset | RGRegressionDataset, x: np.ndarray) -> None:
     """Abort the fit when the LD-score design matrix is near-collinear.
 
     Matches legacy LDSC's hard stop on an ill-conditioned design matrix: rather
     than warn and emit a partition the user must second-guess, collinear
     annotations raise ``LDSCInputError`` so the only results produced are
-    trustworthy ones.
+    trustworthy ones. h2 fits and each rg trait pair apply it on their own
+    regression rows; it is skipped when the LD-score directory stores no
+    overlap or the model has fewer than two LD-score columns.
     """
     overlap = getattr(dataset, "ldscore_overlap", None)
     if overlap is None or len(dataset.retained_ld_columns) < 2:

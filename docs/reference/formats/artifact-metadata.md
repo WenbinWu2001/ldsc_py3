@@ -1,6 +1,6 @@
 # Artifact Metadata Field Inventory
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-29
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](../munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -251,7 +251,7 @@ that `partitioned-h2` requires. It is written only for runs with two or more
 annotation columns; a single-annotation (e.g. base-only) run omits it.
 Its storage grows as $O(B(B+Q))$ for $B$ baseline and $Q$ query columns.
 Only the baseline-row block $A_B^\top A$ and each query's self-overlap are stored, which is enough to rebuild the overlap matrix of every baseline-plus-one-query model; `overlap_config.stored_block` is `baseline_rows_plus_query_diagonal` with queries and `baseline_by_baseline` without.
-`partitioned-h2` requires the file, the `h2` collinearity check reads it when present, and `rg` ignores it.
+`partitioned-h2` requires the file; the collinearity check of `h2` and of each `rg` trait pair reads it when present.
 Query files repeat the SNP identity columns (`CHR`, `SNP`, `POS`, and `A1` and `A2` when available).
 Opening an LD-score directory validates every declared schema and allele column, and `LDScoreSource.read_queries` checks that the selected query files share the same SNP rows (`src/ldsc/_ldscore/source.py`).
 The name-keyed long format survives zero-variance column drops and reordering, because regression assembles each model's overlap matrix by annotation name.

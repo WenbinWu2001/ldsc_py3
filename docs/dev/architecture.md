@@ -325,6 +325,8 @@ Regression labels traits from explicit CLI overrides, then the `sumstats.parquet
 Query runs always write the per-query result tree; the retired `--write-per-query-results` flag is rejected.
 It requires `ldscore.overlap.parquet` (assembled per model from the stored overlap matrix via `ldsc._ldscore.overlap_table`); both regimes share one public schema.
 It also restores legacy LDSC's regression-time collinearity guard as a hard error (`LDSCInputError` when the LD-score design matrix's condition number exceeds 1e5), and logs a WARNING naming any zero-variance LD-score columns it drops before fitting.
+`rg` applies the same guard, with the same threshold, to each trait pair's regression rows, as legacy LDSC did; a collinear pair is recorded as a failed pair, like other pair-level errors, while each trait's own `h2` fit stops the run.
+Both skip the guard when the LD-score directory stores no overlap matrix or the model has fewer than two LD-score columns.
 `--allow-identity-downgrade` is regression-only and permits same-family allele-aware/base mixes to run under the base mode; rsID-family and coordinate-family modes never mix.
 Architecture invariant: regression only consumes aggregated LD-score directories; it does not recompute LD scores.
 

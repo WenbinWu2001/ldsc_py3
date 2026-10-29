@@ -393,7 +393,7 @@ class LDScoreCalculator:
     def run(
         self, annotation_bundle, ref_panel, ldscore_config: LDScoreConfig,
         global_config: GlobalConfig, output_config: LDScoreOutputConfig | None = None,
-        regression_snps=None, regression_regions=None, config_snapshot=None,
+        regression_snps=None, regression_regions=None,
     ):
         """Calculate sequential query batches over one fixed set of reference SNPs.
 
@@ -423,9 +423,6 @@ class LDScoreCalculator:
             ``None`` applies no region exclusions. Neither this nor
             ``regression_snps`` changes the reference SNPs used for
             annotation counts and LD scores.
-        config_snapshot : dict or None, optional
-            Reserved argument; currently unused. Result provenance records
-            ``global_config``.
 
         Returns
         -------
@@ -464,12 +461,11 @@ class LDScoreCalculator:
         ``diagnostics/chromosome-logs``; no-output calls create no files.
         """
         return self._run(annotation_bundle, ref_panel, ldscore_config, global_config, output_config,
-                         regression_snps, regression_regions, config_snapshot, check_parquet_reference=True)
+                         regression_snps, regression_regions, check_parquet_reference=True)
 
     @report_phase(LOGGER, "computation", "LD-score calculation")
     def _run(self, annotation_bundle, ref_panel, ldscore_config, global_config, output_config=None,
-             regression_snps=None, regression_regions=None, config_snapshot=None, *,
-             check_parquet_reference=False):
+             regression_snps=None, regression_regions=None, *, check_parquet_reference=False):
         """Implement :meth:`run`; the CLI calls this after its own reference preflight."""
         if ldscore_config.export_ref_metadata and output_config is None:
             raise LDSCUsageError(
@@ -520,8 +516,7 @@ class LDScoreCalculator:
                         cm_source, maf_source)
             kwargs = dict(ref_panel=ref_panel, ldscore_config=ldscore_config, global_config=global_config,
                           output_config=output_config, regression_snps=regression_snps,
-                          regression_regions=regression_regions, config_snapshot=config_snapshot,
-                          pool=pool, log_paths=log_paths, export_root=export_root, worker_count=worker_count)
+                          regression_regions=regression_regions, pool=pool, log_paths=log_paths, export_root=export_root, worker_count=worker_count)
             if output_config is None:
                 result = self._run_batch(annotation_bundle=annotation_bundle, **kwargs)
                 _warn_ld_window_snp_subset(result.ld_window_snp_counts, "LDScoreResult.ld_window_snp_counts")
@@ -573,8 +568,7 @@ class LDScoreCalculator:
         output_config: LDScoreOutputConfig | None = None,
         regression_snps: set[str] | RestrictionIdentityKeys | None = None,
         regression_regions: kernel_regions.RegionIntervals | None = None,
-        config_snapshot: dict[str, Any] | None = None,
-        pool=None, log_paths=None, batch_label="batch 1/1", export_root=None, worker_count=None,
+        *, pool, worker_count, log_paths=None, batch_label="batch 1/1", export_root=None,
         fragment_dir=None,
     ) -> LDScoreResult | StagedLDScoreBatch:
         """Compute one batch, retaining query scores only for no-output callers.
@@ -599,8 +593,6 @@ class LDScoreCalculator:
                 context="AnnotationBundle and LDScoreCalculator runtime config",
             )
         chromosomes = _chromosomes_from_bundle(annotation_bundle)
-        if worker_count is None:
-            worker_count = resolve_worker_count(ldscore_config.workers, len(chromosomes))
         cm_source, maf_source = _reference_metadata_sources(ref_panel)
         export_dir = None
         if output_config is not None and ldscore_config.export_ref_metadata and cm_source != "parquet_sidecar":
@@ -685,24 +677,16 @@ class LDScoreCalculator:
     def _run_chromosomes(
         self, chromosomes, annotation_bundle, ref_panel, ldscore_config: LDScoreConfig,
         global_config: GlobalConfig, regression_snps, worker_count: int,
-        regression_regions=None, export_dir=None, *, pool=None, log_paths=None, batch_label="batch 1/1",
+        regression_regions=None, export_dir=None, *, pool, log_paths=None, batch_label="batch 1/1",
         fragment_dir=None,
     ) -> dict[str, _ChromOutcome]:
         """Dispatch one chromosome per child; return outcomes in a keyed mapping.
 
-        The run owns a persistent spawn pool, including when its size is one.
-        Pending tasks are cancelled on failure; normal executor shutdown waits
-        for active borrowers before the caller releases annotation scratch.
+        ``pool`` is the run's persistent spawn pool, including when its size is
+        one. Pending tasks are cancelled on failure; normal executor shutdown
+        waits for active borrowers before the caller releases annotation scratch.
         """
         from .._refpanel.adapters import PlinkRefPanel
-        if pool is None:
-            with ProcessPoolExecutor(max_workers=worker_count, mp_context=mp.get_context("spawn"),
-                                     initializer=_init_worker,
-                                     initargs=(regression_snps, regression_regions, global_config.log_level)) as executor:
-                return self._run_chromosomes(
-                    chromosomes, annotation_bundle, ref_panel, ldscore_config, global_config,
-                    regression_snps, worker_count, regression_regions, export_dir,
-                    pool=executor, log_paths=log_paths, batch_label=batch_label, fragment_dir=fragment_dir)
         prefixes = ref_panel._resolved_prefixes() if isinstance(ref_panel, PlinkRefPanel) else None
         paths = log_paths or {}
         outcomes = {}
@@ -973,34 +957,6 @@ class LDScoreCalculator:
         )
         result.validate()
         return result
-
-    def write_outputs(
-        self,
-        result: LDScoreResult,
-        output_config: LDScoreOutputConfig,
-        config_snapshot: dict[str, Any] | None = None,
-    ):
-        """Write a previously computed result as an LD-score directory.
-
-        Parameters
-        ----------
-        result : LDScoreResult
-            Aggregate LD-score result to serialize.
-        output_config : LDScoreOutputConfig
-            Directory path and overwrite/compression controls. Existing
-            canonical files are refused unless ``output_config.overwrite`` is
-            true.
-        config_snapshot : dict or None, optional
-            Optional metadata recorded in the emitted run summary. Default is
-            ``None``.
-
-        Returns
-        -------
-        dict
-            Resolved output paths keyed by artifact name.
-        """
-        del config_snapshot
-        return self.output_writer.write(result, output_config)
 
 
 def _assert_canonical_maf(metadata: pd.DataFrame) -> None:

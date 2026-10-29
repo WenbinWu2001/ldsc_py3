@@ -9,7 +9,7 @@ import pytest
 from ldsc._runtime import parallelism as policy
 
 
-@pytest.mark.parametrize("requested,tasks,expected", [(1,22,1),(4,2,2),(-1,22,8),(-2,22,7),(-20,22,1)])
+@pytest.mark.parametrize("requested,tasks,expected", [(1,22,1),(4,2,2),(4,0,1),(-1,22,8),(-2,22,7),(-20,22,1)])
 def test_detected_budget_and_task_cap(monkeypatch, requested, tasks, expected, caplog):
     monkeypatch.setattr("joblib.cpu_count", lambda: 8)
     with caplog.at_level("INFO", logger="LDSC"):

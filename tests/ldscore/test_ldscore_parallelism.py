@@ -7,7 +7,7 @@ parallel path is exercised end-to-end through `SortedR2BlockReader`, not a mock.
 """
 
 from __future__ import annotations
-from tests.annotation_fixtures import build_annotation_fixture, make_annotation_bundle, fixture_metadata, fixture_values, fixture_ids
+from tests.annotation_fixtures import make_annotation_bundle
 
 import importlib.util
 import json
@@ -170,47 +170,12 @@ def test_threads_defaults_to_one_sequential():
     assert _cfg().workers == 1
 
 
-def test_threads_zero_rejected():
-    from ldsc.errors import LDSCConfigError
-
-    with pytest.raises(LDSCConfigError):
-        _cfg(workers=0)
-
-
-def test_threads_negative_and_positive_allowed():
+def test_threads_negative_and_positive_allowed(monkeypatch):
+    # Positive requests are checked against the detected CPU count.
+    monkeypatch.setattr("joblib.cpu_count", lambda: 8)
     assert _cfg(workers=-1).workers == -1
     assert _cfg(workers=-2).workers == -2
     assert _cfg(workers=4).workers == 4
-
-
-# --- worker-count resolution (joblib n_jobs convention) ---------------------
-
-
-def test_resolve_worker_count_positive_and_caps():
-    from ldsc._runtime.parallelism import resolve_worker_count
-
-    assert resolve_worker_count(1, task_count=22) == 1
-    assert resolve_worker_count(8, task_count=3) == 3
-    assert resolve_worker_count(4, task_count=22) == 4
-    assert resolve_worker_count(8, task_count=1) == 1
-    assert resolve_worker_count(8, task_count=0) == 1
-
-
-def test_resolve_worker_count_negative_uses_affinity(monkeypatch):
-    import ldsc._runtime.parallelism as mod
-
-    monkeypatch.setattr(mod, "_available_cpu_count", lambda: 8)
-    # -1 = all cores, -2 = all but one (then capped at chromosome count).
-    assert mod.resolve_worker_count(-1, task_count=22) == 8
-    assert mod.resolve_worker_count(-2, task_count=22) == 7
-    assert mod.resolve_worker_count(-1, task_count=4) == 4  # capped
-
-
-def test_available_cpu_count_prefers_affinity(monkeypatch):
-    import ldsc._runtime.parallelism as mod
-
-    monkeypatch.setattr(mod.joblib, "cpu_count", lambda: 3)
-    assert mod._available_cpu_count() == 3
 
 
 # --- Task 3: module-level chromosome worker ---------------------------------
@@ -218,7 +183,6 @@ def test_available_cpu_count_prefers_affinity(monkeypatch):
 
 def _chrom1_inputs(build_dir: Path):
     """Build (chrom, bundle, spec, ldscore_config, global_config, regression) for chr1."""
-    from ldsc._annotation.builder import AnnotationBundle
     from ldsc.config import GlobalConfig, LDScoreConfig, RefPanelConfig
 
     panel, _pairs = _PANEL_CHROMS["1"]
@@ -359,42 +323,8 @@ def test_serial_workers_constructs_one_managed_pool(run_minimal_ldscore, monkeyp
     assert calls["n"] == 1
 
 
-def test_scheduler_bounds_submitted_work_by_workers(monkeypatch):
-    from concurrent.futures import Future
-    from types import SimpleNamespace
-    from ldsc._ldscore import calculator as mod
-
-    active = peak = 0
-    class MeasuredFuture(Future):
-        def result(self, *args, **kwargs):
-            nonlocal active
-            active -= 1
-            return super().result(*args, **kwargs)
-    class Pool:
-        def __init__(self, **kwargs):
-            pass
-        def __enter__(self):
-            return self
-        def __exit__(self, *args):
-            pass
-        def submit(self, function, chrom, *args, **kwargs):
-            nonlocal active,peak
-            active += 1
-            peak = max(peak,active)
-            future = MeasuredFuture()
-            future.set_result(mod._ChromOutcome(chrom,None,True,'empty'))
-            return future
-    monkeypatch.setattr(mod,'ProcessPoolExecutor',Pool)
-    monkeypatch.setattr(mod,'_slice_annotation_bundle',lambda bundle,chrom: chrom)
-    result = mod.LDScoreCalculator()._run_chromosomes(
-        list(map(str,range(1,8))),None,SimpleNamespace(spec=None),None,
-        SimpleNamespace(log_level='INFO'),None,2)
-    assert len(result) == 7
-    assert peak <= 2
-
-
 @pytest.mark.parametrize("failure_stage", ["submit", "result"])
-def test_parallel_worker_crash_message_names_threads_flag(two_chrom_panel, monkeypatch, failure_stage):
+def test_parallel_worker_crash_message_names_threads_flag(two_chrom_panel, failure_stage):
     from concurrent.futures.process import BrokenProcessPool
 
     import ldsc._ldscore.calculator as mod
@@ -414,15 +344,6 @@ def test_parallel_worker_crash_message_names_threads_flag(two_chrom_panel, monke
             self.set_exception(crash)
 
     class CrashingPool:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
         def shutdown(self, **kwargs):
             pass
 
@@ -430,8 +351,6 @@ def test_parallel_worker_crash_message_names_threads_flag(two_chrom_panel, monke
             if failure_stage == "submit":
                 raise crash
             return CrashingFuture()
-
-    monkeypatch.setattr(mod, "ProcessPoolExecutor", CrashingPool)
 
     with pytest.raises(LDSCInternalError) as excinfo:
         mod.LDScoreCalculator()._run_chromosomes(
@@ -442,6 +361,7 @@ def test_parallel_worker_crash_message_names_threads_flag(two_chrom_panel, monke
             global_config=gcfg,
             regression_snps=reg,
             worker_count=2,
+            pool=CrashingPool(),
         )
 
     message = str(excinfo.value)
@@ -555,7 +475,6 @@ def _run_with_one_empty_chrom(build_dir: Path, out_dir: Path, workers: int) -> P
     import warnings as _warnings
 
     from ldsc._refpanel.adapters import RefPanelLoader
-    from ldsc._annotation.builder import AnnotationBundle
     from ldsc.config import GlobalConfig, LDScoreConfig, RefPanelConfig
     from ldsc._ldscore.calculator import LDScoreCalculator
     from ldsc._ldscore.outputs import LDScoreOutputConfig

@@ -19,11 +19,21 @@ The user confirmed the design in a grilling session on 2026-10-29 (architecture 
 - Deviation from the confirmed design: the direct producer stays in `calculator.py`, because moving it to `direct_batches.py` would create an import cycle.
 - Evidence: synthetic fixture outputs recorded after `9059346` (direct prebuilt, BED, gene-list and synthetic-base runs, index construction, indexed scoring and the in-memory path) matched exactly after each later code commit; the comparison script and outputs stayed outside the repository.
   The full pytest and unittest suites passed after each code commit.
-- The user confirmed the last two audit items on 2026-10-29, and both modes now share them:
+- `6452102`: the user confirmed the last two audit items on 2026-10-29, and both modes now share them:
   - the gene-list stop sequences in `_ldscore/diagnostics.py` (`fail_gene_list_resolution()`, `fail_unusable_queries()`, `log_query_outcomes()`), with the superset logging: a failed run logs its written diagnostics, gene-list rejections and SNP support, and query statuses in both modes;
   - `_ldscore.outputs.QueryDiagnostics` replaces the five `SimpleNamespace` stand-ins, and `LDScoreDirectoryWriter.write_input_preflight_diagnostics()` replaces the private writer call; what a failed run deletes is unchanged, so a failed input preflight still keeps an earlier run's outputs.
 - Candidate 1 is complete.
 - Not done, out of scope: removing `_allow_partial_for_tests` and one LD-score publication path.
+
+## Completed: open defects from the architecture review (2026-10-29)
+
+The user asked for each to be diagnosed and given a failing test first; each was reproduced before its fix.
+
+- `f2d1ccd`: indexed scoring now checks gene-list query names against the index's baseline columns and the reserved names before Gate A, through `validate_gene_query_names()` in `_annotation/query_outcomes.py`.
+  Before, a query named like a baseline column ran the whole calculation and then failed, and one named `SNP` crashed with a raw `ArrowInvalid`.
+- `e43ca63`: `h2` and `partitioned-h2` record the absolute LD-score directory, including a relative `metadata["ldscore_dir"]` from Python callers, and `quantile-h2` rejects a relative recorded path instead of guessing a base directory.
+- `7dbf370`: seven config constructors now catch the `LDSCConfigError` their normalizers raise, so users see the message naming the field and its valid values.
+- Fixture outputs still matched the commit-1 baseline exactly; the full pytest and unittest suites passed.
 
 ## Proposed: index construction through the shared LD-score kernel
 
@@ -31,6 +41,7 @@ Split out of architecture review candidate 1 on 2026-10-29; awaiting the user's 
 
 - `build-gene-ldscore-index` assembles each chromosome's LD scores and counts in `build_plink_index_chromosome()` (`src/ldsc/_ldscore/gene_index/build.py`) by calling the kernel primitives `ld_scores_from_genotypes()` and `compute_counts()` itself, instead of going through `compute_chromosome()` in `src/ldsc/_ldscore/compute.py`.
 - Unifying them changes numerical code: it needs exact golden comparison of index payloads and indexed LD scores, preferably on a full reference panel, and must keep the shared PLINK projection pass for regression-weight LD scores (see `lessons.md`).
+- A related review finding, not yet verified: the review reported that index construction and direct scoring treat missing reference MAF differently (`compute_counts()` in `compute.py` raises, while `annotation_statistics()` in `_annotation/overlap.py` omits common counts).
 
 ## Completed: domain subpackage reorganization of `src/ldsc`
 

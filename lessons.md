@@ -290,3 +290,13 @@ Last updated on: 2026-10-29
 - Summary/root cause/correction: Indexed LD-score output rebuilt its `GlobalConfig` with a literal `== "rsid"` comparison and hardcoded the common-SNP threshold as 0.05, so every allele-aware index was recorded as `chr_pos` and every `--common-maf-min` as 0.05; regression then rejected allele-aware summary statistics against those LD scores.
   The index already stored the correct values, and the only direct-versus-indexed test used `rsid` at 0.05, the one setting where the rebuilt values were right.
   Read recorded settings from the artifact that binds them (`LoadedGeneLDScoreIndex.global_config` and `count_config`), keep a mode-family rule in one helper, and give parity tests a non-default mode and threshold; see `test_indexed_output_records_the_index_identity_and_common_threshold` in `tests/ldscore/test_gene_query_integration.py`.
+
+## Re-raising handlers must catch the exception the wrapped call raises
+
+- Summary/root cause/correction: Seven config constructors wrapped `normalize_genome_build()` or `normalize_snp_identifier_mode()` in `except ValueError` to add the field name and its valid values, but the normalizers raise `LDSCConfigError`, which is not a `ValueError`; every handler was dead, so users saw a generic message that named the wrong field and offered `'auto'` where only hg19 or hg38 is valid.
+  Catch the exception type the wrapped function documents or raises, and test the message a user sees, not only the exception class; see `test_invalid_build_or_mode_reports_the_configs_own_message` in `tests/core/test_config_identifiers.py`.
+
+## Recorded input paths must be absolute where later commands reopen them
+
+- Summary/root cause/correction: `h2` and `partitioned-h2` recorded `--ldscore-dir` as typed, and `metadata.setdefault()` let a caller's relative value replace the absolute directory derived from the loaded LD scores; `quantile-h2` then guessed a base directory and could silently read a same-named folder in its own working directory.
+  Resolve a recorded path against the working directory at the moment it is recorded, and make the reader reject a relative value instead of guessing; see `test_commands_record_the_absolute_ldscore_directory` and `test_loader_rejects_a_relative_ldscore_directory`.

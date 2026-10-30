@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import glob
 import os
-import re
 import shutil
 import logging
 from collections.abc import Iterable, Sequence
@@ -41,7 +40,6 @@ from ..errors import LDSCInputError
 InputPathToken = Union[str, PathLike[str]]
 InputPathCollection = Union[InputPathToken, Sequence[InputPathToken]]
 
-ANNOTATION_SUFFIXES = ("", ".annot.gz", ".annot", ".txt.gz", ".txt", ".tsv.gz", ".tsv")
 _INPUT_PATH_TROUBLESHOOTING = (
     "docs/user-guide/troubleshooting.md#common-input-path-did-not-resolve-to-one-file"
 )
@@ -142,7 +140,6 @@ def _raise_ambiguous_input_path(label: str, token: str, match_count: int) -> Non
 def resolve_scalar_path(
     token: InputPathToken,
     *,
-    suffixes: Sequence[str] = (),
     label: str = "input",
 ) -> str:
     """Resolve a token that must correspond to exactly one concrete path.
@@ -151,11 +148,6 @@ def resolve_scalar_path(
     ----------
     token : str or os.PathLike[str]
         Exact path or exact-one glob token.
-    suffixes : sequence of str, optional
-        Accepted suffixes for this input family. The current strict-token
-        contract does not append these suffixes during resolution; they are
-        documented here only so callers can pass the same suffix family used by
-        the group resolvers. Default is ``()``.
     label : str, optional
         Public argument label used in error messages. Default is ``"input"``.
 
@@ -171,7 +163,7 @@ def resolve_scalar_path(
     """
     normalized_token = normalize_path_token(token)
     try:
-        matches = _resolve_direct_token(normalized_token, suffixes=suffixes)
+        matches = _resolve_direct_token(normalized_token)
     except FileNotFoundError as exc:
         _raise_missing_input_path(label, normalized_token, cause=exc)
     if len(matches) != 1:
@@ -202,7 +194,6 @@ def resolve_exact_file(
 def resolve_file_group(
     tokens: InputPathCollection | None,
     *,
-    suffixes: Sequence[str] = (),
     label: str = "input",
     allow_chromosome_suite: bool = False,
     chromosomes: Sequence[str] = STANDARD_CHROMOSOMES,
@@ -221,10 +212,6 @@ def resolve_file_group(
     tokens : path token or sequence of path tokens, optional
         Public user-facing tokens to resolve. ``None`` means no tokens were
         supplied.
-    suffixes : sequence of str, optional
-        Accepted suffix family for this input class. Resolution remains strict:
-        the function does not guess or append missing suffixes. Default is
-        ``()``.
     label : str, optional
         Public argument label used in error messages. Default is ``"input"``.
     allow_chromosome_suite : bool, optional
@@ -248,11 +235,11 @@ def resolve_file_group(
     resolved: list[str] = []
     for token in normalized:
         try:
-            matches = _resolve_direct_token(token, suffixes=suffixes)
+            matches = _resolve_direct_token(token)
         except FileNotFoundError as exc:
             if not allow_chromosome_suite or "@" not in token:
                 _raise_missing_input_path(label, token, cause=exc)
-            matches = _resolve_suite_token(token, suffixes=suffixes, chromosomes=chromosomes)
+            matches = _resolve_suite_token(token, chromosomes=chromosomes)
             if not matches:
                 _raise_missing_input_path(label, token, cause=exc)
         resolved.extend(matches)
@@ -266,150 +253,21 @@ def resolve_file_group(
     return resolved
 
 
-def resolve_chromosome_group(
-    tokens: InputPathCollection | None,
-    *,
-    chrom: str,
-    suffixes: Sequence[str] = (),
-    label: str = "input",
-    required: bool = True,
-) -> list[str]:
-    """Resolve group-style tokens for one chromosome.
-
-    The resolver first tries to interpret each token directly. If a direct
-    token expands to multiple files, the function attempts filename-based
-    chromosome filtering via :func:`filter_paths_for_chromosome`. If that
-    filtering finds at least one match, only those chromosome-matching files
-    are retained for this chromosome pass. Otherwise the original matches are
-    kept, which allows multi-chromosome files to participate and be filtered by
-    ``CHR`` later in the file parser. When a token cannot be resolved directly,
-    an explicit ``@`` substitution is attempted.
-
-    Parameters
-    ----------
-    tokens : path token or sequence of path tokens, optional
-        Public user-facing tokens to resolve.
-    chrom : str
-        Chromosome label for the current processing pass.
-    suffixes : sequence of str, optional
-        Accepted suffix family for this input class. Resolution remains strict:
-        the function does not guess or append missing suffixes. Default is
-        ``()``.
-    label : str, optional
-        Public argument label used in error messages. Default is ``"input"``.
-    required : bool, optional
-        Whether missing matches should raise immediately. Default is ``True``.
-
-    Returns
-    -------
-    list of str
-        Concrete file paths to use for chromosome ``chrom``.
-
-    Raises
-    ------
-    LDSCInputError
-        If ``required`` is true and no files can be resolved for ``chrom``.
-    """
-    normalized = normalize_path_tokens(tokens)
-    resolved: list[str] = []
-    for token in normalized:
-        try:
-            matches = _resolve_direct_token(token, suffixes=suffixes)
-            if len(matches) > 1:
-                chrom_matches = filter_paths_for_chromosome(matches, chrom)
-                if chrom_matches:
-                    matches = chrom_matches
-        except FileNotFoundError:
-            try:
-                chrom_token = substitute_chromosome(token, chrom)
-            except FileNotFoundError:
-                if required:
-                    raise LDSCInputError(
-                        f"Could not resolve {label} path for chromosome {chrom} from token {token!r}. "
-                        "Most likely the token does not contain the @ chromosome placeholder and does not exist directly. "
-                        f"Use an existing chromosome-specific path or an explicit @ chromosome suite. Other causes & fixes: {_INPUT_PATH_TROUBLESHOOTING}"
-                    ) from None
-                continue
-            try:
-                matches = _resolve_direct_token(chrom_token, suffixes=suffixes)
-            except FileNotFoundError:
-                if required:
-                    raise LDSCInputError(
-                        f"Could not resolve {label} path for chromosome {chrom} from token {token!r}. "
-                        "Most likely the chromosome placeholder expands to a file that is not present. "
-                        f"Check the chromosome-specific filename or provide the missing file. Other causes & fixes: {_INPUT_PATH_TROUBLESHOOTING}"
-                    ) from None
-                continue
-        resolved.extend(matches)
-    resolved = _dedupe_preserving_order(resolved)
-    if required and not resolved:
-        raise LDSCInputError(
-            f"Could not resolve {label} paths for chromosome {chrom}: matched 0 files. "
-            "Most likely the input tokens do not include this chromosome. "
-            f"Provide chromosome {chrom} inputs or run with required=False for optional inputs. "
-            f"Other causes & fixes: {_INPUT_PATH_TROUBLESHOOTING}"
-        )
-    return resolved
-
-
-def resolve_plink_prefix(
-    token: InputPathToken,
-    *,
-    chrom: Optional[str] = None,
-) -> str:
-    """Resolve a PLINK prefix token to exactly one concrete prefix.
-
-    Parameters
-    ----------
-    token : str or os.PathLike[str]
-        Exact PLINK prefix, exact `.bed/.bim/.fam` path, exact-one glob, or an
-        explicit ``@`` chromosome-suite token. A plain chromosome-suite stem
-        is also discovered when no exact trio exists.
-    chrom : str or None, optional
-        Chromosome label selected from validated BIM contents, independently
-        of filenames. Default is ``None`` (path-only exact-one resolution).
-
-    Returns
-    -------
-    str
-        One resolved PLINK prefix without the file extension.
-
-    Raises
-    ------
-    LDSCInputError
-        If ``token`` cannot be resolved, selects incomplete trios, or is
-        ambiguous. With ``chrom``, also raised for invalid trio contents or
-        a chromosome absent from the selected BIM files.
-    """
-    matches = resolve_plink_prefix_group((token,), chrom=chrom, allow_chromosome_suite=(chrom is None))
-    if len(matches) != 1:
-        _raise_ambiguous_input_path("PLINK prefix", normalize_path_token(token), len(matches))
-    return matches[0]
-
-
 def resolve_plink_prefix_group(
     tokens: InputPathCollection | None,
     *,
-    chrom: Optional[str] = None,
     allow_chromosome_suite: bool = False,
     chromosomes: Sequence[str] = STANDARD_CHROMOSOMES,
 ) -> list[str]:
-    """Resolve PLINK tokens to complete prefixes, optionally selecting by BIM CHR.
+    """Resolve PLINK tokens to complete prefixes.
 
     Exact prefixes and PLINK member paths take precedence over plain-stem
     discovery. Globs select actual matches. Suite discovery accepts plain
-    stems and ``@`` substitutions when enabled or when ``chrom`` is supplied.
-    Missing members of a selected trio always fail. Generic ``@`` expansion
-    retains existing members; workflows enforce their own coverage policy.
-    With ``chrom``, validated BIM contents must assign it to exactly one trio.
+    stems and ``@`` substitutions when enabled. Missing members of a selected
+    trio always fail. Generic ``@`` expansion retains existing members;
+    workflows enforce their own coverage policy. Chromosome assignment from
+    BIM contents is :func:`inspect_plink_inputs`.
     """
-    if chrom is not None:
-        chrom = normalize_chromosome(chrom)
-        result = inspect_plink_inputs(tokens, chromosomes=(chrom,) if any(
-            "@" in token for token in normalize_path_tokens(tokens)
-        ) else chromosomes)
-        result.require_valid(required_chromosomes=(chrom,))
-        return [result.chromosome_prefixes[chrom]]
     members, issues = _discover_plink_members(
         tokens, chromosomes=chromosomes, allow_chromosome_suite=allow_chromosome_suite,
     )
@@ -598,7 +456,7 @@ def _discover_plink_members(tokens, *, chromosomes, allow_chromosome_suite, requ
     return list(dict.fromkeys(members)), issues
 
 
-def _resolve_direct_token(token: str, *, suffixes: Sequence[str]) -> list[str]:
+def _resolve_direct_token(token: str) -> list[str]:
     """Resolve one token through direct paths and standard globs."""
     if os.path.exists(token):
         return [token]
@@ -610,13 +468,13 @@ def _resolve_direct_token(token: str, *, suffixes: Sequence[str]) -> list[str]:
     raise FileNotFoundError(token)
 
 
-def _resolve_suite_token(token: str, *, suffixes: Sequence[str], chromosomes: Sequence[str]) -> list[str]:
+def _resolve_suite_token(token: str, *, chromosomes: Sequence[str]) -> list[str]:
     """Resolve a chromosome-suite token by substituting each chromosome label."""
     resolved: list[str] = []
     for chrom in chromosomes:
         chrom_token = substitute_chromosome(token, chrom)
         try:
-            resolved.extend(_resolve_direct_token(chrom_token, suffixes=suffixes))
+            resolved.extend(_resolve_direct_token(chrom_token))
         except FileNotFoundError:
             continue
     return _dedupe_preserving_order(resolved)
@@ -632,17 +490,6 @@ def _dedupe_preserving_order(values: Sequence[str]) -> list[str]:
         seen.add(value)
         ordered.append(value)
     return ordered
-
-
-def filter_paths_for_chromosome(paths: Sequence[str], chrom: str) -> list[str]:
-    """Return the subset of ``paths`` whose basename cleanly encodes ``chrom``.
-
-    Filenames are matched heuristically against patterns such as ``.1.``,
-    ``_1_``, ``-1-``, ``chr1``, ``.X.``, or ``chrX`` after stripping common
-    compression and annotation suffix layers from the basename.
-    """
-    filtered = [path for path in paths if _path_matches_chromosome(path, chrom)]
-    return _dedupe_preserving_order(filtered)
 
 
 def ensure_output_directory(
@@ -663,48 +510,6 @@ def ensure_output_directory(
     output_dir.mkdir(parents=True, exist_ok=True)
     logging.getLogger("LDSC.path_resolution").info("Created %s: %s", label, output_dir)
     return output_dir
-
-
-def ensure_output_paths_available(
-    paths: Iterable[str | PathLike[str]],
-    *,
-    overwrite: bool = False,
-    label: str = "output artifact",
-) -> list[Path]:
-    """Validate that fixed output files can be written without silent overwrite.
-
-    Parameters
-    ----------
-    paths : iterable of str or os.PathLike[str]
-        Deterministic output file paths that the active workflow may write.
-        Parent directories are not created by this helper; call
-        :func:`ensure_output_directory` or :func:`ensure_output_parent_directory`
-        where appropriate.
-    overwrite : bool, optional
-        If ``False``, any existing path raises before the caller writes
-        anything. If ``True``, existing paths are allowed but are not deleted by
-        this helper. Default is ``False``.
-    label : str, optional
-        Human-readable artifact label used in error messages. Default is
-        ``"output artifact"``.
-
-    Returns
-    -------
-    list of pathlib.Path
-        Normalized output paths in the same order as ``paths``.
-
-    Raises
-    ------
-    FileExistsError
-        If one or more paths already exist and ``overwrite`` is ``False``.
-    """
-    normalized_paths = [Path(normalize_path_token(path)) for path in paths]
-    if overwrite:
-        return normalized_paths
-    existing = [path for path in normalized_paths if path.exists()]
-    if existing:
-        raise FileExistsError(_format_output_collision_message(existing, label=label))
-    return normalized_paths
 
 
 def preflight_output_artifact_family(
@@ -850,20 +655,6 @@ def remove_output_artifacts(paths: Iterable[str | PathLike[str]]) -> None:
             path.unlink()
 
 
-def ensure_output_parent_directory(
-    path: str | PathLike[str],
-    *,
-    label: str = "output path",
-) -> Path:
-    """Create the parent directory for ``path`` when missing and warn."""
-    output_path = Path(normalize_path_token(path))
-    parent = output_path.parent
-    if str(parent) in {"", "."}:
-        return output_path
-    ensure_output_directory(parent, label=f"{label} parent directory")
-    return output_path
-
-
 def _format_output_collision_message(paths: Sequence[Path], *, label: str) -> str:
     """Build a compact, shared message for existing output file collisions."""
     preview = ", ".join(str(path) for path in paths[:3])
@@ -888,15 +679,3 @@ def _dedupe_paths(paths: Iterable[Path]) -> list[Path]:
         seen.add(path)
         ordered.append(path)
     return ordered
-
-
-def _path_matches_chromosome(path: str, chrom: str) -> bool:
-    """Heuristically match chromosome-coded filenames such as ``chr1`` or ``.1.``."""
-    name = Path(path).stem
-    if name.endswith(".annot"):
-        name = Path(name).stem
-    patterns = (
-        rf"(^|[._-]){re.escape(str(chrom))}([._-]|$)",
-        rf"(^|[._-])chr{re.escape(str(chrom))}([._-]|$)",
-    )
-    return any(re.search(pattern, name, flags=re.IGNORECASE) for pattern in patterns)

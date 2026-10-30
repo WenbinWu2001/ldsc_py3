@@ -96,8 +96,6 @@ from .._genome.liftover import (
 
 
 LOGGER = logging.getLogger("LDSC.r2_matrix_builder")
-_GENETIC_MAP_SUFFIXES = ("", ".txt", ".txt.gz", ".tsv", ".tsv.gz", ".csv", ".csv.gz")
-_TABLE_SUFFIXES = ("", ".txt", ".txt.gz", ".tsv", ".tsv.gz", ".csv", ".csv.gz")
 _BUILD_REF_PANEL_EMPTY_DOC = "docs/user-guide/troubleshooting.md#build-r2-matrix-no-reference-panel-artifacts-were-produced"
 _BUILD_REF_PANEL_LIFTOVER_DOC = (
     "docs/user-guide/troubleshooting.md#build-r2-matrix-liftover-or-genetic-map-configuration-is-incomplete"
@@ -574,14 +572,12 @@ class R2MatrixBuilder:
         if config.genetic_map_hg19_sources is not None:
             hg19_files = resolve_file_group(
                 (config.genetic_map_hg19_sources,),
-                suffixes=_GENETIC_MAP_SUFFIXES,
                 label="hg19 genetic map",
                 allow_chromosome_suite=True,
             )
         if config.genetic_map_hg38_sources is not None:
             hg38_files = resolve_file_group(
                 (config.genetic_map_hg38_sources,),
-                suffixes=_GENETIC_MAP_SUFFIXES,
                 label="hg38 genetic map",
                 allow_chromosome_suite=True,
             )
@@ -624,7 +620,6 @@ class R2MatrixBuilder:
         if restriction_source:
             restriction_path = resolve_scalar_path(
                 restriction_source,
-                suffixes=_TABLE_SUFFIXES,
                 label="reference-panel SNP restriction",
             )
             restriction_mode = normalize_snp_identifier_mode(self.global_config.snp_identifier)
@@ -897,7 +892,7 @@ class R2MatrixBuilder:
 
         keep_indivs = None
         if config.keep_indivs_file is not None:
-            keep_path = resolve_scalar_path(config.keep_indivs_file, suffixes=_TABLE_SUFFIXES, label="individual keep file")
+            keep_path = resolve_scalar_path(config.keep_indivs_file, label="individual keep file")
             keep_indivs = fam.loj(legacy_parse.FilterFile(keep_path).IDList)
 
         output_paths: dict[str, str] = {}

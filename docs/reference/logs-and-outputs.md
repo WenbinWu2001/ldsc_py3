@@ -1,6 +1,6 @@
 # Logs and Outputs
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-29
 
 This page describes what a logged workflow writes besides its scientific results: logs, console messages, output preflight and failure markers.
 The rules for writing log and error messages, and the logging API boundary, are in [logging design](../dev/design/logging.md).
@@ -255,7 +255,6 @@ Runs shorter than one minute use seconds with two decimal places, for example `E
 Longer runs retain the minutes-and-seconds format shown above.
 
 Counts should remain exact, and measurements should include units and enough precision to interpret the check or outcome.
-The shared `format_float()` helper uses four significant digits when called; it is for log text and does not globally reformat every number in a message.
 Logging refinements must not change scientific result-table precision or formats.
 
 The `Started` timestamp and elapsed timer are captured as one paired timepoint

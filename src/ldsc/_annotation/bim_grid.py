@@ -24,9 +24,7 @@ from ..errors import LDSCInputError
 
 def resolve_bim_grid_inputs(tokens):
     """Resolve BIM paths/globs or complete @ suites without BED/FAM companions."""
-    paths, declared, issues = resolve_annotation_inputs(
-        tokens, role="BIM grid", suffixes=(".bim", ".bim.gz"),
-    )
+    paths, declared, issues = resolve_annotation_inputs(tokens, role="BIM grid")
     InputGate("BIM grid declarations", issues=issues).finish()
     return paths, declared
 

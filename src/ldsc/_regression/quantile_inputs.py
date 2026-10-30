@@ -17,7 +17,7 @@ from .._core.snp_identity import effective_merge_key_series, identity_base_mode,
 from .quantile_storage import QuantileIdentityStore, reference_chunks, target_chunks
 from ..config import AnnotationBuildConfig, GlobalConfig
 from ..errors import LDSCInputError
-from .._runtime.paths import ANNOTATION_SUFFIXES, resolve_file_group, split_cli_path_tokens
+from .._runtime.paths import resolve_file_group, split_cli_path_tokens
 
 
 @dataclass(frozen=True)
@@ -201,8 +201,8 @@ def prepare_quantile_statistics(args, model, workspace, diagnostics):
         check.resolve()
     bundle = _model_annotations(args, model, metadata, workspace)
     references = resolve_file_group(split_cli_path_tokens(args.ref_metadata_sources),
-        suffixes=("", ".tsv", ".tsv.gz", ".txt", ".txt.gz"), label="reference metadata", allow_chromosome_suite=True)
-    targets = resolve_file_group(split_cli_path_tokens(args.target_annot_sources), suffixes=ANNOTATION_SUFFIXES,
+        label="reference metadata", allow_chromosome_suite=True)
+    targets = resolve_file_group(split_cli_path_tokens(args.target_annot_sources),
         label="target annotation", allow_chromosome_suite=True)
     with QuantileIdentityStore(workspace.path / "quantile-identities.sqlite") as store:
         threshold, n_common = _alignment(args, bundle, metadata, store, diagnostics, references, targets)

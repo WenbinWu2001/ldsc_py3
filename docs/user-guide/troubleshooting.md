@@ -124,7 +124,7 @@ Markers, logs, audits, and scientific outputs use the same expanded destination.
 3. Do not share one output directory across concurrent runs unless the workflow
    explicitly supports chromosome-sharded output ownership.
 
-**Developer reference:** `_runtime.paths.ensure_output_paths_available()` and `_runtime.paths.preflight_output_artifact_family()` · **Exception:** `FileExistsError`
+**Developer reference:** `_runtime.paths.preflight_output_artifact_family()` · **Exception:** `FileExistsError`
 
 ### Common: genome build could not be inferred
 

@@ -47,7 +47,6 @@ from .paths import normalize_path_token
 _LDSC_LOGGER_NAME = "LDSC"
 _CURRENT: threading.local = threading.local()
 _BORDER = "=" * 51
-_FLOAT_FORMAT = ".4g"
 
 LOG_LEVEL_HELP = (
     "Set detail in the workflow log. DEBUG includes troubleshooting details. "
@@ -56,11 +55,6 @@ LOG_LEVEL_HELP = (
     "Default: INFO. Run headers and completion status are always recorded."
 )
 _CLI_CONSOLE_HANDLER: logging.Handler | None = None
-
-
-def format_float(value: float) -> str:
-    """Return the compact float representation used for log text only."""
-    return format(value, _FLOAT_FORMAT)
 
 
 class _LevelPrefixFormatter(logging.Formatter):
@@ -545,7 +539,6 @@ def _group_invocation_units(argv: list[str]) -> list[str]:
 __all__ = [
     "cli_console_handler",
     "configure_package_logging",
-    "format_float",
     "install_cli_console_handler",
     "last_workflow_log_path",
     "log_inputs",

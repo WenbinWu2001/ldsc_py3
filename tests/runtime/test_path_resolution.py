@@ -9,13 +9,12 @@ import pytest
 
 
 from ldsc._runtime.paths import (
-    ensure_output_paths_available,
     ensure_output_directory,
+    inspect_plink_inputs,
     normalize_path_token,
     normalize_path_tokens,
-    resolve_chromosome_group,
+    preflight_output_artifact_family,
     resolve_file_group,
-    resolve_plink_prefix,
     resolve_plink_prefix_group,
     resolve_scalar_path,
 )
@@ -105,32 +104,6 @@ class PathResolutionTest(unittest.TestCase):
 
             self.assertEqual(resolved, [str(base1), str(base2)])
 
-    def test_resolve_chromosome_group_supports_explicit_at_tokens_only(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            base1 = tmpdir / "baseline.1.annot.gz"
-            base1.write_text("x\n", encoding="utf-8")
-
-            with_at = resolve_chromosome_group(
-                [str(tmpdir / "baseline.@.annot.gz")],
-                chrom="1",
-                label="annotation",
-            )
-
-            self.assertEqual(with_at, [str(base1)])
-
-    def test_resolve_chromosome_group_rejects_bare_prefix_tokens(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            (tmpdir / "baseline.1.annot.gz").write_text("x\n", encoding="utf-8")
-
-            with self.assertRaisesRegex(LDSCInputError, "annotation path for chromosome 1"):
-                resolve_chromosome_group(
-                    [str(tmpdir / "baseline.")],
-                    chrom="1",
-                    label="annotation",
-                )
-
     def test_resolve_file_group_discovers_chromosome_suite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -147,35 +120,16 @@ class PathResolutionTest(unittest.TestCase):
 
             self.assertEqual(resolved, [str(base1), str(base2)])
 
-    def test_resolve_chromosome_group_can_ignore_missing_chromosome(self):
+    def test_resolve_plink_prefix_group_accepts_glob_and_returns_prefixes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            self.assertEqual(
-                resolve_chromosome_group(
-                    [str(tmpdir / "baseline.@.annot.gz")],
-                    chrom="1",
-                    label="annotation",
-                    required=False,
-                ),
-                [],
-            )
+            for chrom in ("1", "2"):
+                for suffix in (".bed", ".bim", ".fam"):
+                    (tmpdir / f"panel.{chrom}{suffix}").write_text("", encoding="utf-8")
 
-    def test_resolve_plink_prefix_accepts_glob_and_returns_prefix(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            prefix = tmpdir / "panel.1"
-            (tmpdir / "panel.1.bed").write_text("", encoding="utf-8")
-            (tmpdir / "panel.1.bim").write_text("", encoding="utf-8")
-            (tmpdir / "panel.1.fam").write_text("", encoding="utf-8")
+            resolved = resolve_plink_prefix_group(str(tmpdir / "panel.*"))
 
-            resolved = resolve_plink_prefix(str(tmpdir / "panel.*"), chrom=None)
-            self.assertEqual(resolved, str(prefix))
-
-            (tmpdir / "panel.2.bed").write_text("", encoding="utf-8")
-            (tmpdir / "panel.2.bim").write_text("", encoding="utf-8")
-            (tmpdir / "panel.2.fam").write_text("", encoding="utf-8")
-            with self.assertRaisesRegex(LDSCInputError, "matched 2 files"):
-                resolve_plink_prefix(str(tmpdir / "panel.*"), chrom=None)
+            self.assertEqual(resolved, [str(tmpdir / "panel.1"), str(tmpdir / "panel.2")])
 
     def test_resolve_plink_prefix_group_discovers_chromosome_suite_from_plain_stem(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -194,7 +148,7 @@ class PathResolutionTest(unittest.TestCase):
                 resolve_plink_prefix_group(stem, allow_chromosome_suite=True),
                 [str(tmpdir / "panel_chr1"), str(tmpdir / "panel_chr2")],
             )
-            self.assertEqual(resolve_plink_prefix(stem, chrom="2"), str(tmpdir / "panel_chr2"))
+            self.assertEqual(inspect_plink_inputs(stem).chromosome_prefixes["2"], str(tmpdir / "panel_chr2"))
 
     def test_resolve_plink_prefix_rejects_incomplete_file_trio(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -203,7 +157,7 @@ class PathResolutionTest(unittest.TestCase):
             prefix.with_suffix(".bim").write_text("", encoding="utf-8")
 
             with self.assertRaisesRegex(LDSCInputError, "complete .bed/.bim/.fam trio"):
-                resolve_plink_prefix(str(prefix), chrom=None)
+                resolve_plink_prefix_group(str(prefix))
 
     def test_resolve_scalar_path_rejects_suffix_inference(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -242,22 +196,6 @@ class PathResolutionTest(unittest.TestCase):
                     allow_chromosome_suite=True,
                 )
 
-    def test_ensure_output_paths_available_allows_missing_paths(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "results" / "h2.tsv"
-
-            ensure_output_paths_available([path], overwrite=False)
-
-            self.assertFalse(path.exists())
-
-    def test_ensure_output_paths_available_rejects_existing_paths(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "results.tsv"
-            path.write_text("existing\n", encoding="utf-8")
-
-            with self.assertRaisesRegex(FileExistsError, "overwrite"):
-                ensure_output_paths_available([path], overwrite=False)
-
     def test_output_collision_message_reports_cause_fix_and_reference(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "results.tsv"
@@ -269,18 +207,9 @@ class PathResolutionTest(unittest.TestCase):
                 "Most likely this output directory contains results from an earlier run.*"
                 "docs/user-guide/troubleshooting.md#common-output-artifact-already-exists",
             ):
-                ensure_output_paths_available([path], overwrite=False)
+                preflight_output_artifact_family([path], [path], overwrite=False)
 
-    def test_ensure_output_paths_available_allows_existing_paths_with_overwrite(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "results.tsv"
-            path.write_text("existing\n", encoding="utf-8")
-
-            ensure_output_paths_available([path], overwrite=True)
-
-            self.assertEqual(path.read_text(encoding="utf-8"), "existing\n")
-
-    def test_ensure_output_paths_available_error_lists_existing_artifacts(self):
+    def test_output_collision_message_lists_existing_artifacts(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             first = Path(tmpdir) / "a.tsv"
             second = Path(tmpdir) / "b.tsv"
@@ -288,7 +217,7 @@ class PathResolutionTest(unittest.TestCase):
             second.write_text("b\n", encoding="utf-8")
 
             with self.assertRaises(FileExistsError) as caught:
-                ensure_output_paths_available([first, second], overwrite=False, label="summary table")
+                preflight_output_artifact_family([], [first, second], overwrite=False, label="summary table")
 
             message = str(caught.exception)
             self.assertIn(str(first), message)
@@ -298,14 +227,14 @@ class PathResolutionTest(unittest.TestCase):
 
 
 def test_plain_plink_prefix_uses_bim_chromosomes(tmp_path):
-    from ldsc._runtime.paths import resolve_plink_prefix
-
     # The filename suggests chr1, but the data contain chr22.
     prefix = tmp_path / "1000G.EUR.QC.1"
     prefix.with_name(prefix.name + ".bed").write_bytes(b"\x6c\x1b\x01\x00")
     prefix.with_name(prefix.name + ".bim").write_text("22 rs1 0 10 A G\n")
     prefix.with_name(prefix.name + ".fam").write_text("F I 0 0 1 -9\n")
-    assert resolve_plink_prefix(str(tmp_path / "1000G.EUR.QC."), chrom="22") == str(prefix)
+    result = inspect_plink_inputs(str(tmp_path / "1000G.EUR.QC."))
+    result.require_valid(required_chromosomes=("22",))
+    assert result.chromosome_prefixes == {"22": str(prefix)}
 
 
 def _write_plink_trio(prefix, chroms):
@@ -352,7 +281,7 @@ def test_plink_joint_file_and_wrong_requested_chromosome(tmp_path):
     result.require_valid()
     assert result.chromosome_prefixes == {"1": str(prefix), "22": str(prefix)}
     with pytest.raises(LDSCInputError, match="No validated PLINK trio contains chromosome 17"):
-        resolve_plink_prefix(prefix, chrom="17")
+        result.require_valid(required_chromosomes=("17",))
 
 
 def test_plink_reports_all_incomplete_and_conflicting_sources(tmp_path):

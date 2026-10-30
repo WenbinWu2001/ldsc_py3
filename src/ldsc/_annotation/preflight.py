@@ -5,14 +5,14 @@ import pandas as pd
 from .parsing import normalize_annotation_chunk
 from .._runtime.preflight import input_issue, inspect_declared_inputs
 from .._runtime.paths import (
-    ANNOTATION_SUFFIXES, normalize_path_token, normalize_path_tokens, resolve_file_group, split_cli_path_tokens,
+    normalize_path_token, normalize_path_tokens, resolve_file_group, split_cli_path_tokens,
 )
 from ..errors import LDSCInputError, LDSCUserError
 
 AUTOSOMES = tuple(map(str, range(1, 23)))
 
 
-def resolve_annotation_inputs(tokens, *, role='baseline', suffixes=ANNOTATION_SUFFIXES):
+def resolve_annotation_inputs(tokens, *, role='baseline'):
     """Return concrete paths, declared chromosomes, and accumulated path issues."""
     paths, declared, issues = [], {}, []
     for raw in split_cli_path_tokens(tokens):
@@ -20,7 +20,7 @@ def resolve_annotation_inputs(tokens, *, role='baseline', suffixes=ANNOTATION_SU
         members = [(token.replace('@', chrom), chrom) for chrom in AUTOSOMES] if '@' in token else [(token, '')]
         for path, chrom in members:
             try:
-                matches = resolve_file_group([path], suffixes=suffixes, label=f'{role} annotation')
+                matches = resolve_file_group([path], label=f'{role} annotation')
                 for match in matches:
                     if match not in paths:
                         paths.append(match)

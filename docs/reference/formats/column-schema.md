@@ -1,6 +1,6 @@
 # Column Schema: Canonical Names, Data Types, and Ordering
 
-Last updated on: 2026-10-29
+Last updated on: 2026-10-30
 
 This document is the single source of truth for column conventions across all
 Python-written artifacts in this package. It governs `_core/columns.py`, all
@@ -20,7 +20,7 @@ Two headers tied at the best rank stop the run with an error instead of a guess.
 
 ### Shared metadata columns
 
-These aliases apply to annotation files, reference-panel metadata, sidecars, SNP restriction files and coordinate inference.
+These aliases apply to annotation files, SNP restriction files and coordinate inference.
 
 | Canonical | Accepted aliases |
 | --- | --- |
@@ -79,7 +79,7 @@ Sample-size selection, INFO-list columns and `--infer-only` are described in the
 
 | Input | Column names |
 | --- | --- |
-| R² matrix pair files | Fixed columns `IDX_1`, `IDX_2`, `R2` and `SIGN_R`, with no aliases; the sidecar uses the shared metadata aliases. |
+| R² matrix files | The pair file has the fixed columns `IDX_1`, `IDX_2`, `R2` and `SIGN_R`, and the sidecar exactly `CHR`, `POS`, `SNP`, `A1`, `A2`, `CM` and `MAF` in that order, both with no aliases ([R² matrix format](r2-matrices.md#27-snp-metadata-sidecar-mandatory-authoritative)). |
 | Genetic maps | The cM column accepts `CM`, `GENETIC_MAP_CM`, `GENETICMAPCM`, `GENETIC_MAP(CM)` and `GENETICMAP(CM)`; this family is defined in `src/ldsc/_refpanel/build_kernel.py`, the only alias family outside the registry. |
 | Package-written artifacts | Munged summary statistics, annotation files and LD-score directories are read with canonical names only, which catches schema drift in files the package wrote. |
 

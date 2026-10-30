@@ -1,10 +1,14 @@
 """Content-based direct input scope and consolidated input failures."""
 
 from argparse import Namespace
+from pathlib import Path
 
+import pandas as pd
 import pytest
 
+from ldsc import cli
 from ldsc.config import GlobalConfig
+from ldsc.errors import LDSCInputError
 from ldsc._ldscore.preflight import inspect_direct_inputs
 
 
@@ -17,6 +21,70 @@ def write_inputs(tmp_path):
     prefix.with_suffix(".bed").write_bytes(b"\x6c\x1b\x01\x00")
     return Namespace(baseline_annot_sources=str(baseline), plink_prefix=str(prefix), r2_matrix_dir=None,
                      query_annot_sources=None, query_annot_bed_sources=None)
+
+
+def write_beds(directory):
+    """Two BED files with lines outside autosomes 1-22 and one clean file."""
+    directory.mkdir()
+    lines = {"a.bed": [("chr22", 5), ("chrX", 1), ("X", 50)],
+             "b.bed": [("22", 5), ("chrY", 1), ("chrM", 9), ("MT", 3)],
+             "c.bed": [("chr22", 5)]}
+    for name, rows in lines.items():
+        (directory / name).write_text("".join(f"{chrom}\t{start}\t{start + 10}\n" for chrom, start in rows))
+    return str(directory / "*.bed")
+
+
+def non_autosomal_issues(issues):
+    flagged = issues.loc[issues.reason.eq("non_autosomal_chromosomes")]
+    return {Path(row.source).name: row for row in flagged.itertuples(index=False)}
+
+
+def check_non_autosomal_issues(issues):
+    flagged = non_autosomal_issues(issues)
+    assert sorted(flagged) == ["a.bed", "b.bed"]
+    assert flagged["a.bed"].chrom == "X"
+    assert "2 lines" in flagged["a.bed"].details and "X (2)" in flagged["a.bed"].details
+    assert flagged["b.bed"].chrom == "Y,MT,M"
+    assert "3 lines" in flagged["b.bed"].details and "Y (1), MT (1), M (1)" in flagged["b.bed"].details
+    for row in flagged.values():
+        assert "remove" in row.details.lower() and "remove" in row.repair.lower()
+    assert not issues.reason.eq("incomplete_chromosome_coverage").any()
+
+
+def test_bed_lines_outside_autosomes_are_reported_for_every_file(tmp_path):
+    args = write_inputs(tmp_path)
+    args.query_annot_bed_sources = write_beds(tmp_path / "beds")
+    result = inspect_direct_inputs(args, GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"))
+    check_non_autosomal_issues(result.issues)
+
+
+def test_prepared_bed_sources_report_lines_outside_autosomes(tmp_path):
+    from ldsc._annotation.interval_queries import prepare_bed_queries
+    from ldsc._annotation.storage import AnnotationWorkspace
+
+    args = write_inputs(tmp_path)
+    write_beds(tmp_path / "beds")
+    with AnnotationWorkspace(tmp_path) as workspace:
+        sources = prepare_bed_queries(sorted(Path(tmp_path / "beds").glob("*.bed")), workspace)
+        result = inspect_direct_inputs(args, GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
+                                       bed_sources=sources)
+    check_non_autosomal_issues(result.issues)
+
+
+def test_ldscore_stops_before_computation_on_bed_lines_outside_autosomes(tmp_path):
+    args = write_inputs(tmp_path)
+    beds = write_beds(tmp_path / "beds")
+    output = tmp_path / "out"
+    with pytest.raises(LDSCInputError) as caught:
+        cli.main(["ldscore", "--plink-prefix", args.plink_prefix, "--baseline-annot-sources", args.baseline_annot_sources,
+                  "--query-annot-bed-sources", beds, "--snp-identifier", "chr_pos", "--genome-build", "hg19",
+                  "--ld-wind-snps", "1", "--output-dir", str(output)])
+    message = str(caught.value)
+    for expected in ("a.bed", "b.bed", "X (2)", "Y (1), MT (1), M (1)", "outside autosomes 1-22", "Remove these lines"):
+        assert expected in message
+    issues = pd.read_csv(output / "diagnostics" / "input_issues.tsv", sep="\t")
+    assert sorted(non_autosomal_issues(issues)) == ["a.bed", "b.bed"]
+    assert not (output / "metadata.json").exists()
 
 
 def test_exact_and_glob_scope_comes_from_contents(tmp_path):

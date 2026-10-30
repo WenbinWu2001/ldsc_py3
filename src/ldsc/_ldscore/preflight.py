@@ -7,6 +7,7 @@ This workflow helper collects independent artifact failures without treating
 unreadable inputs as scientific zero support.
 """
 
+from collections import Counter
 from dataclasses import dataclass
 import glob
 import logging
@@ -16,7 +17,7 @@ from pathlib import Path
 import pandas as pd
 
 from .._annotation.parsing import normalize_annotation_chunk
-from .._core.chromosomes import normalize_chromosome
+from .._core.chromosomes import chrom_sort_key, normalize_chromosome
 from ..config import RefPanelConfig
 from ..errors import LDSCInputError, LDSCUserError
 from .._runtime.paths import inspect_plink_inputs, normalize_path_token, split_cli_path_tokens
@@ -35,6 +36,10 @@ SCOPE_REPAIR = (
     "covered: supply the missing chromosomes or explicitly revise the gene lists. Changing '@' to '*' "
     "does not filter genes. With --r2-matrix-dir, select a directory whose chromosome set matches the baseline; "
     "directory paths do not expand patterns."
+)
+NON_AUTOSOMAL_BED_REPAIR = (
+    "Remove the BED lines on chromosomes outside autosomes 1-22 and rerun; LD scores for query annotations "
+    "use autosomes 1-22 only, and the remaining intervals are used as given."
 )
 
 
@@ -135,6 +140,21 @@ def inspect_direct_inputs(args, global_config, *, annotation_sources=None, bed_s
                            reason=reason, details=str(details),
                            repair="Supply valid, matching baseline/reference artifacts for the declared scope. " + SCOPE_REPAIR))
 
+    def bed_query(source, line_counts):
+        """Add a BED file's autosomes to the query scope; report its other lines as one issue."""
+        outside = {chrom: count for chrom, count in line_counts.items() if chrom not in AUTOSOMES}
+        if outside:
+            labels = sorted(outside, key=chrom_sort_key)
+            total = sum(outside.values())
+            issues.append(dict(
+                input_role="query", source=str(source), chrom=",".join(labels), reason="non_autosomal_chromosomes",
+                details=(f"{total} line{'s' if total != 1 else ''} on chromosomes outside autosomes 1-22: "
+                         + ", ".join(f"{chrom} ({outside[chrom]})" for chrom in labels)
+                         + ". Remove these lines from the BED file and rerun"),
+                repair=NON_AUTOSOMAL_BED_REPAIR,
+            ))
+        query_sets.append((source, {chrom for chrom in line_counts if chrom in AUTOSOMES}))
+
     def files(tokens, role):
         selected = []
         for raw in split_cli_path_tokens(tokens):
@@ -191,13 +211,13 @@ def inspect_direct_inputs(args, global_config, *, annotation_sources=None, bed_s
             if source.failure_reason:
                 issue('query',source.source,'','invalid_required_input',source.details)
             else:
-                query_sets.append((source.source,set(source.shards)))
+                bed_query(source.source, {chrom: spool.n_rows for chrom, spool in source.shards.items()})
     else:
         for path, _ in files(getattr(args, "query_annot_bed_sources", None), "query"):
             try:
                 with (gzip.open(path, "rt") if path.endswith(".gz") else open(path)) as stream:
-                    chroms = {normalize_chromosome(row.chrom) for row in regions.iter_bed_rows(stream, label=path)}
-                query_sets.append((path,chroms))
+                    line_counts = Counter(normalize_chromosome(row.chrom) for row in regions.iter_bed_rows(stream, label=path))
+                bed_query(path, line_counts)
             except (OSError, EOFError, ValueError, LDSCUserError) as exc:
                 issue("query", path, "", "invalid_required_input", exc)
 

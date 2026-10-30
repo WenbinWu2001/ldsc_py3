@@ -1,6 +1,6 @@
 # Regression Configuration Reference (Advanced)
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-30
 
 This document describes the tunable configuration of the regression module (`ldsc h2`, `ldsc rg`, `ldsc partitioned-h2`).
 **You do not need any of this for a standard run.**
@@ -146,6 +146,21 @@ Sources: `RegressionRunner._fit_h2_dataset`, `_fit_rg_dataset`, and `_runner_fro
 > arguments retain the boundary value. All other behavior matches legacy LDSC.
 
 ---
+
+### 1.6 Missing or infinite statistics
+
+`h2`, `partitioned-h2`, and `rg` drop summary-statistics rows whose `Z` or `N` is missing or infinite, once per trait, before merging them with the LD scores.
+Such a row cannot enter a fit: in a single-annotation `h2` model it made the fit fail with a numerical error, and under a chi-square cap it was removed and counted as an outlier.
+Legacy LDSC drops these rows when it reads summary statistics (`_read_ld_sumstats(..., dropna=True)` in `ldscore/sumstats.py`), and LDSC3 keeps that behavior.
+The run continues with a warning, and the result metadata records the count as `dropped_nonfinite_statistic_rows`: one integer for `h2` and `partitioned-h2`, and one per trait, in `h2_per_trait` order, for `rg`.
+For a legacy `.sumstats(.gz)` input the dropped rows also appear in `diagnostics/dropped_snps/legacy_sumstats.tsv.gz` with reason `nonfinite_statistic`; see [legacy summary statistics](formats/legacy-sumstats.md).
+`munge-sumstats` already removes such rows, so they reach regression only from legacy files, edited Parquet files, or tables built in Python.
+
+This is a recorded exception to the rule that filtering a user did not request must fail when it can change the analysis.
+A row without a finite statistic carries nothing the model can use, and dropping it matches legacy LDSC.
+Missing or infinite LD scores and regression weights are outside this rule; `rg` still drops missing values in those columns after merging, as before.
+
+*Mechanism:* `_prepare_trait_sumstats` and `_project_legacy_sumstats_to_panel` in `_regression/runner.py`.
 
 ## 2. `h2` — single-trait heritability
 

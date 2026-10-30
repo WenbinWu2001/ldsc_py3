@@ -4,7 +4,7 @@
 
 # LDSC Package Guidance
 
-Last updated on: 2026-10-29
+Last updated on: 2026-10-30
 
 This repository, `ldsc_py3_restructured`, develops the distributable scientific Python package `ldsc` (distribution version `2.0b0`), with source under `src/ldsc/`.
 
@@ -128,6 +128,7 @@ pytest
   If it is unclear whether an operation warrants an error or warning, or whether it could affect the scientific analysis, ask the user to decide.
   Explicitly requested transformations may succeed when their effect is recorded in the result diagnostics and provenance.
   Recorded exception: `ldscore` excludes reference-panel SNPs that are not on the annotation SNP grid without failing and reports them instead; scope and rationale are in `docs/reference/ldscore-snp-universes.md`, "Reference SNPs on the annotation SNP grid".
+  Recorded exception: regression drops summary-statistics rows whose `Z` or `N` is missing or infinite with a warning and a recorded count instead of failing; scope and rationale are in `docs/reference/regression-options.md`, "Missing or infinite statistics".
 - Use exhaustive, stage-specific validation gates that collect every safely discoverable issue across focal/control inputs before aborting.
   An unreadable structural contract may fail immediately, a referenced analysis-changing defect must fail, and an unreferenced latent defect may be diagnosed without failing a correct run.
   Design diagnostics for concrete identification and repair; preserve explicit query-continuation policies and their attempted-query records, without introducing silent recovery.

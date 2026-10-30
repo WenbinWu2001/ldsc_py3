@@ -2215,6 +2215,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "count_key_used_for_regression": "common_reference_snp_counts",
                     "retained_ld_columns": ["base"],
                     "dropped_zero_variance_ld_columns": [],
+                    "dropped_nonfinite_statistic_rows": 0,
                     "n_snps": 1,
                     "n_blocks_used": 1,
                     "effective_chisq_max": None,

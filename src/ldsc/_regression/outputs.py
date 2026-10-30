@@ -1017,6 +1017,9 @@ def _rg_root_metadata(result: Any, *, files: dict[str, str]) -> dict[str, object
     sumstats_files = getattr(result, "sumstats_files", None)
     if sumstats_files is not None:
         payload["sumstats_files"] = list(sumstats_files)
+    nonfinite_rows = getattr(result, "dropped_nonfinite_statistic_rows", None)
+    if nonfinite_rows is not None:
+        payload["dropped_nonfinite_statistic_rows"] = list(nonfinite_rows)
     return payload
 
 

@@ -52,6 +52,7 @@ Row-level failures are dropped and audited without aborting an otherwise usable 
 | no allele-compatible panel candidate | Drop / `incompatible_alleles` |
 | more than one allele-compatible panel candidate | Drop / `ambiguous_panel_mapping` |
 | missing, invalid, or strand-ambiguous source alleles | Drop with the corresponding allele reason |
+| missing or infinite `Z` or `N`, checked after every other condition | Drop / `nonfinite_statistic` |
 
 Missing required artifact columns, missing required panel identity columns, or zero retained compatibility rows are file-level failures and abort the affected regression. The compatibility layer introduces no new retention-percentage threshold; ordinary regression SNP-count diagnostics continue to apply.
 

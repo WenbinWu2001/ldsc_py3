@@ -1,6 +1,6 @@
 # Artifact Metadata Field Inventory
 
-Last updated on: 2026-10-29
+Last updated on: 2026-10-30
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](../munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -325,6 +325,7 @@ rank-bin summaries used by `ldsc plot`; it is a required current `h2` artifact.
 | `count_key_used_for_regression` | Count vector used for regression. | None. |
 | `retained_ld_columns` | LD-score columns retained in the fitted `h2` model. | None. |
 | `dropped_zero_variance_ld_columns` | LD-score columns removed before fitting. | None. |
+| `dropped_nonfinite_statistic_rows` | Summary-statistics rows dropped because `Z` or `N` was missing or infinite; see [missing or infinite statistics](../regression-options.md#16-missing-or-infinite-statistics). | None. |
 | `n_snps` | Number of SNPs retained after the effective chi-square filter. | None. |
 | `effective_chisq_max` | Chi-square cap actually applied (`null` when uncapped). | None. |
 | `n_blocks_used` | Realized jackknife block count from the fit outcome. | None. |
@@ -364,6 +365,7 @@ Keep the complete result directory when copying fitted queries.
 Sources: `PartitionedH2DirectoryWriter` in [_regression/outputs.py](../../../src/ldsc/_regression/outputs.py) and `load_fitted_partitioned_model` in [_regression/quantile_h2.py](../../../src/ldsc/_regression/quantile_h2.py).
 
 Model metadata records `n_snps`, `effective_chisq_max`, and `n_blocks_used` from the fitted population: at the root for a baseline-only model and in each per-query metadata file for query models.
+Root metadata also records `dropped_nonfinite_statistic_rows`, the trait's summary-statistics rows dropped because `Z` or `N` was missing or infinite.
 
 Completed query scans write `diagnostics/query_status.tsv` in requested order, including failed queries; strict failures publish this ledger without new scientific results.
 Root metadata records the following runtime fields, available to successful per-query model readers through the shared metadata reference.
@@ -416,7 +418,7 @@ two-sided p-values from each genetic-correlation fit. They do not include
 package-computed corrected p-value columns; downstream users choose any
 multiple-testing correction appropriate for their analysis.
 
-Root `diagnostics/metadata.json` records `trait_names` (the labels after any `label@<suffix>` relabeling, in input order; plotting reads them), `sumstats_files` (each trait's source path, aligned with `trait_names`), `ldscore_dir`, `pair_kind`, `n_pairs` and `n_traits`.
+Root `diagnostics/metadata.json` records `trait_names` (the labels after any `label@<suffix>` relabeling, in input order; plotting reads them), `sumstats_files` (each trait's source path, aligned with `trait_names`), `ldscore_dir`, `pair_kind`, `n_pairs`, `n_traits` and `dropped_nonfinite_statistic_rows` (each trait's rows dropped because `Z` or `N` was missing or infinite, aligned with `trait_names`).
 
 Root and per-pair `diagnostics/metadata.json` files are provenance only.
 Per-pair metadata records the prevalences applied to each trait (`samp_prev_1`, `pop_prev_1`, `samp_prev_2`, `pop_prev_2`, each `null` when unset) and a `scale` (`observed` | `liability`) field; the genetic correlation itself is scale-invariant.

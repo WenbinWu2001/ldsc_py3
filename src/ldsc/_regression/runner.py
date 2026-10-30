@@ -338,6 +338,10 @@ class RgResultFamily:
         traits in input order, with the columns of
         ``diagnostics/dropped_snps/legacy_sumstats.tsv.gz``; ``None`` when no
         input was a legacy table.
+    dropped_nonfinite_statistic_rows : list of int or None, optional
+        Each trait's rows dropped because ``Z`` or ``N`` was missing or
+        infinite, aligned with ``h2_per_trait`` rows. Recorded in the root
+        ``metadata.json``.
     """
 
     rg: pd.DataFrame
@@ -347,6 +351,7 @@ class RgResultFamily:
     sumstats_files: list[str | None] | None = None
     ldscore_dir: str | None = None
     legacy_sumstats_drops: pd.DataFrame | None = None
+    dropped_nonfinite_statistic_rows: list[int] | None = None
 
 
 @dataclass(frozen=True)
@@ -355,7 +360,10 @@ class _PreparedTraitSumstats:
 
     For a legacy ``.sumstats(.gz)`` input, ``table`` is its projection onto the
     LD-score panel and ``legacy_drops`` records the rows that projection dropped;
-    otherwise ``table`` is the input and ``legacy_drops`` is ``None``. Rows keyed
+    otherwise ``table`` is the input and ``legacy_drops`` is ``None``. Either way,
+    rows whose ``Z`` or ``N`` is missing or infinite are removed and counted in
+    ``dropped_nonfinite_statistic_rows``; for a legacy input they are also
+    ``legacy_drops`` rows with reason ``nonfinite_statistic``. Rows keyed
     for a merge are built on first use and cached per effective SNP identifier
     mode and downgrade cleanup, so a trait shared by many rg pairs is keyed at
     most twice: under the LD-score directory's mode and under its base mode.
@@ -363,6 +371,7 @@ class _PreparedTraitSumstats:
 
     table: SumstatsTable
     legacy_drops: pd.DataFrame | None = None
+    dropped_nonfinite_statistic_rows: int = 0
     _keyed: dict[tuple[str, bool], tuple[pd.DataFrame, int]] = field(default_factory=dict, repr=False, compare=False)
 
     @property
@@ -1091,6 +1100,7 @@ class RegressionRunner:
             with _log_phase_timing("shared regression preparation"):
                 trait = _prepare_trait_sumstats(sumstats_table, ldscore_result)
                 prepared = self._prepare_h2_inputs(trait, _PreparedLDScores(ldscore_result), config)
+                metadata["dropped_nonfinite_statistic_rows"] = trait.dropped_nonfinite_statistic_rows
                 # Fits need only the aligned rows; release the trait's keyed copy.
                 legacy_drops, trait = trait.legacy_drops, None
             if not queries:
@@ -1378,6 +1388,7 @@ class RegressionRunner:
             sumstats_files=[table.source_path for table in tables],
             ldscore_dir=str(Path(source_metadata).resolve().parent) if source_metadata else None,
             legacy_sumstats_drops=pd.concat(legacy_drops, ignore_index=True) if legacy_drops else None,
+            dropped_nonfinite_statistic_rows=[trait.dropped_nonfinite_statistic_rows for trait in traits],
         )
 
 
@@ -1441,11 +1452,33 @@ def _prepare_trait_sumstats(
 
     A legacy ``.sumstats(.gz)`` table is projected onto the LD-score panel under
     the panel's recorded SNP identifier mode; other tables are used as given.
+    Rows whose ``Z`` or ``N`` is missing or infinite cannot enter a fit and are
+    dropped with a warning instead of failing the run (a recorded exception to
+    the fail-on-unrequested-filtering rule, as in legacy LDSC).
     """
-    if not _has_legacy_sumstats_source(table):
-        return _PreparedTraitSumstats(table)
-    projected, drops = _project_legacy_sumstats_to_panel(table, ldscore_result)
-    return _PreparedTraitSumstats(projected, legacy_drops=drops)
+    context = table.source_path or table.trait_name or "sumstats"
+    legacy_drops = None
+    if _has_legacy_sumstats_source(table):
+        table, legacy_drops = _project_legacy_sumstats_to_panel(table, ldscore_result)
+        dropped = int(legacy_drops["reason"].eq("nonfinite_statistic").sum())
+    else:
+        finite = _finite_statistics(table.data)
+        dropped = int((~finite).sum())
+        if dropped:
+            table = replace(table, data=table.data.loc[finite].reset_index(drop=True))
+    if dropped:
+        LOGGER.warning(
+            "Dropped %d row(s) of summary statistics '%s' whose Z or N is missing or infinite; such rows cannot "
+            "enter a regression. The count is recorded as dropped_nonfinite_statistic_rows in the result metadata.",
+            dropped, context,
+        )
+    return _PreparedTraitSumstats(table, legacy_drops, dropped)
+
+
+def _finite_statistics(frame: pd.DataFrame) -> pd.Series:
+    """Mark rows whose ``Z`` and ``N`` are both finite numbers."""
+    return (np.isfinite(pd.to_numeric(frame["Z"], errors="coerce"))
+            & np.isfinite(pd.to_numeric(frame["N"], errors="coerce")))
 
 
 def _project_legacy_sumstats_to_panel(
@@ -1614,6 +1647,8 @@ def _project_legacy_sumstats_to_panel(
         unique_panel = panel.loc[panel["SNP"].isin(source_matches["SNP"])]
         selected_panel = source_matches.merge(unique_panel, how="left", on="SNP", sort=False, validate="one_to_one")
         selected_panel = selected_panel.set_index("_legacy_source_row").loc[accepted_rows]
+    # Checked last, so a row with an earlier reason keeps it.
+    assign_reason(~_finite_statistics(source), "nonfinite_statistic")
 
     accepted_rows = reasons[reasons.isna()].index
     if accepted_rows.empty:
@@ -2307,6 +2342,7 @@ def _h2_metadata(
     outcome: _FitOutcome,
     samp_prev: float | None = None,
     pop_prev: float | None = None,
+    dropped_nonfinite_statistic_rows: int = 0,
 ) -> dict[str, object]:
     """Build h2 metadata from realized fit selection and validated prevalences."""
     dataset = outcome.dataset
@@ -2322,6 +2358,7 @@ def _h2_metadata(
         "count_key_used_for_regression": dataset.count_key_used_for_regression,
         "retained_ld_columns": list(dataset.retained_ld_columns),
         "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
+        "dropped_nonfinite_statistic_rows": dropped_nonfinite_statistic_rows,
         "n_snps": outcome.n_snps,
         "effective_chisq_max": outcome.effective_chisq_max,
         "n_blocks_used": outcome.n_blocks,
@@ -2951,7 +2988,7 @@ def run_h2_from_args(args):
                 runner._prepare_h2_inputs(trait, _PreparedLDScores(ldscore_result), config), config=config,
             )
         # The fit needs only the aligned rows; release the trait's keyed copy.
-        legacy_drops, trait = trait.legacy_drops, None
+        legacy_drops, nonfinite_rows, trait = trait.legacy_drops, trait.dropped_nonfinite_statistic_rows, None
         outcome = runner._fit_h2_dataset(dataset, config=config)
         hsq, dataset = outcome.estimator, outcome.dataset
         n_snps_used = outcome.n_snps
@@ -2971,6 +3008,7 @@ def run_h2_from_args(args):
                 outcome,
                 samp_prev=config.samp_prev,
                 pop_prev=config.pop_prev,
+                dropped_nonfinite_statistic_rows=nonfinite_rows,
             ),
             diagnostic_bins=outcome.diagnostic_bins,
         )

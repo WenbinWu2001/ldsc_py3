@@ -95,7 +95,7 @@ def test_direct_final_batch_failure_removes_private_outputs(tmp_path, monkeypatc
     original_write = fragments.write_query_fragments
     writes = []
 
-    def write(result, path, compression):
+    def write(result, baseline_table, path, compression):
         assert not (output / "metadata.json").exists()
         assert not list(output.glob("ldscore.*.parquet"))
         writes.append(result.query_columns)
@@ -107,7 +107,7 @@ def test_direct_final_batch_failure_removes_private_outputs(tmp_path, monkeypatc
                 frame = pd.read_parquet(bad)
                 frame.loc[0, "SNP"] = "wrong-row"
                 frame.to_parquet(bad, index=False)
-        return original_write(result, path, compression)
+        return original_write(result, baseline_table, path, compression)
 
     if failure == "worker":
         monkeypatch.setattr(ldscore_calculator, "_compute_one_chromosome", _fail_last_batch)

@@ -317,7 +317,9 @@ Moving the output mask upstream does not restrict the reference SNPs.
 
 Within each active direct query batch, each PLINK correlation block is generated once.
 The next execution batch repeats reference preparation and traversal.
-Shared baseline columns and the weight mask are projected together, then query columns are read in batches for that same block.
+In the first batch, shared baseline columns and the weight mask are projected together, then query columns are read in batches for that same block.
+Later batches of a writing run project only their query columns, through a column view of the same annotation accessor (`_QueryColumns` in [`_ldscore/compute.py`](../../../src/ldsc/_ldscore/compute.py)), and skip the baseline counts and the baseline-by-baseline overlap block (`annotation_statistics(include_baseline=False)`).
+Each query group is projected independently of the shared group, with the same operand tiles, so the skipped work cannot change a query value; [`test_batch_row_order.py`](../../../tests/ldscore/test_batch_row_order.py) checks byte-identical outputs on PLINK and R² matrices.
 For R² matrices, bounded pair batches are scattered through float64 sparse products.
 Counts and overlap products are accumulated from bounded annotation tiles; the retained overlap summary consists of baseline-by-all-annotation products plus query diagonals, rather than a dense query-by-query matrix.
 Preserve the existing accumulation and validation tolerances when changing these kernels.
@@ -351,7 +353,10 @@ Memory outside the kernel does not depend on the batch size, including each chro
 `build-r2-matrix` uses the same chunk walk but was not timed; its stored pairs are identical for any batch size, with R² differing by at most one int16 unit from float32 summation order (see `tests/ldscore/test_plink_exact_windows.py`).
 
 For direct file-writing workflows, [`stage_direct_chromosome()`](../../../src/ldsc/_ldscore/direct_batches.py) writes the existing post-kernel float32 query table to a private Parquet fragment before the worker returns.
-The parent receives baseline data, counts, overlaps, variation summaries, and diagnostic descriptors, then combines them without a genome-wide query matrix.
+In the first batch the parent receives baseline data, counts, overlaps, variation summaries, and diagnostic descriptors, then combines them without a genome-wide query matrix.
+Later batches return no baseline table, no baseline counts, no identity drops and no exported reference metadata; their query statistics and baseline-by-query overlap blocks are combined with the first batch's.
+The parent concatenates the first batch's chromosome baselines in chromosome order (`concat_chromosome_tables()` in [`_core/row_alignment.py`](../../../src/ldsc/_core/row_alignment.py)) instead of sorting them again: each worker already sorted its chromosome, and a stable sort cannot move ordered rows.
+The concatenation checks that order and raises `LDSCInternalError` if a chromosome's rows are out of order or carry another chromosome label.
 [`_ldscore/query_variation.py`](../../../src/ldsc/_ldscore/query_variation.py) combines each chromosome's first values and within-chromosome variation flags, including columns that are constant within chromosomes but differ between chromosomes.
 Direct filtering uses the same float32 values as the materialized API; indexed filtering continues to use float64.
 The small prepared no-output Python route still returns a materialized `LDScoreResult`.
@@ -410,8 +415,9 @@ Baseline, counts, and overlap are shared once.
 `_ldscore/batch_publication.py` stages all query files inside the output directory, publishes after successful computation, and writes metadata last.
 Its `_LDScorePublication` record retains only the shared baseline, counts, overlap, provenance, and diagnostic descriptors needed for publication.
 Materialized query tables, the LD-score producer's SNP sets, chromosome results, and staged query paths remain with the active batch and can be released before the next batch is requested.
-`_ldscore.source.validate_ldscore_baseline_table()` checks the shared baseline before deferred reads; `validate_ldscore_query_table()` checks either a complete materialized query table or one fragment against the corresponding baseline rows.
-Each fragment has one row-alignment check, with the existing allele-aware identity and row-order rules.
+`_ldscore.source.validate_ldscore_baseline_table()` checks the shared baseline once, from the first batch; `validate_ldscore_query_table()` checks a complete materialized query table against it.
+Each fragment of every batch must repeat the identity columns (`CHR`, `SNP`, `POS`, `A1`, `A2`) of the matching first-batch baseline rows exactly and in order, which also catches a different SNP label or allele order that the identifier-mode key would accept; a mismatch fails the run before publication.
+Later batches no longer recompute the baseline, so there is no cross-batch comparison of baseline values.
 Handled failure closes the producer and removes owned staging while retaining available diagnostics.
 Resume from the last completed batch is a future feature, not supported now.
 

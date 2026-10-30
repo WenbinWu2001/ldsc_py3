@@ -324,17 +324,44 @@ def regression_mask_from_keys(
     return keep.astype(np.float32)
 
 
+@dataclass
+class _QueryColumns:
+    """Selected-read view of the query columns of a prepared annotation accessor.
+
+    Reads pass straight through to the full accessor, so projecting this view
+    computes each query group exactly as a full projection would.
+    """
+
+    source: object
+    columns: tuple[str, ...]
+
+    @property
+    def shape(self):
+        return self.source.shape[0], len(self.columns)
+
+    def read(self, *, rows=None, columns=None):
+        return self.source.read(rows=rows, columns=self.columns if columns is None else columns)
+
+
 def compute_chromosome(
     chrom: str, prepared: PreparedChromosome, *, snp_identifier: str,
     snp_batch_size: int, common_maf_min: float = 0.05, query_batch_size: int = 100,
     regression_keys: set[str] | RestrictionIdentityKeys | None = None,
     regression_regions: RegionIntervals | None = None,
+    include_baseline: bool = True,
 ) -> ChromComputationResult:
     """Project annotations and regression weights through one prepared chromosome.
 
     Preparation owns identity, sample/MAF selection, reader policy, and window
     validation. This function only projects the aligned matrices and derives
     counts and overlap; it never resolves paths or reopens a reference panel.
+
+    With ``include_baseline=False`` (later query batches of a writing run, whose
+    baseline the first batch already computed) only query columns are projected:
+    ``ld_scores``, counts, ``annotation_types`` and ``ldscore_columns`` cover the
+    queries, ``w_ld`` has no columns, and the overlap keeps the baseline-by-query
+    block and query diagonals. Query groups are projected independently of the
+    shared baseline group, so their values match a full projection exactly.
     """
     metadata = prepared.metadata
     regression_selected = regression_mask_from_keys(metadata, regression_keys, snp_identifier)
@@ -342,25 +369,28 @@ def compute_chromosome(
         metadata, regression_keys, snp_identifier, region_intervals=regression_regions,
     )
     output_rows = np.flatnonzero(regression_mask)
-    options = dict(output_rows=output_rows, n_baseline=len(prepared.baseline_columns),
-                   query_batch_size=query_batch_size, weight_mask=regression_mask)
+    n_baseline = len(prepared.baseline_columns)
+    annotations = (prepared.annotations if include_baseline
+                   else _QueryColumns(prepared.annotations, tuple(prepared.query_columns)))
+    options = dict(output_rows=output_rows, n_baseline=n_baseline if include_baseline else 0,
+                   query_batch_size=query_batch_size, weight_mask=regression_mask if include_baseline else None)
     if prepared.backend == "plink":
         prepared.reader._currentSNP = 0
         combined_scores = np.asarray(ld_scores_from_genotypes(
-            prepared.reader, prepared.block_left, snp_batch_size, annot=prepared.annotations, **options,
+            prepared.reader, prepared.block_left, snp_batch_size, annot=annotations, **options,
         ), dtype=np.float32)
     else:
         combined_scores = ld_score_streaming_from_r2_reader(
-            block_left=prepared.block_left, annot=prepared.annotations, block_reader=prepared.reader, **options,
+            block_left=prepared.block_left, annot=annotations, block_reader=prepared.reader, **options,
         )
-    n_columns = prepared.annotations.shape[1]
-    M, M_5_50, overlap, kinds = annotation_statistics(metadata, prepared.annotations,
-        len(prepared.baseline_columns), common_maf_min=common_maf_min, query_batch_size=query_batch_size)
+    n_columns = annotations.shape[1]
+    M, M_5_50, overlap, kinds = annotation_statistics(metadata, prepared.annotations, n_baseline,
+        common_maf_min=common_maf_min, query_batch_size=query_batch_size, include_baseline=include_baseline)
     return ChromComputationResult(
         chrom=chrom, metadata=metadata.iloc[output_rows].reset_index(drop=True),
         ld_scores=combined_scores[:, :n_columns], w_ld=combined_scores[:, n_columns:],
         M=M, M_5_50=M_5_50,
-        ldscore_columns=prepared.baseline_columns + prepared.query_columns,
+        ldscore_columns=(prepared.baseline_columns if include_baseline else []) + prepared.query_columns,
         baseline_columns=prepared.baseline_columns, query_columns=prepared.query_columns,
         reference_snp_count=len(metadata), regression_selected_snp_count=int(regression_selected.sum()),
         regression_region_removed_snp_count=int(regression_selected.sum()-len(output_rows)),

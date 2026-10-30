@@ -1,6 +1,6 @@
 # Reference and regression SNPs
 
-Last updated on: 2026-10-29
+Last updated on: 2026-10-30
 
 This table distinguishes the SNP sets used by canonical LD score regression (LDSC) and by stratified LD score regression (S-LDSC; Finucane et al. 2015).
 It is especially important for MHC and pericentromeric exclusions.
@@ -81,8 +81,9 @@ See [coverage diagnostics](results/gene-list-diagnostics.md#chromosome-scope-and
 
 Within each direct query execution batch, baseline/control annotations, the active query columns, and the binary regression-SNP mask share one numerical LD traversal per chromosome.
 PLINK computes each genotype-correlation block once for that batch; an R² matrix decodes bounded pair chunks.
-The next execution batch repeats reference preparation and genotype/R² traversal.
+The next execution batch repeats reference preparation and genotype/R² traversal, projecting only its query columns; the baseline, regression weights, baseline counts and baseline overlap block come from the first batch.
 This repeated work is deliberate: completed query batches are written and released before the next batch is prepared.
+Every later batch's query rows must equal the first batch's baseline rows exactly, so baseline and query LD scores stay aligned row by row.
 Shared baseline counts and overlap blocks are retained once, not added repeatedly across execution batches.
 The synthetic all-ones `base` annotation uses one no-query calculation in unpartitioned runs.
 

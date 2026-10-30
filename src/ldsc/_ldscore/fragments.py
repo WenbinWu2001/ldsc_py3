@@ -10,12 +10,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from ..errors import LDSCInternalError
-from .source import validate_ldscore_query_table
+from ..errors import LDSCInputError, LDSCInternalError
 from .outputs import _cast_parquet_floats
 
 
@@ -50,25 +50,23 @@ class StagedLDScoreBatch:
     reference_snp_funnel: pd.DataFrame | None = None
 
 
-def write_query_fragments(result: StagedLDScoreBatch, path: Path, compression):
-    """Write finalized queries against an already-validated shared baseline.
+def write_query_fragments(result: StagedLDScoreBatch, baseline_table: pd.DataFrame, path: Path, compression):
+    """Write finalized queries against the run's already-validated shared baseline.
 
-    Read and validate one chromosome at a time, narrow its values to float32,
-    and delete the consumed fragment after releasing its frame. The producer
-    keeps the fragment directory alive until consumption or worker shutdown.
+    ``baseline_table`` is the first batch's baseline. Read one chromosome at a
+    time, require its identity columns to equal the matching baseline rows
+    exactly, narrow its values to float32, and delete the consumed fragment
+    after releasing its frame. The producer keeps the fragment directory alive
+    until consumption or worker shutdown.
     """
-    identity = [name for name in ("CHR", "SNP", "POS", "A1", "A2") if name in result.baseline_table]
+    identity = [name for name in ("CHR", "SNP", "POS", "A1", "A2") if name in baseline_table]
     columns = [*identity, *result.query_columns]
     row_groups, offset = [], 0
     parquet_writer = None
     with ExitStack() as stack:
         for fragment in result.query_fragments:
             frame = pd.read_parquet(fragment, columns=columns, use_threads=False)
-            baseline = result.baseline_table.iloc[offset:offset + len(frame)]
-            validate_ldscore_query_table(
-                baseline, frame, result.query_columns,
-                snp_identifier=result.config_snapshot.snp_identifier,
-            )
+            _require_baseline_rows(baseline_table.iloc[offset:offset + len(frame)], frame, identity, offset)
             if not frame.empty:
                 if frame.CHR.astype(str).nunique() != 1:
                     raise LDSCInternalError("A query fragment must contain exactly one chromosome.")
@@ -81,8 +79,26 @@ def write_query_fragments(result: StagedLDScoreBatch, path: Path, compression):
                                    "row_offset": offset, "n_rows": len(frame)})
                 offset += len(frame)
                 del table, narrowed
-            del baseline, frame
+            del frame
             fragment.unlink()
-    if offset != len(result.baseline_table):
+    if offset != len(baseline_table):
         raise LDSCInternalError("Query fragments do not cover every baseline SNP row.")
     return row_groups
+
+
+def _require_baseline_rows(baseline: pd.DataFrame, frame: pd.DataFrame, identity: list[str], offset: int) -> None:
+    """Raise unless a query fragment repeats the baseline rows' identity columns exactly, in order."""
+    for column in identity:
+        expected, actual = baseline[column].to_numpy(), frame[column].to_numpy()
+        same = np.zeros(len(actual), dtype=bool) if len(expected) != len(actual) else (
+            (expected == actual) | (pd.isna(expected) & pd.isna(actual)))
+        if not same.all():
+            row = int(np.flatnonzero(~same)[0]) if len(same) else 0
+            found = actual[row] if row < len(actual) else "no row"
+            wanted = expected[row] if row < len(expected) else "no row"
+            raise LDSCInputError(
+                f"LD-score query batch rows must equal the baseline rows: SNP row mismatch at row {offset + row} "
+                f"in {column} (baseline {wanted!r}, query batch {found!r}). Most likely an input file "
+                "(reference panel, annotations or SNP restriction) changed while the run was in progress, so a "
+                "later query batch selected different SNPs. Rerun with unchanged inputs."
+            )

@@ -10,7 +10,7 @@ from .chromosomes import chrom_sort_key
 from .snp_identity import effective_merge_key_series, identity_mode_family, is_allele_aware_mode
 from .columns import POS_COLUMN_SPEC, resolve_optional_column
 from .snp_identity import normalize_snp_identifier_mode
-from ..errors import LDSCInputError
+from ..errors import LDSCInputError, LDSCInternalError
 
 
 NUMERIC_METADATA_COLUMNS = ("CM", "MAF")
@@ -141,3 +141,37 @@ def sort_frame_by_genomic_position(df: pd.DataFrame) -> pd.DataFrame:
         sort_columns.append("SNP")
     sort_df = sort_df.sort_values(by=sort_columns, kind="mergesort")
     return sort_df.drop(columns="_chrom_key").reset_index(drop=True)
+
+
+def concat_chromosome_tables(pieces) -> pd.DataFrame:
+    """Concatenate ``(chrom, table)`` pieces, each already in genomic order, in chromosome order.
+
+    The result equals ``sort_frame_by_genomic_position`` of the concatenation:
+    a stable sort cannot move rows that are already ordered. Instead of sorting,
+    each piece is checked to hold only its own chromosome, in nondecreasing
+    position with a nondecreasing SNP label among equal positions; a piece that
+    breaks this raises ``LDSCInternalError`` before any row is published.
+    """
+    ordered = sorted(pieces, key=lambda piece: chrom_sort_key(piece[0]))
+    for chrom, table in ordered:
+        if table.empty:
+            continue
+        if {chrom_sort_key(label) for label in table["CHR"].unique()} != {chrom_sort_key(chrom)}:
+            raise LDSCInternalError(
+                f"Chromosome {chrom} LD-score rows carry other chromosome labels; the per-chromosome "
+                "tables cannot be concatenated in genomic order. Report the command and traceback."
+            )
+        pos_col = resolve_optional_column(table.columns, POS_COLUMN_SPEC)
+        step = np.diff(table[pos_col].to_numpy())
+        unordered = step < 0
+        ties = np.flatnonzero(step == 0)
+        if len(ties) and "SNP" in table.columns:
+            snps = table["SNP"].to_numpy()
+            unordered[ties] = snps[ties + 1] < snps[ties]
+        if unordered.any():
+            row = int(np.flatnonzero(unordered)[0]) + 1
+            raise LDSCInternalError(
+                f"Chromosome {chrom} LD-score rows are not in genomic order at row {row}; the "
+                "per-chromosome tables cannot be concatenated. Report the command and traceback."
+            )
+    return pd.concat([table for _, table in ordered], ignore_index=True)

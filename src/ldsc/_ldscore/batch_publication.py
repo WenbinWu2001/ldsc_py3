@@ -76,15 +76,17 @@ def write_ldscore_batches(writer, results, output_config, query_status_order=())
         try:
             for result in results:
                 streamed = isinstance(result, StagedLDScoreBatch)
-                snp_identifier = validate_ldscore_baseline_table(
-                    result.baseline_table, result.baseline_columns, result.config_snapshot,
-                )
-                if not streamed:
-                    validate_ldscore_query_table(
-                        result.baseline_table, result.query_table, result.query_columns,
-                        snp_identifier=snp_identifier,
-                    )
                 if shared is None:
+                    # The first batch's baseline is the run's baseline; later
+                    # batches add queries whose rows must match it exactly.
+                    snp_identifier = validate_ldscore_baseline_table(
+                        result.baseline_table, result.baseline_columns, result.config_snapshot,
+                    )
+                    if not streamed:
+                        validate_ldscore_query_table(
+                            result.baseline_table, result.query_table, result.query_columns,
+                            snp_identifier=snp_identifier,
+                        )
                     shared = _LDScorePublication(
                         baseline_table=result.baseline_table,
                         baseline_columns=list(result.baseline_columns),
@@ -106,8 +108,11 @@ def write_ldscore_batches(writer, results, output_config, query_status_order=())
                         path = stage / dropped_snps_file(chrom)
                         artifact.write_to(path)
                         shared.identity_drops_by_chrom[chrom] = TsvDiagnostics(path)
-                elif not shared.baseline_table.equals(result.baseline_table):
-                    raise LDSCInputError("LD-score execution batches disagree on shared baseline values or SNP rows. Use the same annotation sources and reference SNPs for the complete run.")
+                elif not streamed:
+                    validate_ldscore_query_table(
+                        shared.baseline_table, result.query_table, result.query_columns,
+                        snp_identifier=snp_identifier,
+                    )
                 require_unique_annotation_names(shared.baseline_columns, [*shared.query_columns, *result.query_columns])
                 shared.query_columns.extend(result.query_columns)
                 shared.count_records.extend(record for record in result.count_records if record["group"] == "query")
@@ -115,7 +120,8 @@ def write_ldscore_batches(writer, results, output_config, query_status_order=())
                 statuses.extend(result.query_statuses)
                 if result.query_columns:
                     filename = f"query-{len(query_batches) + 1}.parquet"
-                    groups = (write_query_fragments(result, stage / filename, compression) if streamed else
+                    groups = (write_query_fragments(result, shared.baseline_table, stage / filename, compression)
+                              if streamed else
                               _write_chromosome_aligned_parquet(result.query_table, stage / filename, compression))
                     query_batches.append({"file": filename, "query_columns": list(result.query_columns), "row_groups": groups})
                 if result.overlap is not None:

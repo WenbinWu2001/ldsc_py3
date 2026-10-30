@@ -31,8 +31,13 @@ class LDScoreOverlap:
     total_common_reference_snps: float | None
 
     def select_queries(self, query_columns: list[str]) -> "LDScoreOverlap":
-        """Return the same labeled overlap data restricted to selected queries."""
-        all_columns = [*self.baseline_block_all.index.tolist(), *query_columns]
+        """Return the same labeled overlap data restricted to selected queries.
+
+        Baseline columns are kept as present: all of them for a complete block,
+        none for a later batch's baseline-by-query block.
+        """
+        queries = set(self.query_diagonal_all.index)
+        all_columns = [*[name for name in self.baseline_block_all.columns if name not in queries], *query_columns]
         block_all = self.baseline_block_all.loc[:, all_columns].copy()
         block_common = None
         if self.baseline_block_common is not None:
@@ -56,9 +61,15 @@ class LDScoreOverlap:
         contribution: OverlapContribution,
         baseline_columns: list[str],
         query_columns: list[str],
+        *,
+        include_baseline: bool = True,
     ) -> "LDScoreOverlap":
-        """Label a raw :class:`OverlapContribution` with annotation names."""
-        all_columns = [*baseline_columns, *query_columns]
+        """Label a raw :class:`OverlapContribution` with annotation names.
+
+        ``include_baseline=False`` labels a baseline-by-query block, whose
+        columns are the queries only.
+        """
+        all_columns = [*(baseline_columns if include_baseline else []), *query_columns]
         block_all = pd.DataFrame(
             np.asarray(contribution.baseline_block_all, dtype=np.float64),
             index=baseline_columns,

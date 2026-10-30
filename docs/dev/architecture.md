@@ -311,7 +311,7 @@ Public interface: downstream workflows should consume `SumstatsTable` or the sel
 
 `load_ldscore_from_dir()` opens an `LDScoreSource`, retaining baseline values, identities, counts, and overlap while leaving query LD-score values on disk.
 This module owns manifest/schema checks, count/overlap consistency, and table/identity validation shared by materialized and staged output.
-`validate_ldscore_baseline_table()` validates the complete shared baseline; `validate_ldscore_query_table()` checks either a materialized query table or one fragment against its already-validated baseline rows.
+`validate_ldscore_baseline_table()` validates the complete shared baseline; `validate_ldscore_query_table()` checks a materialized query table against its already-validated baseline rows, and `_ldscore.fragments.write_query_fragments()` requires each staged fragment's identity columns to equal the shared first-batch baseline rows exactly.
 `LDScoreSource.read_queries()` returns explicit, uncached selections in requested column order; callers own their memory and must keep the source directory available and unchanged.
 The batch output writer and regression workflows both call this loader; `_ldscore/source.py` has no dependency on output writers or regression orchestration.
 Selected-value validation and alignment to a regression model remain with `RegressionRunner`.

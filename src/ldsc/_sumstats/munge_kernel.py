@@ -43,7 +43,6 @@ from .._core.identifiers import (
 )
 from .._genome.liftover import SumstatsLiftoverRequest, apply_sumstats_liftover
 from .._core.snp_identity import (
-    VALID_SNPS,
     RestrictionIdentityKeys,
     allele_set_series,
     base_key_series,
@@ -227,11 +226,6 @@ def filter_frq(frq, qc: MungeQC, *, warning_counts=None):
     frq = np.minimum(frq, 1 - frq)
     ii = frq >= qc.maf_min
     return ii & ~jj
-
-
-def filter_alleles(a):
-    '''Remove alleles that do not describe strand-unambiguous SNPs'''
-    return a.isin(VALID_SNPS)
 
 
 def _looks_missing_info_token(value):

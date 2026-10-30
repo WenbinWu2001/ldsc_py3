@@ -422,7 +422,7 @@ class SumstatsMungerTest(unittest.TestCase):
         z = kernel_munge.p_to_z(pd.Series([0.1, 0.1, 0.1]), pd.Series([1, 2, 3]))
         np.testing.assert_allclose(np.asarray(z), [1.644854, 1.644854, 1.644854], atol=1e-5)
 
-    def test_kernel_filters_reject_invalid_p_info_frq_and_alleles(self):
+    def test_kernel_filters_reject_invalid_p_info_and_frq(self):
         args = kernel_munge.MungeQC(info_min=0.9, maf_min=0.01)
         assert_series_equal(
             kernel_munge.filter_pvals(pd.Series([0, 0.1, 1, 2])),
@@ -435,10 +435,6 @@ class SumstatsMungerTest(unittest.TestCase):
         assert_series_equal(
             kernel_munge.filter_frq(pd.Series([-1, 0, 0.005, 0.4, 0.6, 0.999, 1, 2]), args),
             pd.Series([False, False, False, True, True, False, False, False]),
-        )
-        assert_series_equal(
-            kernel_munge.filter_alleles(pd.Series(["AC", "AG", "DI", "AAT", "RA"])),
-            pd.Series([True, True, False, False, False]),
         )
 
     def test_kernel_filter_frq_is_inclusive_at_maf_min(self):
@@ -2955,6 +2951,19 @@ class SumstatsParquetFooterTest(unittest.TestCase):
         self.assertEqual(raw[b"ldsc:genome_build"], b"hg19")
         self.assertEqual(raw[b"ldsc:trait_name"], b"height")
         self.assertNotIn(b"ldsc:schema_version", raw)
+
+    def test_loader_rejects_footer_missing_identity_keys(self):
+        snapshot = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19")
+        for missing in (b"ldsc:snp_identifier", b"ldsc:genome_build"):
+            footer = sumstats_workflow._sumstats_footer_metadata(snapshot, trait_name="height")
+            del footer[missing]
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory() as tmp:
+                out = str(Path(tmp) / "sumstats.parquet")
+                sumstats_workflow._write_sumstats_outputs(
+                    self._frame(), output_files={"parquet": out}, output_format="parquet", footer_metadata=footer
+                )
+                with self.assertRaisesRegex(ldsc.LDSCInputError, missing.decode() + ".*Re-run munge-sumstats"):
+                    sumstats_workflow.load_sumstats(out)
 
     def test_footer_encodes_none_genome_build_and_trait_as_empty(self):
         footer = sumstats_workflow._sumstats_footer_metadata(

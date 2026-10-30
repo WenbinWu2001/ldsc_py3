@@ -858,7 +858,6 @@ def _resolve_main_global_config(args: argparse.Namespace) -> GlobalConfig:
                 "Most likely a liftover option was supplied while SNP identity is based on rsIDs rather than coordinates. "
                 "Drop the liftover option or switch to a chr_pos identifier."
             )
-        args.genome_build = None
         return GlobalConfig(snp_identifier=mode, log_level=getattr(args, "log_level", "INFO"))
     if source_build is None:
         raise LDSCUsageError(
@@ -871,7 +870,6 @@ def _resolve_main_global_config(args: argparse.Namespace) -> GlobalConfig:
             "munge-sumstats needs an output genome build for chr_pos-family --snp-identifier modes. "
             "Most likely --output-genome-build was omitted. Pass --output-genome-build hg19 or hg38."
         )
-    args.genome_build = source_build
     return GlobalConfig(snp_identifier=mode, genome_build=source_build, log_level=getattr(args, "log_level", "INFO"))
 
 
@@ -2097,8 +2095,9 @@ def _read_sumstats_parquet_footer(path: str) -> dict[str, Any] | None:
     """Return embedded Parquet identity metadata, or ``None`` when absent.
 
     Text summary statistics and footerless Parquet both return ``None`` here; the public
-    loader distinguishes them and rejects the footerless Parquet case. Empty
-    ``genome_build`` and ``trait_name`` values decode to ``None``.
+    loader distinguishes them and rejects the footerless Parquet case. A footer
+    without the ``ldsc:snp_identifier`` or ``ldsc:genome_build`` key is rejected.
+    Empty ``genome_build`` and ``trait_name`` values decode to ``None``.
     """
     if not str(path).endswith(".parquet"):
         return None
@@ -2107,7 +2106,16 @@ def _read_sumstats_parquet_footer(path: str) -> dict[str, Any] | None:
     raw = pq.read_schema(path).metadata or {}
     if b"ldsc:artifact_type" not in raw:
         return None
-    genome_build = raw.get(b"ldsc:genome_build", b"").decode("utf-8") or None
+    missing = [key.decode("utf-8") for key in (b"ldsc:snp_identifier", b"ldsc:genome_build") if key not in raw]
+    if missing:
+        raise LDSCInputError(
+            _curated_sumstats_artifact_message(
+                path,
+                f"its parquet footer lacks the {' and '.join(missing)} identity metadata.",
+                "Most likely it was written by an older LDSC3 version or edited after munging.",
+            )
+        )
+    genome_build = raw[b"ldsc:genome_build"].decode("utf-8") or None
     trait_name = raw.get(b"ldsc:trait_name", b"").decode("utf-8") or None
     return {
         "artifact_type": raw[b"ldsc:artifact_type"].decode("utf-8"),
@@ -2163,27 +2171,11 @@ def _resolve_sumstats_trait_name(
 
 
 def _global_config_from_sumstats_metadata(
-    metadata: dict[str, Any] | None,
+    metadata: dict[str, Any],
     *,
     artifact_path: str | PathLike[str],
-) -> GlobalConfig | None:
+) -> GlobalConfig:
     """Recreate a GlobalConfig snapshot from a summary-statistics Parquet footer payload."""
-    if not isinstance(metadata, dict):
-        raise LDSCInputError(
-            _curated_sumstats_artifact_message(
-                artifact_path,
-                "its embedded parquet footer metadata could not be read, so provenance fields are unavailable.",
-                "Most likely the artifact was hand-edited or corrupted.",
-            )
-        )
-    if "genome_build" not in metadata:
-        raise LDSCInputError(
-            _curated_sumstats_artifact_message(
-                artifact_path,
-                "its embedded parquet footer is missing the genome_build field.",
-                "Most likely it predates the current schema.",
-            )
-        )
     try:
         mode = validate_identity_artifact_metadata(metadata, expected_artifact_type="sumstats")
         return GlobalConfig(

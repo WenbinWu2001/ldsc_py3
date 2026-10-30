@@ -1,6 +1,6 @@
 # Validation
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 This page records what has been validated in LDSC3, with which evidence, and what has not.
 Each evidence page states its date, revision and limits; raw logs and probe scripts are kept outside the repository.
@@ -11,6 +11,7 @@ Each evidence page states its date, revision and limits; raw logs and probe scri
 | --- | --- | --- |
 | Coordinates of the bundled HM3 map against UCSC, Ensembl and NCBI | [HM3 map coordinates](hm3-map-coordinates.md) | Describes the map as of 2026-08-05; the map was rebuilt from dbSNP build 157 on 2026-10-27 and has not been through the full protocol again. |
 | Parallel execution, regression and LD-score resource measurements | [Performance](performance.md) | Local and Longleaf pilots with stated limits; no measurement is a guarantee for other data or systems. |
+| All legacy LDSC issues and FAQ entries against LDSC3 | [Legacy issues and FAQ audit](legacy-issues-audit/README.md) | 458 issues, 1,110 accessible comments and 28 FAQ entries; individual assessments, workflow counts, proposed prevention and bounded local verification at `9d095e6`. |
 | Scientific equivalence across implementation changes | The test suite (`tests/`), including fixed golden NPZ files under `tests/fixtures/golden/` | Covers the package's own consistency; see the test map in [code structure](../code-structure.md). |
 
 ## Not yet validated

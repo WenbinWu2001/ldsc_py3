@@ -152,7 +152,7 @@ class QuantileIdentityStore:
 
     def append(self, table, frame):
         """Insert one bounded metadata chunk in original source order."""
-        frame = frame.copy()
+        frame = frame.copy(deep=False)  # the ordinal column is added to this frame only
         start = self.next_rows[table]
         frame["ordinal"] = np.arange(start, start + len(frame))
         self.next_rows[table] += len(frame)

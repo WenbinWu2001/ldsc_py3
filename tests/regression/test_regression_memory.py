@@ -57,6 +57,40 @@ def test_repeated_models_borrow_readonly_inputs_without_mutating_them(tmp_path, 
     _check_shared_models(tmp_path, chisq_max)
 
 
+@serial_calculation
+def _fit_query_both_ways(tmp_path, chisq_max):
+    table, source = batch_inputs(tmp_path / "ld")
+    runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(num_blocks=6, chisq_max=chisq_max))
+    prepared = runner._prepare_h2_inputs(workflow._prepare_trait_sumstats(table, source),
+                                         workflow._PreparedLDScores(source), runner.regression_config)
+    dataset = runner._dataset_from_query_values(prepared, ["first"], runner._read_query_batch(prepared, ["first"]))
+    return runner._fit_h2_dataset(dataset), runner._fit_h2_dataset(dataset, retain_rows=False)
+
+
+@pytest.mark.parametrize("chisq_max", [80, 1e6])
+def test_query_fit_without_retained_rows_matches_the_full_fit(tmp_path, chisq_max):
+    full, lean = _fit_query_both_ways(tmp_path, chisq_max)
+    assert lean.n_snps == full.n_snps == len(full.dataset.merged)
+    assert lean.dataset.merged.columns.empty
+    for field in ("coef", "coef_cov", "part_delete_values", "tot_delete_values", "intercept"):
+        np.testing.assert_array_equal(getattr(lean.estimator, field), getattr(full.estimator, field))
+
+
+@pytest.mark.parametrize("normalize", [False, True])
+def test_allele_pair_flags_match_concatenated_pair_strings(normalize):
+    rng = np.random.default_rng(3)
+    tokens = np.array(["A", "C", "G", "T", "a", "c", "AT", ""], dtype=object)
+    columns = [pd.Series(rng.choice(tokens, 2000)) for _ in range(4)]
+    columns[0][::17] = None
+    compatible, flip = workflow._allele_pair_flags(columns, normalize=normalize)
+    parts = [column.astype("string").str.upper() if normalize else column for column in columns]
+    pairs = parts[0] + parts[1] + parts[2] + parts[3]
+    expected = pairs.isin(regression.MATCH_ALLELES).to_numpy(dtype=bool)
+    np.testing.assert_array_equal(compatible, expected)
+    np.testing.assert_array_equal(flip[expected], pairs[expected].map(regression.FLIP_ALLELES).astype(bool).to_numpy())
+    assert not flip[~expected].any()
+
+
 @pytest.mark.parametrize("input_dtype", [np.float64, np.float32, np.int64])
 @pytest.mark.parametrize("intercept", [1, None])
 def test_partitioned_kernel_matches_independent_weighted_lstsq(input_dtype, intercept):

@@ -89,7 +89,7 @@ from .._core.snp_identity import (
     is_allele_aware_mode,
     resolve_regression_identity_mode,
 )
-from .._core.row_alignment import assert_same_snp_rows
+from .._core.row_alignment import assert_same_snp_rows, first_identity_mismatch
 from .._runtime.parallelism import WORKERS_HELP, parse_workers, resolve_worker_count, validate_workers
 from .._core.columns import infer_chr_pos_columns
 from .._core.snp_identity import normalize_snp_identifier_mode
@@ -222,6 +222,7 @@ class _PreparedRegressionInputs:
     ldscore: LDScoreResult | LDScoreSource
     ldscore_identity_mode: str
     counts_by_column: dict[str, dict]
+    ld_variances: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -230,6 +231,7 @@ class _PartitionedModelInputs:
 
     dataset: RegressionDataset
     counts_by_column: dict[str, dict]
+    ld_variances: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -502,15 +504,16 @@ class RegressionRunner:
                 f"Dropped {sumstats_dropped + ldscore_dropped} duplicate effective-key rows before merge."
             )
         key = _merge_key_column(identifier_mode)
-        ldscore_payload = ldscore_keyed.loc[:, [key, *ref_ld_columns, weight_column, "_ldsc_source_row"]]
+        payload = {name: ldscore_keyed[name] for name in [key, *ref_ld_columns, weight_column, "_ldsc_source_row"]}
         allele_aware = is_allele_aware_mode(identifier_mode)
         if allele_aware and {"A1", "A2"}.issubset(ldscore_keyed.columns):
-            ldscore_payload = ldscore_payload.assign(A1_ld=ldscore_keyed["A1"], A2_ld=ldscore_keyed["A2"])
+            payload.update(A1_ld=ldscore_keyed["A1"], A2_ld=ldscore_keyed["A2"])
         # LD-score is the left frame so the inner merge inherits its genomic
         # order; the block jackknife needs genomically contiguous rows for valid
         # SEs, and the sumstats order alone (legacy .sumstats.gz is unsorted) does
         # not guarantee that. Values still align by key regardless of side.
-        merged = pd.merge(ldscore_payload.reset_index(drop=True), sumstats_keyed, how="inner", on=key, sort=False)
+        # The payload borrows the keyed columns; the merge makes the one copy.
+        merged = pd.merge(pd.DataFrame(payload, copy=False), sumstats_keyed, how="inner", on=key, sort=False)
         if allele_aware and {"A1", "A2", "A1_ld", "A2_ld"}.issubset(merged.columns):
             merged = _orient_sumstats_z_to_reference_alleles(merged)
         if merged.empty:
@@ -524,7 +527,7 @@ class RegressionRunner:
 
         source_rows = _add_panel_coordinates(merged, ldscore_result)
         dataset = RegressionDataset(
-            merged=merged.reset_index(drop=True),
+            merged=merged,
             ref_ld_columns=ref_ld_columns,
             weight_column=weight_column,
             reference_snp_count_totals={},
@@ -539,8 +542,10 @@ class RegressionRunner:
             ldscore_overlap=ldscore_result.overlap,
         )
         dataset.validate()
+        # Baseline variances do not depend on the query, so every model reuses them.
         return _PreparedRegressionInputs(dataset, source_rows, ldscore_result, ldscore_mode,
-                                        {str(record["column"]): record for record in ldscore_result.count_records})
+                                        {str(record["column"]): record for record in ldscore_result.count_records},
+                                        dict(_ld_column_variances(merged, ref_ld_columns)))
 
     def _dataset_from_prepared(self, prepared, *, query_columns=None, config=None) -> RegressionDataset:
         """Select one complete genome-wide model and apply its count/variance rules.
@@ -555,14 +560,22 @@ class RegressionRunner:
         return self._dataset_from_query_values(prepared, selected, values, config=config)
 
     def _read_query_batch(self, prepared, columns):
-        """Validate the batch's stored rows once and select the shared trait rows."""
+        """Validate the batch's stored rows once and select the shared trait rows.
+
+        Query rows whose identity columns equal the baseline's exactly need no
+        identifier-key comparison; others are compared by key as before.
+        """
         frame = prepared.ldscore.read_queries(columns)
-        assert_same_snp_rows(
-            prepared.ldscore.baseline_table, frame,
-            context="query rows must match baseline rows on CHR/SNP/POS",
-            snp_identifier=prepared.ldscore_identity_mode,
-        )
-        return frame.loc[:, columns].iloc[prepared.source_rows].reset_index(drop=True)
+        baseline = prepared.ldscore.baseline_table
+        identity = [name for name in ("CHR", "SNP", "POS", "A1", "A2") if name in frame.columns]
+        if not set(identity) <= set(baseline.columns) or first_identity_mismatch(baseline, frame, identity) is not None:
+            assert_same_snp_rows(
+                baseline, frame,
+                context="query rows must match baseline rows on CHR/SNP/POS",
+                snp_identifier=prepared.ldscore_identity_mode,
+            )
+        rows = prepared.source_rows
+        return pd.DataFrame({column: frame[column].to_numpy()[rows] for column in columns}, copy=False)
 
     def _dataset_from_query_values(self, prepared, selected, query_values, *, config=None):
         """Borrow aligned columns for one model without copying the baseline.
@@ -589,7 +602,8 @@ class RegressionRunner:
             merged = pd.DataFrame({name: (query_values if name in selected else merged)[name].to_numpy(copy=False)
                                    for name in order}, copy=False)
         dataset = replace(prepared.dataset, ref_ld_columns=ref_ld_columns, **_select_model_columns(
-            merged, ref_ld_columns, prepared.counts_by_column.values(), config.use_common_counts, command="h2",
+            merged, ref_ld_columns, prepared.counts_by_column, config.use_common_counts, command="h2",
+            known_variances=prepared.ld_variances,
         ))
         dataset.validate()
         return dataset
@@ -655,19 +669,17 @@ class RegressionRunner:
             )
 
         key = _merge_key_column(identifier_mode)
-        left = left_keyed.rename(columns={"N": "N1", "Z": "Z1", "FRQ": "FRQ1"})
-        right = right_keyed.rename(columns={"A1": "A1x", "A2": "A2x", "N": "N2", "Z": "Z2", "FRQ": "FRQ2"})
+        # The merge inputs borrow the keyed columns; each merge makes one copy.
+        left = left_keyed.rename(columns={"N": "N1", "Z": "Z1", "FRQ": "FRQ1"}, copy=False)
+        right = right_keyed.rename(columns={"A1": "A1x", "A2": "A2x", "N": "N2", "Z": "Z2", "FRQ": "FRQ2"}, copy=False)
         right_payload = [column for column in ["A1x", "A2x", "N2", "Z2", "FRQ2"] if column in right.columns]
+        ld_payload = {name: ldscore_keyed[name] for name in [key, *ref_ld_columns, weight_column, "_ldsc_source_row"]}
         # LD-score leads the first merge so the result (and the final merge below)
         # inherits its genomic order for valid jackknife block SEs. See build_dataset.
-        left_with_ld = pd.merge(
-            ldscore_keyed.loc[:, [key, *ref_ld_columns, weight_column, "_ldsc_source_row"]].reset_index(drop=True),
-            left,
-            how="inner",
-            on=key,
-            sort=False,
-        )
-        merged = pd.merge(left_with_ld, right.loc[:, [key, *right_payload]], how="inner", on=key, sort=False)
+        left_with_ld = pd.merge(pd.DataFrame(ld_payload, copy=False), left, how="inner", on=key, sort=False)
+        merged = pd.merge(left_with_ld, pd.DataFrame({name: right[name] for name in [key, *right_payload]}, copy=False),
+                          how="inner", on=key, sort=False)
+        del left_with_ld
         _add_panel_coordinates(merged, ldscore_result)
         # Z and N are finite after trait preparation, and LD scores and weights
         # after _PreparedLDScores, so no row needs dropping here.
@@ -680,10 +692,11 @@ class RegressionRunner:
                 f"for same-family allele-aware/base mixes. Other causes & fixes: {_REGRESSION_NO_OVERLAP_DOC}"
             )
 
-        alleles = merged["A1"] + merged["A2"] + merged["A1x"] + merged["A2x"]
-        keep = reg._filter_alleles(alleles)
-        kept_alleles = alleles.loc[keep].reset_index(drop=True)
-        merged = merged.loc[keep].reset_index(drop=True)
+        compatible, flip = _allele_pair_flags([merged["A1"], merged["A2"], merged["A1x"], merged["A2x"]], normalize=False)
+        if not compatible.all():
+            merged = merged.take(np.flatnonzero(compatible))
+            merged.index = pd.RangeIndex(len(merged))
+        flip = flip[compatible]
         if merged.empty:
             raise LDSCInputError(
                 "rg regression retained no allele-compatible SNPs after harmonizing the two summary-statistics tables. "
@@ -691,9 +704,10 @@ class RegressionRunner:
                 "harmonized during munging. Regenerate both munged summary statistics with A1/A2 columns and matching "
                 "SNP identifier mode."
             )
-        merged["Z2"] = reg._align_alleles(merged["Z2"].copy(), kept_alleles)
+        # The integer signs keep the legacy result dtype (float32 Z widens to float64).
+        merged["Z2"] = merged["Z2"].to_numpy() * np.where(flip, -1, 1)
         if "FRQ2" in merged.columns:
-            flip_index = kept_alleles.map(reg.FLIP_ALLELES).astype(bool)
+            flip_index = pd.Series(flip, index=merged.index)
             valid_frq = pd.to_numeric(merged["FRQ2"], errors="coerce").between(0.0, 1.0, inclusive="both")
             transform = flip_index & valid_frq
             merged.loc[transform, "FRQ2"] = 1.0 - pd.to_numeric(
@@ -704,7 +718,7 @@ class RegressionRunner:
         dataset = RegressionDataset(
             ref_ld_columns=ref_ld_columns,
             weight_column=weight_column,
-            **_select_model_columns(merged.reset_index(drop=True), ref_ld_columns, ldscore_result.count_records,
+            **_select_model_columns(merged, ref_ld_columns, ldscore_result.count_records,
                                     config.use_common_counts, command="rg"),
             trait_names=[_trait_label(sumstats_table_1), _trait_label(sumstats_table_2)],
             chromosomes_aggregated=[result.chrom for result in ldscore_result.chromosome_results],
@@ -742,13 +756,17 @@ class RegressionRunner:
         self,
         dataset: RegressionDataset,
         config: RegressionConfig | None = None,
-        *, log_level=logging.INFO,
+        *, log_level=logging.INFO, retain_rows=True,
     ) -> RegressionFit:
         """Fit SNP heritability once and retain its exact SNP population and diagnostic bins.
 
-        The aligned frame can borrow read-only worker maps. Slice it only when
-        the chi-square filter removes rows, then materialize the design once.
-        The estimator never modifies the borrowed input columns.
+        The aligned frame can borrow read-only worker maps. A multi-annotation
+        design is filled column by column from the rows the chi-square filter
+        keeps, so the frame itself is not copied before the fit; the filtered
+        frame is built afterwards, for the returned dataset. With
+        ``retain_rows=False`` (per-query partitioned fits, which read only the
+        row count) the returned dataset's ``merged`` is an empty frame with one
+        row per fitted SNP. The estimator never modifies the borrowed input columns.
         """
         config = config or self.regression_config
         merged = dataset.merged
@@ -759,13 +777,13 @@ class RegressionRunner:
         chisq_max = _resolve_default_chisq_max(
             config.chisq_max, len(dataset.retained_ld_columns), merged["N"].max()
         )
+        keep = None
         if chisq_max is not None:
-            keep = np.ravel(chisq <= chisq_max)
-            n_removed = n_snp - int(keep.sum())
+            mask = np.ravel(chisq <= chisq_max)
+            n_removed = n_snp - int(mask.sum())
             if n_removed:
-                merged = merged.loc[keep]
-                merged.index = pd.RangeIndex(len(merged))
-                n_snp = len(merged)
+                keep = mask
+                n_snp = int(mask.sum())
                 n_blocks = min(n_snp, config.num_blocks)
                 chisq = chisq[keep]
                 LOGGER.log(log_level,
@@ -774,16 +792,20 @@ class RegressionRunner:
                     chisq_max,
                     n_snp,
                 )
-        x = np.asarray(merged[dataset.retained_ld_columns])
+        columns = dataset.retained_ld_columns
+        if keep is not None and len(columns) == 1:
+            # Single-annotation fits read the filtered frame for their diagnostic bins.
+            merged, keep = _kept_rows(merged, keep), None
+        x = _ld_design(merged, columns, keep)
         intercept = None
         if not config.use_intercept:
             intercept = 1
         elif config.intercept_h2 is not None:
             intercept = float(config.intercept_h2)
         two_step = config.two_step_cutoff
-        if two_step is None and intercept is None and len(dataset.retained_ld_columns) == 1:
+        if two_step is None and intercept is None and len(columns) == 1:
             two_step = 30
-        old_weights = len(dataset.retained_ld_columns) > 1
+        old_weights = len(columns) > 1
         _raise_on_model_collinearity(dataset, x)
         reference_snp_counts = np.asarray(
             dataset.reference_snp_count_totals[dataset.count_key_used_for_regression]
@@ -792,8 +814,8 @@ class RegressionRunner:
             hsq = reg.Hsq(
                 chisq,
                 x,
-                np.asarray(merged[[dataset.weight_column]]),
-                np.asarray(merged[["N"]]),
+                np.asarray(_kept_rows(merged[[dataset.weight_column]], keep)),
+                np.asarray(_kept_rows(merged[["N"]], keep)),
                 reference_snp_counts,
                 n_blocks=n_blocks,
                 intercept=intercept,
@@ -804,10 +826,10 @@ class RegressionRunner:
             # Two-step jackknives may use a different row population. The
             # partitioned model uses these exact post-filter rows throughout.
             if two_step is None:
-                _add_jackknife_model_context(error, merged, dataset.retained_ld_columns)
+                _add_jackknife_model_context(error, _kept_rows(merged, keep), columns)
             raise
         diagnostic_bins = None
-        if len(dataset.retained_ld_columns) == 1:
+        if len(columns) == 1:
             diagnostic_bins = summarize_ld_score_regression_bins(
                 hsq,
                 ld_score=x[:, 0],
@@ -816,6 +838,8 @@ class RegressionRunner:
                 regression_ld_score=np.asarray(merged[[dataset.weight_column]]),
                 reference_snp_count=float(reference_snp_counts[0, 0]),
             )
+        del x
+        merged = _kept_rows(merged, keep) if retain_rows else pd.DataFrame(index=pd.RangeIndex(n_snp))
         return RegressionFit(
             estimator=hsq, dataset=replace(dataset, merged=merged), n_blocks=n_blocks,
             effective_chisq_max=chisq_max, diagnostic_bins=diagnostic_bins,
@@ -887,14 +911,16 @@ class RegressionRunner:
                 dataset = self._dataset_from_query_values(prepared, [query], values, config=config)
             stage = "estimator"
             with _log_phase_timing("estimator execution", level=logging.DEBUG):
-                outcome = self._fit_h2_dataset(dataset, config=config, log_level=logging.DEBUG)
+                outcome = self._fit_h2_dataset(dataset, config=config, log_level=logging.DEBUG, retain_rows=False)
             hsq, dataset = outcome.estimator, outcome.dataset
             stage = "summary"
             with _log_phase_timing("query summary", level=logging.DEBUG):
                 samp_prev, pop_prev = _config_prevalence(config)
-                focal = summarize_partitioned_h2(hsq, dataset, [query], samp_prev=samp_prev, pop_prev=pop_prev)
                 full = summarize_partitioned_h2(hsq, dataset, dataset.retained_ld_columns,
                                                samp_prev=samp_prev, pop_prev=pop_prev)
+                # The summary computes every retained row; the focal row is one of them.
+                focal = (full.set_index("category").loc[[query]].reset_index()
+                         .loc[:, PARTITIONED_H2_COLUMNS].reset_index(drop=True))
                 delete_values = _coefficient_delete_frame(hsq, dataset.retained_ld_columns)
         except Exception as error:
             status = "unestimable" if isinstance(error, JackknifeIdentifiabilityError) else "failed"
@@ -1079,16 +1105,24 @@ class RegressionRunner:
             first_error = None
             metadata.update(query_workers_requested=workers, query_workers_effective=worker_count,
                             query_worker_native_threads=1)
-            models = _PartitionedModelInputs(prepared.dataset, prepared.counts_by_column)
+            # Workers read the model's numeric columns, SNP and the panel coordinates only.
+            fit_columns = {*prepared.dataset.ref_ld_columns, prepared.dataset.weight_column, "Z", "N", "SNP",
+                           "_ldsc_panel_CHR", "_ldsc_panel_POS"}
+            shared = prepared.dataset.merged
+            models = _PartitionedModelInputs(
+                replace(prepared.dataset, merged=pd.DataFrame(
+                    {name: shared[name] for name in shared.columns if name in fit_columns}, copy=False)),
+                prepared.counts_by_column, prepared.ld_variances)
+            del shared
             from .partitioned_parallel import _QueryWorkers, _stage_query_batch
             with _log_phase_timing("query worker preparation"):
                 worker_pool = _QueryWorkers(workspace.path, models, self, config, worker_count)
             from .._runtime.progress import PhaseProgress
             total_batches = (len(queries) + query_batch_size - 1) // query_batch_size
             del models
-            with worker_pool as pool, pool.snapshot.open() as shared_frame, PhaseProgress(
-                    LOGGER, "computation", "query fitting", len(queries)) as progress:
-                prepared = replace(prepared, dataset=replace(prepared.dataset, merged=shared_frame))
+            # Loading a batch needs only the LD-score source and row map, not the aligned frame.
+            prepared = replace(prepared, dataset=replace(prepared.dataset, merged=pd.DataFrame()))
+            with worker_pool as pool, PhaseProgress(LOGGER, "computation", "query fitting", len(queries)) as progress:
                 for start in range(0, len(queries), query_batch_size):
                     ordinal = start // query_batch_size + 1
                     with PhaseProgress(LOGGER, "batch", f"query fitting {ordinal}/{total_batches}",
@@ -1177,7 +1211,9 @@ class RegressionRunner:
             # Legacy rg filter (sumstats.py `_rg`): drop SNPs with
             # Z1^2 * Z2^2 > chisq_max^2, kept inclusive (<=) per the -max convention.
             keep = np.ravel((merged["Z1"] ** 2) * (merged["Z2"] ** 2) <= config.chisq_max ** 2)
-            merged = merged.loc[keep].reset_index(drop=True)
+            if not keep.all():
+                merged = merged.take(np.flatnonzero(keep))
+                merged.index = pd.RangeIndex(len(merged))
             n_snp = len(merged)
         n_blocks = min(n_snp, config.num_blocks)
         intercept_hsq = _select_intercept(config.intercept_h2, use_intercept=config.use_intercept, default_when_disabled=1)
@@ -1359,6 +1395,7 @@ class RegressionRunner:
                 rg_rows.append(_concise_rg_row(full_row))
                 per_pair_metadata.append(metadata)
                 progress.advance(outcome=full_row["status"])
+                dataset = outcome = fitted = None  # release this pair before the next is built
 
         rg_full = pd.DataFrame(rg_full_rows, columns=RG_FULL_COLUMNS)
         rg = pd.DataFrame(rg_rows, columns=RG_CONCISE_COLUMNS)
@@ -1446,7 +1483,9 @@ def _prepare_trait_sumstats(
         finite = _finite_statistics(table.data)
         dropped = int((~finite).sum())
         if dropped:
-            table = replace(table, data=table.data.loc[finite].reset_index(drop=True))
+            kept = table.data.take(np.flatnonzero(finite.to_numpy()))
+            kept.index = pd.RangeIndex(len(kept))
+            table = replace(table, data=kept)
     if dropped:
         LOGGER.warning(
             "Dropped %d row(s) of summary statistics '%s' whose Z or N is missing or infinite; such rows cannot "
@@ -1523,15 +1562,18 @@ def _project_legacy_sumstats_to_panel(
             "but the canonical LD-score table does not contain both allele columns."
         )
 
-    source = table.data.copy().reset_index(drop=True)
+    source = table.data.copy(deep=False)  # normalized columns are replaced, not modified in place
+    source.index = pd.RangeIndex(len(source))
     source["SNP"] = source["SNP"].astype("string").str.strip()
     source["A1"] = source["A1"].astype("string").str.upper().str.strip()
     source["A2"] = source["A2"].astype("string").str.upper().str.strip()
     source_rsids = set(source["SNP"].dropna().astype(str)) - {""}
     panel_snp = panel_source["SNP"].astype("string").str.strip()
     panel_columns = ["CHR", "POS", "SNP", *(["A1", "A2"] if allele_aware else [])]
-    panel = panel_source.loc[panel_snp.isin(source_rsids), panel_columns].reset_index(drop=True).copy()
-    panel["SNP"] = panel["SNP"].astype("string").str.strip()
+    in_source = np.flatnonzero(panel_snp.isin(source_rsids).to_numpy())
+    panel = panel_source.loc[:, panel_columns].take(in_source)
+    panel.index = pd.RangeIndex(len(panel))
+    panel["SNP"] = panel_snp.take(in_source).to_numpy()
     if allele_aware:
         panel["A1"] = panel["A1"].astype("string").str.upper().str.strip()
         panel["A2"] = panel["A2"].astype("string").str.upper().str.strip()
@@ -1582,7 +1624,7 @@ def _project_legacy_sumstats_to_panel(
     selected_panel: pd.DataFrame
     flip_by_source = pd.Series(False, index=source.index, dtype=bool)
     if allele_aware:
-        source_candidates = source.loc[eligible, ["SNP", "A1", "A2"]].copy()
+        source_candidates = source.loc[eligible, ["SNP", "A1", "A2"]]
         source_candidates["_legacy_source_row"] = source_candidates.index
         panel_candidates = panel.rename(
             columns={column: f"_legacy_panel_{column}" for column in ["CHR", "POS", "SNP", "A1", "A2"]}
@@ -1608,7 +1650,7 @@ def _project_legacy_sumstats_to_panel(
             pairs["_legacy_panel_A1"]
         )
         compatible = direct | complemented | swapped | swapped_complement
-        compatible_pairs = pairs.loc[compatible].copy()
+        compatible_pairs = pairs.take(np.flatnonzero(compatible.to_numpy()))
         compatible_pairs["_legacy_flip"] = (swapped | swapped_complement).loc[compatible_pairs.index].to_numpy()
         compatible_counts = compatible_pairs.groupby("_legacy_source_row", sort=False).size()
         compatible_count_by_source = source.index.to_series().map(compatible_counts).fillna(0).astype("int64")
@@ -1623,7 +1665,7 @@ def _project_legacy_sumstats_to_panel(
     else:
         assign_reason(eligible & source_candidate_count.ne(1), "ambiguous_panel_mapping")
         accepted_rows = reasons[reasons.isna()].index
-        source_matches = source.loc[accepted_rows, ["SNP"]].copy()
+        source_matches = source.loc[accepted_rows, ["SNP"]]
         source_matches["_legacy_source_row"] = source_matches.index
         unique_panel = panel.loc[panel["SNP"].isin(source_matches["SNP"])]
         selected_panel = source_matches.merge(unique_panel, how="left", on="SNP", sort=False, validate="one_to_one")
@@ -1638,7 +1680,7 @@ def _project_legacy_sumstats_to_panel(
             f"Legacy summary-statistics file '{table.source_path or table.trait_name or 'sumstats'}' retained no SNPs "
             f"after projection onto the regression SNPs in the LD-score directory (drop counts: {counts})."
         )
-    projected_frame = source.loc[accepted_rows].copy()
+    projected_frame = source.take(accepted_rows.to_numpy())
     panel_column = (lambda column: f"_legacy_panel_{column}") if allele_aware else (lambda column: column)
     projected_frame["CHR"] = selected_panel.loc[accepted_rows, panel_column("CHR")].to_numpy()
     projected_frame["POS"] = selected_panel.loc[accepted_rows, panel_column("POS")].to_numpy()
@@ -1653,15 +1695,16 @@ def _project_legacy_sumstats_to_panel(
         if "FRQ" in projected_frame.columns:
             valid_flipped_frq = flipped_rows & projected_frame["FRQ"].notna()
             projected_frame.loc[valid_flipped_frq, "FRQ"] = 1.0 - projected_frame.loc[valid_flipped_frq, "FRQ"]
-    projected_frame = projected_frame.reset_index(drop=True)
+    projected_frame.index = pd.RangeIndex(len(projected_frame))
     projected_frame["POS"] = pd.to_numeric(projected_frame["POS"], errors="raise").astype("int64")
     dropped_mask = reasons.notna()
-    drops = source.loc[dropped_mask, ["SNP", "A1", "A2"]].copy()
+    drops = source.loc[dropped_mask, ["SNP", "A1", "A2"]]
     drops.insert(0, "source_path", table.source_path)
     drops.insert(0, "trait_name", table.trait_name or Path(table.source_path or "sumstats").name)
     drops["reason"] = reasons.loc[dropped_mask].to_numpy()
     drops["panel_candidate_count"] = source_candidate_count.loc[dropped_mask].to_numpy()
-    drops = drops.loc[:, LEGACY_SUMSTATS_DROP_COLUMNS].reset_index(drop=True)
+    drops = drops.loc[:, LEGACY_SUMSTATS_DROP_COLUMNS]
+    drops.index = pd.RangeIndex(len(drops))
     drop_counts = drops["reason"].value_counts(sort=False)
     if not drop_counts.empty:
         LOGGER.warning(
@@ -1797,30 +1840,40 @@ def _merge_key_column(mode: str) -> str:
 
 
 def _with_effective_identity_key(frame: pd.DataFrame, mode: str, *, context: str) -> pd.DataFrame:
-    """Return a copy with the active effective regression identity key."""
-    keyed = frame.copy()
+    """Return the rows with an effective regression identity key, with that key added.
+
+    The result shares the input's columns unless rows are dropped; callers
+    only read it (merges copy).
+    """
+    keyed = frame.copy(deep=False)
     keyed[REGRESSION_IDENTITY_KEY_COLUMN] = effective_merge_key_series(keyed, mode, context=context)
-    return keyed.loc[keyed[REGRESSION_IDENTITY_KEY_COLUMN].notna()].reset_index(drop=True)
+    present = keyed[REGRESSION_IDENTITY_KEY_COLUMN].notna().to_numpy()
+    if not present.all():
+        keyed = keyed.take(np.flatnonzero(present))
+    keyed.index = pd.RangeIndex(len(keyed))
+    return keyed
 
 
 def _orient_sumstats_z_to_reference_alleles(merged: pd.DataFrame) -> pd.DataFrame:
-    """Orient h2 summary-statistics Z values to LD-score/reference-panel allele order."""
-    sumstats_a1 = merged["A1"].astype("string").str.upper()
-    sumstats_a2 = merged["A2"].astype("string").str.upper()
-    ld_a1 = merged["A1_ld"].astype("string").str.upper()
-    ld_a2 = merged["A2_ld"].astype("string").str.upper()
-    allele_pairs = sumstats_a1 + sumstats_a2 + ld_a1 + ld_a2
-    compatible = allele_pairs.isin(reg.MATCH_ALLELES)
-    incompatible = ~compatible
-    if bool(incompatible.any()):
+    """Orient h2 summary-statistics Z values to LD-score/reference-panel allele order.
+
+    ``merged`` is the caller's own merge result, which this changes in place
+    when no row is dropped.
+    """
+    compatible, flip = _allele_pair_flags(
+        [merged["A1"], merged["A2"], merged["A1_ld"], merged["A2_ld"]], normalize=True)
+    if not compatible.all():
         LOGGER.warning(
             "Dropping %d SNPs with incompatible summary-statistics and LD-score allele order.",
-            int(incompatible.sum()),
+            int((~compatible).sum()),
         )
-    oriented = merged.loc[~incompatible].copy()
-    flip_index = allele_pairs.loc[~incompatible].map(reg.FLIP_ALLELES).astype(bool)
-    oriented.loc[flip_index.index[flip_index], "Z"] *= -1
-    return oriented.reset_index(drop=True)
+        merged = merged.take(np.flatnonzero(compatible))
+    flip = flip[compatible]
+    if flip.any():
+        z = merged["Z"].to_numpy()
+        merged["Z"] = np.where(flip, z * -1, z)
+    merged.index = pd.RangeIndex(len(merged))
+    return merged
 
 
 def _with_chr_pos_key(frame: pd.DataFrame, *, context: str) -> pd.DataFrame:
@@ -1837,11 +1890,85 @@ def _with_chr_pos_key(frame: pd.DataFrame, *, context: str) -> pd.DataFrame:
     return keyed
 
 
+def _kept_rows(frame: pd.DataFrame, keep: np.ndarray | None) -> pd.DataFrame:
+    """Return the rows ``keep`` marks with a fresh RangeIndex, or ``frame`` itself when ``keep`` is None."""
+    if keep is None:
+        return frame
+    kept = frame.loc[keep]
+    kept.index = pd.RangeIndex(len(kept))
+    return kept
+
+
+def _ld_design(merged: pd.DataFrame, columns: Sequence[str], keep: np.ndarray | None) -> np.ndarray:
+    """Return the LD-score design matrix of ``columns`` over the kept rows.
+
+    A multi-column float design is filled column by column into the
+    column-major array ``DataFrame.to_numpy()`` returns, without first copying
+    the frame; other designs use ``to_numpy()`` on the kept rows.
+    """
+    columns = list(columns)
+    dtypes = [merged[column].dtype for column in columns]
+    if len(columns) < 2 or not all(isinstance(dtype, np.dtype) and dtype.kind == "f" for dtype in dtypes):
+        return np.asarray(_kept_rows(merged, keep)[columns])
+    n_rows = len(merged) if keep is None else int(keep.sum())
+    design = np.empty((n_rows, len(columns)), dtype=np.result_type(*dtypes), order="F")
+    for index, column in enumerate(columns):
+        values = merged[column].to_numpy()
+        # Assignment widens float32 columns exactly, as to_numpy() would.
+        design[:, index] = values if keep is None else values[keep]
+    return design
+
+
+def _ld_column_variances(merged: pd.DataFrame, columns: Sequence[str], known: dict | None = None) -> pd.Series:
+    """Return each column's variance, reusing ``known`` values for unchanged columns.
+
+    Each variance is the pandas column variance, which equals the value the
+    column receives within ``DataFrame.var()``.
+    """
+    known = known or {}
+    return pd.Series({column: known[column] if column in known else merged[column].var() for column in columns})
+
+
+def _allele_pair_flags(columns: Sequence[pd.Series], *, normalize: bool) -> tuple[np.ndarray, np.ndarray]:
+    """Return per-row (compatible, flip) flags for concatenated allele pairs.
+
+    The pair string is the four alleles concatenated, uppercased first when
+    ``normalize``; it is compatible when it is in ``MATCH_ALLELES`` and flips
+    when ``FLIP_ALLELES`` says so. The string is built once per distinct allele
+    combination with the same pandas operations a per-row build would use.
+    """
+    codes, sizes = [], []
+    for column in columns:
+        column_codes, uniques = pd.factorize(column, use_na_sentinel=True)
+        codes.append(column_codes + 1)
+        sizes.append(len(uniques) + 1)
+    if np.prod(sizes, dtype=object) < 2 ** 62:
+        combined = np.zeros(len(codes[0]), dtype=np.int64)
+        for column_codes, size in zip(codes, sizes):
+            combined = combined * size + column_codes
+        _, first, inverse = np.unique(combined, return_index=True, return_inverse=True)
+    else:
+        _, first, inverse = np.unique(np.stack(codes, axis=1), axis=0, return_index=True, return_inverse=True)
+    inverse = inverse.reshape(-1)
+    parts = [column.iloc[first].reset_index(drop=True) for column in columns]
+    if normalize:
+        parts = [part.astype("string").str.upper() for part in parts]
+    pairs = parts[0] + parts[1] + parts[2] + parts[3]
+    compatible = pairs.isin(reg.MATCH_ALLELES).to_numpy(dtype=bool)
+    flip = np.zeros(len(pairs), dtype=bool)
+    flip[compatible] = pairs[compatible].map(reg.FLIP_ALLELES).astype(bool).to_numpy()
+    return compatible[inverse], flip[inverse]
+
+
 def _nonfinite_columns(frame: pd.DataFrame, columns: Sequence[str], snps: pd.Series) -> list[str]:
     """Describe each column with missing or infinite values: its name, row count and up to five example SNPs."""
     problems = []
     for column in columns:
-        bad = ~np.isfinite(frame[column].to_numpy(dtype=np.float64))
+        values = frame[column]
+        # Float columns are tested as stored; widening them would not change finiteness.
+        values = (values.to_numpy() if isinstance(values.dtype, np.dtype) and values.dtype.kind == "f"
+                  else values.to_numpy(dtype=np.float64))
+        bad = ~np.isfinite(values)
         if bad.any():
             count = int(bad.sum())
             examples = ", ".join(snps.astype(str).to_numpy()[bad][:5])
@@ -1852,10 +1979,11 @@ def _nonfinite_columns(frame: pd.DataFrame, columns: Sequence[str], snps: pd.Ser
 def _select_model_columns(
     merged: pd.DataFrame,
     ref_ld_columns: Sequence[str],
-    count_records: Iterable[dict[str, Any]],
+    count_records: Iterable[dict[str, Any]] | dict[str, dict[str, Any]],
     use_common_counts: bool,
     *,
     command: str,
+    known_variances: dict | None = None,
 ) -> dict[str, object]:
     """Drop zero-variance LD-score columns and select the requested count vectors.
 
@@ -1866,8 +1994,9 @@ def _select_model_columns(
     ``merged``, ``retained_ld_columns``, ``dropped_zero_variance_ld_columns``,
     ``reference_snp_count_totals`` and ``count_key_used_for_regression``.
     ``merged`` borrows the input's columns; callers must not modify them.
+    ``known_variances`` supplies variances already computed on these rows.
     """
-    variances = merged.loc[:, list(ref_ld_columns)].var()
+    variances = _ld_column_variances(merged, ref_ld_columns, known_variances)
     dropped = variances.index[variances == 0].tolist()
     retained = [column for column in ref_ld_columns if column not in dropped]
     if not retained:
@@ -1885,7 +2014,7 @@ def _select_model_columns(
             "names are retained in fitted-model metadata (dropped_zero_variance_ld_columns).",
             len(dropped),
         )
-    count_totals = _count_totals_for_columns(list(count_records), ref_ld_columns)
+    count_totals = _count_totals_for_columns(count_records, ref_ld_columns)
     count_key = _select_count_key(count_totals, use_common_counts, ref_ld_columns)
     keep = [index for index, column in enumerate(ref_ld_columns) if column in retained]
     return {
@@ -1939,7 +2068,8 @@ def _validate_partitioned_query_columns(ldscore_result: LDScoreSource | LDScoreR
     """
     requested = list(query_columns)
     available = list(ldscore_result.query_columns)
-    missing = [column for column in requested if column not in available]
+    available_set = set(available)
+    missing = [column for column in requested if column not in available_set]
     if missing:
         raise LDSCInputError(
             f"partitioned-h2 could not find requested query annotation columns {missing} in the LD-score directory. "
@@ -1950,13 +2080,22 @@ def _validate_partitioned_query_columns(ldscore_result: LDScoreSource | LDScoreR
 
 
 def _assemble_regression_ldscore_table(ldscore_result: LDScoreSource | LDScoreResult) -> pd.DataFrame:
-    """Return a copy of the baseline LD-score table, the base of one regression dataset."""
-    return ldscore_result.baseline_table.reset_index(drop=True).copy()
+    """Return the baseline LD-score table as a shallow copy with a RangeIndex.
+
+    Callers add columns to it but never modify the shared values in place.
+    """
+    table = ldscore_result.baseline_table.copy(deep=False)
+    table.index = pd.RangeIndex(len(table))
+    return table
 
 
-def _count_totals_for_columns(count_records: Sequence[dict[str, Any]], columns: Sequence[str]) -> dict[str, np.ndarray]:
-    """Return LDSC count vectors aligned to ``columns`` using metadata records."""
-    records_by_column = {str(record["column"]): record for record in count_records}
+def _count_totals_for_columns(count_records, columns: Sequence[str]) -> dict[str, np.ndarray]:
+    """Return LDSC count vectors aligned to ``columns`` using metadata records.
+
+    ``count_records`` is a sequence of records or a mapping from column name to record.
+    """
+    records_by_column = (count_records if isinstance(count_records, dict)
+                         else {str(record["column"]): record for record in count_records})
     missing = [column for column in columns if column not in records_by_column]
     if missing:
         raise LDSCInputError(

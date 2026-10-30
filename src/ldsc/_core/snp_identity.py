@@ -500,6 +500,27 @@ def clean_identity_artifact_table(
     Keys are built as separate arrays and rows are tracked by position, so the
     table itself is copied once, by the rows it keeps.
     """
+    data, filtered = _filter_identity_rows(frame, mode, context=context, stage=stage)
+    cleaned = data.take(np.flatnonzero(filtered.keep))
+    cleaned.index = pd.RangeIndex(len(cleaned))
+    dropped = _combine_drop_frames(filtered.drop_frames)
+    _log_identity_drops(dropped, context=context, logger=logger)
+    return IdentityCleanupResult(cleaned=cleaned, dropped=dropped)
+
+
+def identity_cleanup_keys(frame: pd.DataFrame, mode: str, *, context: str, stage: str) -> tuple[np.ndarray, pd.DataFrame]:
+    """Return the effective identity keys of the rows cleanup keeps, and the dropped rows.
+
+    The keys equal ``effective_merge_key_series`` of the table
+    ``clean_identity_artifact_table`` returns, in row order, with missing keys
+    as ``pd.NA``; the cleaned table itself is not built.
+    """
+    _, filtered = _filter_identity_rows(frame, mode, context=context, stage=stage)
+    return filtered.identity_key[filtered.keep], _combine_drop_frames(filtered.drop_frames)
+
+
+def _filter_identity_rows(frame: pd.DataFrame, mode: str, *, context: str, stage: str):
+    """Apply identity cleanup's drops to ``frame`` without copying it; return the data and its filter."""
     mode = normalize_snp_identifier_mode(mode)
     internal = [column for column in _INTERNAL_COLUMNS if column in frame.columns]
     data = frame.drop(columns=internal) if internal else frame
@@ -510,12 +531,7 @@ def clean_identity_artifact_table(
     kept = np.flatnonzero(filtered.keep)
     duplicate[kept] = _duplicate_identity_mask(pd.Series(filtered.identity_key[kept], dtype=object)).to_numpy()
     filtered.drop(duplicate, "duplicate_identity", with_identity=True)
-
-    cleaned = data.take(np.flatnonzero(filtered.keep))
-    cleaned.index = pd.RangeIndex(len(cleaned))
-    dropped = _combine_drop_frames(filtered.drop_frames)
-    _log_identity_drops(dropped, context=context, logger=logger)
-    return IdentityCleanupResult(cleaned=cleaned, dropped=dropped)
+    return data, filtered
 
 
 class _IdentityFilter:

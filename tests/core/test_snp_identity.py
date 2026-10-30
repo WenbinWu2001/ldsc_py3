@@ -230,6 +230,26 @@ class IdentityArtifactCleanupTest(unittest.TestCase):
         self.assertEqual(result.dropped["reason"].tolist(), ["duplicate_identity", "duplicate_identity"])
 
 
+    def test_cleanup_keys_equal_the_keys_of_the_cleaned_table(self):
+        frame = pd.DataFrame(
+            {
+                "CHR": [1, 1, 1, 2, None, 3],
+                "POS": [10, 10, 12, 5, 7, 9],
+                "SNP": ["rs1", "rs1", "rs2", "rs3", "rs4", "rs5"],
+                "A1": ["A", "A", "C", "A", "G", "C"],
+                "A2": ["G", "G", "T", "T", "C", "A"],
+            }
+        )
+        for mode in si.SNP_IDENTIFIER_MODES:
+            with self.subTest(mode=mode):
+                cleaned = si.clean_identity_artifact_table(frame, mode, context="test", stage="artifact")
+                keys, dropped = si.identity_cleanup_keys(frame, mode, context="test", stage="artifact")
+                expected = si.effective_merge_key_series(cleaned.cleaned, mode, context="test")
+                pd.testing.assert_series_equal(pd.Series(keys, dtype=object),
+                                               expected.astype(object).rename(None), check_names=False)
+                pd.testing.assert_frame_equal(dropped, cleaned.dropped)
+
+
 class RestrictionIdentityKeysTest(unittest.TestCase):
     def test_restriction_duplicate_keys_collapse_instead_of_drop_all(self):
         frame = pd.DataFrame(

@@ -97,6 +97,16 @@ def append_intercept(x):
     return x_new
 
 
+def _design_fits_in_place(N, x):
+    """Return whether the scaled design can be built directly in its intercept buffer.
+
+    That holds for a float64 result over a multi-column design that is C- or
+    F-contiguous (not both), whose layout scaling and appending would keep.
+    """
+    return (np.result_type(N, x) == np.float64 and x.ndim == 2 and x.shape[1] > 1
+            and x.flags.f_contiguous != x.flags.c_contiguous)
+
+
 def remove_intercept(x):
     '''Removes the last column.'''
     n_col = x.shape[1]
@@ -277,16 +287,31 @@ class LD_Score_Regression(object):
         initial_w = self._update_weights(
             x_tot, w, N, M_tot, tot_agg, intercept)
         Nbar = np.mean(N)  # keep condition number low
-        # Multiplication owns this buffer; division must still promote integers.
-        x = np.multiply(N, x)
-        if np.issubdtype(x.dtype, np.inexact):
-            np.divide(x, Nbar, out=x)
-        else:
-            x = x / Nbar
-        if not self.constrain_intercept:
+        if not self.constrain_intercept and _design_fits_in_place(N, x):
+            # Scale into the design that appending the intercept would give, in
+            # the same memory layout, without a separate scaled copy.
+            design = np.empty((n_snp, self.n_annot + 1), order="F" if x.flags.f_contiguous else "C")
+            scaled = design[:, :self.n_annot]
+            np.multiply(N, x, out=scaled)
+            np.divide(scaled, Nbar, out=scaled)
+            design[:, self.n_annot] = 1.0
+            x, x_tot = design, append_intercept(x_tot)
+            yp = y
+        elif not self.constrain_intercept:
+            # Multiplication owns this buffer; division must still promote integers.
+            x = np.multiply(N, x)
+            if np.issubdtype(x.dtype, np.inexact):
+                np.divide(x, Nbar, out=x)
+            else:
+                x = x / Nbar
             x, x_tot = append_intercept(x), append_intercept(x_tot)
             yp = y
         else:
+            x = np.multiply(N, x)
+            if np.issubdtype(x.dtype, np.inexact):
+                np.divide(x, Nbar, out=x)
+            else:
+                x = x / Nbar
             yp = y - intercept
             self.intercept_se = 'NA'
         del y
@@ -793,20 +818,3 @@ class RG(object):
             self.rg_se = _scalar_float(rg.jknife_se)
             self.rg_ratio = _scalar_float(rg_ratio)
             self.p, self.z = p_z_norm(self.rg_ratio, self.rg_se)
-
-def _filter_alleles(alleles):
-    """Remove bad variants with mismatched, ambiguous, or non-SNP alleles."""
-    return alleles.apply(lambda y: y in MATCH_ALLELES)
-
-
-def _align_alleles(z, alleles):
-    """Align signed statistics to a shared reference allele orientation."""
-    try:
-        z *= (-1) ** alleles.apply(lambda y: FLIP_ALLELES[y])
-    except KeyError as e:
-        raise LDSCInternalError(
-            f"Regression allele alignment found an unsupported allele pattern {e.args}. "
-            "Most likely allele harmonization let an incompatible SNP through preprocessing. "
-            "Regenerate the munged summary statistics with allele harmonization and re-run regression."
-        ) from e
-    return z

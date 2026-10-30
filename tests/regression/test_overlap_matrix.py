@@ -199,6 +199,20 @@ def test_assemble_model_overlap_reconstructs_submatrix():
     np.testing.assert_allclose(O_R[2, :], O_R[:, 2])  # assembled query row/col symmetric
 
 
+def test_assemble_model_overlap_reports_the_first_missing_label():
+    from ldsc._ldscore.overlap_table import LDScoreOverlap
+    from ldsc._regression.overlap_model import assemble_model_overlap
+    block = pd.DataFrame([[4.0, 1.0, 2.0]], index=["base"], columns=["base", "q1", "q2"])
+    overlap = LDScoreOverlap(block, None, pd.Series([1.0, 2.0], index=["q1", "q2"]), None, 10.0, None)
+    # Entries are read row by row: the first unknown label in that order is reported.
+    with pytest.raises(KeyError, match="q8"):
+        assemble_model_overlap(overlap, ["base", "q8", "q9"], use_common=False)
+    with pytest.raises(KeyError, match="q9"):
+        assemble_model_overlap(overlap, ["q9"], use_common=False)
+    np.testing.assert_array_equal(assemble_model_overlap(overlap, ["q2", "base"], use_common=False),
+                                  [[2.0, 2.0], [2.0, 4.0]])
+
+
 def test_model_collinearity_error_names_worst_pair():
     from ldsc._regression.overlap_model import model_collinearity_error
     # near-duplicate LD-score columns -> high condition number

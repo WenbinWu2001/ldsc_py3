@@ -63,17 +63,47 @@ def assemble_model_overlap(
     if block is None:
         raise ValueError("common reference-SNP overlap requested but not stored")
     baseline_index = set(block.index)
-    k = len(retained_columns)
+    columns = list(retained_columns)
+    is_baseline = np.array([column in baseline_index for column in columns], dtype=bool)
+    baseline = [column for column, flag in zip(columns, is_baseline) if flag]
+    queries = [column for column, flag in zip(columns, is_baseline) if not flag]
+    missing = _first_missing_overlap_label(block, qdiag, columns, baseline_index)
+    if missing is not None:
+        raise KeyError(missing)
+    k = len(columns)
     out = np.zeros((k, k), dtype=np.float64)
-    for a, ca in enumerate(retained_columns):
-        for b, cb in enumerate(retained_columns):
-            if ca in baseline_index:
-                out[a, b] = float(block.at[ca, cb])
-            elif cb in baseline_index:
-                out[a, b] = float(block.at[cb, ca])
-            else:  # both query -> only the diagonal ca == cb is reachable per model
-                out[a, b] = float(qdiag.at[ca])
+    base_pos, query_pos = np.flatnonzero(is_baseline), np.flatnonzero(~is_baseline)
+    if baseline:
+        out[base_pos, :] = block.loc[baseline, columns].to_numpy(dtype=np.float64)
+    if queries:
+        if baseline:  # query rows read the baseline block by symmetry
+            out[np.ix_(query_pos, base_pos)] = block.loc[baseline, queries].to_numpy(dtype=np.float64).T
+        # both query -> only the diagonal ca == cb is reachable per model
+        out[np.ix_(query_pos, query_pos)] = qdiag.loc[queries].to_numpy(dtype=np.float64)[:, None]
     return out
+
+
+def _first_missing_overlap_label(block, qdiag, columns, baseline_index):
+    """Return the first label an entry-by-entry lookup in row-major order would miss, else None.
+
+    Baseline rows read every column of the block, query rows read their own
+    block column and their stored diagonal entry.
+    """
+    known = set(block.columns)
+    queries = [column for column in columns if column not in baseline_index]
+    if (len(queries) == len(columns) or set(columns) <= known) and set(queries) <= set(qdiag.index):
+        return None
+    for ca in columns:
+        for cb in columns:
+            if ca in baseline_index:
+                label = None if cb in known else cb
+            elif cb in baseline_index:
+                label = None if ca in known else ca
+            else:
+                label = None if ca in qdiag.index else ca
+            if label is not None:
+                return label
+    return None
 
 
 def model_collinearity_error(X, columns, overlap_matrix, threshold: float = 1e5) -> str | None:

@@ -77,10 +77,9 @@ from .._runtime.paths import (
 from .._runtime.workflow_logging import log_inputs, log_outputs, log_summary, materializing_overwrite_guard, workflow_logging
 from .._core.snp_identity import (
     IDENTITY_DROP_COLUMNS,
-    clean_identity_artifact_table,
     coerce_identity_drop_frame,
-    effective_merge_key_series,
     identity_artifact_metadata,
+    identity_cleanup_keys,
     identity_mode_family,
     is_allele_aware_mode,
     validate_identity_artifact_metadata,
@@ -303,8 +302,10 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
             f"{_REQUIRED_COLUMN_TROUBLESHOOTING}"
         ) from exc
     df = df.loc[:, list(resolved_columns.values())].rename(
-        columns={actual: canonical for canonical, actual in resolved_columns.items()}
+        columns={actual: canonical for canonical, actual in resolved_columns.items()}, copy=False
     )
+    if not (isinstance(df.index, pd.RangeIndex) and df.index.start == 0 and df.index.step == 1):
+        df = df.reset_index(drop=True)
     metadata = _read_sumstats_parquet_footer(resolved)
     if metadata is None:
         if str(resolved).lower().endswith(".parquet"):
@@ -321,7 +322,7 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
             "lookup keys and projected onto the regression SNPs in the LD-score directory during regression."
         )
         table = SumstatsTable(
-            data=df.reset_index(drop=True),
+            data=df,
             has_alleles={"A1", "A2"}.issubset(df.columns),
             source_path=resolved,
             trait_name=_resolve_sumstats_trait_name(trait_name, None, resolved),
@@ -340,17 +341,17 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
                 "Most likely the artifact was produced by an older munging run or one in a base mode.",
             )
         )
-    cleanup = clean_identity_artifact_table(
+    # One keying pass gives both the identity drops and the kept rows' keys.
+    effective_keys, dropped = identity_cleanup_keys(
         df,
         mode,
         context="loaded munged summary-statistics artifact",
         stage="load_sumstats_validation",
-        logger=None,
     )
-    if not cleanup.dropped.empty:
+    if not dropped.empty:
         reasons = ", ".join(
             f"{reason}={int(count)}"
-            for reason, count in cleanup.dropped["reason"].value_counts(sort=False).items()
+            for reason, count in dropped["reason"].value_counts(sort=False).items()
         )
         raise LDSCInputError(
             _curated_sumstats_artifact_message(
@@ -359,12 +360,7 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
                 "Most likely the artifact was hand-edited or produced before identity cleanup was enforced.",
             )
         )
-    effective_keys = effective_merge_key_series(
-        cleanup.cleaned,
-        mode,
-        context="loaded munged summary-statistics artifact",
-    )
-    if bool(effective_keys.isna().any()):
+    if bool(pd.isna(effective_keys).any()):
         raise LDSCInputError(
             _curated_sumstats_artifact_message(
                 resolved,
@@ -373,7 +369,7 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
             )
         )
     table = SumstatsTable(
-        data=df.reset_index(drop=True),
+        data=df,
         has_alleles={"A1", "A2"}.issubset(df.columns),
         source_path=resolved,
         trait_name=_resolve_sumstats_trait_name(trait_name, metadata, resolved),

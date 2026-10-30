@@ -738,12 +738,15 @@ class PartitionedH2DirectoryWriter:
     ) -> list[dict[str, object]]:
         """Populate the staged per-query result tree and return manifest rows."""
         manifest_rows: list[dict[str, object]] = []
+        rows_by_category: dict[str, list[int]] = {}
+        for position, category in enumerate(summary["category"].astype(str)):
+            rows_by_category.setdefault(category, []).append(position)
         for record in query_records:
             query_name = str(record["query_annotation"])
             folder = str(record["folder"])
             query_dir = staging_dir / folder
             query_dir.mkdir(parents=True, exist_ok=False)
-            query_summary = summary.loc[summary["category"].astype(str) == query_name].reset_index(drop=True)
+            query_summary = summary.iloc[rows_by_category.get(query_name, [])].reset_index(drop=True)
             summary_rel = f"{QUERY_RESULT_ROOT}/{folder}/{PARTITIONED_H2_SUMMARY_FILE}"
             full_rel = f"{QUERY_RESULT_ROOT}/{folder}/{PARTITIONED_H2_FULL_FILE}"
             metadata_rel = f"{QUERY_RESULT_ROOT}/{folder}/{QUERY_METADATA_FILE}"

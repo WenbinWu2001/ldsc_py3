@@ -252,8 +252,9 @@ def prepare_quantile_statistics(args, model, workspace, diagnostics):
             labels = np.searchsorted(bounds[1:], target_values, side="left")
             counts += np.bincount(labels, minlength=q)
             # Add indexed rows directly; no dense SNP-by-quantile indicator.
+            eligible_values = values[eligible]
             for column in range(p):
-                np.add.at(quantile_sums[column], labels, values[eligible, column])
+                np.add.at(quantile_sums[column], labels, eligible_values[:, column])
             del values, aligned, eligible, target_values, labels
         if (counts == 0).any():
             empty = (np.flatnonzero(counts == 0) + 1).tolist()

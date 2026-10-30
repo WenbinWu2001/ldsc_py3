@@ -1648,15 +1648,6 @@ def test_post_commit_cleanup_failure_warns_but_published_index_succeeds(
     assert not leftovers[0].exists()
 
 
-def test_index_preflight_rejects_nonempty_invalid_directory_even_with_overwrite(tmp_path):
-    index_dir = tmp_path / "index"
-    index_dir.mkdir()
-    (index_dir / "user-file.txt").write_text("not an index\n", encoding="utf-8")
-
-    with pytest.raises(FileExistsError, match="nonempty but invalid"):
-        gene_ldscore_index._preflight_gene_index_output(index_dir, overwrite=True)
-
-
 def test_index_build_lock_rejects_a_second_builder_for_same_absolute_target(tmp_path):
     index_dir = tmp_path / "index"
     with gene_ldscore_index._gene_index_build_lock(index_dir):

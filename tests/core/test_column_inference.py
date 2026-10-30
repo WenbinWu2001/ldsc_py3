@@ -21,25 +21,6 @@ class ColumnInferenceTest(unittest.TestCase):
                 return spec
         self.fail(f"Missing ColumnSpec for canonical field {canonical!r}")
 
-    def test_registry_exposes_shared_normalizers(self):
-        self.assertIsNotNone(getattr(ci, "clean_header", None))
-        self.assertEqual(ci.clean_header("foo-bar.foo_BaR\n"), "FOO_BAR_FOO_BAR")
-
-        self.assertEqual(
-            tuple(snp_identity.SNP_IDENTIFIER_MODES),
-            ("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"),
-        )
-        for value in ("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"):
-            self.assertEqual(snp_identity.normalize_snp_identifier_mode(value), value)
-        for value in ("rsID", "SNPID", "snp_id", "snp", "chrpos", "rsid_alleles", "chr_pos_alleles"):
-            with self.assertRaises(LDSCConfigError):
-                snp_identity.normalize_snp_identifier_mode(value)
-
-        self.assertIsNotNone(getattr(ci, "normalize_genome_build", None))
-        self.assertEqual(ci.normalize_genome_build("hg37"), "hg19")
-        self.assertEqual(ci.normalize_genome_build("GRCh37"), "hg19")
-        self.assertEqual(ci.normalize_genome_build("GRCh38"), "hg38")
-
     def test_raw_sumstats_families_cover_legacy_and_current_aliases(self):
         specs = getattr(ci, "RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS", None)
         self.assertIsNotNone(specs)

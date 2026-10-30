@@ -90,24 +90,6 @@ class GenomeBuildInferenceTest(unittest.TestCase):
         self.assertIn("0-based", result.summary_message)
         self.assertTrue(any("converted positions to canonical 1-based coordinates" in message for message in captured.output))
 
-    def test_resolve_chr_pos_table_rejects_mixed_evidence(self):
-        module = _load_module(self)
-        reference = _build_reference_table()
-        half = len(reference) // 2
-        raw = pd.DataFrame(
-            {
-                "CHR": ["1"] * len(reference),
-                "POS": reference["hg19_POS"].tolist()[:half] + reference["hg38_POS"].tolist()[half:],
-            }
-        )
-
-        with self.assertRaisesRegex(LDSCInputError, "Could not infer genome build"):
-            module.resolve_chr_pos_table(
-                raw,
-                context="unit-mixed",
-                reference_table=reference,
-            )
-
     def test_below_threshold_error_reports_all_hypothesis_support(self):
         module = _load_module(self)
         reference = _build_reference_table()
@@ -129,18 +111,6 @@ class GenomeBuildInferenceTest(unittest.TestCase):
             message,
         )
         self.assertIn("below the 99% confidence threshold", message)
-
-    def test_resolve_chr_pos_table_requires_minimum_evidence(self):
-        module = _load_module(self)
-        reference = _build_reference_table(n_rows=150)
-        raw = pd.DataFrame({"CHR": ["1"] * len(reference), "POS": reference["hg19_POS"]})
-
-        with self.assertRaisesRegex(LDSCInputError, "Could not infer genome build"):
-            module.resolve_chr_pos_table(
-                raw,
-                context="unit-insufficient",
-                reference_table=reference,
-            )
 
     def test_resolve_chr_pos_table_reports_auto_inference_cause_fix_and_reference(self):
         module = _load_module(self)

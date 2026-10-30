@@ -86,32 +86,8 @@ class GlobalConfigRegistryTest(unittest.TestCase):
     def tearDown(self) -> None:
         reset_global_config()
 
-    def test_global_config_default_uses_chr_pos_allele_aware_auto(self):
-        config = GlobalConfig()
-
-        self.assertEqual(config.snp_identifier, "chr_pos_allele_aware")
-        self.assertEqual(config.genome_build, "auto")
-
-    def test_chr_pos_requires_genome_build_fix_it(self):
-        with self.assertRaisesRegex(ldsc.LDSCConfigError, "Pass genome_build='auto'"):
-            GlobalConfig(snp_identifier="chr_pos", genome_build=None)
-
-    def test_rsid_default_keeps_genome_build_none(self):
-        config = GlobalConfig(snp_identifier="rsid")
-
-        self.assertEqual(config.snp_identifier, "rsid")
-        self.assertIsNone(config.genome_build)
-
     def test_registered_global_config_defaults_to_chr_pos_allele_aware_auto(self):
         config = ldsc.get_global_config()
-
-        self.assertEqual(config.snp_identifier, "chr_pos_allele_aware")
-        self.assertEqual(config.genome_build, "auto")
-
-    def test_reset_global_config_restores_chr_pos_allele_aware_auto(self):
-        set_global_config(GlobalConfig(snp_identifier="rsid"))
-
-        config = reset_global_config()
 
         self.assertEqual(config.snp_identifier, "chr_pos_allele_aware")
         self.assertEqual(config.genome_build, "auto")
@@ -152,29 +128,6 @@ class GlobalConfigRegistryTest(unittest.TestCase):
                     r2_matrix_dir="reference_panel/hg38",
                     ld_wind_cm=1.0,
                 )
-
-    def test_run_ldscore_rejects_removed_shared_kwargs(self):
-        with self.assertRaisesRegex(LDSCUsageError, "set_global_config"):
-            ldscore_calculator.run_ldscore(
-                output_dir="results/example",
-                baseline_annot_sources="baseline.annot.gz",
-                r2_matrix_dir="reference_panel/hg38",
-                ld_wind_cm=1.0,
-                snp_identifier="rsid",
-            )
-
-    def test_run_build_r2_matrix_rejects_removed_shared_kwargs(self):
-        with self.assertRaisesRegex(LDSCUsageError, "set_global_config"):
-            r2_matrix_builder.run_build_r2_matrix(
-                plink_prefix="plink/panel",
-                source_genome_build="hg19",
-                genetic_map_hg19_sources="maps/hg19.txt",
-                genetic_map_hg38_sources="maps/hg38.txt",
-                liftover_chain_hg19_to_hg38_file="chains/hg19ToHg38.over.chain",
-                output_dir="out/panel",
-                ld_wind_kb=1.0,
-                log_level="DEBUG",
-            )
 
     def test_reference_panel_builder_uses_registered_global_config_and_logs_once(self):
         from tests.worker_fixtures import calculation_body

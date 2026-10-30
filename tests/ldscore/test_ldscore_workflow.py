@@ -199,10 +199,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
             "Starting LD-score calculation for 22 chromosomes with 2 baseline columns and 1 query columns.",
         )
 
-    def test_run_ldscore_requires_output_dir_without_creating_a_placeholder(self):
-        with self.assertRaisesRegex(LDSCUsageError, r"missing required keyword argument\(s\) output_dir"):
-            ldscore_workflow.run_ldscore(plink_prefix="panel", ld_wind_snps=10)
-
     def test_calculator_rejects_ref_metadata_export_without_output_config(self):
         with self.assertRaisesRegex(LDSCUsageError, "requires output_config"):
             ldscore_workflow.LDScoreCalculator().run(

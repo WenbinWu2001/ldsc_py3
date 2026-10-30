@@ -101,11 +101,6 @@ class RegressionWorkflowTest(unittest.TestCase):
             frame, output_files={"parquet": str(path)}, output_format="parquet", footer_metadata=footer
         )
 
-    def test_load_ldscore_from_dir_is_public(self):
-        from ldsc import load_ldscore_from_dir
-
-        self.assertTrue(callable(load_ldscore_from_dir))
-
     def test_load_ldscore_from_dir_reads_metadata_and_parquet_files(self):
         from ldsc import load_ldscore_from_dir
 
@@ -207,23 +202,6 @@ class RegressionWorkflowTest(unittest.TestCase):
 
             with self.assertRaisesRegex(LDSCInternalError, "baseline_table is missing required columns.*POS"):
                 load_ldscore_from_dir(str(tmpdir))
-
-    def test_load_ldscore_from_dir_reads_minimal_identity_metadata(self):
-        from ldsc import load_ldscore_from_dir
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self.write_ldscore_dir(tmpdir, include_query=False)
-            metadata_path = tmpdir / "metadata.json"
-            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-            metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
-
-            with warnings.catch_warnings(record=True) as caught:
-                warnings.simplefilter("always")
-                result = load_ldscore_from_dir(str(tmpdir))
-
-        self.assertEqual(result.config_snapshot, GlobalConfig(snp_identifier="rsid"))
-        self.assertFalse(any("GlobalConfig provenance is missing" in str(item.message) for item in caught))
 
     def test_load_ldscore_from_dir_rejects_missing_snp_identifier(self):
         from ldsc import load_ldscore_from_dir

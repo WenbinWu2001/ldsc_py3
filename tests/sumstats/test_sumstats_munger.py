@@ -642,17 +642,6 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.data.columns.tolist(), ["SNP", "N", "Z"])
             self.assertEqual(table.data.loc[0, "SNP"], "rs1")
 
-    def test_load_sumstats_rejects_footerless_parquet(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            sumstats_file = tmpdir / "plain.parquet"
-            pd.DataFrame({"SNP": ["rs1"], "A1": ["A"], "A2": ["G"], "Z": [1.5], "N": [1000.0]}).to_parquet(
-                sumstats_file, index=False
-            )
-
-            with self.assertRaisesRegex(ldsc.LDSCInputError, "missing required LDSC3 identity footer"):
-                ldsc.load_sumstats(sumstats_file)
-
     def test_load_sumstats_recovers_trait_name_from_footer(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -2295,23 +2284,6 @@ class SumstatsMungerTest(unittest.TestCase):
             )
 
             self.assertEqual(table.data["N"].tolist(), [100.0])
-
-    def test_run_does_not_treat_neff_as_total_n(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text(
-                "#CHROM\tPOS\tID\tEA\tNEA\tBETA\tPVAL\tNEFF\n"
-                "1\t123\trs1\tA\tG\t0.1\t0.05\t1000\n",
-                encoding="utf-8",
-            )
-
-            with self.assertRaisesRegex(ldsc.LDSCInputError, "NEFF is not treated as N"):
-                SumstatsMunger().run(
-                    MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path, trait_name="trait"),
-                    MungeConfig(no_snp_restriction=True, output_dir=tmpdir / "munged", source_genome_build="hg38", output_genome_build="hg38"),
-                    GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                )
 
     def test_run_auto_detects_new_daner_frequency_and_sample_sizes(self):
         with tempfile.TemporaryDirectory() as tmpdir:

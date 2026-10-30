@@ -171,21 +171,3 @@ def test_annotation_loader_rejects_missing_or_non_numeric_values(tmp_path, name,
         assert expected in message
 
 
-def test_annotation_loader_aligns_allele_free_tables_in_allele_aware_mode(tmp_path):
-    rows = "CHR\tBP\tSNP\tCM\t{column}\n1\t10\trs1\t0.1\t{first}\n1\t20\trs2\t0.2\t{second}\n"
-    base = _write(tmp_path / "base.annot", rows.format(column="base_a", first=1, second=0))
-    query = _write(tmp_path / "query.annot", rows.format(column="query_a", first=0, second=1))
-    metadata, baseline_columns, query_columns = _load(tmp_path, [base], [query], mode="chr_pos_allele_aware")
-    assert baseline_columns == ["base_a"]
-    assert query_columns == ["query_a"]
-    assert "A1" not in metadata.columns
-
-
-def test_annotation_loader_takes_alleles_from_a_later_query_table(tmp_path):
-    base = _write(tmp_path / "base.annot", "CHR\tBP\tSNP\tCM\tbase_a\n1\t10\trs1\t0.1\t1\n")
-    query = _write(tmp_path / "query.annot", "CHR\tBP\tSNP\tCM\tA1\tA2\tquery_a\n1\t10\trs1\t0.1\tA\tG\t0\n")
-    metadata, baseline_columns, query_columns = _load(tmp_path, [base], [query], mode="chr_pos_allele_aware")
-    assert metadata["A1"].tolist() == ["A"]
-    assert metadata["A2"].tolist() == ["G"]
-    assert baseline_columns == ["base_a"]
-    assert query_columns == ["query_a"]

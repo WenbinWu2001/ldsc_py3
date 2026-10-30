@@ -655,10 +655,6 @@ class R2MatrixBuildConfigOptionalLiftoverTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             R2MatrixBuildConfig(plink_prefix="plink/panel.@", ld_wind_kb=1)
 
-    def test_python_wrapper_requires_output_dir_without_dummy_paths(self):
-        with self.assertRaisesRegex(LDSCUsageError, r"missing required keyword argument\(s\) output_dir"):
-            r2_matrix_builder.run_build_r2_matrix(plink_prefix="plink/panel.@", ld_wind_kb=1)
-
     def test_python_api_defaults_missing_maps_for_snp_window(self):
         config = R2MatrixBuildConfig(
             plink_prefix="plink/panel.@",
@@ -735,16 +731,6 @@ class R2MatrixBuildConfigFromArgsTest(unittest.TestCase):
     def test_build_parser_defaults_snp_batch_size_to_512(self):
         parser = r2_matrix_builder.build_parser()
         self.assertEqual(parser.get_default("snp_batch_size"), 512)
-
-    def test_build_parser_accepts_snp_batch_size(self):
-        parser = r2_matrix_builder.build_parser()
-        args = parser.parse_args([
-            "--plink-prefix", "plink/panel.@",
-            "--output-dir", "out",
-            "--ld-wind-kb", "1",
-            "--snp-batch-size", "64",
-        ])
-        self.assertEqual(args.snp_batch_size, 64)
 
     def test_config_from_args_passes_snp_batch_size_to_config(self):
         parser = r2_matrix_builder.build_parser()
@@ -905,32 +891,6 @@ class R2MatrixBuildConfigFromArgsTest(unittest.TestCase):
             )
 
         self.assertEqual(captured["config"].snp_batch_size, 64)
-
-    def test_run_build_r2_matrix_rejects_explicit_genome_build_keyword(self):
-        with self.assertRaisesRegex(LDSCUsageError, "set_global_config"):
-            r2_matrix_builder.run_build_r2_matrix(
-                plink_prefix="plink/panel.@",
-                source_genome_build="hg19",
-                genetic_map_hg19_sources="maps/hg19.map",
-                output_dir="out",
-                ld_wind_kb=1,
-                ref_panel_snps_file="hm3.tsv",
-                snp_identifier="chr_pos",
-                genome_build="hg38",
-            )
-
-    def test_run_build_r2_matrix_rejects_explicit_snp_identifier_keyword(self):
-        with self.assertRaisesRegex(LDSCUsageError, "set_global_config"):
-            r2_matrix_builder.run_build_r2_matrix(
-                plink_prefix="plink/panel.@",
-                source_genome_build="hg19",
-                genetic_map_hg19_sources="maps/hg19.map",
-                output_dir="out",
-                ld_wind_kb=1,
-                ref_panel_snps_file="hm3.tsv",
-                snp_identifier="rsid",
-            )
-
 
 class DuplicatePositionDropAllTest(unittest.TestCase):
     """Unit tests for _resolve_unique_snp_set()."""

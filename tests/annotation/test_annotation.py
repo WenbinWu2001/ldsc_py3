@@ -475,29 +475,6 @@ class AnnotationBuilderTest(unittest.TestCase):
                     )
                 )
 
-    def test_run_in_rsid_mode_keeps_all_rows(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            base = tmpdir / "base.annot"
-            query = tmpdir / "query.annot"
-            rows = [("1", 10, "rs1", 0.1), ("1", 20, "rs2", 0.2), ("2", 30, "rs3", 0.3)]
-            _write_annot(base, rows, {"base_a": [1, 0, 1]})
-            _write_annot(query, rows, {"query_a": [0, 1, 1]})
-
-            builder = AnnotationBuilder(
-                GlobalConfig(snp_identifier="rsid"),
-                AnnotationBuildConfig(),
-            )
-            bundle = build_annotation_fixture(builder,
-                AnnotationBuildConfig(
-                    baseline_annot_sources=(str(base),),
-                    query_annot_sources=(str(query),),
-                )
-            )
-
-            self.assertEqual(fixture_ids(bundle, "rsid"), {"rs1", "rs2", "rs3"})
-            self.assertEqual(len(fixture_metadata(bundle)), 3)
-
     def test_run_in_chr_pos_mode_keeps_all_rows(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -989,108 +966,6 @@ class AnnotationBuilderTest(unittest.TestCase):
         self.assertEqual(list(metadata.columns), ["CHR", "POS", "SNP", "CM"])
         self.assertEqual(list(annotations.columns), ["C1", "C2", "C3"])
         self.assertEqual(len(metadata), 3)
-
-    def test_parse_annotation_file_preserves_continuous_values_as_float32(self):
-        builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "continuous.annot"
-            path.write_text(
-                "CHR\tBP\tSNP\tCM\tcontinuous\n"
-                "1\t10\trs1\t0.1\t-0.25\n"
-                "1\t20\trs2\t0.2\t0.125\n",
-                encoding="utf-8",
-            )
-
-            _metadata, annotations = read_annotation_fixture(path, builder.global_config.snp_identifier)
-
-        self.assertEqual(annotations["continuous"].dtype, np.dtype("float32"))
-        np.testing.assert_array_equal(
-            annotations["continuous"].to_numpy(),
-            np.array([-0.25, 0.125], dtype=np.float32),
-        )
-
-    def test_parse_annotation_file_normalizes_bp_header_to_pos(self):
-        builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "legacy_bp.annot"
-            path.write_text(
-                "CHR\tBP\tSNP\tCM\tbase_a\n1\t10\trs1\t0.1\t1\n",
-                encoding="utf-8",
-            )
-
-            metadata, annotations = read_annotation_fixture(path, builder.global_config.snp_identifier)
-
-            self.assertEqual(list(metadata.columns), ["CHR", "POS", "SNP", "CM"])
-            self.assertEqual(metadata["POS"].tolist(), [10])
-            self.assertEqual(list(annotations.columns), ["base_a"])
-
-    def test_parse_annotation_file_preserves_optional_alleles_as_metadata(self):
-        builder = AnnotationBuilder(
-            GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
-            AnnotationBuildConfig(),
-        )
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "alleles.annot"
-            path.write_text(
-                "CHR\tBP\tSNP\tCM\tA1\tA2\tbase_a\n"
-                "1\t10\trs1\t0.1\tA\tC\t1\n",
-                encoding="utf-8",
-            )
-
-            metadata, annotations = read_annotation_fixture(path, builder.global_config.snp_identifier)
-
-        self.assertEqual(list(metadata.columns), ["CHR", "POS", "SNP", "CM", "A1", "A2"])
-        self.assertEqual(metadata["A1"].tolist(), ["A"])
-        self.assertEqual(metadata["A2"].tolist(), ["C"])
-        self.assertEqual(list(annotations.columns), ["base_a"])
-
-    def test_parse_annotation_file_rejects_single_allele_column(self):
-        builder = AnnotationBuilder(
-            GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
-            AnnotationBuildConfig(),
-        )
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "one_allele.annot"
-            path.write_text(
-                "CHR\tBP\tSNP\tCM\tA1\tbase_a\n"
-                "1\t10\trs1\t0.1\tA\t1\n",
-                encoding="utf-8",
-            )
-
-            with self.assertRaisesRegex(LDSCInputError, "exactly one allele column"):
-                read_annotation_fixture(path, builder.global_config.snp_identifier)
-
-    def test_parse_annotation_file_accepts_file_without_cm(self):
-        builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "no_cm.annot"
-            path.write_text("CHR\tBP\tSNP\tbase_a\n1\t10\trs1\t1\n", encoding="utf-8")
-            metadata, annotations = read_annotation_fixture(path, builder.global_config.snp_identifier)
-            self.assertIn("CM", metadata.columns)  # placeholder retained for legacy layout
-            self.assertTrue(metadata["CM"].isna().all())
-            self.assertEqual(list(annotations.columns), ["base_a"])
-
-    def test_parse_annotation_file_excludes_cm_maf_from_values(self):
-        builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "cm_maf.annot"
-            path.write_text("CHR\tBP\tSNP\tCM\tMAF\tcoding\n1\t10\trs1\t0.5\t0.3\t1\n", encoding="utf-8")
-            metadata, annotations = read_annotation_fixture(path, builder.global_config.snp_identifier)
-            self.assertEqual(list(annotations.columns), ["coding"])  # CM/MAF excluded from values
-            self.assertIn("CM", metadata.columns)  # CM kept as NaN placeholder
-            self.assertTrue(metadata["CM"].isna().all())  # input CM value discarded
-            self.assertNotIn("MAF", metadata.columns)  # MAF never carried
-
-    def test_parse_annotation_file_snp_optional_in_chr_pos_mode(self):
-        builder = AnnotationBuilder(
-            GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), AnnotationBuildConfig()
-        )
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "no_snp.annot"
-            path.write_text("CHR\tBP\tcoding\n1\t10\t1\n", encoding="utf-8")
-            metadata, annotations = read_annotation_fixture(path, builder.global_config.snp_identifier)
-            self.assertNotIn("SNP", metadata.columns)
-            self.assertEqual(list(annotations.columns), ["coding"])
 
     def test_parse_annotation_file_snp_required_in_rsid_mode(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())

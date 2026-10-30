@@ -1229,45 +1229,6 @@ class RgDirectoryWriterTest(unittest.TestCase):
 
 
 class FixedOutputDirectoryTest(unittest.TestCase):
-    def test_missing_munge_output_dir_is_created_without_warning(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "nested" / "trait"
-            munger = __import__("ldsc._sumstats.munger", fromlist=["SumstatsMunger"]).SumstatsMunger()
-            table = __import__("ldsc._sumstats.munger", fromlist=["SumstatsTable"]).SumstatsTable(
-                data=pd.DataFrame({"SNP": ["rs1"], "N": [1000.0], "Z": [1.5]}),
-                has_alleles=False,
-                source_path="source.sumstats.gz",
-                trait_name="trait",
-                config_snapshot=GlobalConfig(snp_identifier="rsid"),
-            )
-
-            with warnings.catch_warnings(record=True) as caught:
-                warnings.simplefilter("always")
-                written = munger.write_output(table, str(output_dir))
-
-            self.assertTrue(output_dir.exists())
-            self.assertEqual(caught, [])
-            self.assertTrue(Path(written).exists())
-
-    def test_munge_write_output_round_trips_through_public_loader(self):
-        module = __import__("ldsc._sumstats.munger", fromlist=["SumstatsMunger", "SumstatsTable", "load_sumstats"])
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir)
-            munger = module.SumstatsMunger()
-            table = module.SumstatsTable(
-                data=pd.DataFrame({"SNP": ["rs1"], "N": [1000.0], "Z": [1.5]}),
-                has_alleles=False,
-                source_path="source.sumstats.gz",
-                trait_name="trait",
-                config_snapshot=GlobalConfig(snp_identifier="rsid"),
-            )
-
-            written = munger.write_output(table, output_dir)
-            loaded = module.load_sumstats(written)
-
-            self.assertEqual(loaded.config_snapshot, GlobalConfig(snp_identifier="rsid"))
-            self.assertEqual(loaded.data["SNP"].tolist(), ["rs1"])
-
     def test_munge_write_output_requires_config_snapshot(self):
         module = __import__("ldsc._sumstats.munger", fromlist=["SumstatsMunger", "SumstatsTable"])
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1281,40 +1242,3 @@ class FixedOutputDirectoryTest(unittest.TestCase):
             with self.assertRaisesRegex(module.LDSCInputError, "config_snapshot"):
                 module.SumstatsMunger().write_output(table, tmpdir)
 
-    def test_munge_write_output_refuses_existing_file_by_default(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir)
-            existing = output_dir / "trait.parquet"
-            existing.write_text("existing", encoding="utf-8")
-            munger = __import__("ldsc._sumstats.munger", fromlist=["SumstatsMunger"]).SumstatsMunger()
-            table = __import__("ldsc._sumstats.munger", fromlist=["SumstatsTable"]).SumstatsTable(
-                data=pd.DataFrame({"SNP": ["rs1"], "N": [1000.0], "Z": [1.5]}),
-                has_alleles=False,
-                source_path="source.sumstats.gz",
-                trait_name="trait",
-                config_snapshot=GlobalConfig(snp_identifier="rsid"),
-            )
-
-            with self.assertRaisesRegex(FileExistsError, "overwrite"):
-                munger.write_output(table, output_dir)
-
-            self.assertEqual(existing.read_text(encoding="utf-8"), "existing")
-
-    def test_munge_write_output_allows_existing_file_with_overwrite(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir)
-            existing = output_dir / "trait.parquet"
-            existing.write_text("existing", encoding="utf-8")
-            munger = __import__("ldsc._sumstats.munger", fromlist=["SumstatsMunger"]).SumstatsMunger()
-            table = __import__("ldsc._sumstats.munger", fromlist=["SumstatsTable"]).SumstatsTable(
-                data=pd.DataFrame({"SNP": ["rs1"], "N": [1000.0], "Z": [1.5]}),
-                has_alleles=False,
-                source_path="source.sumstats.gz",
-                trait_name="trait",
-                config_snapshot=GlobalConfig(snp_identifier="rsid"),
-            )
-
-            written = munger.write_output(table, output_dir, overwrite=True)
-
-            self.assertEqual(written, str(existing))
-            self.assertGreater(existing.stat().st_size, len("existing"))

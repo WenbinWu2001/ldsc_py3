@@ -64,14 +64,6 @@ class GlobalConfigTest(unittest.TestCase):
         self.assertEqual(reset, GlobalConfig())
         self.assertEqual(ldsc.get_global_config(), GlobalConfig())
 
-    def test_validates_values(self):
-        with self.assertRaises(ldsc.LDSCConfigError):
-            GlobalConfig(snp_identifier="bad")
-        with self.assertRaises(ldsc.LDSCConfigError):
-            GlobalConfig(snp_identifier="chr_pos", genome_build="hg18")
-        with self.assertRaises(ldsc.LDSCConfigError):
-            GlobalConfig(snp_identifier="rsid", log_level="trace")
-
     def test_invalid_global_config_reports_cause_and_fix(self):
         with self.assertRaisesRegex(
             ldsc.LDSCConfigError,
@@ -105,14 +97,6 @@ class TestGlobalConfigValidation(unittest.TestCase):
                 with self.assertRaisesRegex(ldsc.LDSCConfigError, "Pass genome_build='auto'"):
                     GlobalConfig(snp_identifier=mode, genome_build=None)
 
-    def test_chr_pos_hg38_ok(self):
-        cfg = GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")
-        self.assertEqual(cfg.genome_build, "hg38")
-
-    def test_chr_pos_auto_ok(self):
-        cfg = GlobalConfig(snp_identifier="chr_pos", genome_build="auto")
-        self.assertEqual(cfg.genome_build, "auto")
-
     def test_rsid_auto_raises(self):
         for mode in ("rsid", "rsid_allele_aware"):
             with self.subTest(mode=mode):
@@ -132,18 +116,6 @@ class TestGlobalConfigValidation(unittest.TestCase):
                     cfg = GlobalConfig(snp_identifier=mode, genome_build="hg38")
                 self.assertIn("ignored", str(ctx.warning))
                 self.assertIsNone(cfg.genome_build)
-
-    def test_singleton_is_chr_pos_allele_aware_auto(self):
-        from ldsc.config import get_global_config
-        cfg = get_global_config()
-        self.assertEqual(cfg.snp_identifier, "chr_pos_allele_aware")
-        self.assertEqual(cfg.genome_build, "auto")
-
-    def test_reset_returns_chr_pos_allele_aware_auto(self):
-        from ldsc.config import reset_global_config
-        cfg = reset_global_config()
-        self.assertEqual(cfg.snp_identifier, "chr_pos_allele_aware")
-        self.assertEqual(cfg.genome_build, "auto")
 
     def test_auto_genome_build_validation_uses_identifier_family(self):
         validate_auto_genome_build_mode("chr_pos_allele_aware", "auto")
@@ -457,13 +429,6 @@ class WorkflowConfigTest(unittest.TestCase):
 class IdentifierHelpersTest(unittest.TestCase):
     def test_clean_header(self):
         self.assertEqual(clean_header("foo-bar.foo_BaR"), "FOO_BAR_FOO_BAR")
-
-    def test_normalize_snp_identifier_mode_accepts_only_public_modes(self):
-        for value in ("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"):
-            self.assertEqual(normalize_snp_identifier_mode(value), value)
-        for value in ("rsID", "SNPID", "snp_id", "snp", "chrpos", "rsid_alleles", "chr_pos_alleles"):
-            with self.assertRaises(LDSCConfigError):
-                normalize_snp_identifier_mode(value)
 
     def test_infer_snp_column_aliases(self):
         for header in [["rsid"], ["rsID"], ["SNPID"], ["snp_id"], ["SNP"], ["id"]]:

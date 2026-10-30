@@ -18,7 +18,7 @@ class SNPIdentityModeTest(unittest.TestCase):
         for mode in si.SNP_IDENTIFIER_MODES:
             self.assertEqual(si.normalize_snp_identifier_mode(mode), mode)
 
-        rejected = ["rsID", "SNPID", "snp_id", "chrpos", "rsid_alleles", "chr_pos_alleles"]
+        rejected = ["rsID", "SNPID", "snp_id", "snp", "chrpos", "rsid_alleles", "chr_pos_alleles"]
         for value in rejected:
             with self.subTest(value=value):
                 with self.assertRaises(LDSCConfigError):

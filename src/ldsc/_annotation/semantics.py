@@ -7,6 +7,7 @@ without changing the numerical calculations.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Sequence
 
 import numpy as np
@@ -31,7 +32,7 @@ def require_unique_annotation_names(
         If any name occurs more than once within or across the two groups.
     """
     names = [str(name) for name in (*baseline_names, *query_names)]
-    duplicates = sorted({name for name in names if names.count(name) > 1})
+    duplicates = sorted(name for name, count in Counter(names).items() if count > 1)
     if duplicates:
         raise LDSCInputError(
             "Annotation names must be globally unique within an LD-score directory. "

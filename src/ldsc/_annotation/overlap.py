@@ -122,11 +122,15 @@ def annotation_statistics(metadata, annotations, n_baseline, *, query_batch_size
     for first in range(0,n_rows,tile):
         last = min(first+tile,n_rows)
         rows = slice(first,last)
-        baseline = annotations.read(rows=rows, columns=annotations.columns[:n_baseline]).astype(np.float64)
+        baseline_read = annotations.read(rows=rows, columns=annotations.columns[:n_baseline])
+        baseline = baseline_read.astype(np.float64)
         selected = None if common is None else common[rows]
+        baseline_common = None if selected is None else baseline[selected]
         for start,stop in batches:
             names = annotations.columns[start:stop]
-            values = baseline.astype(np.float32) if start == 0 and stop == n_baseline else annotations.read(rows=rows,columns=names)
+            # The baseline group reuses the tile's read: its float32 values
+            # equal the float64 copy's narrowing exactly.
+            values = baseline_read.astype(np.float32, copy=False) if start == 0 and stop == n_baseline else annotations.read(rows=rows,columns=names)
             counts[start:stop] += values.sum(axis=0,dtype=np.float64)
             numeric = values.astype(np.float64)
             block[:,start:stop] += baseline.T @ numeric
@@ -135,9 +139,11 @@ def annotation_statistics(metadata, annotations, n_baseline, *, query_batch_size
             if selected is not None:
                 counts_common[start:stop] += values[selected].sum(axis=0,dtype=np.float64)
                 common_values = numeric[selected]
-                block_common[:,start:stop] += baseline[selected].T @ common_values
+                block_common[:,start:stop] += baseline_common.T @ common_values
                 if start >= n_baseline:
                     diagonal_common[start-n_baseline:stop-n_baseline] += np.einsum('sq,sq->q',common_values,common_values)
+            if values.dtype == bool:
+                continue  # Boolean values are binary by definition.
             for name,kind in classify_annotation_values(pd.DataFrame(values,columns=names)).items():
                 if kind == 'quantitative':
                     kinds[name] = kind

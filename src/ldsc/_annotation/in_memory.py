@@ -50,8 +50,8 @@ class MemoryAnnotationShard:
     def n_rows(self):
         return len(self.frame)
 
-    def metadata(self):
-        return self.frame.copy()
+    def metadata(self, columns=None):
+        return self.frame.copy() if columns is None else self.frame.loc[:, list(columns)]
 
     def read(self, *, columns, rows=None, max_read_rows=65536):
         """Decode selected SNPs in the requested column order as float32."""

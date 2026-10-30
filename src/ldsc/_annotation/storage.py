@@ -143,9 +143,15 @@ class ColumnStore:
             raise ValueError("Packed annotation values must be exactly zero or one.")
         if not len(values):
             return
+        # A byte-aligned write covering whole bytes, or ending at the last row
+        # (whose padding bits are always zero), replaces its bytes without reading them.
+        whole_bytes = start % 8 == 0 and (len(values) % 8 == 0 or start + len(values) == self.n_rows)
         with self.path.open("r+b") as stream:
             for j, column in enumerate(selected):
-                if self.bitorder:
+                if self.bitorder and whole_bytes:
+                    stream.seek(self.offset + column * self.stored_rows + start // 8)
+                    stream.write(np.packbits(values[:, j].astype(bool, copy=False), bitorder=self.bitorder).tobytes())
+                elif self.bitorder:
                     first, stop = start // 8, (start + len(values) + 7) // 8
                     offset = self.offset + column * self.stored_rows + first
                     stream.seek(offset)
@@ -196,18 +202,21 @@ class ColumnStore:
             return result
         order = np.argsort(indices, kind="stable")
         sorted_rows = indices[order]
+        # The row runs are the same for every column, so plan them once.
+        runs, cursor = [], 0
+        while cursor < len(order):
+            start = int(sorted_rows[cursor])
+            stop = int(np.searchsorted(sorted_rows, start + max_read_rows, side="left"))
+            # Coalesce only nearby requested rows, avoiding large reads
+            # for sparse selections while retaining sequential I/O.
+            gaps = np.flatnonzero(np.diff(sorted_rows[cursor:stop]) > 64)
+            if len(gaps):
+                stop = cursor + int(gaps[0]) + 1
+            runs.append((cursor, stop, start, int(sorted_rows[stop - 1]) - start + 1))
+            cursor = stop
         with self.path.open("rb") as stream:
             for j, column in enumerate(selected):
-                cursor = 0
-                while cursor < len(order):
-                    start = int(sorted_rows[cursor])
-                    stop = int(np.searchsorted(sorted_rows, start + max_read_rows, side="left"))
-                    # Coalesce only nearby requested rows, avoiding large reads
-                    # for sparse selections while retaining sequential I/O.
-                    gaps = np.flatnonzero(np.diff(sorted_rows[cursor:stop]) > 64)
-                    if len(gaps):
-                        stop = cursor + int(gaps[0]) + 1
-                    count = int(sorted_rows[stop - 1]) - start + 1
+                for cursor, stop, start, count in runs:
                     if self.bitorder:
                         first, last = start // 8, (start + count + 7) // 8
                         stream.seek(self.offset + column * self.stored_rows + first)
@@ -221,7 +230,6 @@ class ColumnStore:
                     if len(values) != count:
                         raise OSError(f"Truncated annotation shard: {self.path}")
                     result[order[cursor:stop], j] = values[sorted_rows[cursor:stop] - start]
-                    cursor = stop
         return result
 
 
@@ -281,9 +289,9 @@ class AnnotationShard:
     def columns(self):
         return tuple(name for store in self.stores for name in store.columns)
 
-    def metadata(self):
-        """Load this chromosome's row metadata; the caller owns the frame."""
-        return pd.read_parquet(self.metadata_path)
+    def metadata(self, columns=None):
+        """Load this chromosome's row metadata, or only ``columns``; the caller owns the frame."""
+        return pd.read_parquet(self.metadata_path, columns=columns)
 
     def read(self, *, columns, rows=None, max_read_rows=65536):
         """Read separate artifacts in the required explicit ``columns`` order.

@@ -18,6 +18,7 @@ import numpy as np
 
 import pandas as pd
 
+from .gene_lists import summary_source_masks
 from .overlap import OverlapContribution
 from ..errors import LDSCInternalError
 
@@ -101,10 +102,11 @@ def assess_gene_coverage(batch, chromosomes):
 def gene_query_statuses(batch):
     """Apply shared resolution, coverage, and measured-support precedence."""
     statuses = []
+    source_mask = summary_source_masks(batch.summary)
     for selection in batch.selections:
         if selection.input_role != "focal":
             continue
-        row = batch.summary.loc[batch.summary.input_role.eq("focal") & batch.summary.source_ordinal.eq(selection.source_ordinal)].iloc[0]
+        row = batch.summary.loc[source_mask("focal", selection.source_ordinal)].iloc[0]
         rejected = int(row.rejected_rows)
         unsupported, supported = row.zero_support_genes, row.genes_with_snp_support
         coverage = row.get("coverage_status")

@@ -648,38 +648,63 @@ def _append_namespace_issues(
 
 
 
+_CANDIDATE_COLUMNS = [
+    "_catalog_index",
+    "gene_id",
+    "gene_name",
+    "catalog_line",
+    "chrom",
+    "start",
+    "end",
+    "start0",
+    "_catalog_valid",
+    "_duplicate_gene_id",
+    "_duplicate_gene_id_lines",
+    "_outside_supported_chromosome",
+    "_row_issue_reasons",
+]
+
+
+def _resolution_candidates(catalog: GeneCatalog) -> pd.DataFrame:
+    """Return the catalog rows that submitted identifiers are matched against, with their catalog index."""
+    return catalog.frame.reset_index().rename(columns={"index": "_catalog_index"}).loc[:, _CANDIDATE_COLUMNS]
+
+
+def summary_source_masks(summary: pd.DataFrame):
+    """Return a function mapping ``(input_role, source_ordinal)`` to that source's Boolean summary-row mask.
+
+    The masks equal comparing both columns, without scanning the summary once per source.
+    """
+    rows: dict[tuple, list[int]] = {}
+    for position, key in enumerate(zip(summary["input_role"].to_numpy(), summary["source_ordinal"].to_numpy())):
+        rows.setdefault(key, []).append(position)
+
+    def mask(input_role, source_ordinal):
+        selected = np.zeros(len(summary), dtype=bool)
+        selected[rows.get((input_role, source_ordinal), [])] = True
+        return selected
+
+    return mask
+
+
 def _resolve_rows(
     rows: pd.DataFrame,
     catalog: GeneCatalog,
+    candidates: pd.DataFrame,
     gene_exclude_regions: str,
 ) -> pd.DataFrame:
+    """Resolve submitted rows against ``candidates``, the run's ``_resolution_candidates(catalog)``."""
     if rows.empty:
         return pd.DataFrame(columns=AUDIT_COLUMNS)
     working = rows.copy().reset_index(drop=True)
     working["_row_id"] = np.arange(len(working), dtype=int)
-    candidates_base = catalog.frame.reset_index().rename(columns={"index": "_catalog_index"})
-    candidate_columns = [
-        "_catalog_index",
-        "gene_id",
-        "gene_name",
-        "catalog_line",
-        "chrom",
-        "start",
-        "end",
-        "start0",
-        "_catalog_valid",
-        "_duplicate_gene_id",
-        "_duplicate_gene_id_lines",
-        "_outside_supported_chromosome",
-        "_row_issue_reasons",
-    ]
     resolvable = working.loc[working["_malformed"].eq(False), ["_row_id", "input_gene"]]
     id_matches = resolvable.merge(
-        candidates_base[candidate_columns], left_on="input_gene", right_on="gene_id", how="inner", sort=False
+        candidates, left_on="input_gene", right_on="gene_id", how="inner", sort=False
     )
     id_matches["_via"] = "gene_id"
     name_matches = resolvable.merge(
-        candidates_base[candidate_columns], left_on="input_gene", right_on="gene_name", how="inner", sort=False
+        candidates, left_on="input_gene", right_on="gene_name", how="inner", sort=False
     )
     name_matches["_via"] = "gene_name"
     candidates = pd.concat([id_matches, name_matches], ignore_index=True)

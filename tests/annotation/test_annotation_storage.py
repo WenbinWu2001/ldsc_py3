@@ -38,6 +38,37 @@ def test_binary_store_packs_snp_bits_and_preserves_partial_writes(tmp_path):
         store.write(0, np.array([[.5, 1]]))
 
 
+@pytest.mark.parametrize("dtype", [bool, np.float32, np.int64])
+def test_whole_byte_binary_writes_match_row_by_row_writes(tmp_path, dtype):
+    values = (np.random.default_rng(4).random((21, 2)) < .5).astype(dtype)
+    whole = ColumnStore.create(tmp_path / "whole.npy", 21, ["a", "b"], dtype=bool)
+    whole.write(0, values[:16])  # whole bytes
+    whole.write(16, values[16:])  # byte-aligned, ending at the last row
+    rows = ColumnStore.create(tmp_path / "rows.npy", 21, ["a", "b"], dtype=bool)
+    for start in range(21):
+        rows.write(start, values[start:start + 1])
+    assert whole.path.read_bytes() == rows.path.read_bytes()
+    # A later partial write keeps the neighboring bits of its boundary bytes.
+    whole.write(5, ~values[5:12, :1].astype(bool), columns=["b"])
+    expected = values.astype(bool)
+    expected[5:12, 1] = ~values[5:12, 0].astype(bool)
+    np.testing.assert_array_equal(whole.read(), expected)
+
+
+def test_interval_projection_is_independent_of_grid_row_order():
+    from ldsc._annotation.interval_projection import ChromosomeProjector
+
+    positions = np.array([5, 9, 9, 20, 31, 40])
+    # Zero-based half-open intervals: [4, 8) covers POS 5-8 and [19, 30) covers POS 20-30.
+    intervals = [(4, 8), (19, 30)]
+    expected = np.array([True, False, False, True, False, False])
+    order = np.array([3, 0, 5, 2, 1, 4])
+    for grid, wanted in ((positions, expected), (positions[order], expected[order])):
+        projector = ChromosomeProjector(pd.DataFrame({"POS": grid}))
+        np.testing.assert_array_equal(projector.project(intervals), wanted)
+        np.testing.assert_array_equal(projector.project(intervals, padding_bp=1), np.isin(grid, [5, 9, 20, 31]))
+
+
 @pytest.mark.parametrize("n_rows", [0, 1, 7, 8, 9, 17])
 def test_binary_store_padding_empty_reads_and_worker_descriptor(tmp_path, n_rows):
     import pickle

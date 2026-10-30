@@ -131,21 +131,24 @@ def execution_query_bundle(bundle, columns, statuses, output_dir):
         if preparation is not None:
             build_query_shards(active, bed_sources=preparation.bed_sources, gene_batch=bundle.gene_list_batch,
                                padding_bp=preparation.padding_bp, evaluate_support=False,
-                               query_columns=columns, include_control=False)
+                               query_columns=columns, include_control=False, statuses=statuses)
         active.query_statuses = statuses
         yield active
 
 
 @report_phase(LOGGER, 'computation', 'annotation projection')
 def build_query_shards(bundle, *, bed_sources=(), gene_batch=None, padding_bp=0, support_kind='annotation', evaluate_support=True,
-                       query_columns=None, include_control=True):
+                       query_columns=None, include_control=True, statuses=None):
     """Project one query at a time, retaining only per-query and per-gene counts.
 
     Zero-valued chromosome shards are retained for globally supported queries.
     Gene controls are appended to baseline columns and never enter query batches.
     This primitive does not apply reference-panel or LD-score variance checks.
+    ``statuses`` supplies already resolved source statuses (an execution
+    batch's), so they are not resolved again for every query of the run.
     """
-    statuses = query_source_statuses(bed_sources, gene_batch)
+    if statuses is None:
+        statuses = query_source_statuses(bed_sources, gene_batch)
     if query_columns is not None:
         selected_names = set(query_columns)
         statuses = tuple(status for status in statuses if status.query in selected_names)
@@ -165,7 +168,7 @@ def build_query_shards(bundle, *, bed_sources=(), gene_batch=None, padding_bp=0,
     for chrom in bundle.chromosomes:
         advance(0, object=f'chromosome {chrom}', force=True)
         shard = bundle.shard(chrom)
-        metadata = shard.metadata()
+        metadata = shard.metadata(columns=['POS'])
         projector = ChromosomeProjector(metadata)
         store = ColumnStore.create(bundle.workspace.path / f'query-{chrom}.npy', shard.n_rows, [*(['gene_control'] if control else []), *names], dtype=bool)
         if gene_batch is not None:

@@ -6,6 +6,7 @@ into an all-pathway interval matrix.
 """
 
 from dataclasses import dataclass, replace
+from functools import cached_property
 import gzip
 import logging
 from pathlib import Path
@@ -20,8 +21,8 @@ from .._runtime.progress import report_phase, advance
 from .storage import FrameSpool
 from .gene_lists import (
     AUDIT_COLUMNS, SUMMARY_COLUMNS, RESOLVED_ONLY_REASONS, GeneSourceSelection,
-    _expand_focal_gene_list_sources, _resolve_rows, _summarize_sources,
-    gene_list_query_name,
+    _expand_focal_gene_list_sources, _resolution_candidates, _resolve_rows, _summarize_sources,
+    gene_list_query_name, summary_source_masks,
 )
 from ..errors import LDSCInputError
 from .._runtime.paths import normalize_path_token
@@ -69,16 +70,25 @@ class StagedGeneListBatch:
     support: pd.Series | None = None
     support_kind: str = "reference"
 
-    def selection(self, input_role, source_ordinal):
-        declaration = next(item for item in self.declarations if item['input_role'] == input_role and item['source_ordinal'] == source_ordinal)
-        indices = np.load(self.path / f"{input_role}-{source_ordinal}.npy")
+    @cached_property
+    def _lookup(self):
+        """Declarations by source and the catalog columns as arrays, built once per batch."""
+        declarations = {}
+        for item in self.declarations:
+            declarations.setdefault((item['input_role'], item['source_ordinal']), item)
         frame = self.catalog.frame
-        positions = frame.index.get_indexer(indices)
+        return (declarations, frame.gene_id.to_numpy(), frame.chrom.to_numpy(), frame.start0.to_numpy(),
+                frame.end.to_numpy())
+
+    def selection(self, input_role, source_ordinal):
+        declarations, gene_ids, chroms, starts, ends = self._lookup
+        declaration = declarations[(input_role, source_ordinal)]
+        indices = np.load(self.path / f"{input_role}-{source_ordinal}.npy")
+        positions = self.catalog.frame.index.get_indexer(indices)
         return GeneSourceSelection(
             input_role, declaration['argument'], declaration['query'], declaration['source'], source_ordinal,
-            tuple(map(str, frame.gene_id.to_numpy()[positions])), tuple(indices.tolist()),
-            tuple(zip(map(str, frame.chrom.to_numpy()[positions]), map(int, frame.start0.to_numpy()[positions]),
-                      map(int, frame.end.to_numpy()[positions]))),
+            tuple(map(str, gene_ids[positions])), tuple(indices.tolist()),
+            tuple(zip(map(str, chroms[positions]), map(int, starts[positions]), map(int, ends[positions]))),
         )
 
     @property
@@ -114,8 +124,9 @@ class StagedGeneListBatch:
             raise ValueError('support_kind must be reference or annotation')
         support = pd.Series(counts, dtype='Int64')
         summary = self.summary.copy()
+        source_mask = summary_source_masks(summary)
         for selection in self.selections:
-            mask = summary.input_role.eq(selection.input_role) & summary.source_ordinal.eq(selection.source_ordinal)
+            mask = source_mask(selection.input_role, selection.source_ordinal)
             values = support.reindex(selection.catalog_indices)
             summary.loc[mask, 'zero_support_genes'] = pd.NA if values.isna().any() else int(values.eq(0).sum())
             summary.loc[mask, 'genes_with_snp_support'] = pd.NA if values.isna().any() else int(values.gt(0).sum())
@@ -127,8 +138,9 @@ class StagedGeneListBatch:
         summary, errors = self.summary.copy(), []
         for column in ('coverage_status', 'missing_chromosomes', 'uncovered_gene_ids'):
             summary[column] = summary[column].astype(object)
+        source_mask = summary_source_masks(summary)
         for selection in self.selections:
-            mask = summary.input_role.eq(selection.input_role) & summary.source_ordinal.eq(selection.source_ordinal)
+            mask = source_mask(selection.input_role, selection.source_ordinal)
             missing = [(gene, interval[0]) for gene, interval in zip(selection.canonical_gene_ids, selection.intervals) if interval[0] not in scope]
             selected, uncovered = len(selection.canonical_gene_ids), len(missing)
             status = 'empty' if not selected else 'full' if not missing else 'none' if uncovered == selected else 'partial'
@@ -193,6 +205,7 @@ def resolve_gene_lists_staged(focal_paths, catalog, workspace, *, control_path=N
     seed = pd.DataFrame([{**declaration, 'source_status': 'ok', 'source_reasons': ''} for declaration in declarations],
                         columns=SUMMARY_COLUMNS[:7])
     empty_summaries = _summarize_sources(pd.DataFrame(columns=AUDIT_COLUMNS), seed, resolution_policy, support_evaluated=False)
+    candidates = _resolution_candidates(catalog)
     summaries, spools, fatal = [], [], False
     for source_index, declaration in enumerate(declarations):
         label = f"{declaration['input_role']}-{declaration['source_ordinal']}"
@@ -209,7 +222,7 @@ def resolve_gene_lists_staged(focal_paths, catalog, workspace, *, control_path=N
                 # prevents repeated ambiguous identifiers from multiplying the
                 # catalog candidate table before their audit rows are replayed.
                 unique = rows.drop_duplicates(['input_gene', '_malformed']).reset_index(drop=True)
-                resolved = _resolve_rows(unique, catalog, gene_exclude_regions)
+                resolved = _resolve_rows(unique, catalog, candidates, gene_exclude_regions)
                 resolved['_malformed'] = unique['_malformed'].to_numpy()
                 audit = rows.merge(resolved.loc[:, ['input_gene', '_malformed', *AUDIT_COLUMNS[7:]]],
                                    on=['input_gene', '_malformed'], how='left', sort=False).reindex(columns=AUDIT_COLUMNS)

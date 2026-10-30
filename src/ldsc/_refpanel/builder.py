@@ -941,6 +941,7 @@ class R2MatrixBuilder:
             geno_kept_snps = list(geno.kept_snps)
             hg19_positions = self._positions_from_lookup(geno_kept_snps, hg19_lookup) if hg19_lookup else None
             hg38_positions = self._positions_from_lookup(geno_kept_snps, hg38_lookup) if hg38_lookup else None
+            del geno_kept_snps  # the pair phase needs only the positions
             build_positions = hg19_positions if build == "hg19" else hg38_positions
             if build_positions is None:
                 raise LDSCInputError(

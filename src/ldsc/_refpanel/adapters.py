@@ -262,14 +262,16 @@ class PlinkRefPanel(RefPanel):
         prefix = self._bim_prefixes(chrom)[0]
         bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
         fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
-        metadata = bim.df.rename(columns={"BP": "POS"}).copy()
+        metadata = bim.df.rename(columns={"BP": "POS"})  # a copy of the BIM table
         metadata["_raw_index"] = np.arange(len(metadata))
-        metadata["CHR"] = metadata["CHR"].map(normalize_chromosome)
+        metadata["CHR"] = metadata["CHR"].map({label: normalize_chromosome(label)
+                                               for label in pd.unique(metadata["CHR"])})
         metadata["SNP"] = metadata["SNP"].astype(str)
         metadata["POS"] = pd.to_numeric(metadata["POS"], errors="raise").astype(np.int64)
         metadata["CM"] = pd.to_numeric(metadata["CM"], errors="coerce")
         metadata[["A1", "A2"]] = metadata[["A1", "A2"]].astype(str)
-        metadata = metadata.loc[metadata["CHR"] == normalize_chromosome(chrom)].reset_index(drop=True)
+        metadata = metadata.take(np.flatnonzero((metadata["CHR"] == normalize_chromosome(chrom)).to_numpy()))
+        metadata.index = pd.RangeIndex(len(metadata))
         if metadata.empty:
             raise LDSCInputError(f"Reference-panel loading found no PLINK metadata rows for chromosome {chrom}.")
         funnel = ReferenceSNPFunnel(normalize_chromosome(chrom), "plink")
@@ -523,7 +525,7 @@ class R2MatrixRefPanel(RefPanel):
         aligned = _align_annotations(annotations, reference, chrom, self.global_config, funnel)
         keys = identifier_keys(aligned.metadata, self.global_config.snp_identifier)
         reference_keys = identifier_keys(reference, self.global_config.snp_identifier)
-        lookup = reference.set_index(reference_keys)
+        lookup = reference.loc[:, ["CM", "MAF"]].set_index(reference_keys)
         metadata = aligned.metadata.copy()
         for column in ("CM", "MAF"):
             metadata[column] = lookup.loc[keys, column].to_numpy()
@@ -669,8 +671,8 @@ def _align_annotations(bundle, reference, chrom, global_config, funnel):
     mode = _annotation_reference_match_mode(bundle.metadata, global_config.snp_identifier)
     reference_keys = build_snp_id_series(reference, mode)
     annotation_keys = build_snp_id_series(bundle.metadata, mode)
-    keep = annotation_keys.isin(set(reference_keys))
-    on_grid = int(reference_keys.isin(set(annotation_keys)).sum())
+    keep = annotation_keys.isin(reference_keys)
+    on_grid = int(reference_keys.isin(annotation_keys).sum())
     funnel.record(REFERENCE_PANEL, ANNOTATION_SNP_GRID, len(reference) - on_grid)
     funnel.record(ANNOTATION_SNP_GRID, "grid_rows", len(bundle.metadata))
     funnel.record(ANNOTATION_SNP_GRID, ANNOTATION_SNP_GRID, int((~keep).sum()))
@@ -685,9 +687,12 @@ def _align_annotations(bundle, reference, chrom, global_config, funnel):
         )
         error.reference_snp_funnel = funnel.frame()
         raise error
+    rows = np.flatnonzero(keep.to_numpy())
+    kept_metadata, kept_keys = bundle.metadata.take(rows), annotation_keys.take(rows)
+    kept_metadata.index = kept_keys.index = pd.RangeIndex(len(rows))
     metadata = _annotation_metadata_with_reference_alleles(
-        annotation_metadata=bundle.metadata.loc[keep].reset_index(drop=True),
-        annotation_keys=annotation_keys.loc[keep].reset_index(drop=True),
+        annotation_metadata=kept_metadata,
+        annotation_keys=kept_keys,
         reference_metadata=reference, reference_keys=reference_keys,
         snp_identifier=global_config.snp_identifier,
     )

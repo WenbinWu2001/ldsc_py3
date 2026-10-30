@@ -3166,3 +3166,23 @@ def test_failed_build_keeps_caller_logger_level(tmp_path, monkeypatch, ldsc_logg
     with pytest.raises(LDSCInputError, match="Genome-build consistency"):
         r2_matrix_builder.run_build_r2_matrix_from_args(args)
     assert ldsc_logger_at_warning.level == logging.WARNING
+
+
+def test_pending_pairs_hold_int32_indices_and_flush_in_order():
+    pending = {}
+    i = np.array([7, 3, 7, 3, 3], dtype=np.int64)
+    j = np.array([12, 9, 8, 4, 11], dtype=np.int64)
+    r2 = np.array([.1, .2, .3, .4, .5], dtype=np.float32)
+    sign = np.array([1, -1, 1, -1, 1], dtype=np.int8)
+    kernel_builder._stash_pair_rows(pending, (i, j, r2, sign))
+    kernel_builder._stash_pair_rows(pending, (np.array([3]), np.array([2]), np.array([.6], dtype=np.float32),
+                                              np.array([-1], dtype=np.int8)))
+    assert all(part.dtype == np.int32 for bucket in pending.values() for part in bucket.j)
+    flushed = list(kernel_builder._pop_pair_rows_before(pending, 8))
+    assert not pending
+    # One chunk per left index, in increasing order; right indices sorted with their values.
+    assert [chunk[0].tolist() for chunk in flushed] == [[3, 3, 3, 3], [7, 7]]
+    assert [chunk[1].tolist() for chunk in flushed] == [[2, 4, 9, 11], [8, 12]]
+    assert [chunk[2].tolist() for chunk in flushed] == [np.float32([.6, .4, .2, .5]).tolist(), np.float32([.3, .1]).tolist()]
+    assert [chunk[3].tolist() for chunk in flushed] == [[-1, -1, -1, 1], [1, 1]]
+    assert all(chunk[0].dtype == chunk[1].dtype == np.int64 for chunk in flushed)

@@ -57,7 +57,9 @@ def load_genetic_map(path: str | PathLike[str]) -> pd.DataFrame:
 
     out = pd.DataFrame(
         {
-            "CHR": df[chr_col].map(lambda value: normalize_chromosome(value, context=context)),
+            # One normalized label per distinct value, shared by its rows.
+            "CHR": df[chr_col].map({value: normalize_chromosome(value, context=context)
+                                    for value in pd.unique(df[chr_col])}),
             "POS": pd.to_numeric(df[pos_col], errors="raise").astype(np.int64),
             "CM": pd.to_numeric(df[cm_col], errors="raise").astype(float),
         }
@@ -261,8 +263,8 @@ def _emit_cross_block_pairs(
     valid = (a_indices[:, None] >= left[None, :]) & (a_indices[:, None] < b_indices[None, :])
     local_i, local_j = np.nonzero(valid)
     corr = correlation_matrix[local_i, local_j]
-    i = a_indices[local_i].astype(np.int64)
-    j = b_indices[local_j].astype(np.int64)
+    i = a_indices[local_i].astype(np.int64, copy=False)
+    j = b_indices[local_j].astype(np.int64, copy=False)
     return _finalize_pair_columns(i, j, corr, n_samples, r2_min)
 
 
@@ -280,8 +282,8 @@ def _emit_within_block_pairs(
     valid = global_i >= block_left[global_j]
     local_i, local_j = local_i[valid], local_j[valid]
     corr = correlation_matrix[local_i, local_j]
-    i = global_i[valid].astype(np.int64)
-    j = global_j[valid].astype(np.int64)
+    i = global_i[valid].astype(np.int64, copy=False)
+    j = global_j[valid].astype(np.int64, copy=False)
     return _finalize_pair_columns(i, j, corr, n_samples, r2_min)
 
 
@@ -294,8 +296,8 @@ def _finalize_pair_columns(
     least ``r2_min``; ``r2_min <= 0`` disables filtering so negative unbiased R2
     pairs are retained (exact backward-compatible completeness).
     """
-    r2 = _unbiased_r2_array(corr, n_samples).astype(np.float32)
-    sign = np.where(corr >= 0, np.int8(1), np.int8(-1)).astype(np.int8)
+    r2 = _unbiased_r2_array(corr, n_samples).astype(np.float32, copy=False)
+    sign = np.where(corr >= 0, np.int8(1), np.int8(-1))
     if r2_min > 0.0:
         keep = r2 >= r2_min
         i, j, r2, sign = i[keep], j[keep], r2[keep], sign[keep]
@@ -307,11 +309,13 @@ def _stash_pair_rows(pending: dict[int, _PendingPairs], columns: PairColumns) ->
     i, j, r2, sign = columns
     if i.size == 0:
         return
-    order = np.argsort(i, kind="stable")
+    # Emission yields left indices in order already; sorting is then the identity.
+    order = np.arange(i.size) if np.all(i[1:] >= i[:-1]) else np.argsort(i, kind="stable")
     boundaries = np.flatnonzero(np.diff(i[order])) + 1
     for segment in np.split(order, boundaries):
         bucket = pending.setdefault(int(i[segment[0]]), _PendingPairs([], [], []))
-        bucket.j.append(j[segment])
+        # Right indices are SNP rows of one chromosome, so int32 holds them while pending.
+        bucket.j.append(j[segment].astype(np.int32))
         bucket.r2.append(r2[segment])
         bucket.sign.append(sign[segment])
 
@@ -329,13 +333,14 @@ def _pop_pair_rows_before(
     flushable = sorted(i for i in pending if i < int(min_future_i))
     for i in flushable:
         bucket = pending.pop(i)
-        j = np.concatenate(bucket.j)
+        j = np.concatenate(bucket.j).astype(np.int64)
         r2 = np.concatenate(bucket.r2)
         sign = np.concatenate(bucket.sign)
-        order = np.argsort(j, kind="stable")
-        j = j[order]
+        if not np.all(j[1:] >= j[:-1]):
+            order = np.argsort(j, kind="stable")
+            j, r2, sign = j[order], r2[order], sign[order]
         i_arr = np.full(j.shape, i, dtype=np.int64)
-        yield (i_arr, j, r2[order], sign[order])
+        yield (i_arr, j, r2, sign)
 
 
 def yield_pairwise_r2_rows(

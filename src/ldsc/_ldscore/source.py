@@ -337,8 +337,9 @@ class LDScoreSource:
 
 
 def _same_identity_rows(identities: pd.DataFrame, baseline: pd.DataFrame) -> bool:
-    """Return whether every identity column equals the baseline column exactly, row by row."""
-    if len(identities) != len(baseline) or not set(identities.columns) <= set(baseline.columns):
+    """Return whether the identity columns are the baseline's, each equal to it exactly, row by row."""
+    expected = [name for name in ("CHR", "SNP", "POS", "A1", "A2") if name in baseline.columns]
+    if len(identities) != len(baseline) or list(identities.columns) != expected:
         return False
     for column in identities.columns:
         left, right = baseline[column].to_numpy(), identities[column].to_numpy()

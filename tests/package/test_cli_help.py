@@ -1,7 +1,6 @@
 """User-facing help must explain every option and list flags in guided step order."""
 
 import argparse
-import importlib
 import re
 
 import pytest
@@ -83,9 +82,7 @@ def _help_sections(parser):
 
 @pytest.fixture(scope="module")
 def commands():
-    parser = cli.build_parser()
-    return next(action for action in parser._actions
-                if isinstance(action, argparse._SubParsersAction)).choices
+    return {name: cli._command_parser(name) for name in cli._SUBCOMMAND_HELP}
 
 
 @pytest.mark.parametrize("command, inputs, default", [
@@ -176,18 +173,6 @@ def test_usage_shows_the_typical_command(commands, command):
         assert "or: ldsc ldscore --gene-ldscore-index-dir DIR --query-annot-gene-list-sources" in usage
 
 
-@pytest.mark.parametrize("command, module_name", [
-    ("ldscore", "ldsc._ldscore.calculator"),
-    ("build-r2-matrix", "ldsc._refpanel.builder"),
-    ("build-gene-ldscore-index", "ldsc._ldscore.gene_index.build"),
-    ("convert-legacy-ldscores", "ldsc._ldscore.legacy_converter"),
-    ("query-r2-matrix", "ldsc._refpanel.query"),
-])
-def test_unified_help_matches_workflow_parser(commands, command, module_name):
-    workflow_parser = importlib.import_module(module_name).build_parser()
-    assert commands[command].format_help() == workflow_parser.format_help()
-
-
 def test_help_cross_references_point_to_earlier_flags(commands):
     for name, parser in commands.items():
         order = [flag for _, flags in _help_sections(parser) for flag in flags]
@@ -259,13 +244,9 @@ def test_ldscore_padding_help_warns_against_double_padding(commands):
     assert "double padding" in help_text
 
 
-def test_munge_help_and_restriction_exclusion_match_workflow_parser(commands):
-    from ldsc._sumstats import munger as sumstats_munger
-
-    unified = commands["munge-sumstats"]
-    assert unified.format_help() == sumstats_munger.build_parser().format_help()
+def test_munge_restriction_options_are_mutually_exclusive(commands):
     with pytest.raises(SystemExit) as error:
-        unified.parse_args([
+        commands["munge-sumstats"].parse_args([
             "--raw-sumstats-file", "raw", "--output-dir", "out",
             "--sumstats-snps-file", "keep", "--no-snp-restriction",
         ])

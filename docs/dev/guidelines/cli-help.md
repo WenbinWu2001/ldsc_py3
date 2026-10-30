@@ -1,6 +1,6 @@
 # CLI flag descriptions and ordering
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-29
 
 These are the agreed rules for writing flag descriptions and organizing `--help` across all public `ldsc` commands. A user should be able to identify the inputs they need, understand what an option changes, and choose a valid combination without knowing the package implementation.
 
@@ -121,7 +121,7 @@ It brackets optional flags, groups alternatives as `(A | B)`, lists another mode
 Every flag it names must exist and every required flag must appear; the help tests check both.
 Other commands use the usage line that argparse generates from the order in which flags are added, so add flags in display order.
 Equivalent entry points must preserve the same usage, groups, and descriptions; verify the rendered help rather than assuming that copying parser actions preserves them.
-See [`cli.build_parser`, `cli.main`, and `cli._copy_actions`](../../../src/ldsc/cli.py).
+See [`cli.main` and `cli._command_parser`](../../../src/ldsc/cli.py).
 Do not add an examples section to `--help`; worked commands belong in the user guide.
 
 ## Common mistakes and better descriptions

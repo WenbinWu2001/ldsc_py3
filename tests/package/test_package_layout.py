@@ -7,6 +7,8 @@ from unittest import mock
 
 import pandas as pd
 
+from tests.cli_parsing import parse_command
+
 
 class PackageLayoutTest(unittest.TestCase):
     def test_installed_import_cli_and_resources_outside_repository(self):
@@ -108,7 +110,7 @@ print(ldsc.__file__)
     def test_cli_exposes_expected_subcommands(self):
         from ldsc import cli
 
-        parser = cli.build_parser()
+        parser = cli._build_top_level_parser()
         subparsers_action = next(
             action for action in parser._actions if action.__class__.__name__ == "_SubParsersAction"
         )
@@ -125,12 +127,8 @@ print(ldsc.__file__)
     def test_materializing_cli_subcommands_use_explicit_or_derived_output_directories(self):
         from ldsc import cli
 
-        parser = cli.build_parser()
-        subparsers_action = next(
-            action for action in parser._actions if action.__class__.__name__ == "_SubParsersAction"
-        )
-
-        for command, command_parser in subparsers_action.choices.items():
+        for command in cli._SUBCOMMAND_HELP:
+            command_parser = cli._command_parser(command)
             with self.subTest(command=command):
                 output_actions = [
                     action for action in command_parser._actions if action.dest == "output_dir"
@@ -195,10 +193,7 @@ print(ldsc.__file__)
             self.assertTrue(hasattr(annotation_builder, name), f"{name} should be public")
 
     def test_ldscore_subcommand_accepts_unified_path_flags(self):
-        from ldsc import cli
-
-        parser = cli.build_parser()
-        args = parser.parse_args(
+        args = parse_command(
             [
                 "ldscore",
                 "--output-dir",
@@ -224,9 +219,6 @@ print(ldsc.__file__)
         self.assertEqual(args.common_maf_min, 0.2)
 
     def test_all_output_subcommands_accept_overwrite_flag(self):
-        from ldsc import cli
-
-        parser = cli.build_parser()
         cases = [
             [
                 "annotate",
@@ -305,15 +297,13 @@ print(ldsc.__file__)
 
         for argv in cases:
             with self.subTest(command=argv[0]):
-                args = parser.parse_args(argv)
+                args = parse_command(argv)
                 self.assertTrue(args.overwrite)
 
     def test_ldscore_overwrite_flag_maps_to_output_config(self):
-        from ldsc import cli
         from ldsc._ldscore import calculator as ldscore_calculator
 
-        parser = cli.build_parser()
-        args = parser.parse_args(
+        args = parse_command(
             [
                 "ldscore",
                 "--output-dir",
@@ -334,10 +324,7 @@ print(ldsc.__file__)
         self.assertTrue(output_config.overwrite)
 
     def test_ldscore_subcommand_accepts_regr_snps_file_and_rejects_old_name(self):
-        from ldsc import cli
-
-        parser = cli.build_parser()
-        args = parser.parse_args(
+        args = parse_command(
             [
                 "ldscore",
                 "--output-dir",
@@ -357,10 +344,7 @@ print(ldsc.__file__)
         self.assertEqual(args.regr_snps_file, "filters/hm3.txt")
 
     def test_munge_sumstats_subcommand_accepts_sumstats_snps_file(self):
-        from ldsc import cli
-
-        parser = cli.build_parser()
-        args = parser.parse_args(
+        args = parse_command(
             [
                 "munge-sumstats",
                 "--raw-sumstats-file",
@@ -376,10 +360,7 @@ print(ldsc.__file__)
         self.assertEqual(args.sumstats_snps_file, "filters/hm3.tsv.gz")
 
     def test_munge_sumstats_subcommand_accepts_no_snp_restriction(self):
-        from ldsc import cli
-
-        parser = cli.build_parser()
-        args = parser.parse_args(
+        args = parse_command(
             [
                 "munge-sumstats",
                 "--raw-sumstats-file",
@@ -393,12 +374,9 @@ print(ldsc.__file__)
         self.assertEqual(args.command, "munge-sumstats")
         self.assertTrue(args.no_snp_restriction)
 
-    def test_ldscore_subcommand_rejects_removed_print_snps_and_regression_snps_flags(self):
-        from ldsc import cli
-
-        parser = cli.build_parser()
+    def test_ldscore_subcommand_rejects_legacy_print_snps_flag(self):
         with self.assertRaises(SystemExit):
-            parser.parse_args(
+            parse_command(
                 [
                     "ldscore",
                     "--output-dir",
@@ -413,29 +391,10 @@ print(ldsc.__file__)
                     "filters/print_snps.txt",
                 ]
             )
-        with self.assertRaises(SystemExit):
-            parser.parse_args(
-                [
-                    "ldscore",
-                    "--output-dir",
-                    "out/ldscores",
-                    "--baseline-annot",
-                    "baseline.annot.gz",
-                    "--bfile",
-                    "panel",
-                    "--ld-wind-snps",
-                    "10",
-                    "--regression-snps",
-                    "filters/hm3.txt",
-                ]
-            )
 
     def test_ldscore_subcommand_rejects_removed_out_flag(self):
-        from ldsc import cli
-
-        parser = cli.build_parser()
         with self.assertRaises(SystemExit) as exc:
-            parser.parse_args(
+            parse_command(
                 [
                     "ldscore",
                     "--out",
@@ -452,10 +411,7 @@ print(ldsc.__file__)
         self.assertNotEqual(exc.exception.code, 0)
 
     def test_build_ref_panel_subcommand_accepts_output_dir_and_no_panel_label(self):
-        from ldsc import cli
-
-        parser = cli.build_parser()
-        args = parser.parse_args(
+        args = parse_command(
             [
                 "build-r2-matrix",
                 "--plink-prefix",
@@ -486,11 +442,8 @@ print(ldsc.__file__)
         self.assertEqual(args.maf_min, 0.01)
 
     def test_old_maf_flag_is_rejected_for_reference_panel_workflows(self):
-        from ldsc import cli
-
-        parser = cli.build_parser()
         with self.assertRaises(SystemExit):
-            parser.parse_args(
+            parse_command(
                 [
                     "ldscore",
                     "--output-dir",
@@ -506,7 +459,7 @@ print(ldsc.__file__)
                 ]
             )
         with self.assertRaises(SystemExit):
-            parser.parse_args(
+            parse_command(
                 [
                     "build-r2-matrix",
                     "--plink-prefix",

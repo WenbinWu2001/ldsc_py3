@@ -1,9 +1,9 @@
 # Command-line reference
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-29
 
 LDSC3 provides one command, `ldsc`, with one subcommand per workflow; `python -m ldsc` is equivalent.
-This page lists every option of every subcommand, taken from the parser (`ldsc.cli.build_parser()`) on 2026-10-28.
+This page lists every option of every subcommand, taken on 2026-10-28 from the parsers that `ldsc.cli._command_parser()` returns.
 `ldsc <command> --help` shows the same text for the installed version, and a future documentation build will generate this page.
 Each table lists options in help order, where the help groups them into numbered steps followed by optional settings, computing resources and logging.
 Task guides are in the [user guide](../user-guide/index.md).

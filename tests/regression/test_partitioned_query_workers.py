@@ -15,6 +15,7 @@ from ldsc._regression import partitioned_parallel as parallel
 from ldsc.errors import LDSCInternalError
 from tests.regression.test_regression_streaming import batch_inputs, cli_inputs
 from tests.regression.test_partitioned_query_failures import concentrate_queries
+from tests.cli_parsing import parse_command
 
 
 @pytest.mark.parametrize("inputs", [
@@ -25,13 +26,12 @@ from tests.regression.test_partitioned_query_failures import concentrate_queries
 ])
 def test_cli_thread_contract(inputs, capsys):
     inputs = [*inputs, "--output-dir", "out"]
-    parser = cli.build_parser()
-    assert parser.parse_args(inputs).workers == 1
+    assert parse_command(inputs).workers == 1
     for value in ("1", "4", "-1", "-2", "-20"):
-        assert parser.parse_args([*inputs, "--workers", value]).workers == int(value)
+        assert parse_command([*inputs, "--workers", value]).workers == int(value)
     for value in ("0", "True", "False", "1.5", "1.0"):
         with pytest.raises(SystemExit) as error:
-            parser.parse_args([*inputs, "--workers", value])
+            parse_command([*inputs, "--workers", value])
         assert error.value.code == 2
         assert "argument --workers:" in capsys.readouterr().err
 

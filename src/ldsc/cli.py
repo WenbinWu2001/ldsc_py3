@@ -48,8 +48,7 @@ _USER_ERROR_TYPES = (
     ImportError,
 )
 
-# Single source of truth for the subcommand list shown in `ldsc --help`. Used by
-# both the full parser and the lightweight help parser so the two cannot drift.
+# Single source of truth for the subcommand list shown in `ldsc --help`.
 _SUBCOMMAND_HELP = {
     "infer-genome-build": "Inspect an artifact's genome build without writing files.",
     "annotate": "Find SNPs covered by BED intervals or gene boundaries.",
@@ -77,79 +76,59 @@ class _NoAbbrevArgumentParser(argparse.ArgumentParser):
         super().__init__(*args, **kwargs)
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """Build the top-level ``ldsc`` command parser.
+def _command_parser(command: str) -> argparse.ArgumentParser:
+    """Return the parser that ``ldsc <command>`` parses its arguments with.
 
-    Returns
-    -------
-    argparse.ArgumentParser
-        Parser whose subcommands mirror the supported public workflows.
+    Workflows with their own ``build_parser`` supply it; the others get a
+    no-abbreviation parser filled by their ``add_*_arguments`` function.
+    Workflow modules are imported only for the requested command.
     """
-    parser = _NoAbbrevArgumentParser(prog="ldsc", description="LDSC3 command line interface.")
-    subparsers = parser.add_subparsers(dest="command", required=True, parser_class=_NoAbbrevArgumentParser)
-
-    inspection_parser = subparsers.add_parser("infer-genome-build", help=_SUBCOMMAND_HELP["infer-genome-build"])
-    _add_build_inspection_arguments(inspection_parser)
-
-    annotate_parser = subparsers.add_parser("annotate", help=_SUBCOMMAND_HELP["annotate"])
-    annotation_builder.add_annotate_arguments(annotate_parser)
-
-    ldscore_parser = subparsers.add_parser("ldscore", help=_SUBCOMMAND_HELP["ldscore"])
-    _copy_actions(ldscore_parser, ldscore_calculator.build_parser())
-
-    ref_panel_parser = subparsers.add_parser("build-r2-matrix", help=_SUBCOMMAND_HELP["build-r2-matrix"])
-    _copy_actions(ref_panel_parser, r2_matrix_builder.build_parser())
-
-    gene_index_parser = subparsers.add_parser(
-        "build-gene-ldscore-index", help=_SUBCOMMAND_HELP["build-gene-ldscore-index"]
-    )
-    _copy_actions(gene_index_parser, gene_ldscore_index.build_parser())
-
-    converter_parser = subparsers.add_parser(
-        "convert-legacy-ldscores", help=_SUBCOMMAND_HELP["convert-legacy-ldscores"]
-    )
-    legacy_ldscore_converter = _load_legacy_ldscore_converter()
-    _copy_actions(converter_parser, legacy_ldscore_converter.build_parser())
-
-    sumstats_munger = _load_sumstats_munger()
-    munge_parser = subparsers.add_parser("munge-sumstats", help=_SUBCOMMAND_HELP["munge-sumstats"])
-    _copy_actions(munge_parser, sumstats_munger.build_parser())
-
-    regression_runner = _load_regression_runner()
-    h2_parser = subparsers.add_parser("h2", help=_SUBCOMMAND_HELP["h2"])
-    regression_runner.add_h2_arguments(h2_parser)
-
-    partitioned_parser = subparsers.add_parser("partitioned-h2", help=_SUBCOMMAND_HELP["partitioned-h2"])
-    regression_runner.add_partitioned_h2_arguments(partitioned_parser)
-
-    quantile_h2 = _load_quantile_h2()
-    quantile_parser = subparsers.add_parser("quantile-h2", help=_SUBCOMMAND_HELP["quantile-h2"])
-    quantile_h2.add_quantile_h2_arguments(quantile_parser)
-
-    rg_parser = subparsers.add_parser("rg", help=_SUBCOMMAND_HELP["rg"])
-    regression_runner.add_rg_arguments(rg_parser)
-
-    query_r2_matrix_parser = subparsers.add_parser("query-r2-matrix", help=_SUBCOMMAND_HELP["query-r2-matrix"])
-    _copy_actions(query_r2_matrix_parser, r2_matrix_query.build_parser())
-
-    h2_scale = _load_h2_scale()
-    conversion_parser = subparsers.add_parser(
-        "convert-h2-scale", help=_SUBCOMMAND_HELP["convert-h2-scale"]
-    )
-    h2_scale.add_convert_h2_scale_arguments(conversion_parser)
-
-    plotting = _load_plotting()
-    plot_parser = subparsers.add_parser("plot", help=_SUBCOMMAND_HELP["plot"])
-    plotting.add_plot_arguments(plot_parser)
+    if command == "annotate":
+        return annotation_builder.build_parser()
+    if command == "ldscore":
+        return ldscore_calculator.build_parser()
+    if command == "build-r2-matrix":
+        return r2_matrix_builder.build_parser()
+    if command == "build-gene-ldscore-index":
+        return gene_ldscore_index.build_parser()
+    if command == "convert-legacy-ldscores":
+        return _load_legacy_ldscore_converter().build_parser()
+    if command == "query-r2-matrix":
+        return r2_matrix_query.build_parser()
+    if command == "munge-sumstats":
+        return _load_sumstats_munger().build_parser()
+    descriptions = {
+        "infer-genome-build": _SUBCOMMAND_HELP["infer-genome-build"],
+        "convert-h2-scale": "Convert a saved observed-scale SNP heritability estimate to liability scale.",
+        "plot": "Create the approved plot for a canonical LDSC3 result directory.",
+        "h2": "Estimate heritability from munged summary statistics and LD scores.",
+        "partitioned-h2": "Estimate partitioned heritability with independent query models.",
+        "quantile-h2": "Project a fitted partitioned-heritability model onto continuous-annotation quantiles.",
+        "rg": "Estimate genetic correlation.",
+    }
+    parser = _NoAbbrevArgumentParser(prog=f"ldsc {command}", description=descriptions[command])
+    if command == "infer-genome-build":
+        _add_build_inspection_arguments(parser)
+    elif command == "convert-h2-scale":
+        _load_h2_scale().add_convert_h2_scale_arguments(parser)
+    elif command == "plot":
+        _load_plotting().add_plot_arguments(parser)
+    elif command == "quantile-h2":
+        _load_quantile_h2().add_quantile_h2_arguments(parser)
+    else:
+        regression_runner = _load_regression_runner()
+        {"h2": regression_runner.add_h2_arguments,
+         "partitioned-h2": regression_runner.add_partitioned_h2_arguments,
+         "rg": regression_runner.add_rg_arguments}[command](parser)
     return parser
 
 
 def _build_top_level_parser() -> argparse.ArgumentParser:
     """Build a parser that only lists subcommands, for help and usage messages.
 
-    The runtime help, no-argument, and unknown-command paths use this instead of
-    :func:`build_parser` so that ``ldsc --help`` does not import the SciPy-heavy
-    regression and munging workflows just to print the subcommand list.
+    The runtime help, no-argument, and unknown-command paths use this so that
+    ``ldsc --help`` does not import the SciPy-heavy regression and munging
+    workflows just to print the subcommand list.
 
     Returns
     -------
@@ -184,11 +163,7 @@ def main(argv: Sequence[str] | None = None):
         if command == "infer-genome-build":
             from ._genome.build_inspection import inspect_genome_build
 
-            parser = _NoAbbrevArgumentParser(
-                prog="ldsc infer-genome-build", description=_SUBCOMMAND_HELP[command],
-            )
-            _add_build_inspection_arguments(parser)
-            report = inspect_genome_build(parser.parse_args(subargv).path)
+            report = inspect_genome_build(_command_parser(command).parse_args(subargv).path)
             print(report)
             return report
         if command == "annotate":
@@ -200,58 +175,23 @@ def main(argv: Sequence[str] | None = None):
         if command == "build-gene-ldscore-index":
             return gene_ldscore_index.main(subargv)
         if command == "convert-legacy-ldscores":
-            legacy_ldscore_converter = _load_legacy_ldscore_converter()
-            return legacy_ldscore_converter.main(subargv)
+            return _load_legacy_ldscore_converter().main(subargv)
         if command == "query-r2-matrix":
             return r2_matrix_query.main(subargv)
-        if command == "convert-h2-scale":
-            h2_scale = _load_h2_scale()
-            parser = _NoAbbrevArgumentParser(
-                prog="ldsc convert-h2-scale",
-                description="Convert a saved observed-scale SNP heritability estimate to liability scale.",
-            )
-            h2_scale.add_convert_h2_scale_arguments(parser)
-            return h2_scale.run_convert_h2_scale_from_args(parser.parse_args(subargv))
-        if command == "plot":
-            plotting = _load_plotting()
-            parser = _NoAbbrevArgumentParser(
-                prog="ldsc plot",
-                description="Create the approved plot for a canonical LDSC3 result directory.",
-            )
-            plotting.add_plot_arguments(parser)
-            return plotting.run_plot_from_args(parser.parse_args(subargv))
         if command == "munge-sumstats":
-            sumstats_munger = _load_sumstats_munger()
-            return sumstats_munger.main(subargv)
-        if command == "h2":
-            regression_runner = _load_regression_runner()
-            parser = _NoAbbrevArgumentParser(prog="ldsc h2", description="Estimate heritability from munged summary statistics and LD scores.")
-            regression_runner.add_h2_arguments(parser)
-            parsed = parser.parse_args(subargv)
-            return regression_runner.run_h2_from_args(parsed)
-        if command == "partitioned-h2":
-            regression_runner = _load_regression_runner()
-            parser = _NoAbbrevArgumentParser(
-                prog="ldsc partitioned-h2",
-                description="Estimate partitioned heritability with independent query models.",
-            )
-            regression_runner.add_partitioned_h2_arguments(parser)
-            parsed = parser.parse_args(subargv)
-            return regression_runner.run_partitioned_h2_from_args(parsed)
+            return _load_sumstats_munger().main(subargv)
+        if command == "convert-h2-scale":
+            return _load_h2_scale().run_convert_h2_scale_from_args(_command_parser(command).parse_args(subargv))
+        if command == "plot":
+            return _load_plotting().run_plot_from_args(_command_parser(command).parse_args(subargv))
         if command == "quantile-h2":
-            quantile_h2 = _load_quantile_h2()
-            parser = _NoAbbrevArgumentParser(
-                prog="ldsc quantile-h2",
-                description="Project a fitted partitioned-heritability model onto continuous-annotation quantiles.",
-            )
-            quantile_h2.add_quantile_h2_arguments(parser)
-            return quantile_h2.run_quantile_h2_from_args(parser.parse_args(subargv))
-        if command == "rg":
+            return _load_quantile_h2().run_quantile_h2_from_args(_command_parser(command).parse_args(subargv))
+        if command in {"h2", "partitioned-h2", "rg"}:
             regression_runner = _load_regression_runner()
-            parser = _NoAbbrevArgumentParser(prog="ldsc rg", description="Estimate genetic correlation.")
-            regression_runner.add_rg_arguments(parser)
-            parsed = parser.parse_args(subargv)
-            return regression_runner.run_rg_from_args(parsed)
+            run = {"h2": regression_runner.run_h2_from_args,
+                   "partitioned-h2": regression_runner.run_partitioned_h2_from_args,
+                   "rg": regression_runner.run_rg_from_args}[command]
+            return run(_command_parser(command).parse_args(subargv))
     # Only top-level help, no arguments, or an unknown command reach this point;
     # every valid subcommand is dispatched above without importing the heavy
     # workflow modules. The lightweight parser keeps this path fast: it always
@@ -379,61 +319,6 @@ def _log_internal_error(exc: BaseException, *, workflow_advice: bool = True) -> 
         f"Internal error while running ldsc: {exc}.{pointer} "
         f"Report the command and package version with this error and any saved traceback.{hint}"
     )
-
-
-def _copy_actions(target: argparse.ArgumentParser, source: argparse.ArgumentParser) -> None:
-    """Clone the usage line, options, and their help groups without changing parsing rules.
-
-    This keeps the unified CLI aligned with the feature parsers defined in the
-    workflow modules without duplicating every flag definition in two places.
-    """
-    target.description = source.description
-    target.usage = source.usage
-    groups = {}
-    for group in source._action_groups:
-        if group in (source._positionals, source._optionals):
-            destination = target
-        else:
-            destination = target.add_argument_group(group.title, group.description)
-        for action in group._group_actions:
-            groups[id(action)] = destination
-    for group in source._mutually_exclusive_groups:
-        if not group._group_actions:
-            continue
-        parent = groups[id(group._group_actions[0])]
-        destination = parent.add_mutually_exclusive_group(required=group.required)
-        for action in group._group_actions:
-            groups[id(action)] = destination
-    for action in source._actions:
-        if action.dest == "help":
-            continue
-        option_strings = list(action.option_strings)
-        destination = groups.get(id(action), target)
-        kwargs = {
-            "dest": action.dest,
-            "default": action.default,
-            "required": action.required,
-            "help": action.help,
-        }
-        if getattr(action, "choices", None) is not None:
-            kwargs["choices"] = action.choices
-        if getattr(action, "type", None) is not None:
-            kwargs["type"] = action.type
-        if getattr(action, "nargs", None) is not None:
-            kwargs["nargs"] = action.nargs
-        if action.metavar is not None:
-            kwargs["metavar"] = action.metavar
-        if action.const is not None:
-            kwargs["const"] = action.const
-        if action.__class__.__name__ == "_StoreTrueAction":
-            destination.add_argument(*option_strings, action="store_true", default=action.default, help=action.help)
-        elif action.__class__.__name__ == "_StoreFalseAction":
-            destination.add_argument(*option_strings, action="store_false", default=action.default, help=action.help)
-        elif action.__class__.__name__ == "_StoreConstAction":
-            kwargs.pop("nargs", None)
-            destination.add_argument(*option_strings, action="store_const", **kwargs)
-        else:
-            destination.add_argument(*option_strings, **kwargs)
 
 
 def _load_regression_runner():

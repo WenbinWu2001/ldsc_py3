@@ -276,8 +276,8 @@ def run_annotate_from_args(args: argparse.Namespace) -> AnnotationBundle:
     Parameters
     ----------
     args : argparse.Namespace
-        Namespace produced by ``ldsc.cli.build_parser()`` or
-        ``parse_annotate_args()``.
+        Namespace produced by ``parse_annotate_args()``, which ``ldsc annotate``
+        uses.
 
     Returns
     -------

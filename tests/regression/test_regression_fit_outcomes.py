@@ -8,11 +8,11 @@ import pandas as pd
 import pytest
 
 from ldsc import GlobalConfig, RegressionConfig
-from ldsc import cli
 from ldsc._regression import runner as workflow
 from ldsc.errors import LDSCConfigError, LDSCUsageError
 from ldsc._regression.outputs import H2DirectoryWriter, H2OutputConfig
 from ldsc._sumstats.munger import SumstatsTable
+from tests.cli_parsing import parse_command
 
 
 def h2_dataset():
@@ -33,7 +33,7 @@ def h2_dataset():
 def _intercept_cli_config(command, flags):
     inputs = (["--sumstats-sources", "one.parquet", "two.parquet"] if command == "rg"
               else ["--sumstats-file", "one.parquet"])
-    args = cli.build_parser().parse_args([
+    args = parse_command([
         command, *inputs, "--ldscore-dir", "ldscores", "--output-dir", "results",
         "--num-blocks", "6", *flags,
     ])

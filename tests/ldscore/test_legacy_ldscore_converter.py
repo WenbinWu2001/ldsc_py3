@@ -11,11 +11,11 @@ import pandas as pd
 import pytest
 
 import ldsc
-from ldsc import cli
 from ldsc.errors import LDSCInputError
 from ldsc.config import GlobalConfig, RegressionConfig
 from ldsc._regression.runner import RegressionRunner
 from ldsc._sumstats.munger import SumstatsTable
+from tests.cli_parsing import parse_command
 
 
 def _write_text(path: Path, text: str) -> None:
@@ -80,8 +80,7 @@ def test_converter_is_public_and_cli_has_the_approved_minimal_arguments() -> Non
     assert callable(ldsc.convert_legacy_ldscores)
     assert ldsc.LegacyLDScoreConverter is not None
 
-    parser = cli.build_parser()
-    args = parser.parse_args(
+    args = parse_command(
         [
             "convert-legacy-ldscores",
             "--legacy-reference-dir",

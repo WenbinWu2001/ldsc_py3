@@ -5,6 +5,7 @@ import json
 import numpy as np
 import pandas as pd
 import pytest
+from tests.cli_parsing import parse_command
 
 def _write_result(tmp_path, *, name, metadata, filename, rows):
     result_dir = tmp_path / name
@@ -476,8 +477,7 @@ def test_plot_cli_writes_default_destination_and_rejects_output_dir(tmp_path):
 
     artifact = cli.main(["plot", "--result-dir", str(result_dir)])
     assert artifact.path == result_dir / "plots" / "functional_h2_enrichment.png"
-    parser = cli.build_parser()
     with pytest.raises(SystemExit):
-        parser.parse_args(
+        parse_command(
             ["plot", "--result-dir", str(result_dir), "--output-dir", str(tmp_path / "bad")]
         )

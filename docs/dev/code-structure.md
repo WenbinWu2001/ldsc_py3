@@ -156,7 +156,7 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 
 | Goal | Start here |
 | --- | --- |
-| change CLI flags or subcommand wiring | workflow `build_parser` / `add_*_arguments` functions, then `src/ldsc/cli.py` for dispatch and copied help groups; follow [CLI help guidelines](guidelines/cli-help.md) |
+| change CLI flags or subcommand wiring | workflow `build_parser` / `add_*_arguments` functions, then `src/ldsc/cli.py` for dispatch (`main`, `_command_parser`); follow [CLI help guidelines](guidelines/cli-help.md) |
 | change help wrapping or shared log-level wording | `src/ldsc/_runtime/cli_help.py:CLIHelpFormatter`, `src/ldsc/_runtime/workflow_logging.py:LOG_LEVEL_HELP`; verify `tests/package/test_cli_help.py` |
 | change path-token behavior | `src/ldsc/_runtime/paths.py` |
 | change output collision policy | `src/ldsc/_runtime/paths.py`, then the workflow writer that owns the artifact |

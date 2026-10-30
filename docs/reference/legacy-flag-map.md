@@ -1,6 +1,6 @@
 # Legacy LDSC to Current CLI Flag Map
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-29
 
 This document maps changed legacy LDSC flags to the supported `ldsc` commands and records the flag-cleanup decisions.
 Legacy LDSC source links point to `bulik/ldsc` at commit `aa33296`.
@@ -130,7 +130,7 @@ These mappings describe current workflows and are not additional changes made by
 | `munge_sumstats.py --no-alleles` | `--snp-identifier rsid` or `--snp-identifier chr_pos` | Choose a base mode explicitly; the default SNP identifier mode is `chr_pos_allele_aware`. |
 | `munge_sumstats.py --merge-alleles FILE` | No exact alias; packaged HM3 restriction is the default, `--sumstats-snps-file` replaces it, and `--no-snp-restriction` disables it | Current identity matching and downstream allele alignment have separate roles. A keep-list does not imply allele rewriting or liftover. |
 
-Sources: legacy LDSC [`ldsc.py`, parser](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldsc.py#L423) and [`munge_sumstats.py`, parser](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/munge_sumstats.py#L449); current [`cli.build_parser`](../../src/ldsc/cli.py), [`_ldscore.calculator.build_parser`](../../src/ldsc/_ldscore/calculator.py), [`_regression.runner` argument builders](../../src/ldsc/_regression/runner.py), and the [IO inventory, command sections](cli.md). Unlisted unsupported legacy options should not be assumed to have an automatic replacement.
+Sources: legacy LDSC [`ldsc.py`, parser](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldsc.py#L423) and [`munge_sumstats.py`, parser](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/munge_sumstats.py#L449); current [`cli._command_parser`](../../src/ldsc/cli.py), [`_ldscore.calculator.build_parser`](../../src/ldsc/_ldscore/calculator.py), [`_regression.runner` argument builders](../../src/ldsc/_regression/runner.py), and the [IO inventory, command sections](cli.md). Unlisted unsupported legacy options should not be assumed to have an automatic replacement.
 
 ## Legacy LDSC options with no current equivalent
 

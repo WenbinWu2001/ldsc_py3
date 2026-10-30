@@ -9,6 +9,7 @@ import pytest
 
 from ldsc._regression.estimators import liability_conversion_factor
 from ldsc.errors import LDSCInputError
+from tests.cli_parsing import parse_command
 
 def _write_h2_result(tmp_path):
     result_dir = tmp_path / "h2-result"
@@ -141,9 +142,8 @@ def test_conversion_cli_has_no_output_dir_and_writes_default_family(tmp_path):
     )
 
     assert result.table_path.is_file()
-    parser = cli.build_parser()
     with pytest.raises(SystemExit):
-        parser.parse_args(
+        parse_command(
             [
                 "convert-h2-scale",
                 "--h2-result-dir",

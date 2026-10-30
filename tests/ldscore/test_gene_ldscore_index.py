@@ -42,6 +42,7 @@ from ldsc._ldscore.gene_index.build import (
 from ldsc._ldscore.gene_index.artifact import calculate_index_id, IndexChromosomeData
 from ldsc._annotation.gene_lists import GeneCatalog, GeneCatalogValidationError
 from ldsc._ldscore.calculator import LDScoreCalculator
+from tests.cli_parsing import parse_command
 
 
 def load_gene_ldscore_index(path):
@@ -897,8 +898,7 @@ def test_build_index_help_exposes_matching_build_genetic_maps():
 
 @pytest.mark.parametrize("snp_identifier", ["rsid", "chr_pos"])
 def test_build_index_command_registers_explicit_base_identity(snp_identifier):
-    parser = cli.build_parser()
-    args = parser.parse_args(
+    args = parse_command(
         [
             "build-gene-ldscore-index", "--ld-wind-cm", "1",
             "--baseline-annot-sources", "baseline.@.annot.gz",
@@ -924,7 +924,7 @@ def test_build_index_command_registers_explicit_base_identity(snp_identifier):
 
 
 def test_build_index_command_accepts_custom_regression_snps_and_region_policy():
-    args = cli.build_parser().parse_args(
+    args = parse_command(
         [
             "build-gene-ldscore-index", "--ld-wind-cm", "1",
             "--baseline-annot-sources", "baseline.@.annot.gz",
@@ -1824,7 +1824,7 @@ def test_indexed_gene_lists_assemble_control_queries_and_canonical_output(tmp_pa
 
 
 def test_ldscore_parser_accepts_control_gene_list_file_in_indexed_mode():
-    args = cli.build_parser().parse_args(
+    args = parse_command(
         [
             "ldscore",
             "--output-dir", "out",

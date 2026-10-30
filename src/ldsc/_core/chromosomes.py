@@ -13,7 +13,8 @@ from ..errors import LDSCInputError
 
 LOGGER = logging.getLogger("LDSC.chromosomes")
 _LOGGED_NORMALIZATIONS: set[tuple[str, str, str, str]] = set()
-STANDARD_CHROMOSOMES = tuple([str(i) for i in range(1, 23)] + ["X", "Y", "MT", "M"])
+AUTOSOMES = tuple(str(i) for i in range(1, 23))
+STANDARD_CHROMOSOMES = AUTOSOMES + ("X", "Y", "MT", "M")
 _CHROMOSOME_ORDER = {chrom: idx for idx, chrom in enumerate(STANDARD_CHROMOSOMES, start=1)}
 
 

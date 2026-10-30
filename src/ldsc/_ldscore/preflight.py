@@ -17,7 +17,7 @@ from pathlib import Path
 import pandas as pd
 
 from .._annotation.parsing import normalize_annotation_chunk
-from .._core.chromosomes import chrom_sort_key, normalize_chromosome
+from .._core.chromosomes import AUTOSOMES, chrom_sort_key, normalize_chromosome
 from ..config import RefPanelConfig
 from ..errors import LDSCInputError, LDSCUserError
 from .._runtime.paths import inspect_plink_inputs, normalize_path_token, split_cli_path_tokens
@@ -26,7 +26,6 @@ from .._refpanel.adapters import RefPanelLoader
 from .._refpanel.r2_format import r2_matrix_chromosomes, resolve_r2_build_dir
 
 
-AUTOSOMES = list(map(str, range(1, 23)))
 ISSUE_COLUMNS = ["input_role", "source", "chrom", "reason", "details", "repair"]
 GLOB_CAVEAT = "Globs select their actual matches. A missing file may be undetectable when the remaining required artifacts consistently cover the same subset."
 SCOPE_REPAIR = (

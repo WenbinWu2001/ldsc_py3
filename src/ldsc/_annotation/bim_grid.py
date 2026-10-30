@@ -11,8 +11,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from .._core.chromosomes import AUTOSOMES
 from .identity_cleanup import DiskIdentityIndex, IdentityDropSpool
-from .preflight import AUTOSOMES, resolve_annotation_inputs
+from .preflight import resolve_annotation_inputs
 from .sources import (
     PreparedAnnotationSources, _Source, _metadata_chunks, _select_rows, _shard_path, _snp_row_counts,
 )

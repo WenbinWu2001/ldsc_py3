@@ -3,13 +3,12 @@
 import pandas as pd
 
 from .parsing import normalize_annotation_chunk
+from .._core.chromosomes import AUTOSOMES
 from .._runtime.preflight import input_issue, inspect_declared_inputs
 from .._runtime.paths import (
     normalize_path_token, normalize_path_tokens, resolve_file_group, split_cli_path_tokens,
 )
 from ..errors import LDSCInputError, LDSCUserError
-
-AUTOSOMES = tuple(map(str, range(1, 23)))
 
 
 def resolve_annotation_inputs(tokens, *, role='baseline'):

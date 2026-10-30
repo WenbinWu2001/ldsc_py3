@@ -22,7 +22,7 @@ from .._runtime.progress import report_phase, advance, PhaseProgress
 
 from .identity_cleanup import DiskIdentityIndex, IdentityDropSpool
 from .parsing import normalize_annotation_chunk
-from .preflight import AUTOSOMES
+from .._core.chromosomes import AUTOSOMES
 from .._runtime.preflight import INPUT_ISSUE_COLUMNS, input_issue
 from .storage import AnnotationShard, ColumnStore, FrameSpool
 from .tables import _annotation_parse_error_message, _validate_annotation_values

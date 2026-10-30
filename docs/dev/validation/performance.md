@@ -1,6 +1,6 @@
 # Performance Measurements
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-30
 
 This page records the measurements behind the package's resource guidance, each with its date, revision and limits.
 The raw reports and probe scripts are kept outside the repository; the summaries below are the in-repository record.
@@ -60,6 +60,23 @@ The raw pilot report, with workload boundaries, repetitions, cache measurements 
 
 An earlier local benchmark on chromosome 22 with 1,000 queries, before the current copy and publication improvements, measured 74.17, 47.63 and 30.47 seconds with 1, 2 and 4 workers, including preparation and publication.
 Its sampled peak process-tree RSS was 472, 1,048 and 1,507 MiB; these are not full-genome memory estimates.
+
+## Genetic correlation across many traits
+
+A local benchmark on 2026-10-30 compared `RegressionRunner.estimate_rg_pairs()` before (`daede5d`) and after (`e0f4f9a`) each trait's summary statistics were prepared once per run, with keyed rows cached per SNP identifier mode and downgrade cleanup.
+It used one synthetic LD-score panel of 330,000 SNPs over 22 chromosomes in `chr_pos_allele_aware` mode, and ten traits, nine in that mode and one in `chr_pos`, with `allow_identity_downgrade=True`; all 45 pairs were fitted, nine of them in the base mode.
+The run was in-process, so the peak RSS covers preparation and fitting together.
+
+| Revision | Wall time | Peak RSS | Peak RSS above the loaded inputs |
+| --- | ---: | ---: | ---: |
+| `daede5d`, each pair prepared separately | 165.4 s | 1,447 MiB | 1,010 MiB |
+| `e0f4f9a`, each trait prepared once | 49.0 s | 1,608 MiB | 1,163 MiB |
+
+All 45 pairs succeeded in both runs, and the sum of their `rg` estimates was identical.
+The time saved is the keying and downgrade cleanup that each pair used to repeat; the extra memory is the cached keyed rows, at most two copies per trait.
+Each revision ran once on a laptop whose swap was nearly full from other processes, so the wall times show the direction and rough size of the change rather than a stable speedup; a full HapMap3-sized run (1.2 million SNPs) was stopped because it was swapping.
+Memory grows with the number of SNPs and traits; at HapMap3 size expect roughly 3.7 times the extra memory measured here, but this was not measured.
+The benchmark script and its outputs are kept outside the repository.
 
 ## Indexed gene-list LD scoring
 

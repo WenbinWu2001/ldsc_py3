@@ -538,6 +538,7 @@ Each pair's merged dataset is still built separately inside that pair's error ha
 It computes the standalone per-trait heritability summaries once per trait; those are distinct from the pair-specific fits on pair-specific SNP intersections.
 There is no all-pairs merged-data cache or substitution of one trait's full-support fit for a pair-specific estimate.
 Current control flow is in `RegressionRunner.estimate_rg_pairs()`, with the per-trait state in `_PreparedTraitSumstats`.
+On ten synthetic traits of 330,000 SNPs this cut the run from 165 to 49 seconds and raised peak memory by about 15%; see [genetic correlation across many traits](../validation/performance.md#genetic-correlation-across-many-traits) for the conditions and limits.
 A cache of each trait already merged with the LD scores was rejected at design time: for fewer than ten traits it was estimated to save about 10% of wall time while holding 0.8–1.2 GB of extra state and roughly 3.5 times the code.
 Reusing one heritability fit across pairs is statistically invalid, because `RatioJackknife` in [`_regression/jackknife.py`](../../../src/ldsc/_regression/jackknife.py) combines the `hsq1`, `hsq2`, and `gencov` delete-block vectors element by element, so all three must come from the same pair-specific SNP partition.
 Parallelizing independent pairs across processes was identified as the larger potential gain and remains unimplemented.

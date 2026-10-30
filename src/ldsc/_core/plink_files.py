@@ -29,11 +29,6 @@ import pandas as pd
 from ..errors import LDSCInputError
 
 
-def read_csv(fh, **kwargs):
-    """Read a whitespace-delimited text file with legacy LDSC missing-value rules."""
-    return pd.read_csv(fh, sep=r'\s+', na_values='.', **kwargs)
-
-
 def get_compression(fh):
     '''Which sort of compression should we use with read_csv?'''
     if fh.endswith('gz'):

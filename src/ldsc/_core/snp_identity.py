@@ -27,7 +27,6 @@ import pandas as pd
 from .coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 
-SNPIdentifierMode = Literal["rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"]
 SNP_IDENTIFIER_MODES = ("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware")
 RSID_FAMILY_MODES = ("rsid", "rsid_allele_aware")
 ALLELE_AWARE_MODES = ("rsid_allele_aware", "chr_pos_allele_aware")

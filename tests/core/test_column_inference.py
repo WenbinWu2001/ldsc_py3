@@ -10,7 +10,6 @@ from ldsc._core.columns import (
     resolve_restriction_chr_pos_columns,
     resolve_restriction_rsid_column,
     resolve_required_column,
-    resolve_required_columns,
 )
 from ldsc.errors import LDSCConfigError, LDSCInputError
 
@@ -99,14 +98,12 @@ class ColumnInferenceTest(unittest.TestCase):
         self.assertEqual(resolve_required_column(["rs_id"], restriction_snp), "rs_id")
         self.assertEqual(resolve_required_column(["id"], restriction_snp), "id")
 
-        internal_specs = getattr(ci, "INTERNAL_LDSCORE_ARTIFACT_SPECS", None)
-        self.assertIsNotNone(internal_specs)
-        internal_snp = self._spec_by_canonical(internal_specs, "SNP")
-        internal_pos = self._spec_by_canonical(internal_specs, "POS")
+        internal_snp = ci.INTERNAL_SUMSTATS_ARTIFACT_SPEC_MAP["SNP"]
+        internal_pos = ci.INTERNAL_SUMSTATS_ARTIFACT_SPEC_MAP["POS"]
         with self.assertRaises(LDSCInputError):
-            resolve_required_column(["CHR", "rsid", "POS", "CM"], internal_snp)
+            resolve_required_column(["CHR", "rsid", "POS", "Z"], internal_snp)
         with self.assertRaises(LDSCInputError):
-            resolve_required_column(["CHR", "SNP", "BP", "CM"], internal_pos)
+            resolve_required_column(["CHR", "SNP", "BP", "Z"], internal_pos)
 
     def test_resolve_required_column_logs_when_alias_maps_to_canonical_field(self):
         with warnings.catch_warnings(record=True) as caught:

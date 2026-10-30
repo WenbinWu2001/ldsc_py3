@@ -7,10 +7,8 @@ position ``p`` is excluded iff some interval contains it, i.e.
 """
 from __future__ import annotations
 
-import gzip
 from dataclasses import dataclass
 from importlib import resources
-from os import PathLike
 from typing import Sequence
 
 import numpy as np
@@ -61,13 +59,11 @@ def regr_snps_exclude_regions_choice_to_presets(choice: str) -> tuple[str, ...]:
 
 @dataclass(frozen=True)
 class BedIntervalRow:
-    """One parsed BED interval row with source context."""
+    """One parsed BED interval row."""
 
     chrom: str
     start: int
     end: int
-    extra_fields: tuple[str, ...]
-    line_number: int
 
 
 @dataclass(frozen=True)
@@ -117,7 +113,7 @@ def _is_bed_header(fields: Sequence[str]) -> bool:
 
 
 def parse_bed_text(text: str, label: str) -> list[BedIntervalRow]:
-    """Parse standard BED3+ text into interval rows with line provenance."""
+    """Parse standard BED3+ text into interval rows."""
     return list(iter_bed_rows(text.splitlines(), label))
 
 
@@ -172,7 +168,7 @@ def iter_bed_rows(lines, label):
                 f"BED parsing failed in '{label}' line {lineno}: start {start} is not "
                 f"less than end {end}. BED intervals are 0-based half-open with start < end."
             )
-        yield BedIntervalRow(chrom, start, end, tuple(fields[3:]), lineno)
+        yield BedIntervalRow(chrom, start, end)
         seen_data = True
 
 
@@ -221,50 +217,6 @@ def load_preset_intervals(names: Sequence[str], build: str) -> RegionIntervals:
             ) from exc
         rows.extend(_parse_bed_text(text, label=f"{name}.{build}.bed"))
         labels.append(f"preset:{name}[{build}]")
-    return RegionIntervals(intervals=_intervals_from_rows(rows), source_labels=tuple(labels))
-
-
-def load_bed_intervals(paths: Sequence[str | PathLike[str]]) -> RegionIntervals:
-    """Read one or more user BED files, applied as-is on panel CHR/POS.
-
-    Parameters
-    ----------
-    paths : sequence of str or os.PathLike[str]
-        Standard BED files (0-based half-open). Chromosome tokens are
-        normalized (``chr6`` -> ``6``); overlapping intervals are coalesced.
-
-    Returns
-    -------
-    RegionIntervals
-        Union of all intervals across the supplied files, labeled ``bed:<path>``.
-    """
-    rows: list[tuple[str, int, int]] = []
-    labels: list[str] = []
-    for path in paths:
-        path_str = str(path)
-        try:
-            opener = gzip.open if path_str.lower().endswith(".gz") else open
-            with opener(path_str, "rt", encoding="utf-8") as handle:
-                text = handle.read()
-        except (FileNotFoundError, OSError) as exc:
-            raise LDSCInputError(
-                f"Region BED loading could not read user BED file '{path_str}'. Most likely "
-                "the path is wrong or unreadable. Provide an existing standard BED file."
-            ) from exc
-        rows.extend(_parse_bed_text(text, label=path_str))
-        labels.append(f"bed:{path_str}")
-    return RegionIntervals(intervals=_intervals_from_rows(rows), source_labels=tuple(labels))
-
-
-def merge_intervals(*groups: RegionIntervals) -> RegionIntervals:
-    """Union several RegionIntervals into one (coalescing overlaps per chromosome)."""
-    rows: list[tuple[str, int, int]] = []
-    labels: list[str] = []
-    for group in groups:
-        for chrom, bounds in group.intervals.items():
-            for start, end in bounds.tolist():
-                rows.append((chrom, int(start), int(end)))
-        labels.extend(group.source_labels)
     return RegionIntervals(intervals=_intervals_from_rows(rows), source_labels=tuple(labels))
 
 

@@ -32,11 +32,6 @@ class CoordinateDropReport:
     n_invalid_pos: int
     examples: list[dict[str, object]]
 
-    @property
-    def n_invalid_or_missing(self) -> int:
-        """Return the total number of rows removed by the coordinate policy."""
-        return self.n_dropped
-
 
 def coordinate_missing_mask(values: pd.Series) -> pd.Series:
     """Return rows whose coordinate token is missing or package NA-like."""

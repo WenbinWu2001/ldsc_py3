@@ -1,6 +1,6 @@
 # Column Schema: Canonical Names, Data Types, and Ordering
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-29
 
 This document is the single source of truth for column conventions across all
 Python-written artifacts in this package. It governs `_core/columns.py`, all
@@ -379,7 +379,6 @@ The following locations must be kept consistent with this document.
 | Location | What to keep in sync |
 |----------|---------------------|
 | `src/ldsc/_core/columns.py` — `INTERNAL_SUMSTATS_ARTIFACT_SPECS` | Tuple order: `CHR, POS, SNP, ...` |
-| `src/ldsc/_core/columns.py` — `INTERNAL_LDSCORE_ARTIFACT_SPECS` | Strict reload specs still include optional metadata fields used by internal/legacy readers: `CHR, POS, SNP, CM, MAF` |
 | `src/ldsc/_ldscore/calculator.py` — `_split_ldscore_table` | Public output order: baseline `CHR, SNP, POS, regression_ld_scores, ...`; query `CHR, SNP, POS, ...` |
 | `src/ldsc/_ldscore/outputs.py` — `_write_chromosome_aligned_parquet` | One row group per `CHR` in `ldscore.baseline.parquet` and each query batch file |
 | `src/ldsc/_ldscore/source.py` — `validate_ldscore_baseline_table` / `validate_ldscore_query_table` | Baseline requires `CHR`, `POS`, `SNP`, `regression_ld_scores`, and baseline columns; query requires `CHR`, `POS`, `SNP`, and query columns |

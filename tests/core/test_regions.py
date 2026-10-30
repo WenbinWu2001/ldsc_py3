@@ -1,4 +1,3 @@
-import gzip
 from importlib import resources
 
 import numpy as np
@@ -64,107 +63,60 @@ def test_load_preset_unknown_build_raises():
         regions.load_preset_intervals(["mhc"], "hg37")
 
 
-def test_load_bed_intervals_normalizes_chrom_and_merges(tmp_path):
-    bed = tmp_path / "user.bed"
-    bed.write_text("chr1\t100\t200\nchr1\t150\t300\n2\t10\t20\n", encoding="utf-8")
-    result = regions.load_bed_intervals([str(bed)])
+def test_interval_rows_normalize_chrom_and_merge_overlaps():
+    result = regions._intervals_from_rows([("chr1", 100, 200), ("chr1", 150, 300), ("2", 10, 20)])
     # chr1 -> "1"; overlapping [100,200)+[150,300) coalesce to [100,300)
-    assert result.intervals["1"].tolist() == [[100, 300]]
-    assert result.intervals["2"].tolist() == [[10, 20]]
-    assert result.source_labels == (f"bed:{bed}",)
+    assert result["1"].tolist() == [[100, 300]]
+    assert result["2"].tolist() == [[10, 20]]
 
 
-def test_load_bed_intervals_skips_non_interval_lines_and_standard_header(tmp_path):
-    bed = tmp_path / "user.bed"
-    bed.write_text(
+def test_interval_rows_merge_adjacent():
+    result = regions._intervals_from_rows([("1", 100, 200), ("1", 200, 300)])
+    # Adjacent half-open intervals coalesce into one contiguous block.
+    assert result["1"].tolist() == [[100, 300]]
+
+
+def _bed_rows(text: str) -> list[tuple[str, int, int]]:
+    return [(row.chrom, row.start, row.end) for row in regions.parse_bed_text(text, "user.bed")]
+
+
+def test_parse_bed_text_skips_non_interval_lines_and_standard_header():
+    text = (
         "\n# comment line\ntrack name=\"regions\"\nbrowser position chr1:1-1000\n"
-        "chrom\tstart\tend\tname\nchr1\t100\t200\tregion_a\n",
-        encoding="utf-8",
+        "chrom\tstart\tend\tname\nchr1\t100\t200\tregion_a\n"
     )
 
-    result = regions.load_bed_intervals([str(bed)])
-
-    assert result.intervals["1"].tolist() == [[100, 200]]
+    assert _bed_rows(text) == [("chr1", 100, 200)]
 
 
-def test_load_bed_intervals_skips_chrom_start_end_header_variant(tmp_path):
-    bed = tmp_path / "user.bed"
-    bed.write_text("chrom\tchromStart\tchromEnd\nchr2\t10\t20\n", encoding="utf-8")
-
-    result = regions.load_bed_intervals([str(bed)])
-
-    assert result.intervals["2"].tolist() == [[10, 20]]
+def test_parse_bed_text_skips_chrom_start_end_header_variant():
+    assert _bed_rows("chrom\tchromStart\tchromEnd\nchr2\t10\t20\n") == [("chr2", 10, 20)]
 
 
-def test_load_bed_intervals_accepts_gzip_bed(tmp_path):
-    bed = tmp_path / "user.bed.gz"
-    with gzip.open(bed, "wt", encoding="utf-8") as handle:
-        handle.write("chrom\tstart\tend\nchr1\t100\t200\n")
-
-    result = regions.load_bed_intervals([str(bed)])
-
-    assert result.intervals["1"].tolist() == [[100, 200]]
-
-
-def test_load_bed_intervals_merges_adjacent(tmp_path):
-    bed = tmp_path / "adjacent.bed"
-    bed.write_text("1\t100\t200\n1\t200\t300\n", encoding="utf-8")
-    result = regions.load_bed_intervals([str(bed)])
-    # Adjacent half-open intervals coalesce into one contiguous block.
-    assert result.intervals["1"].tolist() == [[100, 300]]
-
-
-def test_load_bed_intervals_malformed_row_raises(tmp_path):
-    bed = tmp_path / "bad.bed"
-    bed.write_text("1\t100\n", encoding="utf-8")
+def test_parse_bed_text_malformed_row_names_the_source():
     with pytest.raises(LDSCInputError, match="bad.bed"):
-        regions.load_bed_intervals([str(bed)])
+        regions.parse_bed_text("1\t100\n", "bad.bed")
 
 
-def test_load_bed_intervals_rejects_non_integer_coordinates(tmp_path):
-    bed = tmp_path / "bad_coordinates.bed"
-    bed.write_text("chr1\tstart\tend\tfeature\n", encoding="utf-8")
+def test_parse_bed_text_rejects_non_integer_coordinates():
     with pytest.raises(LDSCInputError, match="start/end are not integer coordinates"):
-        regions.load_bed_intervals([str(bed)])
+        _bed_rows("chr1\tstart\tend\tfeature\n")
 
 
-def test_load_bed_intervals_rejects_header_after_data(tmp_path):
-    bed = tmp_path / "bad_header.bed"
-    bed.write_text("chr1\t100\t200\nchrom\tstart\tend\n", encoding="utf-8")
-
+def test_parse_bed_text_rejects_header_after_data():
     with pytest.raises(LDSCInputError, match="header"):
-        regions.load_bed_intervals([str(bed)])
+        _bed_rows("chr1\t100\t200\nchrom\tstart\tend\n")
 
 
-def test_load_bed_intervals_rejects_multiple_leading_headers(tmp_path):
-    bed = tmp_path / "bad_headers.bed"
-    bed.write_text("chrom\tstart\tend\nchrom\tchromStart\tchromEnd\nchr1\t100\t200\n", encoding="utf-8")
-
+def test_parse_bed_text_rejects_multiple_leading_headers():
     with pytest.raises(LDSCInputError, match="header"):
-        regions.load_bed_intervals([str(bed)])
+        _bed_rows("chrom\tstart\tend\nchrom\tchromStart\tchromEnd\nchr1\t100\t200\n")
 
 
-def test_load_bed_intervals_rejects_invalid_standard_bed_bounds(tmp_path):
-    cases = {
-        "negative_start.bed": "chr1\t-1\t200\n",
-        "zero_length.bed": "chr1\t200\t200\n",
-        "reversed.bed": "chr1\t200\t100\n",
-    }
-    for filename, content in cases.items():
-        bed = tmp_path / filename
-        bed.write_text(content, encoding="utf-8")
-
-        with pytest.raises(LDSCInputError, match="start"):
-            regions.load_bed_intervals([str(bed)])
-
-
-def test_merge_intervals_unions_sources():
-    a = regions.load_preset_intervals(["mhc"], "hg19")
-    b = regions.RegionIntervals(intervals={"6": np.array([[40_000_000, 41_000_000]], dtype=np.int64)}, source_labels=("bed:x",))
-    merged = regions.merge_intervals(a, b)
-    # chr6 now has the MHC interval plus the extra disjoint interval, sorted
-    assert merged.intervals["6"].tolist() == [[25_000_000, 35_000_000], [40_000_000, 41_000_000]]
-    assert set(merged.source_labels) == {"preset:mhc[hg19]", "bed:x"}
+@pytest.mark.parametrize("content", ["chr1\t-1\t200\n", "chr1\t200\t200\n", "chr1\t200\t100\n"])
+def test_parse_bed_text_rejects_invalid_standard_bed_bounds(content):
+    with pytest.raises(LDSCInputError, match="start"):
+        _bed_rows(content)
 
 
 def _meta(chrom_pos: list[tuple[str, int]]) -> pd.DataFrame:

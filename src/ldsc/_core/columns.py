@@ -104,7 +104,6 @@ A2_COLUMN_SPEC = ColumnSpec(
     ("A2", "ALLELE2", "ALLELE_2", "OTHER_ALLELE", "NON_EFFECT_ALLELE", "ALT", "NEA"),
     "allele 2",
 )
-RESTRICTION_ALLELE_SPECS = (A1_COLUMN_SPEC, A2_COLUMN_SPEC)
 
 
 # Raw summary-stat alias families preserve legacy behavior and add current
@@ -175,15 +174,6 @@ INTERNAL_SUMSTATS_ARTIFACT_SPECS = (
 INTERNAL_SUMSTATS_ARTIFACT_SPEC_MAP = {
     spec.canonical: spec for spec in INTERNAL_SUMSTATS_ARTIFACT_SPECS
 }
-
-
-INTERNAL_LDSCORE_ARTIFACT_SPECS = (
-    _canonical_only_spec("CHR", "internal LD-score chromosome"),
-    _canonical_only_spec("POS", "internal LD-score position"),
-    _canonical_only_spec("SNP", "internal LD-score SNP identifier"),
-    _canonical_only_spec("CM", "internal LD-score centiMorgan"),
-    _canonical_only_spec("MAF", "internal LD-score minor-allele frequency"),
-)
 
 
 def build_cleaned_alias_lookup(specs: Sequence[ColumnSpec]) -> dict[str, str]:
@@ -289,16 +279,6 @@ def resolve_optional_column(
     actual = matches[0]
     _log_if_inferred(spec.canonical, actual, context)
     return actual
-
-
-def resolve_required_columns(
-    columns: Iterable[str],
-    specs: Sequence[ColumnSpec],
-    *,
-    context: str | None = None,
-) -> dict[str, str]:
-    """Resolve many required canonical fields from one header/schema."""
-    return {spec.canonical: resolve_required_column(columns, spec, context=context) for spec in specs}
 
 
 def infer_snp_column(header: Iterable[str], *, context: str | None = None) -> str:

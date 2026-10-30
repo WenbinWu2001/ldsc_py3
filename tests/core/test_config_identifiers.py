@@ -33,7 +33,7 @@ from ldsc._core.identifiers import (
     read_snp_restriction_keys,
     validate_unique_snp_ids,
 )
-from ldsc._core.columns import A1_COLUMN_SPEC, A2_COLUMN_SPEC, RESTRICTION_ALLELE_SPECS
+from ldsc._core.columns import A1_COLUMN_SPEC, A2_COLUMN_SPEC
 from ldsc._core.row_alignment import assert_same_snp_rows
 
 
@@ -622,10 +622,9 @@ class IdentifierHelpersTest(unittest.TestCase):
 
 
 class RestrictionReadersTest(unittest.TestCase):
-    def test_restriction_allele_specs_treat_ref_alt_as_external_aliases(self):
+    def test_allele_specs_treat_ref_alt_as_external_aliases(self):
         self.assertEqual(A1_COLUMN_SPEC.canonical, "A1")
         self.assertEqual(A2_COLUMN_SPEC.canonical, "A2")
-        self.assertEqual(RESTRICTION_ALLELE_SPECS, (A1_COLUMN_SPEC, A2_COLUMN_SPEC))
         self.assertIn("REF", A1_COLUMN_SPEC.aliases)
         self.assertIn("ALT", A2_COLUMN_SPEC.aliases)
 

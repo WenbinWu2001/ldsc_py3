@@ -96,7 +96,6 @@ from .._refpanel.funnel import (
     read_reference_snp_funnel,
 )
 from .._refpanel.prepared import ChromosomeAnnotations
-from .._refpanel.r2_format import read_r2_parquet_contract
 from .._core import regions as kernel_regions
 from .._annotation.overlap import OverlapContribution, sum_overlap_contributions
 from .._core.regions import REGR_SNPS_EXCLUDE_REGIONS_CHOICES, regr_snps_exclude_regions_choice_to_presets
@@ -124,7 +123,6 @@ _QUERY_REQUIRES_BASELINE_MESSAGE = (
 _LDSCORE_INTERSECTION_DOC = (
     "docs/user-guide/troubleshooting.md#ldscore-no-reference-snps-remain-on-the-annotation-snp-grid"
 )
-_LDSCORE_PARQUET_DOC = "docs/user-guide/troubleshooting.md#ldscore-r2-matrix-is-incompatible"
 
 
 @dataclass(frozen=True)
@@ -1408,7 +1406,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
                 plink=getattr(args, 'plink_prefix', None), require_complete_suite=has_queries,
                 mode=getattr(args, 'snp_identifier', 'rsid'), issues_path=output_dir/'diagnostics/input_issues.tsv',
                 checks=[('reference', args.r2_matrix_dir, lambda: inspect_r2_headers(
-                    args.r2_matrix_dir, getattr(args, 'genome_build', None), ldscore_args=args))]
+                    args.r2_matrix_dir, getattr(args, 'genome_build', None), command='ldscore', ldscore_args=args))]
                        if getattr(args, 'r2_matrix_dir', None) else ())
             batch = catalog = None
             if _has_cli_tokens(getattr(args,"query_annot_gene_list_sources",None)):
@@ -2254,7 +2252,7 @@ def _ld_window_snp_counts(ref_panel, ldscore_config: LDScoreConfig, chromosome_r
     rows = [
         {
             "CHR": str(result.chrom),
-            "panel_snps": read_r2_parquet_contract(ref_panel.resolve_r2_paths(result.chrom)[0]).n_snps,
+            "panel_snps": ref_panel.open_chromosome(result.chrom).contract.n_snps,
             "kept_snps": int(result.reference_snp_count),
             "ld_wind_snps": int(ldscore_config.ld_wind_snps),
             "counting_basis": "panel_rows",
@@ -2274,17 +2272,15 @@ def _check_parquet_reference(ref_panel, chromosomes, ldscore_config: LDScoreConf
         return
     from .._runtime.preflight import InputGate
     from .._refpanel.preflight import inspect_r2_headers
-    from .preflight import read_r2_sidecar_for_chromosome
 
     def check_sidecar(chrom):
-        path = ref_panel.resolve_metadata_paths(chrom)[0]
-        metadata = read_r2_sidecar_for_chromosome(path, chrom, global_config)
-        ref_panel.build_reader(chrom, metadata=metadata).close()
+        chromosome = ref_panel.open_chromosome(chrom)
+        chromosome.pair_reader(chromosome.sidecar(), global_config.snp_identifier, global_config.genome_build).close()
 
     r2_matrix_dir = ref_panel.spec.r2_matrix_dir
     gate = InputGate("R2 matrix validation")
     gate.check("reference", r2_matrix_dir, lambda: inspect_r2_headers(
-        r2_matrix_dir, global_config.genome_build, ldscore_args=ldscore_config))
+        r2_matrix_dir, global_config.genome_build, command="ldscore", ldscore_args=ldscore_config))
     for chrom in chromosomes:
         gate.check("reference", r2_matrix_dir, lambda chrom=chrom: check_sidecar(chrom), chrom=chrom)
     gate.finish()

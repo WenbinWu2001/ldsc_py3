@@ -13,7 +13,6 @@ import argparse
 import logging
 import sys
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Sequence
 
 import numpy as np
@@ -22,15 +21,10 @@ import pandas as pd
 from .._runtime.cli_help import CLIHelpFormatter
 from .._runtime.workflow_logging import LOG_LEVEL_HELP
 from .._core.identifiers import build_snp_id_series
-from .r2_format import _load_full_panel_sidecar, _validate_index_binding, read_r2_parquet_contracts
-from .r2_format import lookup_pairs_in_parquet
+from .r2_format import R2MatrixChromosome, lookup_pairs_in_parquet, r2_matrix_chromosomes, resolve_r2_build_dir
 from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from .outputs import QueryR2MatrixDirectoryWriter, QueryR2MatrixOutputConfig
 from .._runtime.paths import ensure_output_directory
-from .adapters import (
-    _r2_matrix_dir_metadata_paths,
-    _r2_matrix_dir_r2_paths,
-)
 from .._core.snp_identity import (
     COMPLEMENT,
     allele_set_series,
@@ -134,7 +128,6 @@ def query_r2_matrix(
 class _ChromState:
     """Cached per-chromosome state for one open R2 matrix chromosome."""
 
-    sidecar: pd.DataFrame
     key_index: pd.Index          # identity key -> row position (unique)
     a1: np.ndarray               # R2 matrix A1 (object), aligned to sidecar rows
     a2: np.ndarray               # R2 matrix A2 (object), aligned to sidecar rows
@@ -148,17 +141,15 @@ class R2Matrix:
 
     Open once with :meth:`open`, then call :meth:`query_pairs` many times.
     :meth:`open` validates every chromosome's parquet footer up front. Each
-    chromosome's sidecar, sidecar-binding check, identity-key map, and parquet
-    handle are loaded lazily on first touch, then cached.
+    chromosome's sidecar (validated and bound to its parquet), identity-key map,
+    and parquet handle are loaded lazily on first touch, then cached.
     """
 
-    def __init__(self, paths: dict[str, tuple[str, str]], snp_identifier: str, contracts: dict) -> None:
-        """Store the resolved ``{chrom: (meta, parquet)}`` map, active mode, and validated contracts."""
-        self._paths = paths
+    def __init__(self, chromosomes: dict[str, R2MatrixChromosome], snp_identifier: str) -> None:
+        """Store the opened ``{chrom: R2MatrixChromosome}`` map and the active mode."""
+        self._chromosomes = chromosomes
         self._mode = snp_identifier
-        self._contracts = contracts
         self._state: dict[str, _ChromState] = {}
-        self._validate_binding = True
 
     @classmethod
     def open(
@@ -167,7 +158,6 @@ class R2Matrix:
         *,
         snp_identifier: str | None = None,
         genome_build: str | None = None,
-        validate_binding: bool = True,
     ) -> "R2Matrix":
         """Open an R2 matrix directory and lazily cache chromosomes on first use.
 
@@ -176,12 +166,11 @@ class R2Matrix:
         ``snp_identifier`` uses the mode recorded in R2 matrix metadata. Each
         chromosome requires a Parquet satisfying the ``build-r2-matrix``
         metadata contract and its matching SNP sidecar; every chromosome's
-        Parquet metadata is validated here, and all defects are reported in
-        one error. An explicit ``snp_identifier`` must be the R2 matrix's recorded
-        mode or that mode's base form. ``validate_binding=True``
-        checks the sidecar's identity hash and row count when loading a
-        chromosome; disabling it does not relax the required metadata. Returns
-        a reusable :class:`R2Matrix` handle.
+        files and Parquet metadata are validated here, and all defects are
+        reported in one error. Each sidecar is validated against its parquet's
+        identity hash and row count when its chromosome is first queried. An
+        explicit ``snp_identifier`` must be the R2 matrix's recorded mode or
+        that mode's base form. Returns a reusable :class:`R2Matrix` handle.
         """
         if r2_matrix_dir is None:
             raise LDSCUsageError(
@@ -190,20 +179,9 @@ class R2Matrix:
                 "containing R2 Parquet files."
             )
 
-        paths: dict[str, tuple[str, str]] = {}
-        r2_paths = _r2_matrix_dir_r2_paths(r2_matrix_dir, genome_build=genome_build, chrom=None)
-        for r2 in r2_paths:
-            chrom = _chrom_from_r2_path(r2)
-            meta = _r2_matrix_dir_metadata_paths(r2_matrix_dir, genome_build=genome_build, chrom=chrom)
-            if not meta:
-                raise LDSCInputError(
-                    f"R2Matrix could not find the metadata sidecar for chromosome {chrom} "
-                    f"next to '{r2}'. Most likely the `chr{chrom}_meta.tsv.gz` sidecar was "
-                    "not copied with the parquet. Restore the sidecar or regenerate the R2 matrix."
-                )
-            paths[chrom] = (meta[0], r2)
-
-        if not paths:
+        build_dir = resolve_r2_build_dir(r2_matrix_dir, genome_build)
+        members = r2_matrix_chromosomes(build_dir)
+        if not members:
             raise LDSCInputError(
                 f"Could not open R2 matrix '{r2_matrix_dir}': no chr*_r2.parquet files were found. "
                 "The directory may not contain build-r2-matrix outputs, or the selected genome-build "
@@ -211,9 +189,11 @@ class R2Matrix:
                 "and check --genome-build."
             )
 
-        contracts = dict(zip(paths, read_r2_parquet_contracts([r2 for _, r2 in paths.values()])))
-        panel_modes = sorted({contract.snp_identifier for contract in contracts.values()})
-        sample_sizes = sorted({contract.n_samples for contract in contracts.values()})
+        chromosomes = {chromosome.chrom: chromosome for chromosome in
+                       R2MatrixChromosome.open_all(build_dir, members, command="query-r2-matrix")}
+        contracts = [chromosome.contract for chromosome in chromosomes.values()]
+        panel_modes = sorted({contract.snp_identifier for contract in contracts})
+        sample_sizes = sorted({contract.n_samples for contract in contracts})
         mixed = []
         if len(panel_modes) > 1:
             mixed.append(f"different SNP identifier modes ({', '.join(panel_modes)})")
@@ -234,20 +214,18 @@ class R2Matrix:
                 f"built in {panel_mode} mode. An R2 matrix answers only its own mode or that mode's base "
                 f"form ({' or '.join(allowed)}). Use one of those modes, or an R2 matrix built in {mode} mode."
             )
-        matrix = cls(paths, mode, contracts)
-        if matrix._mode.startswith('chr_pos'):
+        if mode.startswith('chr_pos'):
             from .._genome.build_policy import GenomeBuildCheck
             check = GenomeBuildCheck(genome_build, context='query-r2-matrix', logger=LOGGER)
-            for _, parquet_path in paths.values():
-                check.table('--r2-matrix-dir', parquet_path)
+            for chromosome in chromosomes.values():
+                check.table('--r2-matrix-dir', chromosome.parquet_path)
             check.resolve()
-        matrix._validate_binding = validate_binding
-        return matrix
+        return cls(chromosomes, mode)
 
     @property
     def chromosomes(self) -> list[str]:
-        """Chromosomes available in this R2 matrix (in resolved order)."""
-        return list(self._paths.keys())
+        """Chromosomes available in this R2 matrix, in genomic order."""
+        return list(self._chromosomes)
 
     @property
     def snp_identifier(self) -> str:
@@ -257,31 +235,25 @@ class R2Matrix:
     @property
     def n_samples(self) -> int:
         """Reference sample size, which :meth:`open` requires to agree across chromosome files."""
-        return next(iter(self._contracts.values())).n_samples
+        return next(iter(self._chromosomes.values())).contract.n_samples
 
     def _chrom_state(self, chrom: str) -> _ChromState:
         """Load and cache per-chromosome state on first touch."""
         chrom = normalize_chromosome(chrom)
         if chrom in self._state:
             return self._state[chrom]
-        if chrom not in self._paths:
+        if chrom not in self._chromosomes:
             raise LDSCInputError(
                 f"The R2 matrix has no chromosome {chrom}; available chromosomes: {self.chromosomes}. "
                 "The query requests a chromosome absent from this R2 matrix. "
                 "Check the selected R2 matrix directory and genome build, or use an R2 matrix covering "
                 "the intended query chromosome."
             )
-        meta_path, r2_path = self._paths[chrom]
-        contract = self._contracts[chrom]
+        chromosome = self._chromosomes[chrom]
         import pyarrow.parquet as pq
 
-        sidecar = _load_full_panel_sidecar(r2_path)
-        pf = pq.ParquetFile(r2_path)
-        if self._validate_binding:
-            _validate_index_binding(
-                sidecar, n_snps=contract.n_snps, identity_hash=contract.sidecar_identity_sha256,
-                context=f"R2Matrix[{chrom}] {r2_path}",
-            )
+        sidecar = chromosome.sidecar()
+        pf = pq.ParquetFile(chromosome.parquet_path)
         key = build_snp_id_series(sidecar, self._mode)
         key_index = pd.Index(key)
         if key_index.has_duplicates:
@@ -292,13 +264,12 @@ class R2Matrix:
                 "in chr_pos). Use an allele-aware mode."
             )
         state = _ChromState(
-            sidecar=sidecar,
             key_index=key_index,
             a1=sidecar["A1"].to_numpy(dtype=object),
             a2=sidecar["A2"].to_numpy(dtype=object),
             parquet_file=pf,
-            n_snps=contract.n_snps,
-            r2_scale=contract.r2_scale,
+            n_snps=chromosome.contract.n_snps,
+            r2_scale=chromosome.contract.r2_scale,
         )
         self._state[chrom] = state
         return state
@@ -321,7 +292,7 @@ class R2Matrix:
 
         if family == "chr_pos" or "CHR" in endpoint.columns:
             chroms = endpoint["CHR"].map(lambda v: normalize_chromosome(v)).to_numpy(dtype=object)
-            for chrom in {c for c in chroms if c in self._paths}:
+            for chrom in {c for c in chroms if c in self._chromosomes}:
                 rows = np.where(chroms == chrom)[0]
                 state = self._chrom_state(chrom)
                 positions = state.key_index.get_indexer(keys[rows])
@@ -333,7 +304,7 @@ class R2Matrix:
                 pa2_out[sel] = state.a2[positions[found]]
         else:
             # rsid family without CHR column: search every chromosome.
-            for chrom in self._paths:
+            for chrom in self._chromosomes:
                 state = self._chrom_state(chrom)
                 positions = state.key_index.get_indexer(keys)
                 found = (positions >= 0) & (idx_out < 0)
@@ -449,17 +420,6 @@ class R2Matrix:
                 "--snp-identifier matching the R2 matrix and provide A1/A2 for both query endpoints."
             )
         return unbiased_r2_to_pearson_r(r2.astype(np.float64), n_samples, sign=sign_float)
-
-
-def _chrom_from_r2_path(r2_path: str) -> str:
-    """Extract the chromosome label from a ``chr{N}_r2.parquet`` path."""
-    name = Path(r2_path).name
-    if not name.startswith("chr") or not name.endswith("_r2.parquet"):
-        raise LDSCInputError(
-            f"R2Matrix expected a canonical `chr{{N}}_r2.parquet` filename but got '{name}'. "
-            "Most likely a non-panel parquet was passed. Pass an R2 Parquet file written by build-r2-matrix."
-        )
-    return normalize_chromosome(name[len("chr") : -len("_r2.parquet")])
 
 
 def _query_keys(endpoint: pd.DataFrame, mode: str) -> np.ndarray:
@@ -656,7 +616,8 @@ def _write_query_r2_matrix_directory(args: argparse.Namespace, pairs: pd.DataFra
         from .preflight import inspect_r2_headers
         from .._runtime.progress import PhaseProgress
         inspect_declared_inputs(files=[] if args.pairs_file == '-' else [('pairs', args.pairs_file)],
-            checks=[('reference', args.r2_matrix_dir, lambda: inspect_r2_headers(args.r2_matrix_dir, args.genome_build))],
+            checks=[('reference', args.r2_matrix_dir, lambda: inspect_r2_headers(
+                args.r2_matrix_dir, args.genome_build, command='query-r2-matrix'))],
             issues_path=diagnostics_dir/'input_issues.tsv')
         if pairs is None:
             with PhaseProgress(LOGGER, 'validation', 'pair input loading'):

@@ -29,6 +29,19 @@ _INPUT_ERRORS = (OSError, ValueError, KeyError, EOFError, LDSCUserError)
 _BUILDS = frozenset(("hg19", "hg38"))
 _SAMPLE_ROWS = 5000
 
+# R2 matrix file names. ``_refpanel.r2_format.r2_matrix_file_paths`` owns them, but
+# this lower tier cannot import it; tests/refpanel/test_r2_matrix_chromosome.py
+# checks that the two spellings agree.
+R2_PARQUET_GLOB = "chr*_r2.parquet"
+
+
+def r2_sidecar_path(path) -> Path | None:
+    """Return the sidecar paired with an R2 Parquet file, or None for any other file name."""
+    path = Path(path)
+    if not path.name.endswith("_r2.parquet"):
+        return None
+    return path.with_name(path.name.removesuffix("_r2.parquet") + "_meta.tsv.gz")
+
 
 @dataclass(frozen=True)
 class BuildEvidence:
@@ -158,12 +171,12 @@ class GenomeBuildCheck:
     def r2(self, role, directory):
         """Inspect selected R2 matrix shards, treating build children as alternatives."""
         root = Path(directory)
-        paths = sorted(root.glob('chr*_r2.parquet'))
+        paths = sorted(root.glob(R2_PARQUET_GLOB))
         if paths:
             for path in paths:
                 self.table(role, path)
             return
-        alternatives = {build: sorted((root / build).glob('chr*_r2.parquet')) for build in _BUILDS}
+        alternatives = {build: sorted((root / build).glob(R2_PARQUET_GLOB)) for build in _BUILDS}
         alternatives = {build: paths for build, paths in alternatives.items() if paths}
         if not alternatives:
             self.unresolved(role, root, 'no R2 Parquet files found')
@@ -271,11 +284,8 @@ class GenomeBuildCheck:
         the sidecar has no separate declaration. Runtime binding checks still
         validate that the sidecar describes the same SNP order and identities.
         """
-        path = Path(path)
-        if not path.name.endswith("_r2.parquet"):
-            return
-        sidecar = path.with_name(path.name.removesuffix("_r2.parquet") + "_meta.tsv.gz")
-        if sidecar.is_file():
+        sidecar = r2_sidecar_path(path)
+        if sidecar is not None and sidecar.is_file():
             try:
                 build = _text_options(sidecar)[1].get("genome_build")
                 if build:

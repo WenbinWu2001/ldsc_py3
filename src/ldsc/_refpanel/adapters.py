@@ -12,10 +12,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import replace
 from types import SimpleNamespace
-import gzip
 import logging
-from pathlib import Path
-import re
 from typing import Any
 
 import numpy as np
@@ -23,14 +20,7 @@ import pandas as pd
 
 from .._core.coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from .._core.chromosomes import chrom_sort_key, normalize_chromosome
-from .._core.columns import (
-    A1_COLUMN_SPEC,
-    A2_COLUMN_SPEC,
-    REFERENCE_METADATA_SPEC_MAP,
-    normalize_genome_build,
-    resolve_optional_column,
-    resolve_required_column,
-)
+from .._core.columns import normalize_genome_build
 from ..config import GlobalConfig, LDScoreConfig, RefPanelConfig, validate_config_compatibility
 from ..errors import EmptyReferenceSNPs, LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from .._genome.build_inference import resolve_genome_build, validate_auto_genome_build_mode
@@ -41,10 +31,10 @@ from .funnel import ANNOTATION_SNP_GRID, REFERENCE_PANEL, ReferenceSNPFunnel
 from .plink import PlinkBEDFile
 from .prepared import ChromosomeAnnotations, PreparedChromosome
 from .r2_format import (
-    SortedR2BlockReader,
-    read_r2_parquet_contract,
-    reject_truncated_r2_matrix,
-    validate_ldscore_window_within_r2_matrix_window,
+    R2_MATRIX_TROUBLESHOOTING,
+    R2MatrixChromosome,
+    r2_matrix_chromosomes,
+    resolve_r2_build_dir,
 )
 from .windows import (
     assert_cm_usable,
@@ -67,12 +57,9 @@ from .._core.snp_identity import (
     identity_mode_family,
     is_allele_aware_mode,
     restriction_membership_mask,
-    validate_identity_artifact_metadata,
 )
 
 LOGGER = logging.getLogger("LDSC.ref_panel")
-_R2_MATRIX_RE = re.compile(r"^chr(?P<chrom>.+)_r2\.parquet$", flags=re.IGNORECASE)
-_REF_PANEL_ARTIFACT_DOC = "docs/user-guide/troubleshooting.md#build-r2-matrix-reference-panel-artifact-is-incompatible"
 
 
 def _snp_id_series_for_matching(metadata: pd.DataFrame, snp_identifier: str, *, context: str) -> pd.Series:
@@ -425,38 +412,31 @@ class R2MatrixRefPanel(RefPanel):
     """
     Reference-panel adapter for R2 matrices.
 
-    The metadata sidecar (``chrN_meta.tsv.gz``) is mandatory and authoritative:
-    ``load_metadata()`` reads it, applies ``ref_panel_snps_file`` to form A',
-    and returns the restricted table to the LD-score workflow. A missing sidecar
-    is a hard error. The paired R2 Parquet file (``chrN_r2.parquet``) stores only
-    sidecar-row indices and is meaningless without the exact matching sidecar.
+    Each chromosome is read through one :class:`R2MatrixChromosome`: the
+    sidecar (``chrN_meta.tsv.gz``) is mandatory and authoritative for SNP
+    identity, CM and MAF, and the paired R2 Parquet file (``chrN_r2.parquet``)
+    stores only sidecar-row indices, meaningless without the exact matching
+    sidecar. ``load_metadata()`` applies ``ref_panel_snps_file`` and
+    ``maf_min`` to the sidecar and returns the restricted table.
     """
     _backend = "r2_matrix"
 
     def available_chromosomes(self) -> list[str]:
-        """List chromosomes from explicit config, R2 matrix directory, sidecars, or R2 Parquet files."""
+        """List chromosomes from explicit config or from the files in the R2 matrix directory."""
         if self.spec.chromosomes is not None:
             return sorted(set(self.spec.chromosomes), key=chrom_sort_key)
 
         if self.spec.r2_matrix_dir is not None:
-            paths = _r2_matrix_dir_r2_paths(
-                self.spec.r2_matrix_dir,
-                genome_build=self.global_config.genome_build,
-                chrom=None,
-            )
-            chromosomes = {
-                chrom
-                for path in paths
-                if (chrom := _chromosome_from_r2_matrix_path(Path(path))) is not None
-            }
+            chromosomes = r2_matrix_chromosomes(resolve_r2_build_dir(self.spec.r2_matrix_dir,
+                                                                     self.global_config.genome_build))
             if chromosomes:
-                return sorted(chromosomes, key=chrom_sort_key)
+                return chromosomes
             raise LDSCInputError(
                 f"Reference-panel loading found no `chr*_r2.parquet` files in R2 matrix "
                 f"directory '{self.spec.r2_matrix_dir}'. Most likely the directory is not an "
                 "`ldsc build-r2-matrix` output directory or the wrong genome-build child "
                 "directory was selected. Pass the directory containing the R2 Parquet files. "
-                f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
+                f"Other causes & fixes: {R2_MATRIX_TROUBLESHOOTING['ldscore']}"
             )
 
         raise LDSCUsageError(
@@ -465,46 +445,50 @@ class R2MatrixRefPanel(RefPanel):
             "directory. Pass `r2_matrix_dir` or an explicit chromosome list."
         )
 
+    def open_chromosome(self, chrom: str) -> R2MatrixChromosome:
+        """Open one chromosome of the configured R2 matrix for ``ldscore``.
+
+        The R2 Parquet footer must record this panel's SNP identifier mode and
+        genome build. The returned handle parses its sidecar once, on first use.
+        """
+        assert self.global_config.genome_build in {"hg19", "hg38", None}, (
+            f"genome_build reached kernel as {self.global_config.genome_build!r}; "
+            "should have been resolved at workflow entry."
+        )
+        if self.spec.r2_matrix_dir is None:
+            raise LDSCUsageError(
+                "R2 matrix loading requires `r2_matrix_dir`. Most likely "
+                "`RefPanelConfig(backend='r2_matrix')` was used without an R2 matrix directory. "
+                "Pass the directory containing `chrN_r2.parquet` files."
+            )
+        build_dir = resolve_r2_build_dir(self.spec.r2_matrix_dir, self.global_config.genome_build)
+        chromosome = R2MatrixChromosome.open(build_dir, chrom, command="ldscore")
+        _validate_r2_identity_matches_config(
+            {"snp_identifier": chromosome.contract.snp_identifier, "genome_build": chromosome.contract.genome_build},
+            self.global_config, source=str(chromosome.parquet_path),
+        )
+        return chromosome
+
     def load_metadata(self, chrom: str) -> pd.DataFrame:
         """Load, restrict, and validate metadata owned by this chromosome consumer."""
-        return self._load_reference(chrom)[0]
+        return self._load_reference(self.open_chromosome(chrom))[0]
 
-    def _load_reference(self, chrom: str) -> tuple[pd.DataFrame, ReferenceSNPFunnel]:
-        """Return restricted sidecar metadata and the chromosome's reference-SNP funnel so far."""
-        chrom = normalize_chromosome(chrom)
+    def _load_reference(self, chromosome: R2MatrixChromosome) -> tuple[pd.DataFrame, ReferenceSNPFunnel]:
+        """Return the restricted sidecar and the chromosome's reference-SNP funnel so far."""
         if self.spec.keep_indivs_file is not None:
             raise LDSCUsageError(
                 "Reference-panel loading cannot apply `--keep-indivs-file` to an R2 matrix. "
                 "Most likely individual filtering was combined with a precomputed "
                 "R2 matrix. Remove the keep file or use a PLINK reference panel."
             )
-
-        # A sidecar without its R2 parquet is an incomplete R2 matrix.
-        self.resolve_r2_paths(chrom)
-        metadata_paths = self.resolve_metadata_paths(chrom)
-        if metadata_paths:
-            frames = [
-                read_metadata_table(path, chrom=chrom, global_config=self.global_config)
-                for path in metadata_paths
-            ]
-            frames = [frame for frame in frames if len(frame) > 0]
-            if not frames:
-                raise LDSCInputError(
-                    f"Reference-panel loading found no metadata rows for chromosome {chrom}. "
-                    "Most likely the metadata sidecar exists but contains no rows for this "
-                    "chromosome after filtering. Check the sidecar and selected chromosome."
-                )
-            metadata = pd.concat(frames, axis=0, ignore_index=True)
-        else:
+        metadata = chromosome.sidecar()
+        if metadata.empty:
             raise LDSCInputError(
-                f"Reference-panel metadata sidecar is missing for chromosome {chrom}. "
-                "R2 Parquet files require their `chrN_meta.tsv.gz` sidecar because "
-                "the parquet stores only sidecar-row indices. Most likely the sidecar was "
-                "not copied with the R2 Parquet file. Restore the matching sidecar or regenerate "
-                "the R2 matrix. "
-                f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
+                f"Reference-panel loading found no metadata rows for chromosome {chromosome.chrom} in "
+                f"'{chromosome.sidecar_path}'. Most likely the R2 matrix was built from a panel with no SNPs on "
+                "this chromosome. Leave the chromosome out of the analysis or rebuild the R2 matrix."
             )
-        funnel = ReferenceSNPFunnel(chrom, "r2_matrix")
+        funnel = ReferenceSNPFunnel(chromosome.chrom, "r2_matrix")
         funnel.record(REFERENCE_PANEL, "panel_rows", len(metadata))
         if self.spec.ref_panel_snps_file is not None:
             before = len(metadata)
@@ -512,54 +496,42 @@ class R2MatrixRefPanel(RefPanel):
             funnel.record(REFERENCE_PANEL, "ref_panel_snps_file", before - len(metadata))
         if self.spec.maf_min is not None:
             before = len(metadata)
-            metadata = self._apply_maf_filter(metadata, chrom)
+            metadata = self._apply_maf_filter(metadata, chromosome.chrom)
             funnel.record(REFERENCE_PANEL, "maf_floor", before - len(metadata))
-        metadata = self._validate_metadata(metadata, chrom)
+        metadata = self._validate_metadata(metadata, chromosome.chrom)
         return metadata, funnel
 
     def build_reader(self, chrom: str, metadata: pd.DataFrame | None = None):
         """
         Build an owned streaming reader over one chromosome's validated R2 Parquet file.
 
-        The parquet must satisfy the ``build-r2-matrix`` metadata contract and
-        record the active SNP identifier and genome build; its values are read
-        as already unbiased. ``prepare_chromosome`` uses this same factory;
-        direct callers must close the returned reader.
+        The pairs among the SNPs in ``metadata`` (default: the restricted
+        sidecar from :meth:`load_metadata`) are streamed; values are read as
+        already unbiased. Direct callers must close the returned reader.
         """
-        metadata = metadata if metadata is not None else self.load_metadata(chrom)
-        paths = self.resolve_r2_paths(chrom)
-        if paths:
-            contract = read_r2_parquet_contract(paths[0])
-            _validate_r2_identity_matches_config(
-                {"snp_identifier": contract.snp_identifier, "genome_build": contract.genome_build},
-                self.global_config, source=paths[0],
-            )
-        return SortedR2BlockReader(
-            paths=paths,
-            chrom=chrom,
-            metadata=metadata,
-            identifier_mode=self.global_config.snp_identifier,
-            genome_build=self.global_config.genome_build,
-        )
+        chromosome = self.open_chromosome(chrom)
+        if metadata is None:
+            metadata = self._load_reference(chromosome)[0]
+        return chromosome.pair_reader(metadata, self.global_config.snp_identifier, self.global_config.genome_build)
 
     def prepare_chromosome(self, chrom, annotations, config, *, genetic_map=None):
         """Prepare a sidecar-aligned streaming reader over a contract-validated R2 Parquet file."""
-        reference, funnel = self._load_reference(chrom)
+        chromosome = self.open_chromosome(chrom)
+        chromosome.check_ld_window(config)
+        chromosome.reject_truncation()
+        reference, funnel = self._load_reference(chromosome)
         aligned = _align_annotations(annotations, reference, chrom, self.global_config, funnel)
         keys = identifier_keys(aligned.metadata, self.global_config.snp_identifier)
         reference_keys = identifier_keys(reference, self.global_config.snp_identifier)
         lookup = reference.set_index(reference_keys)
         metadata = aligned.metadata.copy()
         for column in ("CM", "MAF"):
-            if column in reference:
-                metadata[column] = lookup.loc[keys, column].to_numpy()
+            metadata[column] = lookup.loc[keys, column].to_numpy()
         if config.ld_wind_cm is not None:
             _resolve_genetic_map(self, chrom, reference)
-        parquet_paths = self.resolve_r2_paths(chrom)
-        validate_ldscore_window_within_r2_matrix_window(config, parquet_paths=parquet_paths, chrom=chrom)
-        reject_truncated_r2_matrix(parquet_paths, chrom)
         mapped_annotations = aligned.annotations
-        reader = self.build_reader(chrom, metadata=metadata)
+        mode, build = self.global_config.snp_identifier, self.global_config.genome_build
+        reader = chromosome.pair_reader(metadata, mode, build)
         if np.any(np.diff(reader.panel_rows) < 0):
             # Same-position SNPs listed in another order than the sidecar: compute in
             # R2 matrix row order, which --ld-wind-snps needs. Annotation rows move with
@@ -568,7 +540,7 @@ class R2MatrixRefPanel(RefPanel):
             reader.close()
             metadata = metadata.iloc[order].reset_index(drop=True)
             mapped_annotations = replace(mapped_annotations, row_indices=mapped_annotations.row_indices[order])
-            reader = self.build_reader(chrom, metadata=metadata)
+            reader = chromosome.pair_reader(metadata, mode, build)
         try:
             # --ld-wind-snps counts R2 matrix rows, so a window no wider than the
             # R2 matrix's stays inside its stored pairs when this run keeps fewer SNPs.
@@ -583,105 +555,6 @@ class R2MatrixRefPanel(RefPanel):
             baseline_columns=list(annotations.baseline_columns), query_columns=list(annotations.query_columns),
             cm_source="parquet_sidecar", reference_snp_funnel=funnel.frame(),
         )
-
-    def resolve_r2_paths(self, chrom: str) -> list[str]:
-        """Resolve R2 Parquet file paths for one chromosome from ``r2_matrix_dir``."""
-        chrom = normalize_chromosome(chrom)
-        if self.spec.r2_matrix_dir is not None:
-            return _r2_matrix_dir_r2_paths(
-                self.spec.r2_matrix_dir,
-                genome_build=self.global_config.genome_build,
-                chrom=chrom,
-            )
-        raise LDSCUsageError(
-            "R2 matrix loading requires `r2_matrix_dir`. Most likely "
-            "`RefPanelConfig(backend='r2_matrix')` was used without an R2 matrix directory. "
-            "Pass the directory containing `chrN_r2.parquet` files."
-        )
-
-    def resolve_metadata_paths(self, chrom: str) -> list[str]:
-        """Resolve the required metadata sidecar for one chromosome."""
-        chrom = normalize_chromosome(chrom)
-        if self.spec.r2_matrix_dir is not None:
-            return _r2_matrix_dir_metadata_paths(
-                self.spec.r2_matrix_dir,
-                genome_build=self.global_config.genome_build,
-                chrom=chrom,
-            )
-        return []
-
-
-def _chromosome_from_r2_matrix_path(path: Path) -> str | None:
-    """Extract the chromosome label from ``chr{chrom}_r2.parquet``."""
-    match = _R2_MATRIX_RE.match(path.name)
-    if match is None:
-        return None
-    return normalize_chromosome(match.group("chrom"), context=str(path))
-
-
-def resolve_r2_build_dir(r2_matrix_dir: str | Path, genome_build: str | None) -> Path:
-    """Resolve a build-specific R2 matrix directory from user input."""
-    root = Path(r2_matrix_dir)
-    if not root.exists():
-        raise LDSCInputError(
-            f"R2 matrix directory does not exist: '{root}'. Most likely the "
-            "path is misspelled or relative to a different working directory. Pass the "
-            "existing `ldsc build-r2-matrix` output directory."
-        )
-    if not root.is_dir():
-        raise LDSCInputError(
-            f"R2 matrix path is not a directory: '{root}'. Most likely a file "
-            "path was passed where an R2 matrix directory was expected. Pass the directory "
-            "containing `chrN_r2.parquet` files."
-        )
-    if list(root.glob("chr*_r2.parquet")):
-        return root
-
-    requested_build = genome_build if genome_build in {"hg19", "hg38"} else None
-    build_dirs = {build: root / build for build in ("hg19", "hg38") if (root / build).is_dir()}
-    if requested_build is not None and requested_build in build_dirs:
-        return build_dirs[requested_build]
-    if len(build_dirs) > 1:
-        builds = ", ".join(sorted(build_dirs))
-        raise LDSCInputError(
-            f"Reference-panel directory '{root}' is ambiguous because it contains multiple "
-            f"genome-build directories ({builds}). Most likely a parent output directory "
-            "was passed while genome_build is unset or auto. Pass the build-specific "
-            "directory or set genome_build to hg19 or hg38."
-        )
-    if len(build_dirs) == 1:
-        return next(iter(build_dirs.values()))
-    if requested_build is not None:
-        return root
-    return root
-
-
-def _r2_matrix_dir_r2_paths(r2_matrix_dir: str | Path, *, genome_build: str | None, chrom: str | None) -> list[str]:
-    """Resolve required ``chr{chrom}_r2.parquet`` files inside an R2 matrix directory."""
-    build_dir = resolve_r2_build_dir(r2_matrix_dir, genome_build)
-    if chrom is not None:
-        path = build_dir / f"chr{normalize_chromosome(chrom)}_r2.parquet"
-        if not path.exists():
-            raise LDSCInputError(
-                f"Required R2 Parquet file is missing: '{path}'. Most likely the "
-                "reference panel was not built for this chromosome/build, or the wrong "
-                "R2 matrix directory was selected. Regenerate the missing chromosome or pass "
-                "the correct `r2_matrix_dir`. "
-                f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
-            )
-        return [str(path)]
-    paths = sorted(
-        build_dir.glob("chr*_r2.parquet"),
-        key=lambda path: chrom_sort_key(_chromosome_from_r2_matrix_path(path) or path.name),
-    )
-    return [str(path) for path in paths]
-
-
-def _r2_matrix_dir_metadata_paths(r2_matrix_dir: str | Path, *, genome_build: str | None, chrom: str) -> list[str]:
-    """Resolve the optional ``chr{chrom}_meta.tsv.gz`` sidecar from an R2 matrix directory."""
-    build_dir = resolve_r2_build_dir(r2_matrix_dir, genome_build)
-    path = build_dir / f"chr{normalize_chromosome(chrom)}_meta.tsv.gz"
-    return [str(path)] if path.exists() else []
 
 
 class RefPanelLoader:
@@ -720,171 +593,6 @@ def _infer_restricted_ref_panel_build(ref_panel_spec: RefPanelConfig, requested=
         check.r2('--r2-matrix-dir', ref_panel_spec.r2_matrix_dir)
     check.paths('--ref-panel-snps-file', ref_panel_spec.ref_panel_snps_file, restriction_mode='chr_pos')
     return check.resolve()
-
-
-def _read_metadata_sidecar_identity(path: str | Path) -> dict[str, object] | None:
-    """Read leading ``# ldsc:*`` identity metadata from a runtime sidecar."""
-    opener = gzip.open if str(path).endswith(".gz") else open
-    raw: dict[str, str] = {}
-    with opener(path, "rt", encoding="utf-8") as handle:
-        for line in handle:
-            if not line.startswith("#"):
-                break
-            marker = "# ldsc:"
-            if not line.startswith(marker):
-                continue
-            key, sep, value = line[len(marker) :].strip().partition("=")
-            if sep != "":
-                raw[key] = value
-    if not raw:
-        return None
-    required = {"artifact_type", "snp_identifier", "genome_build"}
-    if not required.issubset(raw):
-        raise LDSCInputError(
-            f"Reference-panel metadata sidecar '{path}' is missing LDSC3 identity "
-            "metadata. Most likely it was written by an older LDSC3 version or edited. "
-            "Regenerate the reference panel with the current `ldsc build-r2-matrix`. "
-            f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
-        )
-    return {
-        "artifact_type": raw["artifact_type"],
-        "snp_identifier": raw["snp_identifier"],
-        "genome_build": raw["genome_build"],
-    }
-
-
-def _validate_metadata_identity_matches_config(metadata: dict[str, object], global_config: GlobalConfig, *, source="reference metadata") -> None:
-    """Reject package metadata sidecars built under different identity assumptions."""
-    artifact_config = _artifact_global_config(metadata, global_config, source)
-    validate_config_compatibility(
-        artifact_config,
-        global_config,
-        context="runtime config and reference-panel metadata artifact",
-    )
-
-
-def read_metadata_table(
-    path: str | Path,
-    chrom: str | None,
-    global_config: GlobalConfig,
-) -> pd.DataFrame:
-    """Read one package-written reference-panel sidecar into the normalized column set."""
-    snp_identifier = normalize_snp_identifier_mode(global_config.snp_identifier)
-    assert global_config.genome_build in {"hg19", "hg38", None}, (
-        f"genome_build reached kernel as {global_config.genome_build!r}; "
-        "should have been resolved at workflow entry."
-    )
-
-    identity_metadata = _read_metadata_sidecar_identity(path)
-    if identity_metadata is None:
-        raise LDSCInputError(
-            f"Reference-panel metadata sidecar '{path}' has no LDSC3 identity metadata. "
-            "Most likely it was written by an older LDSC3 version or copied from an external "
-            "source. Regenerate the R2 matrix with the current `ldsc build-r2-matrix`. "
-            f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
-        )
-    validate_identity_artifact_metadata(identity_metadata, expected_artifact_type="ref_panel_metadata")
-    _validate_metadata_identity_matches_config(identity_metadata, global_config, source=path)
-
-    df = pd.read_csv(
-        path,
-        sep=r"\s+",
-        compression="gzip" if str(path).endswith(".gz") else None,
-        comment="#",
-    )
-    context = str(path)
-
-    chr_col = None
-    pos_col = None
-    snp_col = None
-    try:
-        chr_col = resolve_required_column(df.columns, REFERENCE_METADATA_SPEC_MAP["CHR"], context=context)
-        pos_col = resolve_required_column(df.columns, REFERENCE_METADATA_SPEC_MAP["POS"], context=context)
-    except (ValueError, LDSCInputError):
-        # Metadata may be rsid-only; validate the required identifier columns
-        # after probing both coordinate and SNP schemas.
-        pass
-    try:
-        snp_col = resolve_required_column(df.columns, REFERENCE_METADATA_SPEC_MAP["SNP"], context=context)
-    except (ValueError, LDSCInputError):
-        # Metadata may be coordinate-only; mode-specific validation below
-        # decides whether the missing SNP column is an error.
-        pass
-
-    family = identity_mode_family(snp_identifier)
-    if family == "rsid" and snp_col is None:
-        raise LDSCInputError(
-            f"Reference-panel metadata sidecar '{path}' is incompatible with rsID-family "
-            "mode: no SNP column was found. Most likely the sidecar uses CHR/POS-only "
-            "identifiers or an unrecognized SNP header. Regenerate the R2 matrix or run with "
-            "a chr_pos-family SNP identifier."
-        )
-    if family == "chr_pos" and (chr_col is None or pos_col is None):
-        raise LDSCInputError(
-            f"Reference-panel metadata sidecar '{path}' is incompatible with chr_pos-family "
-            "mode: CHR and POS columns are required. Most likely the sidecar uses rsID-only "
-            "identifiers or unrecognized CHR/POS headers. Regenerate the R2 matrix or run with "
-            "an rsID-family SNP identifier."
-        )
-
-    out = pd.DataFrame(index=df.index)
-    if chr_col is not None:
-        out["CHR"] = df[chr_col].map(lambda value: normalize_chromosome(value, context=context))
-    if pos_col is not None:
-        out["POS"] = pd.to_numeric(df[pos_col], errors="raise").astype(int)
-    if snp_col is not None:
-        out["SNP"] = df[snp_col].astype(str)
-
-    cm_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["CM"], context=context)
-    maf_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["MAF"], context=context)
-    if cm_col is not None:
-        out["CM"] = pd.to_numeric(df[cm_col], errors="coerce")
-    else:
-        out["CM"] = pd.NA
-    if maf_col is None:
-        raise LDSCInputError(
-            f"Reference-panel metadata sidecar '{path}' is missing MAF metadata. MAF is "
-            "required for LD-score calculation. Most likely the sidecar was produced "
-            "without allele-frequency values. Regenerate the R2 matrix with MAF metadata."
-        )
-    maf = pd.to_numeric(df[maf_col], errors="coerce").astype(float)
-    # NaN fails both comparisons, so this also catches missing and non-numeric values.
-    invalid_maf = ~((maf >= 0.0) & (maf <= 0.5))
-    if invalid_maf.any():
-        labels = out["SNP"] if "SNP" in out else out["CHR"].astype(str) + ":" + out["POS"].astype(str)
-        examples = ", ".join(labels[invalid_maf].head(5))
-        raise LDSCInputError(
-            f"Reference-panel metadata sidecar '{path}' has missing, non-numeric, or out-of-range MAF for "
-            f"{int(invalid_maf.sum())} of {len(maf)} SNP rows (first: {examples}). "
-            "`ldsc build-r2-matrix` records MAF as the minor-allele (A1) frequency, in [0, 0.5], "
-            "for every row, so the sidecar was most likely edited or produced by another tool. "
-            "Regenerate the R2 matrix with the current `ldsc build-r2-matrix`. "
-            f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
-        )
-    out["MAF"] = maf
-
-    a1_col = resolve_optional_column(df.columns, A1_COLUMN_SPEC, context=context)
-    a2_col = resolve_optional_column(df.columns, A2_COLUMN_SPEC, context=context)
-    if (a1_col is None) != (a2_col is None):
-        raise LDSCInputError(
-            f"Reference-panel metadata sidecar '{path}' has only one allele column. "
-            "Most likely A1 or A2 is missing from the sidecar. Provide both allele "
-            "columns, or regenerate the R2 matrix in a base SNP identifier mode."
-        )
-    if is_allele_aware_mode(snp_identifier) and (a1_col is None or a2_col is None):
-        raise LDSCInputError(
-            f"Reference-panel metadata sidecar '{path}' is malformed for allele-aware "
-            "SNP identity: A1/A2 columns are required. Most likely the R2 matrix was built "
-            "without allele metadata. Regenerate with A1/A2 metadata or use a base SNP "
-            "identifier mode."
-        )
-    if a1_col is not None and a2_col is not None:
-        out["A1"] = df[a1_col].astype(str)
-        out["A2"] = df[a2_col].astype(str)
-
-    if chrom is not None and "CHR" in out.columns:
-        out = out.loc[out["CHR"] == normalize_chromosome(chrom, context=context)].reset_index(drop=True)
-    return out
 
 
 def _prepare_window(metadata, chrom, config, snp_identifier, *, snp_positions=None):

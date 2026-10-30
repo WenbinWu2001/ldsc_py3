@@ -14,7 +14,7 @@ from pyarrow import ArrowNotImplementedError
 import pyarrow.parquet as pq
 
 from .._core.coordinates import normalize_chr_pos_frame
-from .build_policy import _SAMPLE_ROWS, _table_frames, _text_options
+from .build_policy import R2_PARQUET_GLOB, _SAMPLE_ROWS, _table_frames, _text_options, r2_sidecar_path
 from .._runtime.result_files import declared_result_file
 from .._core.columns import (
     RESTRICTION_CHRPOS_SPEC_MAP, RESTRICTION_HG19_POS_SPEC, RESTRICTION_HG38_POS_SPEC,
@@ -163,8 +163,8 @@ def _inspect_table(path: Path, *, inherited=None) -> _Inspection:
     owner = inherited if inherited is not None else _owning_metadata(path)
     if owner:
         declared.extend(result.metadata(owner, f"{path} owning metadata", keys=_BUILD_KEYS))
-    sidecar = path.with_name(path.name.removesuffix("_r2.parquet") + "_meta.tsv.gz")
-    if path.name.endswith("_r2.parquet") and sidecar.is_file():
+    sidecar = r2_sidecar_path(path)
+    if sidecar is not None and sidecar.is_file():
         sidecar = _member(path.resolve().parent, sidecar.name)
         declared.extend(result.metadata(_text_options(sidecar)[1], sidecar))
         if not declared:
@@ -338,8 +338,8 @@ def _inspect_directory(root: Path) -> _Inspection:
 
     # R2 matrix build children are also valid standalone inputs. Directory labels
     # organize alternatives; only file evidence establishes the actual build.
-    panel_groups = [("", sorted(root.glob("chr*_r2.parquet")))]
-    panel_groups.extend((build, sorted((root / build).glob("chr*_r2.parquet"))) for build in ("hg19", "hg38"))
+    panel_groups = [("", sorted(root.glob(R2_PARQUET_GLOB)))]
+    panel_groups.extend((build, sorted((root / build).glob(R2_PARQUET_GLOB))) for build in ("hg19", "hg38"))
     result = _Inspection()
     for group, members in panel_groups:
         for member in members:

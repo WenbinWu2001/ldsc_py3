@@ -81,22 +81,17 @@ def test_truncated_gzip_does_not_hide_other_input_failures(tmp_path):
 
 
 def write_r2_inputs(tmp_path):
-    import numpy as np
     import pandas as pd
-    from ldsc._refpanel.r2_format import write_runtime_metadata_sidecar, write_r2_parquet
-    from ldsc._core.snp_identity import sidecar_identity_sha256
+    from tests.ref_panel_helpers import write_r2_matrix_chromosome
 
     args = write_inputs(tmp_path)
     directory = tmp_path / "r2"
-    directory.mkdir()
     metadata = pd.DataFrame({"CHR": ["22", "22", "22"], "SNP": ["rs1", "rs2", "rs3"],
                              "POS": [10, 20, 30], "A1": ["A"] * 3, "A2": ["C"] * 3,
                              "CM": [0.0, 0.1, 0.2], "MAF": [0.2, 0.3, 0.4]})
-    write_runtime_metadata_sidecar(metadata, directory / "chr22_meta.tsv.gz", genome_build="hg19", snp_identifier="rsid")
-    write_r2_parquet(pair_chunks=[(np.array([0, 1]), np.array([1, 2]), np.array([0.5, 0.25]), np.array([1, 1]))],
-                     path=directory / "chr22_r2.parquet", genome_build="hg19", n_samples=100,
-                     snp_identifier="rsid", r2_min=0.0, n_snps=3, sidecar_identity_sha256=sidecar_identity_sha256(metadata),
-                     ld_window_mode="snps", ld_window_value=10.0)
+    write_r2_matrix_chromosome(directory, metadata, [{"i": 0, "j": 1, "R2": 0.5, "sign": "+"},
+                                                     {"i": 1, "j": 2, "R2": 0.25, "sign": "+"}],
+                               snp_identifier="rsid", ld_window=("snps", 10.0))
     metadata.assign(base=1).to_csv(args.baseline_annot_sources, sep="\t", index=False)
     args.plink_prefix, args.r2_matrix_dir = None, str(directory)
     return args

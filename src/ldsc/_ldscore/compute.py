@@ -28,8 +28,8 @@ R2 matrix Parquet files contain sidecar-row indices ``IDX_1``/``IDX_2``,
 ``R2``, and ``SIGN_R``. The required sidecar is bound by its identity digest and
 row count. Each chromosome builds one identity remap; pairs stream through
 ``iter_all_pairs`` without a dense chromosome matrix or row-group cache. Every
-file must match the ``build-r2-matrix`` metadata contract checked by
-``read_r2_parquet_contract``: int16 ``R2`` quantized with scale 32767 and already
+file must match the ``build-r2-matrix`` metadata contract checked when
+``R2MatrixChromosome`` opens it: int16 ``R2`` quantized with scale 32767 and already
 bias-corrected, so decoding divides by the scale and applies no further
 correction. Each unordered off-diagonal pair contributes in both directions,
 and the diagonal is added internally as one.

@@ -79,7 +79,9 @@ from .._core.chromosomes import chrom_sort_key
 from .plink import PlinkBEDFile
 from . import build_kernel as kernel_builder
 from .r2_format import (
+    R2_MATRIX_FILE_GLOBS,
     build_runtime_metadata_table,
+    r2_matrix_file_paths,
     round_to_sidecar_precision,
     write_r2_parquet,
     write_runtime_metadata_sidecar,
@@ -234,12 +236,7 @@ def _expected_ref_panel_output_paths(
     paths: list[Path] = [metadata_path]
     for chrom in chromosomes:
         for build in _emitted_genome_builds(config):
-            paths.extend(
-                [
-                    out_root / build / f"chr{chrom}_r2.parquet",
-                    out_root / build / f"chr{chrom}_meta.tsv.gz",
-                ]
-            )
+            paths.extend(r2_matrix_file_paths(out_root / build, chrom))
         # The per-chromosome dropped-SNP sidecar is class-1: always written
         # for every chromosome this invocation processes, even when header-only.
         paths.append(out_root / "diagnostics" / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz")
@@ -305,16 +302,11 @@ def _ref_panel_output_family(
         if not build_subdir.is_dir():
             continue
         if scoped_chromosomes is None:
-            for pattern in ("chr*_r2.parquet", "chr*_meta.tsv.gz"):
+            for pattern in R2_MATRIX_FILE_GLOBS:
                 paths.extend(sorted(build_subdir.glob(pattern)))
         else:
             for chrom in scoped_chromosomes:
-                paths.extend(
-                    [
-                        build_subdir / f"chr{chrom}_r2.parquet",
-                        build_subdir / f"chr{chrom}_meta.tsv.gz",
-                    ]
-                )
+                paths.extend(r2_matrix_file_paths(build_subdir, chrom))
     dropped_dir = output_dir / "diagnostics" / "dropped_snps"
     if dropped_dir.is_dir():
         if scoped_chromosomes is None:
@@ -977,8 +969,7 @@ class R2MatrixBuilder:
                 # Window on the CM the sidecar will store, which ldscore reads back.
                 cm_values = round_to_sidecar_precision(cm_values)
             block_left = _r2_matrix_block_left(chrom, build, build_positions, cm_values, config)
-            r2_path = Path(config.output_dir) / build / f"chr{chrom}_r2.parquet"
-            meta_path = Path(config.output_dir) / build / f"chr{chrom}_meta.tsv.gz"
+            r2_path, meta_path = r2_matrix_file_paths(Path(config.output_dir) / build, chrom)
 
             # Build the sidecar table first so the parquet can record the binding
             # hash (CHR:POS:A1:A2) of the exact sidecar shipped alongside it. The

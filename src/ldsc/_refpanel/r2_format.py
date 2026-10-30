@@ -1,17 +1,18 @@
-"""The R2 matrix file format: schema, writer, readers and pair lookup.
+"""The R2 matrix file format: names, schema, writer, readers and pair lookup.
 
 An R2 matrix stores, for each chromosome, pairwise unbiased R2 values in
 ``chr<chrom>_r2.parquet`` (int16-quantized, indexed by sidecar row) and
 SNP metadata in the ``chr<chrom>_meta.tsv.gz`` sidecar, bound together by
-an identity hash. This module writes both files, checks an R2 matrix's metadata
-contract, streams its pairs for LD-score calculation and looks up
-individual pairs for ``query-r2-matrix``.
+an identity hash. This module owns the file names, writes both files, opens a
+chromosome of an existing R2 matrix through :class:`R2MatrixChromosome` for
+``ldscore`` and ``query-r2-matrix``, streams its pairs for LD-score
+calculation and looks up individual pairs.
 """
 
 from __future__ import annotations
 
-import argparse
 import gzip
+import re
 import warnings
 from dataclasses import dataclass
 from os import PathLike
@@ -21,20 +22,12 @@ from typing import Iterable, Sequence
 import numpy as np
 import pandas as pd
 
-from .._core.chromosomes import normalize_chromosome
-from .._core.columns import (
-    A1_COLUMN_SPEC,
-    A2_COLUMN_SPEC,
-    REFERENCE_METADATA_SPEC_MAP,
-    normalize_genome_build,
-    resolve_optional_column,
-    resolve_required_column,
-)
+from .._core.chromosomes import chrom_sort_key, normalize_chromosome
+from .._core.columns import normalize_genome_build
 from .._core.identifiers import validate_retained_identifier_uniqueness
 from .._core.snp_identity import (
     effective_merge_key_series,
     identity_artifact_metadata,
-    is_allele_aware_mode,
     sidecar_identity_sha256,
     normalize_snp_identifier_mode,
 )
@@ -42,7 +35,78 @@ from .build_kernel import PairColumns
 from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from .windows import _LDWindowSpec, _format_ld_window_spec, _requested_ld_window_spec
 
-_LDSCORE_PARQUET_DOC = "docs/user-guide/troubleshooting.md#ldscore-r2-matrix-is-incompatible"
+# Troubleshooting section for R2 matrix errors, by the command that reads the R2 matrix.
+R2_MATRIX_TROUBLESHOOTING = {
+    "ldscore": "docs/user-guide/troubleshooting.md#ldscore-r2-matrix-is-incompatible",
+    "query-r2-matrix": "docs/user-guide/troubleshooting.md#query-r2-matrix-r2-matrix-is-incompatible",
+}
+_LDSCORE_PARQUET_DOC = R2_MATRIX_TROUBLESHOOTING["ldscore"]
+
+# Sidecar columns, in the order the writer emits them and the reader requires.
+SIDECAR_COLUMNS = ("CHR", "POS", "SNP", "A1", "A2", "CM", "MAF")
+
+# File names of one chromosome: chr<chrom>_r2.parquet and chr<chrom>_meta.tsv.gz.
+R2_MATRIX_FILE_GLOBS = ("chr*_r2.parquet", "chr*_meta.tsv.gz")
+_R2_MATRIX_FILE_RE = re.compile(r"^chr(?P<chrom>[^_]+)_(?:r2\.parquet|meta\.tsv\.gz)$")
+
+
+def r2_matrix_file_paths(build_dir: str | PathLike[str], chrom: str) -> tuple[Path, Path]:
+    """Return the R2 Parquet file and sidecar paths of one chromosome in an R2 matrix build directory."""
+    chrom = normalize_chromosome(chrom)
+    build_dir = Path(build_dir)
+    return build_dir / f"chr{chrom}_r2.parquet", build_dir / f"chr{chrom}_meta.tsv.gz"
+
+
+def r2_matrix_chromosomes(build_dir: str | PathLike[str]) -> list[str]:
+    """Return the chromosomes with an R2 Parquet file or a sidecar in one build directory, in genomic order.
+
+    A chromosome with only one of its two files is listed, so that opening it
+    reports the missing file instead of silently skipping the chromosome.
+    """
+    build_dir = Path(build_dir)
+    labels = {match.group("chrom") for path in build_dir.iterdir()
+              if (match := _R2_MATRIX_FILE_RE.match(path.name)) is not None}
+    return sorted({normalize_chromosome(label, context=str(build_dir)) for label in labels}, key=chrom_sort_key)
+
+
+def resolve_r2_build_dir(r2_matrix_dir: str | PathLike[str], genome_build: str | None) -> Path:
+    """Resolve the build directory holding the chromosome files of an R2 matrix.
+
+    ``r2_matrix_dir`` is either a build directory or the ``build-r2-matrix``
+    output root with ``hg19/`` and ``hg38/`` children; ``genome_build`` selects
+    a child when the root has both.
+    """
+    root = Path(r2_matrix_dir)
+    if not root.exists():
+        raise LDSCInputError(
+            f"R2 matrix directory does not exist: '{root}'. Most likely the "
+            "path is misspelled or relative to a different working directory. Pass the "
+            "existing `ldsc build-r2-matrix` output directory."
+        )
+    if not root.is_dir():
+        raise LDSCInputError(
+            f"R2 matrix path is not a directory: '{root}'. Most likely a file "
+            "path was passed where an R2 matrix directory was expected. Pass the directory "
+            "containing `chrN_r2.parquet` files."
+        )
+    if r2_matrix_chromosomes(root):
+        return root
+
+    requested_build = genome_build if genome_build in {"hg19", "hg38"} else None
+    build_dirs = {build: root / build for build in ("hg19", "hg38") if (root / build).is_dir()}
+    if requested_build is not None and requested_build in build_dirs:
+        return build_dirs[requested_build]
+    if len(build_dirs) > 1:
+        builds = ", ".join(sorted(build_dirs))
+        raise LDSCInputError(
+            f"Reference-panel directory '{root}' is ambiguous because it contains multiple "
+            f"genome-build directories ({builds}). Most likely a parent output directory "
+            "was passed while genome_build is unset or auto. Pass the build-specific "
+            "directory or set genome_build to hg19 or hg38."
+        )
+    if len(build_dirs) == 1:
+        return next(iter(build_dirs.values()))
+    return root
 
 
 def build_index_remap(
@@ -96,66 +160,6 @@ def build_index_remap(
     return remap, retained_build_idx
 
 
-def _panel_sidecar_path_for_r2(r2_path: str) -> Path:
-    """Return the ``chrN_meta.tsv.gz`` sidecar path paired with an R2 Parquet file."""
-    p = Path(r2_path)
-    if not p.name.endswith("_r2.parquet"):
-        raise LDSCInputError(
-            f"ldscore could not locate the sidecar for R2 Parquet file '{r2_path}'. Most likely "
-            "the parquet file does not use the canonical `chrN_r2.parquet` filename written "
-            "by `ldsc build-r2-matrix`. regenerate the R2 matrix or pass the "
-            "R2 matrix directory. "
-            f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
-        )
-    return p.with_name(p.name[: -len("_r2.parquet")] + "_meta.tsv.gz")
-
-
-def _load_full_panel_sidecar(r2_path: str) -> pd.DataFrame:
-    """Load the complete (unrestricted) R2 matrix sidecar that defines the index space."""
-    sidecar_path = _panel_sidecar_path_for_r2(r2_path)
-    if not sidecar_path.exists():
-        raise LDSCInputError(
-            f"ldscore could not load R2 Parquet file '{r2_path}' because the "
-            f"required sidecar '{sidecar_path}' is missing. Most likely the parquet file "
-            "was copied without its matching `chrN_meta.tsv.gz` sidecar. Keep the R2 "
-            "Parquet file and sidecar together or regenerate with `ldsc build-r2-matrix`. "
-            f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
-        )
-    df = pd.read_csv(sidecar_path, sep="\t", comment="#")
-    context = f"R2 matrix sidecar {sidecar_path}"
-    renamed = {
-        resolve_required_column(df.columns, REFERENCE_METADATA_SPEC_MAP["CHR"], context=context): "CHR",
-        resolve_required_column(df.columns, REFERENCE_METADATA_SPEC_MAP["POS"], context=context): "POS",
-        resolve_required_column(df.columns, REFERENCE_METADATA_SPEC_MAP["SNP"], context=context): "SNP",
-        resolve_required_column(df.columns, A1_COLUMN_SPEC, context=context): "A1",
-        resolve_required_column(df.columns, A2_COLUMN_SPEC, context=context): "A2",
-    }
-    cm_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["CM"], context=context)
-    if cm_col is not None:
-        renamed[cm_col] = "CM"
-    return df.rename(columns=renamed)
-
-
-def _validate_index_binding(full_sidecar: pd.DataFrame, *, n_snps: int, identity_hash: str, context: str) -> None:
-    """Hard-fail if the sidecar does not match the parquet's recorded binding."""
-    if len(full_sidecar) != int(n_snps):
-        raise LDSCInputError(
-            f"ldscore could not use R2 matrix input at {context}: the sidecar has "
-            f"{len(full_sidecar)} rows but the parquet records n_snps={n_snps}. Most "
-            "likely the parquet and sidecar are not a matched pair. Restore the matching "
-            "sidecar or regenerate the R2 matrix. "
-            f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
-        )
-    actual = sidecar_identity_sha256(full_sidecar, context=context)
-    if actual != identity_hash:
-        raise LDSCInputError(
-            f"ldscore could not use R2 matrix input at {context}: the sidecar identity "
-            f"hash {actual} does not match parquet ldsc:sidecar_identity_sha256 "
-            f"{identity_hash}. Most likely the sidecar is wrong, reordered, or edited. "
-            "Restore the matching sidecar or regenerate the R2 matrix. "
-            f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
-        )
-
 
 def _arrow_to_numpy(column):
     """Convert an Arrow column to a NumPy array, copying when Arrow cannot share memory."""
@@ -178,48 +182,6 @@ class R2ParquetContract:
     # Build-time adjusted-R2 floor; pairs below a positive value were not stored.
     r2_min: float
 
-
-def read_r2_parquet_contract(path) -> R2ParquetContract:
-    """Validate one R2 Parquet file footer against the current ``build-r2-matrix`` format.
-
-    Readers accept exactly what the writer produces: ``IDX_1``/``IDX_2``/
-    ``R2``/``SIGN_R`` columns with an int16 ``R2``, the writer's
-    ``ldsc:r2_encoding`` and ``ldsc:r2_scale``, already-unbiased values
-    (``ldsc:r2_bias="unbiased"``) with an ``ldsc:n_samples`` of at least 3, and
-    complete binding, identity, LD-window, and ``ldsc:r2_min`` metadata.
-    Decoding is ``R2 = stored / r2_scale`` with no further correction. No
-    value is defaulted; see :func:`read_r2_parquet_contracts` for the error.
-    """
-    return read_r2_parquet_contracts([path])[0]
-
-
-def read_r2_parquet_contracts(paths: Sequence) -> list[R2ParquetContract]:
-    """Validate several R2 Parquet file footers, reporting every defect in one error.
-
-    Returns one :class:`R2ParquetContract` per path, in order. Every defect of
-    every file is collected before a single ``LDSCInputError`` is raised.
-    """
-    contracts, defects = [], []
-    for path in paths:
-        contract, problems = _check_r2_parquet_contract(path)
-        contracts.append(contract)
-        if problems:
-            defects.append((path, problems))
-    if defects:
-        if len(defects) == 1:
-            path, problems = defects[0]
-            summary = f"R2 Parquet file '{path}' does not match"
-            details = "; ".join(problems)
-        else:
-            summary = f"{len(defects)} R2 Parquet files do not match"
-            details = " | ".join(f"'{path}': {'; '.join(problems)}" for path, problems in defects)
-        raise LDSCInputError(
-            f"{summary} the format written by the current `ldsc build-r2-matrix`: {details}. "
-            "Most likely the R2 matrix was built by an older LDSC3 version or its metadata was "
-            "altered. Regenerate the R2 matrix with `ldsc build-r2-matrix`. "
-            f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
-        )
-    return contracts
 
 
 def _check_r2_parquet_contract(path) -> tuple[R2ParquetContract | None, list[str]]:
@@ -289,101 +251,291 @@ def _check_r2_parquet_contract(path) -> tuple[R2ParquetContract | None, list[str
     ), []
 
 
-def _r2_matrix_ld_window_spec(parquet_paths: Sequence[str]) -> _LDWindowSpec | None:
-    """Return the common recorded LD-window spec for an R2 matrix input set."""
-    panel_spec: _LDWindowSpec | None = None
-    for path in parquet_paths:
-        current = read_r2_parquet_contract(path).ld_window
-        if panel_spec is None:
-            panel_spec = current
-            continue
-        if current != panel_spec:
+
+def read_r2_sidecar(path: str | PathLike[str], *, rows: bool = True) -> tuple[dict[str, str], list[str], pd.DataFrame | None]:
+    """Parse one sidecar without validating it.
+
+    Returns the leading ``# ldsc:<key>=<value>`` identity lines as a dict, the
+    header columns, and the rows. Rows are parsed only when ``rows`` is true and
+    the header is :data:`SIDECAR_COLUMNS`; otherwise the frame is ``None``.
+    CHR, SNP, A1 and A2 are read as text.
+    """
+    with gzip.open(path, "rt", encoding="utf-8") as stream:
+        identity: dict[str, str] = {}
+        line = stream.readline()
+        while line.startswith("#"):
+            key, sep, value = line[1:].strip().partition("=")
+            if sep and key.startswith("ldsc:"):
+                identity[key.removeprefix("ldsc:")] = value
+            line = stream.readline()
+        header = line.rstrip("\r\n").split("\t")
+        if not rows or tuple(header) != SIDECAR_COLUMNS:
+            return identity, header, None
+        try:
+            frame = pd.read_csv(stream, sep="\t", header=None, names=list(SIDECAR_COLUMNS),
+                                dtype={"CHR": str, "SNP": str, "A1": str, "A2": str})
+        except pd.errors.EmptyDataError:
+            frame = pd.DataFrame(columns=list(SIDECAR_COLUMNS))
+    return identity, header, frame
+
+
+class R2MatrixChromosome:
+    """One chromosome of an R2 matrix: its R2 Parquet file and sidecar.
+
+    ``ldscore`` and ``query-r2-matrix`` read an R2 matrix through this handle.
+    Opening checks that both files exist and that the R2 Parquet footer matches
+    what the current ``build-r2-matrix`` writes (:attr:`contract`). The sidecar
+    is parsed and validated on the first :meth:`sidecar` call and kept, so a
+    process parses it once per chromosome however many readers it builds.
+    ``command`` names the reading command in every error and selects its
+    troubleshooting section.
+
+    Use :meth:`open` or :meth:`open_all`; the constructor does no checks.
+    """
+
+    def __init__(self, chrom: str, parquet_path: Path, sidecar_path: Path, contract: R2ParquetContract,
+                 command: str) -> None:
+        """Bind already checked paths and footer contract; see :meth:`open`."""
+        self.chrom = chrom
+        self.parquet_path = parquet_path
+        self.sidecar_path = sidecar_path
+        self.contract = contract
+        self.command = command
+        self._sidecar: pd.DataFrame | None = None
+
+    @classmethod
+    def open(cls, build_dir: str | PathLike[str], chrom: str, *, command: str) -> R2MatrixChromosome:
+        """Open one chromosome of the R2 matrix in ``build_dir``; see :meth:`open_all`."""
+        return cls.open_all(build_dir, [chrom], command=command)[0]
+
+    @classmethod
+    def open_all(cls, build_dir: str | PathLike[str], chromosomes: Sequence[str], *,
+                 command: str) -> list[R2MatrixChromosome]:
+        """Open several chromosomes, reporting every missing file and footer defect in one error.
+
+        Parameters
+        ----------
+        build_dir : path-like
+            R2 matrix build directory (see :func:`resolve_r2_build_dir`).
+        chromosomes : sequence of str
+            Chromosome labels to open, in the order to return them.
+        command : {"ldscore", "query-r2-matrix"}
+            Command reading the R2 matrix, named in errors.
+
+        Raises
+        ------
+        LDSCInputError
+            A chromosome's R2 Parquet file or sidecar is missing, or its footer
+            does not match the current ``build-r2-matrix`` format.
+        """
+        opened, problems = [], []
+        for chrom in chromosomes:
+            chrom = normalize_chromosome(chrom)
+            parquet_path, sidecar_path = r2_matrix_file_paths(build_dir, chrom)
+            missing = [f"the {label} '{path}' is missing" for label, path in
+                       (("R2 Parquet file", parquet_path), ("sidecar", sidecar_path)) if not path.is_file()]
+            if missing:
+                problems.append((chrom, "; ".join(missing)))
+                continue
+            contract, defects = _check_r2_parquet_contract(parquet_path)
+            if defects:
+                problems.append((chrom, f"R2 Parquet file '{parquet_path}' does not match the format written by "
+                                        f"the current `ldsc build-r2-matrix`: {'; '.join(defects)}"))
+                continue
+            opened.append(cls(chrom, parquet_path, sidecar_path, contract, command))
+        if problems:
+            if len(problems) == 1:
+                subject, details = f"R2 matrix chromosome {problems[0][0]}", problems[0][1]
+            else:
+                subject = f"{len(problems)} R2 matrix chromosomes"
+                details = " | ".join(f"chromosome {chrom}: {text}" for chrom, text in problems)
             raise LDSCInputError(
-                "ldscore could not validate the R2 matrix LD window because "
-                "the resolved parquet files record conflicting build windows: "
-                f"`{_format_ld_window_spec(panel_spec)}` and "
-                f"`{_format_ld_window_spec(current)}`. Most likely files from "
-                "different R2 matrix builds were mixed in one input. Use a "
-                "single coherent `--r2-matrix-dir` or regenerate the R2 matrix."
+                f"{command} could not use {subject}: {details}. Most likely the R2 matrix is incomplete, was built "
+                "by an older LDSC3 version, or its files were altered or separated. Keep each chromosome's R2 "
+                "Parquet file and sidecar together, and rebuild the R2 matrix with the current "
+                f"`ldsc build-r2-matrix` if they are damaged. Other causes & fixes: {R2_MATRIX_TROUBLESHOOTING[command]}"
             )
-    return panel_spec
+        return opened
 
-
-def _raise_ldscore_window_exceeds_panel_window(
-    *,
-    requested: _LDWindowSpec,
-    recorded: _LDWindowSpec,
-    chrom: str,
-) -> None:
-    """Raise the user-facing parquet-window mismatch error."""
-    raise LDSCUsageError(
-        f"ldscore cannot compute chromosome {chrom} from the "
-        f"R2 matrix: the user-requested LD window `{_format_ld_window_spec(requested)}` "
-        f"is wider than the input R2 matrix window "
-        f"`{_format_ld_window_spec(recorded)}`. Most likely the "
-        "R2 matrix was built with a smaller LD window, so it does not contain all "
-        "SNP pairs required by this ldscore run. Rebuild the R2 matrix "
-        f"with `{_format_ld_window_spec(requested)}` or a wider build window, or "
-        f"rerun ldscore with an LD window no wider than the recorded R2 matrix window "
-        f"`{_format_ld_window_spec(recorded)}`."
-    )
-
-
-def validate_ldscore_window_within_r2_matrix_window(
-    args: argparse.Namespace,
-    *,
-    parquet_paths: Sequence[str],
-    chrom: str,
-) -> None:
-    """Reject ldscore windows the R2 matrix is not known to cover.
-
-    The rule uses only the recorded parquet LD-window mode and value, so it is
-    decided before any computation: a window in another unit is rejected, and
-    a same-unit window must be no wider than the R2 matrix's. Coverage is not
-    inferred from per-SNP coordinates. For ``--ld-wind-snps`` this relies on
-    counting R2 matrix rows (see :func:`build_window_coordinates`).
-    """
-    panel_spec = _r2_matrix_ld_window_spec(parquet_paths)
-    if panel_spec is None:
-        return
-    requested_spec = _requested_ld_window_spec(args)
-
-    if requested_spec.mode != panel_spec.mode:
-        requested, recorded = _format_ld_window_spec(requested_spec), _format_ld_window_spec(panel_spec)
-        raise LDSCUsageError(
-            f"ldscore cannot use the R2 matrix for chromosome {chrom} with "
-            f"`{requested}`: the R2 matrix was built with `{recorded}`, and windows in different units "
-            "cannot be checked for coverage from their settings, so the run could silently miss "
-            f"SNP pairs the R2 matrix never stored. Rerun with the R2 matrix's window `{recorded}` (or a "
-            f"narrower `{panel_spec.flag}` value), or rebuild the R2 matrix with "
-            f"`ldsc build-r2-matrix {requested}`."
+    def _error(self, reason: str, likely: str) -> LDSCInputError:
+        """Return a run-aborting error about this chromosome, worded for the reading command."""
+        return LDSCInputError(
+            f"{self.command} could not use R2 matrix chromosome {self.chrom}: {reason}. Most likely {likely}. "
+            "Rebuild the R2 matrix with the current `ldsc build-r2-matrix`, and keep each chromosome's R2 "
+            f"Parquet file and sidecar together. Other causes & fixes: {R2_MATRIX_TROUBLESHOOTING[self.command]}"
         )
 
-    if requested_spec.value > panel_spec.value:
-        _raise_ldscore_window_exceeds_panel_window(
-            requested=requested_spec,
-            recorded=panel_spec,
-            chrom=chrom,
-        )
+    def check_sidecar_header(self) -> None:
+        """Check the sidecar's identity lines and header without parsing its rows."""
+        identity, header, _ = read_r2_sidecar(self.sidecar_path, rows=False)
+        self._check_preamble(identity, header)
 
+    def _check_preamble(self, identity: dict[str, str], header: list[str]) -> None:
+        """Require the writer's header and identity lines that match the R2 Parquet footer."""
+        if tuple(header) != SIDECAR_COLUMNS:
+            raise self._error(
+                f"the sidecar '{self.sidecar_path}' has columns {', '.join(header)}, but the current "
+                f"`ldsc build-r2-matrix` writes {', '.join(SIDECAR_COLUMNS)}",
+                "the sidecar was edited, written by another tool, or written by an older LDSC3 version",
+            )
+        expected = {"artifact_type": "ref_panel_metadata", "snp_identifier": self.contract.snp_identifier,
+                    "genome_build": self.contract.genome_build}
+        found = {key: identity.get(key) for key in expected}
+        if found != expected:
+            def describe(values):
+                return ", ".join(f"ldsc:{key}={value}" for key, value in values.items())
 
-def reject_truncated_r2_matrix(parquet_paths: Sequence[str], chrom: str) -> None:
-    """Reject an R2 matrix that omitted pairs below a positive ``ldsc:r2_min``.
+            raise self._error(
+                f"the sidecar '{self.sidecar_path}' records {describe(found)}, but its R2 Parquet file "
+                f"'{self.parquet_path}' records {describe(expected)}",
+                "the two files come from different `build-r2-matrix` runs, or the sidecar was written by an "
+                "older LDSC3 version or edited",
+            )
 
-    LD scores sum every SNP pair in the window, so pairs the R2 matrix did not
-    store would count as zero. Such R2 matrices stay valid for ``query-r2-matrix``, which
-    reports unstored pairs as absent.
-    """
-    for path in parquet_paths:
-        r2_min = read_r2_parquet_contract(path).r2_min
+    def sidecar(self) -> pd.DataFrame:
+        """Return the validated sidecar, parsed on the first call and then kept.
+
+        Returns
+        -------
+        pandas.DataFrame
+            One row per R2 matrix row, in R2 matrix row order, with columns
+            CHR (this chromosome), POS (int64), SNP, A1 and A2 (text), CM
+            (float64, NaN where the build recorded no genetic map) and MAF
+            (float64 in [0, 0.5]). Callers must not modify it.
+
+        Raises
+        ------
+        LDSCInputError
+            The sidecar's header or identity lines differ from what
+            ``build-r2-matrix`` writes for this R2 Parquet file, its rows name
+            another chromosome or hold invalid POS, CM or MAF values, or its
+            row count or CHR:POS:A1:A2 hash differs from the footer's
+            ``ldsc:n_snps`` and ``ldsc:sidecar_identity_sha256``.
+        """
+        if self._sidecar is None:
+            identity, header, frame = read_r2_sidecar(self.sidecar_path)
+            self._check_preamble(identity, header)
+            frame = self._validated_rows(frame)
+            self._check_binding(frame)
+            self._sidecar = frame
+        return self._sidecar
+
+    def _validated_rows(self, frame: pd.DataFrame) -> pd.DataFrame:
+        """Check the sidecar rows and return them with normalized dtypes."""
+        def chromosome(label):
+            try:
+                return normalize_chromosome(label)
+            except LDSCInputError:
+                return str(label)
+
+        labels = sorted({chromosome(label) for label in frame["CHR"].unique()})
+        if labels and labels != [self.chrom]:
+            raise self._error(
+                f"the sidecar '{self.sidecar_path}' lists chromosome(s) {', '.join(labels)}, but it belongs to "
+                f"chromosome {self.chrom}",
+                "the sidecar was copied from another chromosome or R2 matrix; renaming a sidecar does not change "
+                "its SNP identities",
+            )
+        positions = pd.to_numeric(frame["POS"], errors="coerce")
+        cm = pd.to_numeric(frame["CM"], errors="coerce")
+        maf = pd.to_numeric(frame["MAF"], errors="coerce").astype(float)
+        bad = {
+            "POS": positions.isna() | (positions != positions.round()),
+            "CM": cm.isna() & frame["CM"].notna(),
+            # NaN fails both comparisons, so this also catches missing and non-numeric values.
+            "MAF": ~((maf >= 0.0) & (maf <= 0.5)),
+        }
+        problems = [f"{column} for {int(mask.sum())} of {len(frame)} rows (first SNPs: "
+                    f"{', '.join(frame.loc[mask, 'SNP'].astype(str).head(5))})" for column, mask in bad.items() if mask.any()]
+        if problems:
+            raise self._error(
+                f"the sidecar '{self.sidecar_path}' has missing, non-numeric, or out-of-range "
+                + "; ".join(problems) + ". `ldsc build-r2-matrix` writes an integer POS, a numeric or NA CM, and "
+                "the minor-allele (A1) frequency in [0, 0.5] as MAF for every row",
+                "the sidecar was edited or produced by another tool",
+            )
+        return pd.DataFrame({
+            "CHR": self.chrom,
+            "POS": positions.astype(np.int64),
+            "SNP": frame["SNP"].astype(str),
+            "A1": frame["A1"].astype(str),
+            "A2": frame["A2"].astype(str),
+            "CM": cm.astype(float),
+            "MAF": maf,
+        }, index=pd.RangeIndex(len(frame)))
+
+    def _check_binding(self, frame: pd.DataFrame) -> None:
+        """Require the sidecar rows that the R2 Parquet indices refer to."""
+        if len(frame) != self.contract.n_snps:
+            raise self._error(
+                f"the sidecar '{self.sidecar_path}' has {len(frame)} rows, but its R2 Parquet file "
+                f"'{self.parquet_path}' records ldsc:n_snps={self.contract.n_snps}",
+                "the R2 Parquet file and sidecar are not a matched pair",
+            )
+        actual = sidecar_identity_sha256(frame, context=f"R2 matrix sidecar {self.sidecar_path}")
+        if actual != self.contract.sidecar_identity_sha256:
+            raise self._error(
+                f"the CHR:POS:A1:A2 hash {actual} of the sidecar '{self.sidecar_path}' differs from "
+                f"ldsc:sidecar_identity_sha256 {self.contract.sidecar_identity_sha256} in its R2 Parquet file "
+                f"'{self.parquet_path}'",
+                "the sidecar was reordered or edited, or belongs to another R2 matrix",
+            )
+
+    def check_ld_window(self, args) -> None:
+        """Reject ``ldscore`` LD windows this R2 matrix is not known to cover.
+
+        The rule uses only the recorded footer LD-window mode and value, so it is
+        decided before any computation: a window in another unit is rejected,
+        and a same-unit window must be no wider than the R2 matrix's. Coverage
+        is not inferred from per-SNP coordinates. For ``--ld-wind-snps`` this
+        relies on counting R2 matrix rows (see :func:`window_coordinates`).
+        """
+        recorded = self.contract.ld_window
+        requested = _requested_ld_window_spec(args)
+        if requested.mode != recorded.mode:
+            requested_text, recorded_text = _format_ld_window_spec(requested), _format_ld_window_spec(recorded)
+            raise LDSCUsageError(
+                f"ldscore cannot use the R2 matrix for chromosome {self.chrom} with "
+                f"`{requested_text}`: the R2 matrix was built with `{recorded_text}`, and windows in different units "
+                "cannot be checked for coverage from their settings, so the run could silently miss "
+                f"SNP pairs the R2 matrix never stored. Rerun with the R2 matrix's window `{recorded_text}` (or a "
+                f"narrower `{recorded.flag}` value), or rebuild the R2 matrix with "
+                f"`ldsc build-r2-matrix {requested_text}`."
+            )
+        if requested.value > recorded.value:
+            raise LDSCUsageError(
+                f"ldscore cannot compute chromosome {self.chrom} from the "
+                f"R2 matrix: the user-requested LD window `{_format_ld_window_spec(requested)}` "
+                f"is wider than the input R2 matrix window "
+                f"`{_format_ld_window_spec(recorded)}`. Most likely the "
+                "R2 matrix was built with a smaller LD window, so it does not contain all "
+                "SNP pairs required by this ldscore run. Rebuild the R2 matrix "
+                f"with `{_format_ld_window_spec(requested)}` or a wider build window, or "
+                f"rerun ldscore with an LD window no wider than the recorded R2 matrix window "
+                f"`{_format_ld_window_spec(recorded)}`."
+            )
+
+    def reject_truncation(self) -> None:
+        """Reject, for ``ldscore``, an R2 matrix that omitted pairs below a positive ``ldsc:r2_min``.
+
+        LD scores sum every SNP pair in the window, so pairs the R2 matrix did not
+        store would count as zero. Such R2 matrices stay valid for
+        ``query-r2-matrix``, which reports unstored pairs as absent.
+        """
+        r2_min = self.contract.r2_min
         if r2_min > 0:
             raise LDSCInputError(
-                f"ldscore cannot use R2 Parquet file '{path}' (chromosome {chrom}): the R2 matrix omits SNP pairs with "
-                f"unbiased R2 below {r2_min:g} (ldsc:r2_min, set by `build-r2-matrix --r2-min`). LD scores sum "
-                "every SNP pair in the window, so the omitted pairs would count as zero and change the scores. "
-                "Rebuild the R2 matrix without `--r2-min` (the default keeps every pair). R2 matrices built with a "
-                "positive `--r2-min` remain usable for `ldsc query-r2-matrix`."
+                f"ldscore cannot use R2 Parquet file '{self.parquet_path}' (chromosome {self.chrom}): the R2 matrix "
+                f"omits SNP pairs with unbiased R2 below {r2_min:g} (ldsc:r2_min, set by `build-r2-matrix "
+                "--r2-min`). LD scores sum every SNP pair in the window, so the omitted pairs would count as zero "
+                "and change the scores. Rebuild the R2 matrix without `--r2-min` (the default keeps every pair). "
+                "R2 matrices built with a positive `--r2-min` remain usable for `ldsc query-r2-matrix`."
             )
+
+    def pair_reader(self, metadata: pd.DataFrame, identifier_mode: str,
+                    genome_build: str | None = None) -> SortedR2BlockReader:
+        """Return a reader that streams this chromosome's pairs among the SNPs in ``metadata``; the caller closes it."""
+        return SortedR2BlockReader(self, metadata, identifier_mode, genome_build)
 
 
 # Parquet R2 adapter.
@@ -403,111 +555,52 @@ class SortedR2BlockReader:
 
     R2 Parquet files use logical fields ``IDX_1``, ``IDX_2``, ``R2``
     (int16 on-disk, dequantized to float32 by dividing by ``ldsc:r2_scale``),
-    and ``SIGN_R``. The file must satisfy :func:`read_r2_parquet_contract`; its
-    values are already unbiased and are not corrected again. Each row group is
-    decoded once and remapped to retained SNP indices.
+    and ``SIGN_R``. Values are already unbiased and are not corrected again.
+    Each row group is decoded once and remapped to the retained SNPs. Build it
+    with :meth:`R2MatrixChromosome.pair_reader`.
     """
 
     def __init__(
         self,
-        paths: Sequence[str],
-        chrom: str,
+        chromosome: R2MatrixChromosome,
         metadata: pd.DataFrame,
         identifier_mode: str,
         genome_build: str | None = None,
     ) -> None:
-        """Open one chromosome's sorted R2 Parquet file and build index maps."""
-        if not paths:
-            raise LDSCInputError(
-                f"ldscore could not find a sorted R2 Parquet file for chromosome {chrom}. "
-                "Most likely the R2 matrix directory is missing this chromosome or the path token "
-                "does not resolve to `chrN_r2.parquet`. Pass the correct `--r2-matrix-dir` or "
-                "regenerate the R2 matrix. "
-                f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
-            )
-        self.chrom = normalize_chromosome(chrom)
-        self.identifier_mode = normalize_snp_identifier_mode(identifier_mode)
-        self.genome_build = genome_build
-        assert self.genome_build in {"hg19", "hg38", None}, (
-            f"genome_build={self.genome_build!r} must be concrete by this point."
-        )
-        self._pf = None
-        metadata = metadata.copy()
-        metadata_context = f"SortedR2BlockReader[{self.chrom}] metadata"
-        renamed = {
-            resolve_required_column(metadata.columns, REFERENCE_METADATA_SPEC_MAP["CHR"], context=metadata_context): "CHR",
-            resolve_required_column(metadata.columns, REFERENCE_METADATA_SPEC_MAP["POS"], context=metadata_context): "POS",
-            resolve_required_column(metadata.columns, REFERENCE_METADATA_SPEC_MAP["SNP"], context=metadata_context): "SNP",
-        }
-        optional_cm = resolve_optional_column(metadata.columns, REFERENCE_METADATA_SPEC_MAP["CM"], context=metadata_context)
-        if optional_cm is not None:
-            renamed[optional_cm] = "CM"
-        metadata = metadata.rename(columns=renamed)
-
+        """Map the retained SNPs in ``metadata`` (canonical columns) to R2 matrix rows and open the Parquet file."""
         import pyarrow.parquet as pq
 
-        self.contract = read_r2_parquet_contract(paths[0])
-
-        if is_allele_aware_mode(self.identifier_mode):
-            a1_col = resolve_required_column(metadata.columns, A1_COLUMN_SPEC, context=metadata_context)
-            a2_col = resolve_required_column(metadata.columns, A2_COLUMN_SPEC, context=metadata_context)
-            metadata = metadata.rename(columns={a1_col: "A1", a2_col: "A2"})
-        validate_retained_identifier_uniqueness(metadata, self.identifier_mode, chrom)
-
-        if len(paths) != 1:
+        self.chrom = chromosome.chrom
+        self.identifier_mode = normalize_snp_identifier_mode(identifier_mode)
+        assert genome_build in {"hg19", "hg38", None}, (
+            f"genome_build={genome_build!r} must be concrete by this point."
+        )
+        self.contract = chromosome.contract
+        validate_retained_identifier_uniqueness(metadata, self.identifier_mode, self.chrom)
+        if genome_build not in {None, self.contract.sorted_by_build}:
             raise LDSCInputError(
-                f"ldscore resolved {len(paths)} R2 Parquet files for chromosome {self.chrom}, "
-                "but an R2 matrix requires exactly one file per chromosome. Most likely "
-                "the R2 matrix path/glob is too broad or the directory contains duplicate chromosome "
-                "artifacts. Narrow `--r2-matrix-dir` or remove duplicate parquet files."
+                f"ldscore could not use R2 Parquet file '{chromosome.parquet_path}': it is sorted for "
+                f"{self.contract.sorted_by_build}, but the analysis uses {genome_build}. Most likely "
+                "the R2 matrix and annotation inputs use different genome builds. "
+                "Use the matching reference file or regenerate with "
+                f"`--genome-build {genome_build}`. "
+                f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
             )
-        self._pf = pq.ParquetFile(paths[0])
-        try:
-            self._init_index_path(paths[0], metadata)
-        except BaseException:
-            self.close()
-            raise
+        self.genome_build = self.contract.sorted_by_build
+        self._remap, self._retained_build_idx = build_index_remap(
+            chromosome.sidecar(), metadata, self.identifier_mode
+        )
+        self.m = len(metadata)
+        self._pf = pq.ParquetFile(chromosome.parquet_path)
 
     def close(self):
         """Release the parquet handle owned by this chromosome reader."""
-        if self._pf is not None:
-            self._pf.close()
+        self._pf.close()
 
     @property
     def panel_rows(self) -> np.ndarray:
         """R2 matrix sidecar row of each retained SNP, in retained order."""
         return self._retained_build_idx
-
-    def _init_index_path(self, path: str, retained_metadata: pd.DataFrame) -> None:
-        """Validate index-format metadata, the sidecar binding, and build the remap."""
-        if self._pf is None:
-            raise LDSCInternalError(
-                "LD-score parquet reader failed in SortedR2BlockReader._init_index_path(): "
-                "the parquet file handle is not initialized. Most likely reader construction "
-                "was bypassed. Re-run with DEBUG logging and report the traceback."
-            )
-        parquet_build = self.contract.sorted_by_build
-        if self.genome_build not in {None, parquet_build}:
-            raise LDSCInputError(
-                f"ldscore could not use R2 Parquet file '{path}': it is sorted for "
-                f"{parquet_build}, but the analysis uses {self.genome_build}. Most likely "
-                "the R2 matrix and annotation inputs use different genome builds. "
-                "Use the matching reference file or regenerate with "
-                f"`--genome-build {self.genome_build}`. "
-                f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
-            )
-        self.genome_build = parquet_build
-
-        full_sidecar = _load_full_panel_sidecar(path)
-        _validate_index_binding(
-            full_sidecar, n_snps=self.contract.n_snps, identity_hash=self.contract.sidecar_identity_sha256,
-            context=f"SortedR2BlockReader[{self.chrom}] {path}",
-        )
-
-        self._remap, self._retained_build_idx = build_index_remap(
-            full_sidecar, retained_metadata, self.identifier_mode
-        )
-        self.m = len(retained_metadata)
 
     def _decode_index_batch(self, table, row_group_index: int) -> _DecodedR2RowGroup:
         """Dequantize and remap one bounded Arrow batch of stored pairs."""
@@ -531,12 +624,6 @@ class SortedR2BlockReader:
         R2 matrix indices are remapped to the retained reference SNPs before
         yielding. SIGN_R is unused. No decoded row group is cached.
         """
-        if self._pf is None:
-            raise LDSCInternalError(
-                "LD-score parquet reader failed in SortedR2BlockReader.iter_all_pairs(): "
-                "the parquet file handle is not initialized. Re-run with DEBUG logging "
-                "and report the traceback."
-            )
         for rg_index in range(self._pf.metadata.num_row_groups):
             for table in self._pf.iter_batches(batch_size=batch_rows,
                     row_groups=[rg_index], columns=["IDX_1", "IDX_2", "R2"]):

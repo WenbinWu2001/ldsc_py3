@@ -193,13 +193,12 @@ def test_converter_validates_weight_build_declaration_before_conversion(tmp_path
     assert not (tmp_path / 'out' / 'metadata.json').exists()
 
 
-@pytest.mark.parametrize('validator', ['_validate_r2_identity_matches_config', '_validate_metadata_identity_matches_config'])
-def test_low_level_reference_validation_does_not_replace_input_build(validator):
+def test_low_level_reference_validation_does_not_replace_input_build():
     from ldsc import GlobalConfig
     from ldsc._refpanel import adapters as ref_panel
     metadata = {'snp_identifier': 'chr_pos', 'genome_build': 'GRCh38'}
     with pytest.raises(LDSCInputError, match='Conflicting genome-build evidence'):
-        getattr(ref_panel, validator)(metadata, GlobalConfig(snp_identifier='chr_pos', genome_build='hg19'))
+        ref_panel._validate_r2_identity_matches_config(metadata, GlobalConfig(snp_identifier='chr_pos', genome_build='hg19'))
     assert metadata['genome_build'] == 'GRCh38'
 
 

@@ -70,21 +70,20 @@ def build_test_panel(
 def test_readers_require_sign_r(tmp_path, reader):
     import pyarrow.parquet as pq
 
-    from ldsc._refpanel.r2_format import SortedR2BlockReader
+    from ldsc import GlobalConfig, R2MatrixRefPanel, RefPanelConfig
     from ldsc.errors import LDSCInputError
     from ldsc._refpanel.query import R2Matrix
 
-    _, meta_path, r2_path = build_test_panel(tmp_path)
+    build_dir, _, r2_path = build_test_panel(tmp_path)
     table = pq.read_table(r2_path).drop_columns(["SIGN_R"])
     pq.write_table(table, r2_path)
 
     with pytest.raises(LDSCInputError, match="SIGN_R.*build-r2-matrix"):
         if reader == "ldscore":
-            SortedR2BlockReader(
-                paths=[str(r2_path)], chrom="1",
-                metadata=pd.read_csv(meta_path, sep="\t", comment="#"),
-                identifier_mode="chr_pos_allele_aware", genome_build="hg38",
-            )
+            R2MatrixRefPanel(
+                GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)),
+            ).build_reader("1")
         else:
             panel = R2Matrix.open(tmp_path, genome_build="hg38")
             panel.query_pairs(pd.DataFrame({

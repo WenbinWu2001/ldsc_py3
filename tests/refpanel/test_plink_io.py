@@ -1,6 +1,5 @@
 from pathlib import Path
 import tempfile
-import gzip
 import unittest
 
 import numpy as np
@@ -11,9 +10,10 @@ import pandas as pd
 from ldsc._core import plink_files as ps
 from ldsc._ldscore import compute as ld
 from ldsc._refpanel.plink import PlinkBEDFile
-from ldsc._refpanel.r2_format import SortedR2BlockReader, build_index_remap
+from ldsc._refpanel.r2_format import build_index_remap
 from ldsc._refpanel.windows import get_block_lefts
 from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError
+from tests.ref_panel_helpers import write_r2_matrix_chromosome
 
 try:
     import bitarray as ba
@@ -22,22 +22,6 @@ except ModuleNotFoundError:
 
 
 PLINK_FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "plink"
-
-
-def pair_chunk(rows):
-    """Build one PairColumns chunk (i, j, r2 float32, sign int8) from dict rows."""
-    rows = list(rows)
-    i = np.array([r["i"] for r in rows], dtype=np.int64)
-    j = np.array([r["j"] for r in rows], dtype=np.int64)
-    r2 = np.array([r["R2"] for r in rows], dtype=np.float32)
-    sign = np.array([1 if r["sign"] == "+" else -1 for r in rows], dtype=np.int8)
-    return (i, j, r2, sign)
-
-
-def dict_chunks(rows):
-    """Wrap legacy dict rows as the chunk iterable write_r2_parquet expects."""
-    rows = list(rows)
-    return [pair_chunk(rows)] if rows else iter([])
 
 
 class LDScoreHelpersTest(unittest.TestCase):
@@ -156,76 +140,26 @@ class IndexParquetRuntimeTest(unittest.TestCase):
             }
         )
 
-    def _reader_meta(self, snps, bps):
-        return pd.DataFrame(
-            {
-                "CHR": ["1"] * len(snps),
-                "SNP": list(snps),
-                "BP": list(bps),
-                "CM": [0.0] * len(snps),
-            }
-        )
-
     def _write_index_panel(self, tmpdir, panel_meta, pairs, *, genome_build="hg19", row_group_size=2):
-        from ldsc._refpanel import build_kernel as kb
-        from ldsc._refpanel import r2_format
-        from ldsc._core.snp_identity import sidecar_identity_sha256
+        """Write one R2 matrix chromosome and open it for ldscore."""
+        from ldsc._refpanel.r2_format import R2MatrixChromosome
 
-        r2 = Path(tmpdir) / "chr1_r2.parquet"
-        meta = Path(tmpdir) / "chr1_meta.tsv.gz"
-        with gzip.open(meta, "wt") as handle:
-            handle.write("# ldsc:schema_version=2\n")
-            panel_meta.to_csv(handle, sep="\t", index=False)
-        r2_format.write_r2_parquet(
-            pair_chunks=dict_chunks(pairs),
-            path=r2,
-            genome_build=genome_build,
-            n_samples=10,
-            snp_identifier="chr_pos",
-            r2_min=0.0,
-            n_snps=len(panel_meta),
-            sidecar_identity_sha256=sidecar_identity_sha256(panel_meta),
-            row_group_size=row_group_size,
-            ld_window_mode="kb",
-            ld_window_value=1000.0,
-        )
-        return r2
+        write_r2_matrix_chromosome(Path(tmpdir), panel_meta, pairs, genome_build=genome_build,
+                                   n_samples=10, row_group_size=row_group_size)
+        return R2MatrixChromosome.open(Path(tmpdir), "1", command="ldscore")
 
-    def _reader(self, r2, reader_meta, *, genome_build="hg19"):
-        return SortedR2BlockReader(
-            paths=[str(r2)],
-            chrom="1",
-            metadata=reader_meta,
-            identifier_mode="rsid",
-            genome_build=genome_build,
-        )
+    def _reader(self, chromosome, reader_meta, *, genome_build="hg19"):
+        return chromosome.pair_reader(reader_meta, "rsid", genome_build)
 
     def test_index_init_raises_on_build_mismatch(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             panel = self._panel_meta(["rs1", "rs2"], [100, 120])
-            r2 = self._write_index_panel(tmpdir, panel, [{"i": 0, "j": 1, "R2": 0.5, "sign": "+"}], genome_build="hg19")
+            chromosome = self._write_index_panel(tmpdir, panel, [{"i": 0, "j": 1, "R2": 0.5, "sign": "+"}],
+                                                 genome_build="hg19")
             with self.assertRaises(LDSCInputError) as ctx:
-                self._reader(r2, self._reader_meta(["rs1", "rs2"], [100, 120]), genome_build="hg38")
+                self._reader(chromosome, panel, genome_build="hg38")
             self.assertIn("hg19", str(ctx.exception))
             self.assertIn("hg38", str(ctx.exception))
-
-    def test_index_init_hard_fails_on_multiple_paths(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            panel = self._panel_meta(["rs1", "rs2"], [100, 120])
-            r2a = self._write_index_panel(tmpdir, panel, [{"i": 0, "j": 1, "R2": 0.5, "sign": "+"}])
-            r2b = Path(tmpdir) / "chr1_b_r2.parquet"
-            import shutil
-
-            shutil.copy(r2a, r2b)
-            with self.assertRaises(LDSCInputError) as ctx:
-                SortedR2BlockReader(
-                    paths=[str(r2a), str(r2b)],
-                    chrom="1",
-                    metadata=self._reader_meta(["rs1", "rs2"], [100, 120]),
-                    identifier_mode="rsid",
-                    genome_build="hg19",
-                )
-            self.assertIn("exactly one file", str(ctx.exception))
 
     def test_build_index_remap_rejects_collapsing_sidecar(self):
         # Two distinct panel rows share an rsID; under rsid mode they collapse
@@ -255,8 +189,7 @@ class IndexParquetRuntimeTest(unittest.TestCase):
                 {"i": 1, "j": 2, "R2": 0.6, "sign": "+"},
                 {"i": 2, "j": 3, "R2": 0.5, "sign": "+"},
             ]
-            r2 = self._write_index_panel(tmpdir, panel, pairs, row_group_size=4)
-            reader = self._reader(r2, self._reader_meta(snps, bps))
+            reader = self._reader(self._write_index_panel(tmpdir, panel, pairs, row_group_size=4), panel)
             seen = {}
             for i, j, r2v in reader.iter_all_pairs(batch_rows=2):
                 self.assertLessEqual(len(i), 2)
@@ -282,8 +215,7 @@ class IndexParquetRuntimeTest(unittest.TestCase):
             for b in range(a + 1, min(a + 4, n)):
                 pairs.append({"i": a, "j": b, "R2": float(rng.uniform(0.05, 0.95)), "sign": "+"})
         with tempfile.TemporaryDirectory() as tmpdir:
-            r2 = self._write_index_panel(tmpdir, panel, pairs, row_group_size=3)
-            reader = self._reader(r2, self._reader_meta(snps, bps))
+            reader = self._reader(self._write_index_panel(tmpdir, panel, pairs, row_group_size=3), panel)
             block_left = np.array([max(0, k - 3) for k in range(n)], dtype=np.int64)
             annot = rng.uniform(0, 1, size=(n, 3)).astype(np.float32)
             tiny = ld.ld_score_streaming_from_r2_reader(block_left, annot, reader, chunk_pairs=2)

@@ -2,7 +2,7 @@ from __future__ import annotations
 from ldsc._runtime.serial_calculation import serial_calculation
 from tests.annotation_fixtures import build_annotation_fixture, make_annotation_bundle, fixture_metadata, fixture_values, replace_fixture_queries
 
-from tests.ref_panel_helpers import compute_plink, write_tiny_plink
+from tests.ref_panel_helpers import compute_plink, write_r2_matrix_chromosome, write_tiny_plink
 
 from argparse import Namespace
 from dataclasses import replace as dataclass_replace
@@ -45,7 +45,6 @@ from ldsc._annotation.overlap import compute_overlap
 from ldsc._refpanel import plink as plink_bed
 from ldsc._refpanel import adapters as ref_panel_adapters, r2_format, windows as ld_windows
 from ldsc._refpanel.prepared import ChromosomeAnnotations
-from ldsc._refpanel.r2_format import validate_ldscore_window_within_r2_matrix_window
 from ldsc._refpanel.windows import (
     assert_cm_usable,
     validate_window_positions_sorted,
@@ -105,26 +104,9 @@ class R2AutoLoadCLITest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            _write_minimal_r2_parquet(
-                root / "chr1_r2.parquet",
-                {
-                    b"ldsc:schema_version": b"1",
-                    b"ldsc:artifact_type": b"r2_matrix",
-                    b"ldsc:snp_identifier": b"chr_pos",
-                    b"ldsc:genome_build": b"hg19",
-                },
-            )
-            with gzip.open(root / "chr1_meta.tsv.gz", "wt", encoding="utf-8") as handle:
-                handle.write(
-                    "# ldsc:schema_version=1\n"
-                    "# ldsc:artifact_type=ref_panel_metadata\n"
-                    "# ldsc:snp_identifier=chr_pos\n"
-                    "# ldsc:genome_build=hg19\n"
-                    "CHR\tPOS\tSNP\tCM\tMAF\n"
-                    "1\t10\trs1\t0.1\t0.2\n"
-                    "1\t10\trs2\t0.2\t0.3\n"
-                    "1\t20\trs3\t0.3\t0.4\n"
-                )
+            write_r2_matrix_chromosome(root, pd.DataFrame({
+                "CHR": ["1"] * 3, "POS": [10, 10, 20], "SNP": ["rs1", "rs2", "rs3"], "A1": ["A"] * 3,
+                "A2": ["C", "G", "C"], "CM": [0.1, 0.2, 0.3], "MAF": [0.2, 0.3, 0.4]}))
             panel = R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
                 RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(root)),
@@ -2247,87 +2229,59 @@ class LDScoreWorkflowTest(unittest.TestCase):
             np.testing.assert_allclose(result.baseline_table["base"].to_numpy(), expected_ld)
 
 
+def _open_r2_chromosome(build_dir, panel, pairs=(), **options):
+    """Write one R2 matrix chromosome with the package writers and open it for ldscore."""
+    write_r2_matrix_chromosome(build_dir, panel, pairs, **options)
+    return r2_format.R2MatrixChromosome.open(build_dir, str(panel["CHR"].iloc[0]), command="ldscore")
+
+
+def _set_footer_metadata(path, **values):
+    """Overwrite ``ldsc:<key>`` entries in one R2 Parquet file footer."""
+    import pyarrow.parquet as pq
+
+    table = pq.read_table(path)
+    metadata = dict(table.schema.metadata)
+    metadata.update({f"ldsc:{key}".encode(): str(value).encode() for key, value in values.items()})
+    pq.write_table(table.replace_schema_metadata(metadata), path)
+
+
 class LDScoreParquetNormalizationTest(unittest.TestCase):
 
     def test_sorted_r2_block_reader_rejects_auto_genome_build_at_kernel_boundary(self):
+        panel = pd.DataFrame({"CHR": ["1", "1"], "POS": [100, 110], "SNP": ["rs0", "rs1"],
+                              "A1": ["A", "A"], "A2": ["C", "C"], "MAF": [0.3, 0.3]})
         with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "raw_chr1.parquet"
-            pd.DataFrame(
-                {
-                    "chr": ["1"],
-                    "rsID_1": ["rs2"],
-                    "rsID_2": ["rs1"],
-                    "hg38_bp1": [5120],
-                    "hg38_bp2": [5100],
-                    "hg19_bp_1": [120],
-                    "hg19_bp_2": [100],
-                    "hg38_Uniq_ID_1": ["1:5120"],
-                    "hg38_Uniq_ID_2": ["1:5100"],
-                    "hg19_Uniq_ID_1": ["1:120"],
-                    "hg19_Uniq_ID_2": ["1:100"],
-                    "R2": [0.4],
-                    "Dprime": [0.5],
-                    "+/-corr": ["+"],
-                }
-            ).to_parquet(path, index=False)
-
-            metadata = pd.DataFrame(
-                {
-                    "CHR": ["1"] * 250,
-                    "SNP": [f"rs{i}" for i in range(250)],
-                    "POS": [100 + (idx * 10) for idx in range(250)],
-                    "CM": [0.1] * 250,
-                }
-            )
+            chromosome = _open_r2_chromosome(Path(tmpdir), panel)
             with self.assertRaisesRegex(AssertionError, "concrete"):
-                reader = r2_format.SortedR2BlockReader(
-                    paths=[str(path)],
-                    chrom="1",
-                    metadata=metadata,
-                    identifier_mode="chr_pos",
-                    genome_build="auto",
-                )
-
-
-def _write_index_sidecar(tmp, df, *, gz: bool = True):
-    """Write a panel sidecar (CHR,POS,SNP,A1,A2,CM,MAF) as chr1_meta.tsv.gz."""
-    meta = Path(tmp) / "hg19" / "chr1_meta.tsv.gz"
-    meta.parent.mkdir(parents=True, exist_ok=True)
-    with gzip.open(meta, "wt") as h:
-        h.write("# ldsc:schema_version=2\n")
-        df.to_csv(h, sep="\t", index=False)
-    return meta
+                chromosome.pair_reader(panel, "chr_pos", "auto")
 
 
 class IndexBindingTest(unittest.TestCase):
-    def _sidecar(self, tmp):
-        df = pd.DataFrame({"CHR": ["1", "1", "1"], "POS": [10, 20, 30],
-                           "SNP": ["rsA", "rsB", "rsC"], "A1": ["A", "C", "G"],
-                           "A2": ["G", "T", "A"], "CM": [0.0, 0.0, 0.0], "MAF": [0.2, 0.3, 0.4]})
-        return _write_index_sidecar(tmp, df), df
+    PANEL = pd.DataFrame({"CHR": ["1", "1", "1"], "POS": [10, 20, 30],
+                          "SNP": ["rsA", "rsB", "rsC"], "A1": ["A", "C", "G"],
+                          "A2": ["G", "T", "A"], "CM": [0.0, 0.0, 0.0], "MAF": [0.2, 0.3, 0.4]})
 
-    def test_load_full_panel_sidecar_reads_canonical_columns(self):
-        from ldsc._ldscore import compute as ls
-        from ldsc._refpanel.r2_format import _load_full_panel_sidecar
+    def test_sidecar_reads_canonical_columns_once(self):
         with tempfile.TemporaryDirectory() as tmp:
-            meta, df = self._sidecar(tmp)
-            r2 = meta.with_name("chr1_r2.parquet")
-            loaded = _load_full_panel_sidecar(str(r2))
-            self.assertEqual(list(loaded["CHR"].astype(str)), ["1", "1", "1"])
-            self.assertEqual(list(loaded["POS"].astype(int)), [10, 20, 30])
+            chromosome = _open_r2_chromosome(Path(tmp), self.PANEL)
+            sidecar = chromosome.sidecar()
+            self.assertEqual(list(sidecar.columns), list(r2_format.SIDECAR_COLUMNS))
+            self.assertEqual(sidecar["CHR"].tolist(), ["1", "1", "1"])
+            self.assertEqual(sidecar["POS"].dtype, np.int64)
+            self.assertEqual(sidecar["POS"].tolist(), [10, 20, 30])
+            self.assertEqual(sidecar["MAF"].tolist(), [0.2, 0.3, 0.4])
+            self.assertIs(chromosome.sidecar(), sidecar)
 
-    def test_validate_binding_raises_on_hash_mismatch(self):
-        from ldsc._ldscore import compute as ls
-        from ldsc._refpanel.r2_format import _validate_index_binding
-        from ldsc._core.snp_identity import sidecar_identity_sha256
+    def test_sidecar_binding_rejects_hash_and_row_count_mismatch(self):
         with tempfile.TemporaryDirectory() as tmp:
-            meta, df = self._sidecar(tmp)
-            good = sidecar_identity_sha256(df)
-            _validate_index_binding(df, n_snps=3, identity_hash=good, context="t")  # no raise
-            with self.assertRaisesRegex(LDSCInputError, "identity hash"):
-                _validate_index_binding(df, n_snps=3, identity_hash="0" * 64, context="t")
-            with self.assertRaisesRegex(LDSCInputError, "n_snps"):
-                _validate_index_binding(df, n_snps=999, identity_hash=good, context="t")
+            chromosome = _open_r2_chromosome(Path(tmp), self.PANEL)
+            chromosome.sidecar()  # matched pair: no raise
+            for values, reason in (({"sidecar_identity_sha256": "0" * 64}, "ldsc:sidecar_identity_sha256"),
+                                   ({"n_snps": 999}, "ldsc:n_snps=999")):
+                _set_footer_metadata(chromosome.parquet_path, **values)
+                reopened = r2_format.R2MatrixChromosome.open(Path(tmp), "1", command="ldscore")
+                with self.assertRaisesRegex(LDSCInputError, reason):
+                    reopened.sidecar()
 
 
 class IndexRemapTest(unittest.TestCase):
@@ -2357,42 +2311,26 @@ class IndexRemapTest(unittest.TestCase):
 
 
 class IndexReaderDecodeTest(unittest.TestCase):
-    def _make_panel(self, tmp):
-        from ldsc._refpanel import build_kernel as kb
-        from ldsc._refpanel import r2_format
-        from ldsc._core.snp_identity import sidecar_identity_sha256
-
+    def test_streaming_drops_unretained_endpoint(self):
         full = pd.DataFrame({"CHR": ["1"] * 4, "POS": [10, 20, 30, 40],
                              "SNP": ["a", "b", "c", "d"], "A1": list("ACGT"),
                              "A2": list("GTAC"), "CM": [0.0] * 4, "MAF": [0.3] * 4})
-        meta = _write_index_sidecar(tmp, full)
-        r2 = meta.with_name("chr1_r2.parquet")
         rows = [
             {"i": 0, "j": 1, "R2": 0.5, "sign": "+"},
             {"i": 0, "j": 2, "R2": 0.2, "sign": "+"},
             {"i": 1, "j": 2, "R2": 0.4, "sign": "-"},
             {"i": 2, "j": 3, "R2": 0.9, "sign": "+"},
         ]
-        r2_format.write_r2_parquet(pair_chunks=dict_chunks(rows), path=r2, genome_build="hg19", n_samples=100,
-                            snp_identifier="chr_pos", r2_min=0.0, n_snps=4,
-                            sidecar_identity_sha256=sidecar_identity_sha256(full), ld_window_mode="kb", ld_window_value=1000.0)
-        return r2, full
-
-    def test_streaming_drops_unretained_endpoint(self):
-        from ldsc._refpanel.r2_format import SortedR2BlockReader
         with tempfile.TemporaryDirectory() as tmp:
-            r2, full = self._make_panel(tmp)
+            chromosome = _open_r2_chromosome(Path(tmp), full, rows)
             # retained = panel rows 0,1,2 (drop pos40); matrix order = [10,20,30]
-            retained = full.iloc[[0, 1, 2]][["CHR", "POS", "SNP", "A1", "A2", "CM", "MAF"]].reset_index(drop=True)
-            reader = SortedR2BlockReader(
-                paths=[str(r2)], chrom="1", metadata=retained,
-                identifier_mode="chr_pos",
-                genome_build="hg19",
-            )
+            retained = full.iloc[[0, 1, 2]].reset_index(drop=True)
+            reader = chromosome.pair_reader(retained, "chr_pos", "hg19")
             seen = {}
             for i, j, r2v in reader.iter_all_pairs():
                 for a, b, v in zip(i.tolist(), j.tolist(), r2v.tolist()):
                     seen[(a, b)] = v
+            reader.close()
             # pair (2,3) touches the dropped SNP (pos40) -> excluded by remap
             self.assertEqual(sorted(seen), [(0, 1), (0, 2), (1, 2)])
             # off-diagonal R2 is int16-quantized: tolerance is the half-step (1.5e-5)
@@ -2402,191 +2340,40 @@ class IndexReaderDecodeTest(unittest.TestCase):
 
 
 class R2MatrixWindowValidationTest(unittest.TestCase):
+    TWO_SNPS = pd.DataFrame({"CHR": ["1", "1"], "POS": [100, 200], "SNP": ["rs1", "rs2"], "A1": ["A", "A"],
+                             "A2": ["C", "C"], "CM": [0.0, 1.0], "MAF": [0.3, 0.3]})
+
+    def _chromosome(self, tmp, ld_window, panel=None, pairs=()):
+        return _open_r2_chromosome(Path(tmp), self.TWO_SNPS if panel is None else panel, pairs, ld_window=ld_window)
+
     def test_ldscore_accepts_equal_recorded_r2_matrix_window(self):
-        from ldsc._refpanel import build_kernel as kb
-        from ldsc._refpanel import r2_format
-        from ldsc._core.snp_identity import sidecar_identity_sha256
-
-        panel = pd.DataFrame(
-            {
-                "CHR": ["1", "1"],
-                "POS": [100, 200],
-                "SNP": ["rs1", "rs2"],
-                "A1": ["A", "A"],
-                "A2": ["C", "C"],
-                "CM": [0.0, 1.0],
-                "MAF": [0.3, 0.3],
-            }
-        )
         with tempfile.TemporaryDirectory() as tmp:
-            meta = _write_index_sidecar(tmp, panel)
-            r2 = meta.with_name("chr1_r2.parquet")
-            r2_format.write_r2_parquet(
-                pair_chunks=dict_chunks([]),
-                path=r2,
-                genome_build="hg19",
-                n_samples=100,
-                snp_identifier="chr_pos",
-                r2_min=0.0,
-                n_snps=2,
-                sidecar_identity_sha256=sidecar_identity_sha256(panel),
-                ld_window_mode="cm",
-                ld_window_value=1.0,
-            )
-
-            args = Namespace(
-                ld_wind_snps=None,
-                ld_wind_kb=None,
-                ld_wind_cm=1.0,
-                r2_table=str(r2),
-                snp_identifier="chr_pos",
-            )
-
-            validate_ldscore_window_within_r2_matrix_window(
-                args,
-                parquet_paths=[str(r2)],
-                chrom="1",
-            )
+            chromosome = self._chromosome(tmp, ("cm", 1.0))
+            chromosome.check_ld_window(Namespace(ld_wind_snps=None, ld_wind_kb=None, ld_wind_cm=1.0))
 
     def test_ldscore_rejects_window_wider_than_recorded_r2_matrix_window(self):
-        from ldsc._refpanel import build_kernel as kb
-        from ldsc._refpanel import r2_format
-        from ldsc._core.snp_identity import sidecar_identity_sha256
-
-        panel = pd.DataFrame(
-            {
-                "CHR": ["1"] * 3,
-                "POS": [100, 200, 300],
-                "SNP": ["rs1", "rs2", "rs3"],
-                "A1": ["A", "A", "A"],
-                "A2": ["C", "C", "C"],
-                "CM": [0.0, 0.1, 0.2],
-                "MAF": [0.3, 0.3, 0.3],
-            }
-        )
+        panel = pd.DataFrame({"CHR": ["1"] * 3, "POS": [100, 200, 300], "SNP": ["rs1", "rs2", "rs3"],
+                              "A1": ["A"] * 3, "A2": ["C"] * 3, "CM": [0.0, 0.1, 0.2], "MAF": [0.3] * 3})
         with tempfile.TemporaryDirectory() as tmp:
-            meta = _write_index_sidecar(tmp, panel)
-            r2 = meta.with_name("chr1_r2.parquet")
-            r2_format.write_r2_parquet(
-                pair_chunks=dict_chunks([{"i": 0, "j": 1, "R2": 0.5, "sign": "+"}]),
-                path=r2,
-                genome_build="hg19",
-                n_samples=100,
-                snp_identifier="chr_pos",
-                r2_min=0.0,
-                n_snps=3,
-                sidecar_identity_sha256=sidecar_identity_sha256(panel),
-                ld_window_mode="kb",
-                ld_window_value=0.1,
-            )
-
-            args = Namespace(
-                ld_wind_snps=None,
-                ld_wind_kb=1.0,
-                ld_wind_cm=None,
-                r2_table=str(r2),
-            )
+            chromosome = self._chromosome(tmp, ("kb", 0.1), panel, [{"i": 0, "j": 1, "R2": 0.5, "sign": "+"}])
             with self.assertRaisesRegex(
                 LDSCUsageError,
                 "user-requested LD window `--ld-wind-kb 1.0` is wider than the input R2 matrix window `--ld-wind-kb 0.1`",
             ):
-                validate_ldscore_window_within_r2_matrix_window(
-                    args,
-                    parquet_paths=[str(r2)],
-                    chrom="1",
-                )
+                chromosome.check_ld_window(Namespace(ld_wind_snps=None, ld_wind_kb=1.0, ld_wind_cm=None))
 
     def test_ldscore_rejects_any_strictly_larger_same_mode_window(self):
-        from ldsc._refpanel import build_kernel as kb
-        from ldsc._refpanel import r2_format
-        from ldsc._core.snp_identity import sidecar_identity_sha256
-
-        panel = pd.DataFrame(
-            {
-                "CHR": ["1", "1"],
-                "POS": [100, 200],
-                "SNP": ["rs1", "rs2"],
-                "A1": ["A", "A"],
-                "A2": ["C", "C"],
-                "CM": [0.0, 1.0],
-                "MAF": [0.3, 0.3],
-            }
-        )
         with tempfile.TemporaryDirectory() as tmp:
-            meta = _write_index_sidecar(tmp, panel)
-            r2 = meta.with_name("chr1_r2.parquet")
-            r2_format.write_r2_parquet(
-                pair_chunks=dict_chunks([]),
-                path=r2,
-                genome_build="hg19",
-                n_samples=100,
-                snp_identifier="chr_pos",
-                r2_min=0.0,
-                n_snps=2,
-                sidecar_identity_sha256=sidecar_identity_sha256(panel),
-                ld_window_mode="cm",
-                ld_window_value=1.0,
-            )
-
-            args = Namespace(
-                ld_wind_snps=None,
-                ld_wind_kb=None,
-                ld_wind_cm=float(np.nextafter(1.0, 2.0)),
-                r2_table=str(r2),
-                snp_identifier="chr_pos",
-            )
+            chromosome = self._chromosome(tmp, ("cm", 1.0))
             with self.assertRaisesRegex(LDSCUsageError, "is wider than the input R2 matrix window"):
-                validate_ldscore_window_within_r2_matrix_window(
-                    args,
-                    parquet_paths=[str(r2)],
-                    chrom="1",
-                )
+                chromosome.check_ld_window(
+                    Namespace(ld_wind_snps=None, ld_wind_kb=None, ld_wind_cm=float(np.nextafter(1.0, 2.0))))
 
     def test_ldscore_rejects_requested_window_mode_differing_from_r2_matrix_mode(self):
-        from ldsc._refpanel import build_kernel as kb
-        from ldsc._refpanel import r2_format
-        from ldsc._core.snp_identity import sidecar_identity_sha256
-
-        panel = pd.DataFrame(
-            {
-                "CHR": ["1", "1"],
-                "POS": [100, 200],
-                "SNP": ["rs1", "rs2"],
-                "A1": ["A", "A"],
-                "A2": ["C", "C"],
-                "CM": [0.0, 1.0],
-                "MAF": [0.3, 0.3],
-            }
-        )
         with tempfile.TemporaryDirectory() as tmp:
-            meta = _write_index_sidecar(tmp, panel)
-            r2 = meta.with_name("chr1_r2.parquet")
-            r2_format.write_r2_parquet(
-                pair_chunks=dict_chunks([]),
-                path=r2,
-                genome_build="hg19",
-                n_samples=100,
-                snp_identifier="chr_pos",
-                r2_min=0.0,
-                n_snps=2,
-                sidecar_identity_sha256=sidecar_identity_sha256(panel),
-                ld_window_mode="cm",
-                ld_window_value=1.0,
-            )
-
-            args = Namespace(
-                ld_wind_snps=None,
-                ld_wind_kb=100.0,
-                ld_wind_cm=None,
-                r2_table=str(r2),
-                snp_identifier="chr_pos",
-            )
+            chromosome = self._chromosome(tmp, ("cm", 1.0))
             with self.assertRaises(LDSCUsageError) as caught:
-                validate_ldscore_window_within_r2_matrix_window(
-                    args,
-                    parquet_paths=[str(r2)],
-                    chrom="1",
-                )
+                chromosome.check_ld_window(Namespace(ld_wind_snps=None, ld_wind_kb=100.0, ld_wind_cm=None))
 
         message = str(caught.exception)
         self.assertIn("with `--ld-wind-kb 100.0`", message)
@@ -2599,10 +2386,6 @@ class IndexCrossModeParityTest(unittest.TestCase):
     """One index parquet must produce identical LD scores in all four modes."""
 
     def test_ld_scores_identical_across_modes_from_one_index_parquet(self):
-        from ldsc._refpanel import build_kernel as kb
-        from ldsc._refpanel import r2_format
-        from ldsc._core.snp_identity import sidecar_identity_sha256
-
         panel = pd.DataFrame({
             "CHR": ["1"] * 4, "POS": [100, 120, 140, 160], "SNP": ["rs1", "rs2", "rs3", "rs4"],
             "A1": ["A", "A", "A", "A"], "A2": ["C", "G", "C", "G"], "CM": [0.0] * 4, "MAF": [0.3] * 4,
@@ -2623,23 +2406,15 @@ class IndexCrossModeParityTest(unittest.TestCase):
         expected = oracle.sum(axis=1)  # [1.6, 2.0, 2.3, 1.5]
 
         with tempfile.TemporaryDirectory() as tmp:
-            meta = _write_index_sidecar(tmp, panel)
-            r2 = meta.with_name("chr1_r2.parquet")
-            r2_format.write_r2_parquet(pair_chunks=dict_chunks(pairs), path=r2, genome_build="hg19", n_samples=100,
-                                snp_identifier="chr_pos", r2_min=0.0, n_snps=4,
-                                sidecar_identity_sha256=sidecar_identity_sha256(panel), ld_window_mode="kb", ld_window_value=1000.0)
+            chromosome = _open_r2_chromosome(Path(tmp), panel, pairs)
             mode_scores = {}
             for mode in ("rsid", "chr_pos", "rsid_allele_aware", "chr_pos_allele_aware"):
-                reader = r2_format.SortedR2BlockReader(
-                    paths=[str(r2)], chrom="1",
-                    metadata=panel[["CHR", "POS", "SNP", "A1", "A2", "CM", "MAF"]].copy(),
-                    identifier_mode=mode,
-                    genome_build="hg19",
-                )
+                reader = chromosome.pair_reader(panel, mode, "hg19")
                 scores = kernel_ldscore.ld_score_streaming_from_r2_reader(
                     block_left=np.zeros(4, dtype=np.int64),
                     annot=np.ones((4, 1), dtype=np.float32), block_reader=reader,
                 )
+                reader.close()
                 mode_scores[mode] = scores[:, 0]
             # All four modes read one quantized parquet -> bit-identical to each other.
             first = mode_scores["rsid"]
@@ -2652,33 +2427,23 @@ class IndexCrossModeParityTest(unittest.TestCase):
 
 class R2DequantizationTest(unittest.TestCase):
     def test_reader_dequantizes_int16_panel_to_float32(self):
-        from ldsc._refpanel import build_kernel as kb
-        from ldsc._refpanel import r2_format
-        from ldsc._ldscore import compute as kernel_ldscore
-        from ldsc._refpanel import r2_format
-        from ldsc._core.snp_identity import sidecar_identity_sha256
         panel = pd.DataFrame({"CHR": ["1"] * 3, "POS": [100, 120, 140],
                               "SNP": ["rs1", "rs2", "rs3"], "A1": ["A"] * 3, "A2": ["C"] * 3,
                               "CM": [0.0] * 3, "MAF": [0.3] * 3})
         pairs = [{"i": 0, "j": 1, "R2": 1.0, "sign": "+"},
                  {"i": 0, "j": 2, "R2": 0.2, "sign": "-"}]
         with tempfile.TemporaryDirectory() as tmp:
-            meta = _write_index_sidecar(tmp, panel)
-            r2 = meta.with_name("chr1_r2.parquet")
-            r2_format.write_r2_parquet(pair_chunks=dict_chunks(pairs), path=r2, genome_build="hg19", n_samples=100,
-                                snp_identifier="chr_pos", r2_min=0.0, n_snps=3,
-                                sidecar_identity_sha256=sidecar_identity_sha256(panel), ld_window_mode="kb", ld_window_value=1000.0)
-            reader = r2_format.SortedR2BlockReader(
-                paths=[str(r2)], chrom="1", metadata=panel.copy(),
-                identifier_mode="chr_pos",
-                genome_build="hg19")
+            chromosome = _open_r2_chromosome(Path(tmp), panel, pairs)
+            reader = chromosome.pair_reader(panel, "chr_pos", "hg19")
             self.assertEqual(reader.contract.r2_scale, 32767.0)
             i, j, r2_values = next(reader.iter_all_pairs())
+            reader.close()
             self.assertEqual(r2_values.dtype, np.float32)
             # endpoint exact; 0.2 within half-step
             got = dict(zip(zip(i.tolist(), j.tolist()), r2_values.tolist()))
             self.assertEqual(got[(0, 1)], 1.0)
             self.assertAlmostEqual(got[(0, 2)], 0.2, delta=2e-5)
+
 
 def test_ldscore_parser_regr_snp_region_flag_default_and_choices():
     parser = build_parser()

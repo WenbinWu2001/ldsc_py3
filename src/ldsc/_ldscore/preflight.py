@@ -21,7 +21,8 @@ from ..config import RefPanelConfig
 from ..errors import LDSCInputError, LDSCUserError
 from .._runtime.paths import inspect_plink_inputs, normalize_path_token, split_cli_path_tokens
 from .._core import regions
-from .._refpanel.adapters import RefPanelLoader, read_metadata_table, resolve_r2_build_dir
+from .._refpanel.adapters import RefPanelLoader
+from .._refpanel.r2_format import r2_matrix_chromosomes, resolve_r2_build_dir
 
 
 AUTOSOMES = list(map(str, range(1, 23)))
@@ -50,23 +51,10 @@ class DirectInputPreflight:
         return self.scope["chromosomes"]
 
 
-def read_r2_sidecar_for_chromosome(path, chrom, global_config, *, require_autosomes=False):
-    """Read one R2 matrix sidecar, with its MAF checks, and confirm it holds only ``chrom``."""
-    metadata = read_metadata_table(path, None, global_config)
-    if set(metadata.CHR.astype(str)) != {chrom} or (require_autosomes and chrom not in AUTOSOMES):
-        raise LDSCInputError(
-            f"R2 matrix SNP sidecar '{path}' does not contain the expected chromosome {chrom}"
-            f"{' within autosomes 1 through 22' if require_autosomes else ''}. "
-            "Restore the sidecar and R2 Parquet file from the same chromosome and R2 matrix build; "
-            "renaming the sidecar does not repair its SNP identities."
-        )
-    return metadata
-
-
 def inspect_reference_inputs(args, global_config, *, require_autosomes=True, plink_members=None):
     """Validate references before annotation staging; retain scope and PLINK mapping.
 
-    R2 matrix integrity requires a streamed pair scan and sidecar identity checks.
+    R2 matrix integrity requires sidecar identity checks and a streamed pair scan.
     PLINK integrity reads BIM/FAM and BED header/size, without correlations.
     The returned evidence is reused by the later content-dependent scope gate.
     """
@@ -83,7 +71,7 @@ def inspect_reference_inputs(args, global_config, *, require_autosomes=True, pli
     if r2_matrix_dir:
         try:
             root = resolve_r2_build_dir(r2_matrix_dir, global_config.genome_build)
-            members = sorted({path.name.split("_")[0][3:] for pattern in ("chr*_r2.parquet", "chr*_meta.tsv.gz") for path in root.glob(pattern)}, key=lambda value: (len(value), value))
+            members = r2_matrix_chromosomes(root)
             if not members:
                 raise LDSCInputError(
                     f"R2 matrix directory '{root}' contains no chromosome R2 Parquet files or SNP sidecars. "
@@ -96,9 +84,15 @@ def inspect_reference_inputs(args, global_config, *, require_autosomes=True, pli
         panel = RefPanelLoader(global_config).load(RefPanelConfig(backend="r2_matrix", r2_matrix_dir=r2_matrix_dir)) if members else None
         for chrom in members:
             try:
-                metadata = read_r2_sidecar_for_chromosome(
-                    root / f"chr{chrom}_meta.tsv.gz", chrom, global_config, require_autosomes=require_autosomes)
-                reader = panel.build_reader(chrom, metadata=metadata)
+                if require_autosomes and chrom not in AUTOSOMES:
+                    raise LDSCInputError(
+                        f"R2 matrix directory '{root}' holds chromosome {chrom}, but LD scores for query "
+                        "annotations use autosomes 1 through 22 only. Select an R2 matrix directory that holds "
+                        "only autosomes."
+                    )
+                chromosome = panel.open_chromosome(chrom)
+                reader = chromosome.pair_reader(chromosome.sidecar(), global_config.snp_identifier,
+                                                global_config.genome_build)
                 try:
                     if require_autosomes:
                         with PhaseProgress(logging.getLogger('LDSC.preflight'), 'validation', f'R2 pairs chromosome {chrom}') as progress:

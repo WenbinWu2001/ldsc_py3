@@ -119,7 +119,7 @@ def test_one_error_lists_every_defect_of_every_file(tmp_path):
     _rewrite(first, drop=[b"ldsc:r2_scale"], set_meta={b"ldsc:r2_bias": b"raw"})
     _rewrite(second, drop=[b"ldsc:n_samples"])
     with pytest.raises(LDSCInputError) as failure:
-        inspect_r2_headers(root, "hg19")
+        inspect_r2_headers(root, "hg19", command="query-r2-matrix")
     _assert_contract_error(failure.value, first, "ldsc:r2_scale", "ldsc:r2_bias")
     _assert_contract_error(failure.value, second, "ldsc:n_samples")
     with pytest.raises(LDSCInputError) as failure:
@@ -133,7 +133,7 @@ def test_unreadable_file_is_reported_with_the_other_files_defects(tmp_path):
     first, second = _write_panel(root, "1"), _write_panel(root, "2")
     first.write_bytes(b"not a parquet file")
     _rewrite(second, drop=[b"ldsc:r2_scale"])
-    for open_panel in (lambda: inspect_r2_headers(root, "hg19"), lambda: R2Matrix.open(root, genome_build="hg19")):
+    for open_panel in (lambda: inspect_r2_headers(root, "hg19", command="query-r2-matrix"), lambda: R2Matrix.open(root, genome_build="hg19")):
         with pytest.raises(LDSCInputError) as failure:
             open_panel()
         _assert_contract_error(failure.value, first, "cannot be read as parquet")
@@ -154,7 +154,7 @@ def test_query_r2_matrix_panel_rejects_chromosomes_with_different_sample_sizes(t
 def test_writer_output_satisfies_contract_and_decodes_exactly(tmp_path):
     root = tmp_path / "hg19"
     _write_panel(root)
-    inspect_r2_headers(root, "hg19")
+    inspect_r2_headers(root, "hg19", command="query-r2-matrix")
     panel = R2MatrixRefPanel(
         GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19"),
         RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(root)),

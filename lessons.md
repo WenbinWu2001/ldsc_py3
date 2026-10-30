@@ -1,7 +1,7 @@
 
 # Lessons
 
-Last updated on: 2026-10-29
+Last updated on: 2026-10-30
 
 ## Refactoring must preserve attribution outside removable banners
 
@@ -300,3 +300,8 @@ Last updated on: 2026-10-29
 
 - Summary/root cause/correction: `h2` and `partitioned-h2` recorded `--ldscore-dir` as typed, and `metadata.setdefault()` let a caller's relative value replace the absolute directory derived from the loaded LD scores; `quantile-h2` then guessed a base directory and could silently read a same-named folder in its own working directory.
   Resolve a recorded path against the working directory at the moment it is recorded, and make the reader reject a relative value instead of guessing; see `test_commands_record_the_absolute_ldscore_directory` and `test_loader_rejects_a_relative_ldscore_directory`.
+
+## Full-suite runs on exported copies need the workspace `resources/`
+
+- Summary/root cause/correction: A full pytest run on a `git archive` export outside the workspace reported five `build-r2-matrix` tests as skipped ("resources directory is not available from this workspace"), because `_find_resources_root()` in `tests/refpanel/test_r2_matrix_builder.py` searches the test file's parent directories for `resources/`, which lives in the workspace, not in the repository.
+  Before running an exported copy, link the workspace `resources/` into a parent of the export, check the run's `SKIPPED` lines, and do not report a run with these skips as the full suite.

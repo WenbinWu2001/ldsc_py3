@@ -1,9 +1,35 @@
 # Status
 
-Last updated on: 2026-10-29
+Last updated on: 2026-10-30
 
-Branch `restructure`; checked on 2026-10-29.
+Branch `restructure`; checked on 2026-10-30.
 Nothing below is in progress; each open item needs the user's go-ahead.
+
+## Completed: one R² matrix chromosome handle (2026-10-30)
+
+The user accepted the round-1 recommendations for architecture review candidate 2 on 2026-10-30 and authorized the implementation, together with a check for other repeated file-name contracts.
+
+- `11ae004` (`refactor(refpanel)!: add R2MatrixChromosome`): `ldscore` and `query-r2-matrix` open each R² matrix chromosome through `R2MatrixChromosome` in `src/ldsc/_refpanel/r2_format.py`.
+  Opening checks that both files exist and validates the Parquet footer; the first `sidecar()` call parses, validates and binds the sidecar and keeps it.
+  - The sidecar reader is strict: the writer's identity lines, matching the footer; the header `CHR POS SNP A1 A2 CM MAF` in that order; one chromosome; an integer `POS`, a numeric or `NA` `CM`, and `MAF` in [0, 0.5].
+    `read_metadata_table`, `_load_full_panel_sidecar`, the alias matching and the layouts the writer never produced are gone.
+  - `r2_matrix_file_paths` and `r2_matrix_chromosomes` own the file names for the builder, the adapter, `R2Matrix` and both input checks; `_genome` keeps its own spelling in one place (`R2_PARQUET_GLOB`, `r2_sidecar_path` in `build_policy.py`), and `tests/refpanel/test_r2_matrix_chromosome.py` pins the agreement.
+  - Shared errors name the reading command and link its troubleshooting section; `query-r2-matrix` has a new section, and the misplaced `build-r2-matrix` "reference-panel artifact is incompatible" section was folded into the `ldscore` one (`c8e3525`).
+  - Breaking: `R2Matrix.open(validate_binding=...)` is gone; `R2MatrixRefPanel.resolve_r2_paths` and `resolve_metadata_paths` became `open_chromosome`; `load_metadata()` returns the sidecar's column order.
+- Evidence, kept outside the repository: an exact before/after comparison over 15 cases (three builds and four windows, `ldscore` in four identifier and window settings, `--ref-panel-snps-file` with `--maf-min`, the same-position reorder case, three `query-r2-matrix` modes and the Python API) matched in every `ldscore`, `query-r2-matrix` and `build-r2-matrix` output.
+  Only the column order of `load_metadata()` changed, and a sidecar with renamed columns now fails where it used to be read.
+  Per chromosome in one `ldscore` run, sidecar parses fell from 4 to 2 (one per process) and Parquet footer reads from 17 to 11; the other 7 footer reads come from `GenomeBuildCheck`, which this work left out of scope, and a worker builds its reference panel three times.
+- Repeated file-name contracts found by the audit and fixed: `abc07fd` (LD-score query-batch, log, dropped-SNP and reference-metadata names, built separately by writer, reader and cleanup), `cd77462` (`FAILURE_MARKER`, the shared `args_output_scope` resolver for eight overwrite guards, and one `build-r2-matrix` marker rule for the workflow and the CLI) and `2afb6f1` (the `annotate` log path, the BED query-name rule, and the annotation scratch shard path).
+  The candidate-1 fixture outputs matched exactly between `d0ae477` and `2afb6f1`.
+- `25b279d`: removed `REFERENCE_METADATA_SPECS` and `REFERENCE_METADATA_SPEC_MAP`, whose only users were the replaced sidecar readers, and corrected the column schema, which listed sidecars among the alias-accepting inputs.
+- Full pytest runs on exported copies of `c8e3525` (2,286 passed; the five resource-dependent builder tests skipped there then passed in a rerun with the workspace `resources/` linked, see `lessons.md`) and of `25b279d` (2,291 passed, none skipped); every other commit ran its focused tests.
+
+### Left open from the naming audit
+
+- Partitioned-heritability fitted-model tree: `quantile-h2` and the Python batch path re-spell the per-query file names (`partitioned_h2_full.tsv`, `coefficient_delete_values.parquet`, `metadata.json`), compare `global_metadata` with the literal `"../../metadata.json"`, and assume the `diagnostics/query_annotations/<folder>` depth, instead of reading the per-query `files` map (`src/ldsc/_regression/quantile_h2.py`, `runner.py`).
+- The gene-index build writes `diagnostics/build-gene-ldscore-index.json` with its own copy of the `payload_bytes` logic in `artifact.py`; this belongs to the index-publication candidate.
+- `diagnostics/input_issues.tsv` is declared only by the LD-score and annotation directory writers; the regression, `query-r2-matrix`, `build-r2-matrix` and munging writers pass it to `InputGate` without declaring it.
+- Lower-tier readers that spell higher-tier names (`_genome` and `_runtime` reading LD-score, regression, gene-index and munged file names or `files` keys) stay as they are, as for the R² names.
 
 ## Completed: dead-code and redundant-test cleanup (2026-10-29)
 
@@ -27,7 +53,7 @@ The user confirmed the cleanup inventory from the architecture review and the pu
 ### Kept or left open
 
 - `RefPanel.prepare_chromosome(genetic_map=)` stays, contrary to the inventory: `build-gene-ldscore-index` passes its preloaded map (`_ldscore/gene_index/build.py:1677`).
-- Not done: importing the six `munge_input` aliases directly in `_sumstats/munger.py` (cosmetic), and the R² sidecar reader rewrite, which belongs to architecture candidate 2.
+- Not done: importing the six `munge_input` aliases directly in `_sumstats/munger.py` (cosmetic). The R² sidecar reader rewrite landed with architecture candidate 2 (above).
 - Tracked elsewhere: `_allow_partial_for_tests` and `publish_gene_ldscore_index`, one LD-score publication path, and index construction through `compute_chromosome()` (below).
 - Kept by decision: one rejection test per legacy LDSC flag; the `plot` rejection of an h2 result without regression bins; the converter's lack of `--common-maf-min`; the BED `empty_input` test; unused parameters that mirror legacy LDSC signatures in `_regression/estimators.py`, `_refpanel/plink.py` and `p_to_z`.
 - `AGENTS.md` names pytest as the only test runner (`4f71e9f`); this work also ran unittest discovery because its brief asked for it.

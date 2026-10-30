@@ -107,7 +107,8 @@ from .artifact import (
     calculate_index_id,
     index_global_config,
 )
-from .scoring import _load_gene_ldscore_index
+from . import artifact as index_artifact
+from .scoring import load_gene_ldscore_index
 
 
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
@@ -422,7 +423,6 @@ def build_gene_ldscore_index(
             regr_snps_exclude_regions=config.regr_snps_exclude_regions,
             genetic_map_hg19_sources=genetic_map_hg19_sources,
             genetic_map_hg38_sources=genetic_map_hg38_sources,
-            _test_chromosomes=tuple(str(value) for value in range(1, 23)),
             snp_batch_size=config.snp_batch_size,
             atom_batch_size=config.atom_batch_size,
             workers=config.workers,
@@ -477,8 +477,7 @@ def _build_embedded_gene_catalog(
 def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
     """Build one gene LD-score index through locked preflight and staged publication."""
     started = time.perf_counter()
-    chromosomes = tuple(getattr(args, "_test_chromosomes", tuple(str(value) for value in range(1, 23))))
-    allow_partial_for_tests = chromosomes != tuple(str(value) for value in range(1, 23))
+    chromosomes = index_artifact.INDEX_CHROMOSOMES
     baseline_sources = tuple(split_cli_path_tokens(args.baseline_annot_sources))
     config = GeneLDScoreIndexBuildConfig(
         baseline_annot_sources=baseline_sources,
@@ -506,14 +505,8 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
     with _gene_index_build_lock(index_path):
         live_log_path = _prepare_gene_index_log(index_path)
         with workflow_logging("build-gene-ldscore-index", live_log_path, log_level=args.log_level):
-            _recover_gene_index_publication(
-                index_path, _allow_partial_for_tests=allow_partial_for_tests
-            )
-            _preflight_gene_index_output(
-                index_path,
-                overwrite=bool(args.overwrite),
-                _allow_partial_for_tests=allow_partial_for_tests,
-            )
+            _recover_gene_index_publication(index_path)
+            _preflight_gene_index_output(index_path, overwrite=bool(args.overwrite))
             log_inputs(
                 output_dir=str(config.output_dir),
                 genome_build=config.genome_build,
@@ -954,12 +947,7 @@ def _run_gene_ldscore_index_build(
             chromosomes=staged_chromosomes,
             diagnostic_payload=diagnostic_payload,
         )
-        published_path = _commit_staged_gene_ldscore_index(
-            stage_parent,
-            Path(config.output_dir),
-            _allow_partial_for_tests=chromosomes
-            != tuple(str(value) for value in range(1, 23)),
-        )
+        published_path = _commit_staged_gene_ldscore_index(stage_parent, Path(config.output_dir))
     except Exception as exc:
         LOGGER.error(
             f"Gene LD-score index build failed during staged validation/publication: "
@@ -1013,7 +1001,6 @@ def _preflight_gene_index_output(
     index_path: Path,
     *,
     overwrite: bool,
-    _allow_partial_for_tests: bool = False,
 ) -> None:
     """Validate the publication destination without creating or mutating it."""
     if index_path.exists() and not index_path.is_dir():
@@ -1023,9 +1010,7 @@ def _preflight_gene_index_output(
     if not any(index_path.iterdir()) or _is_failure_marker_only_gene_index(index_path):
         return
     try:
-        _load_gene_ldscore_index(
-            index_path, _allow_partial_for_tests=_allow_partial_for_tests
-        )
+        load_gene_ldscore_index(index_path)
     except Exception as exc:
         raise FileExistsError(
             f"Gene LD-score index output directory is nonempty but invalid: {index_path}. "
@@ -1039,8 +1024,6 @@ def _preflight_gene_index_output(
 
 def _recover_gene_index_publication(
     index_path: Path,
-    *,
-    _allow_partial_for_tests: bool = False,
 ) -> None:
     """Recover or clean recognized interrupted publication transactions."""
     destination = index_path.expanduser().resolve()
@@ -1062,9 +1045,7 @@ def _recover_gene_index_publication(
     target_valid = False
     if destination.exists():
         try:
-            _load_gene_ldscore_index(
-                destination, _allow_partial_for_tests=_allow_partial_for_tests
-            )
+            load_gene_ldscore_index(destination)
         except Exception:
             target_valid = False
         else:
@@ -1092,9 +1073,7 @@ def _recover_gene_index_publication(
         marker_path = backup / ".gene-index-publication.json"
         try:
             marker = _read_json(marker_path, "backup publication marker")
-            _load_gene_ldscore_index(
-                backup, _allow_partial_for_tests=_allow_partial_for_tests
-            )
+            load_gene_ldscore_index(backup)
         except Exception:
             continue
         if marker.get("target") == str(destination):
@@ -1475,8 +1454,6 @@ def _create_gene_index_transaction(destination: Path) -> Path:
 def _commit_staged_gene_ldscore_index(
     stage_parent: Path,
     destination: Path,
-    *,
-    _allow_partial_for_tests: bool = False,
 ) -> Path:
     """Validate and install an already-written index without recopying payloads.
 
@@ -1489,9 +1466,7 @@ def _commit_staged_gene_ldscore_index(
     committed = False
     try:
         _write_json(staged_index / ".gene-index-publication.json", marker)
-        _load_gene_ldscore_index(
-            staged_index, _allow_partial_for_tests=_allow_partial_for_tests
-        )
+        load_gene_ldscore_index(staged_index)
         backup = stage_parent / f"{destination.name}.backup"
         if destination.exists():
             _write_json(destination / ".gene-index-publication.json", marker)
@@ -1502,9 +1477,7 @@ def _commit_staged_gene_ldscore_index(
                 raise
         try:
             os.replace(staged_index, destination)
-            _load_gene_ldscore_index(
-                destination, _allow_partial_for_tests=_allow_partial_for_tests
-            )
+            load_gene_ldscore_index(destination)
         except Exception:
             if destination.exists():
                 shutil.rmtree(destination)

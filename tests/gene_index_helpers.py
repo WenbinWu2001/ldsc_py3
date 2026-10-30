@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ldsc._ldscore.gene_index import artifact as gene_index_artifact
 from ldsc._ldscore.gene_index import build as gene_index_build
 from ldsc._ldscore.gene_index.artifact import (
     StagedIndexChromosome,
@@ -15,6 +16,18 @@ from ldsc._ldscore.gene_index.artifact import (
 )
 
 
+def narrow_index_chromosomes(monkeypatch, chromosomes) -> None:
+    """Let one test build and load indexes that cover only ``chromosomes``.
+
+    Published indexes must cover autosomes 1 to 22; small fixtures cover a
+    few chromosomes. The narrowed set governs the build's chromosome list and
+    the loader's completeness check until the test ends.
+    """
+    monkeypatch.setattr(
+        gene_index_artifact, "INDEX_CHROMOSOMES", tuple(str(chrom) for chrom in chromosomes)
+    )
+
+
 def write_gene_ldscore_index(index_dir, *, index_identity, gene_catalog, chromosomes) -> Path:
     """Publish in-memory chromosome records as a gene LD-score index.
 
@@ -22,8 +35,9 @@ def write_gene_ldscore_index(index_dir, *, index_identity, gene_catalog, chromos
     computations: open a publication transaction, stage each chromosome's
     payload, write the coordinator metadata, then commit with reload
     validation. ``chromosomes`` maps labels to ``IndexChromosomeData`` in index
-    order. ``index_dir`` must be absent or empty; publication-transaction
-    behavior is tested through the build command itself.
+    order and must equal the narrowed index chromosome set. ``index_dir``
+    must be absent or empty; publication-transaction behavior is tested
+    through the build command itself.
     """
     destination = Path(index_dir)
     stage_parent = gene_index_build._create_gene_index_transaction(destination)
@@ -46,9 +60,7 @@ def write_gene_ldscore_index(index_dir, *, index_identity, gene_catalog, chromos
             gene_catalog=gene_catalog,
             chromosomes=staged,
         )
-        return gene_index_build._commit_staged_gene_ldscore_index(
-            stage_parent, destination, _allow_partial_for_tests=True
-        )
+        return gene_index_build._commit_staged_gene_ldscore_index(stage_parent, destination)
     except Exception:
         _remove_gene_index_transaction(stage_parent, published=False)
         raise

@@ -12,7 +12,7 @@ from scipy import sparse
 from ldsc._ldscore.gene_index import batches
 from ldsc._ldscore.query_variation import summarize_variation, combine_variation
 from tests.ldscore.test_gene_index_streaming import two_chromosome_index
-from tests.ldscore.test_gene_ldscore_index import run_indexed_ldscore
+from ldsc._ldscore.gene_index.scoring import run_indexed_ldscore
 
 
 def _check_worker_serialization_lifetimes(*args, **kwargs):
@@ -51,7 +51,7 @@ def _check_worker_serialization_lifetimes(*args, **kwargs):
 
 
 def test_worker_releases_operator_and_duplicate_scores_before_serialization(tmp_path, monkeypatch):
-    index = two_chromosome_index(tmp_path)
+    index = two_chromosome_index(tmp_path, monkeypatch)
     queries = [tmp_path / "first.txt", tmp_path / "second.txt"]
     for query, genes in zip(queries, ["G1\nG3\n", "G2\nG4\n"], strict=True):
         query.write_text(genes)
@@ -74,10 +74,11 @@ def test_variation_summaries_preserve_producer_precision_and_nan_semantics(split
 
 
 @pytest.mark.parametrize("width", [1, 2])
-def test_query_pruning_precedes_float32_narrowing_and_allows_skipped_batch(tmp_path, width):
-    from tests.gene_index_helpers import write_gene_ldscore_index
+def test_query_pruning_precedes_float32_narrowing_and_allows_skipped_batch(tmp_path, width, monkeypatch):
+    from tests.gene_index_helpers import narrow_index_chromosomes, write_gene_ldscore_index
     from tests.ldscore.test_gene_ldscore_index import _artifact_payload
 
+    narrow_index_chromosomes(monkeypatch, ("22",))
     record, catalog, identity = _artifact_payload()
     # G1 selects atoms 0,1 and varies only below float32 precision.
     # G2 selects atoms 1,2 and is exactly constant in float64.
@@ -103,7 +104,7 @@ def test_query_pruning_precedes_float32_narrowing_and_allows_skipped_batch(tmp_p
 def test_fragment_writer_releases_each_chromosome_before_reading_next(tmp_path, monkeypatch):
     from ldsc._ldscore import fragments
 
-    index = two_chromosome_index(tmp_path)
+    index = two_chromosome_index(tmp_path, monkeypatch)
     query = tmp_path / "query.txt"
     query.write_text("G1\nG3\n")
     original = fragments.pd.read_parquet
@@ -128,7 +129,7 @@ def test_fragment_row_mismatch_aborts_publication_and_cleans_scratch(tmp_path, m
     import multiprocessing
     from ldsc.errors import LDSCInputError
 
-    index = two_chromosome_index(tmp_path)
+    index = two_chromosome_index(tmp_path, monkeypatch)
     query = tmp_path / "query.txt"
     query.write_text("G1\nG3\n")
     original = batches.indexed_results

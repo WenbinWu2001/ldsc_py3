@@ -10,13 +10,14 @@ import pytest
 from ldsc._ldscore.gene_index import scoring as index_scoring
 from ldsc._ldscore.gene_index import artifact as _gene_index_artifact
 from ldsc._ldscore.gene_index.artifact import _catalog_identity_records
-from tests.gene_index_helpers import write_gene_ldscore_index
-from tests.ldscore.test_gene_ldscore_index import (
-    _artifact_payload, _fixture_funnel, load_gene_ldscore_index, run_indexed_ldscore,
-)
+from ldsc._ldscore.gene_index.scoring import load_gene_ldscore_index, run_indexed_ldscore
+from tests.gene_index_helpers import narrow_index_chromosomes, write_gene_ldscore_index
+from tests.ldscore.test_gene_ldscore_index import _artifact_payload, _fixture_funnel
 
 
-def two_chromosome_index(tmp_path):
+def two_chromosome_index(tmp_path, monkeypatch):
+    """Publish a chromosome 21 and 22 index and narrow the index chromosome set to them."""
+    narrow_index_chromosomes(monkeypatch, ("21", "22"))
     record, catalog, identity = _artifact_payload()
     first_catalog = catalog.assign(
         chrom="21", gene_id=["ENSG3", "ENSG4"], gene_name=["G3", "G4"],
@@ -36,7 +37,7 @@ def two_chromosome_index(tmp_path):
 
 
 def test_validated_index_releases_operators_and_keeps_support(tmp_path, monkeypatch):
-    path = two_chromosome_index(tmp_path)
+    path = two_chromosome_index(tmp_path, monkeypatch)
     original = _gene_index_artifact._load_index_chromosome
     live = []
 
@@ -87,7 +88,7 @@ def _observed_index_task(*args, **kwargs):
 
 @pytest.mark.parametrize("batch_size", [1, 2, 1000])
 def test_index_assembly_reloads_and_releases_each_operator_per_batch(tmp_path, monkeypatch, batch_size):
-    path = two_chromosome_index(tmp_path)
+    path = two_chromosome_index(tmp_path, monkeypatch)
     queries = []
     for name, genes in [("first", "G1\nG3\n"), ("second", "G2\nG4\n"),
                         ("union", "G1\nG2\nG3\nG4\n")]:
@@ -129,7 +130,7 @@ def test_index_assembly_reloads_and_releases_each_operator_per_batch(tmp_path, m
 def test_row_block_score_fill_matches_one_product(tmp_path, monkeypatch):
     from ldsc._ldscore.gene_index import batches
 
-    path = two_chromosome_index(tmp_path)
+    path = two_chromosome_index(tmp_path, monkeypatch)
     query = tmp_path / "union.txt"
     query.write_text("G1\nG2\nG3\nG4\n")
     whole = run_indexed_ldscore(path, query_gene_list_sources=[query], output_dir=tmp_path / "whole")
@@ -141,7 +142,7 @@ def test_row_block_score_fill_matches_one_product(tmp_path, monkeypatch):
 @pytest.mark.parametrize("workers", [1, 2, -1, -2, 10])
 def test_parallel_index_batches_preserve_union_scores_and_counts(tmp_path, workers, monkeypatch):
     monkeypatch.setattr("joblib.cpu_count", lambda: 16)
-    path = two_chromosome_index(tmp_path)
+    path = two_chromosome_index(tmp_path, monkeypatch)
     queries = []
     for name, genes in [("first", "G1\nG3\n"), ("second", "G2\nG4\n"),
                         ("union", "G1\nG2\nG3\nG4\n")]:

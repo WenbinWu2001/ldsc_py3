@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 
+from ..._core.chromosomes import AUTOSOMES
 from ..._core.snp_identity import identity_cleanup_keys, identity_mode_family
 from ..._refpanel.funnel import FUNNEL_COLUMNS, funnel_from_records, funnel_records
 from .atoms import AtomStatistics, ChromosomeAtomModel, validate_ldscore_operator
@@ -35,6 +36,9 @@ LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
 # scoring reports. Version 3 made PLINK LD windows exact; version 2 operators used
 # legacy LDSC's chunk-rounded windows, which depended on --snp-batch-size.
 _INDEX_FORMAT_VERSION = 4
+# Chromosomes every published index covers. Callers read it through this
+# module when they run, so small test indexes can narrow it.
+INDEX_CHROMOSOMES = AUTOSOMES
 
 
 def _semantic_sha256(payload: dict) -> str:
@@ -454,7 +458,7 @@ def inspect_index_paths(directory, *, metadata=None):
     if metadata is None:
         metadata = _read_json(root/'metadata.json', 'root')
     chromosomes = metadata.get('chromosomes', [])
-    if not isinstance(chromosomes, (list, tuple)) or not chromosomes or any(str(chrom) not in tuple(map(str, range(1, 23))) for chrom in chromosomes):
+    if not isinstance(chromosomes, (list, tuple)) or not chromosomes or any(str(chrom) not in AUTOSOMES for chrom in chromosomes):
         raise LDSCInputError(
             'Gene LD-score index chromosome coverage is invalid.'
             " Restore a complete gene LD-score index covering chromosomes 1 through 22, or rebuild it with "

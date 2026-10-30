@@ -21,6 +21,7 @@ from ..._annotation.storage import AnnotationWorkspace
 from ..._core.snp_identity import normalize_snp_identifier_mode
 from ...config import GlobalConfig
 from ..outputs import common_count_config
+from . import artifact as index_artifact
 from .artifact import (
     IndexChromosomeData,
     _INDEX_FORMAT_VERSION,
@@ -125,18 +126,9 @@ class _ChromosomeLoader:
         )
 
 
+@report_phase(LOGGER, 'validation', 'index content and compatibility')
 def load_gene_ldscore_index(
     index_dir: str | Path,
-) -> LoadedGeneLDScoreIndex:
-    """Load one complete public autosomes 1--22 gene LD-score index."""
-    return _load_gene_ldscore_index(index_dir, _allow_partial_for_tests=False)
-
-
-@report_phase(LOGGER, 'validation', 'index content and compatibility')
-def _load_gene_ldscore_index(
-    index_dir: str | Path,
-    *,
-    _allow_partial_for_tests: bool,
 ) -> LoadedGeneLDScoreIndex:
     """Load and fully validate one explicit gene LD-score index directory.
 
@@ -219,8 +211,7 @@ def _load_gene_ldscore_index(
             "build-gene-ldscore-index. See "
             "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
         )
-    full_coverage = tuple(str(value) for value in range(1, 23))
-    if not _allow_partial_for_tests and chromosomes != full_coverage:
+    if chromosomes != index_artifact.INDEX_CHROMOSOMES:
         raise LDSCInputError(
             "Gene LD-score index must cover autosomes 1 through 22; partial production indexes are unsupported."
             " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
@@ -383,7 +374,6 @@ def run_indexed_ldscore(
     workers: int = 1,
     output_dir: str | Path,
     overwrite: bool = False,
-    _allow_partial_for_tests: bool = False,
 ):
     """Assemble exact gene-list LD scores from one explicit index directory.
 
@@ -484,14 +474,13 @@ def run_indexed_ldscore(
             gene_list_resolution_policy=gene_list_resolution_policy,
             query_batch_size=query_batch_size, workers=workers, output_dir=output_dir,
             overwrite=overwrite, workspace=workspace,
-            _allow_partial_for_tests=_allow_partial_for_tests,
         )
 
 
 def _run_indexed_ldscore_in_workspace(
     index_dir, *, query_gene_list_sources, control_gene_list_file,
     gene_list_resolution_policy, query_batch_size, workers, output_dir, overwrite,
-    workspace, _allow_partial_for_tests,
+    workspace,
 ):
     """Own staged gene selections until the canonical result has been written."""
     from ..._annotation.gene_query_storage import resolve_gene_lists_staged
@@ -506,7 +495,7 @@ def _run_indexed_ldscore_in_workspace(
     from ..outputs import LDScoreDirectoryWriter, LDScoreOutputConfig, QueryDiagnostics
 
     try:
-        index = _load_gene_ldscore_index(index_dir, _allow_partial_for_tests=_allow_partial_for_tests)
+        index = load_gene_ldscore_index(index_dir)
     except (OSError, ValueError, LDSCInputError) as exc:
         from ..preflight import ISSUE_COLUMNS
 

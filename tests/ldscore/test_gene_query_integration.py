@@ -11,10 +11,13 @@ from ldsc._ldscore.gene_index import build as index_workflow
 from ldsc._ldscore.gene_index.scoring import run_indexed_ldscore
 from ldsc._ldscore.calculator import build_parser, run_ldscore_from_args
 from ldsc.errors import LDSCInputError
+from tests.gene_index_helpers import narrow_index_chromosomes
 
 
 @pytest.fixture
-def inputs(tmp_path):
+def inputs(tmp_path, monkeypatch):
+    """Write a chromosome 1 panel and narrow the index chromosome set to it."""
+    narrow_index_chromosomes(monkeypatch, ("1",))
     fixture = Path(__file__).parents[1] / "fixtures/plink/plink"
     prefix = tmp_path / "panel"
     for suffix in (".bed", ".fam"):
@@ -63,7 +66,6 @@ def build_index(tmp_path, inputs, *, mode="rsid", common_maf_min="0.05"):
         "--gene-exclude-regions", "none", "--regr-snps-exclude-regions", "none",
         "--regr-snps-file", str(regression),
     ])
-    args._test_chromosomes = ("1",)
     return index_workflow.run_build_gene_ldscore_index_from_args(args)
 
 
@@ -93,8 +95,7 @@ def test_indexed_gate_a_rejects_colliding_query_names_before_computation(tmp_pat
     output = tmp_path / "indexed"
     with pytest.raises(LDSCInputError, match="annotation_name_collision"):
         with workflow_logging("ldscore", output / "diagnostics/ldscore.log"):
-            run_indexed_ldscore(index, query_gene_list_sources=[named], output_dir=output,
-                                _allow_partial_for_tests=True)
+            run_indexed_ldscore(index, query_gene_list_sources=[named], output_dir=output)
     summary = pd.read_csv(output / "diagnostics/gene_list_resolution_summary.tsv", sep="\t").set_index("query")
     assert summary.loc[name, "source_status"] == "error"
     assert "annotation_name_collision" in summary.loc[name, "source_reasons"]
@@ -181,7 +182,7 @@ def test_real_direct_and_indexed_outputs_agree(tmp_path, inputs, policy):
     direct = run_ldscore_from_args(direct_args(tmp_path, inputs, sources, policy=policy, control=control))
     indexed = run_indexed_ldscore(
         build_index(tmp_path, inputs), query_gene_list_sources=sources, control_gene_list_file=control,
-        gene_list_resolution_policy=policy, output_dir=tmp_path / "indexed", _allow_partial_for_tests=True,
+        gene_list_resolution_policy=policy, output_dir=tmp_path / "indexed",
     )
     assert direct.query_columns == indexed.query_columns == ["mixed"]
     assert [s.reason for s in direct.query_statuses] == [s.reason for s in indexed.query_statuses] == [
@@ -215,7 +216,7 @@ def test_indexed_output_records_the_index_identity_and_common_threshold(tmp_path
     direct = run_ldscore_from_args(direct_args(tmp_path, inputs, [query], **settings))
     indexed = run_indexed_ldscore(
         build_index(tmp_path, inputs, **settings), query_gene_list_sources=[query],
-        output_dir=tmp_path / "indexed", _allow_partial_for_tests=True,
+        output_dir=tmp_path / "indexed",
     )
     build = None if mode.startswith("rsid") else "hg19"
     for name, result in (("direct", direct), ("indexed", indexed)):
@@ -309,7 +310,7 @@ def test_indexed_incomplete_coverage_remains_a_separate_fatal_gate(tmp_path, inp
     control.write_text("GX\n")
     with pytest.raises(LDSCInputError, match="incomplete chromosome coverage"):
         run_indexed_ldscore(index, query_gene_list_sources=[focal], control_gene_list_file=control,
-                                         gene_list_resolution_policy=policy, output_dir=tmp_path / "indexed", _allow_partial_for_tests=True)
+                                         gene_list_resolution_policy=policy, output_dir=tmp_path / "indexed")
     summary = pd.read_csv(tmp_path / "indexed/diagnostics/gene_list_resolution_summary.tsv", sep="\t")
     assert summary.coverage_status.tolist() == ["partial", "none"]
     assert summary.rejected_rows.tolist() == [0, 0]
@@ -323,7 +324,7 @@ def test_indexed_missing_components_are_reported_together(tmp_path, inputs):
     focal = tmp_path / "focal.txt"
     focal.write_text("G1\n")
     with pytest.raises(LDSCInputError, match="preflight"):
-        run_indexed_ldscore(index, query_gene_list_sources=[focal], output_dir=tmp_path / "indexed", _allow_partial_for_tests=True)
+        run_indexed_ldscore(index, query_gene_list_sources=[focal], output_dir=tmp_path / "indexed")
     issues = pd.read_csv(tmp_path / "indexed/diagnostics/input_issues.tsv", sep="\t")
     assert len(issues) == 2
     assert not (tmp_path / "indexed/diagnostics/gene_list_audit.tsv.gz").exists()
@@ -342,8 +343,7 @@ def test_unusable_queries_log_written_diagnostics_and_statuses_in_both_modes(tmp
         else:
             index = build_index(tmp_path, inputs)
             with workflow_logging("ldscore", output / "diagnostics/ldscore.log"):
-                run_indexed_ldscore(index, query_gene_list_sources=[zero], output_dir=output,
-                                    _allow_partial_for_tests=True)
+                run_indexed_ldscore(index, query_gene_list_sources=[zero], output_dir=output)
     log = (output / "diagnostics/ldscore.log").read_text()
     assert f"query_status{' ' * 7}{output / 'diagnostics/query_annotation_status.tsv'}" in log
     assert "Query annotation status summary: total=1, ok=0, warning=0, skipped=1" in log
@@ -355,10 +355,10 @@ def test_indexed_input_preflight_failure_keeps_earlier_outputs(tmp_path, inputs)
     focal = tmp_path / "focal.txt"
     focal.write_text("G1\n")
     output = tmp_path / "indexed"
-    run_indexed_ldscore(index, query_gene_list_sources=[focal], output_dir=output, _allow_partial_for_tests=True)
+    run_indexed_ldscore(index, query_gene_list_sources=[focal], output_dir=output)
     with pytest.raises(LDSCInputError, match="preflight"):
         run_indexed_ldscore(index, query_gene_list_sources=[tmp_path / "missing.txt"], output_dir=output,
-                            overwrite=True, _allow_partial_for_tests=True)
+                            overwrite=True)
     issues = pd.read_csv(output / "diagnostics/input_issues.tsv", sep="\t")
     assert issues.reason.tolist() == ["missing_required_input"]
     assert json.loads((output / "diagnostics/chromosome_scope.json").read_text())["validation_status"] == "failed"

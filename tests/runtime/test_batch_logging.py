@@ -61,7 +61,7 @@ def test_ldscore_batches_log_boundaries_and_one_global_status(tmp_path, inputs, 
         output = tmp_path / "indexed"
         with workflow_logging("ldscore", output / "diagnostics/ldscore.log"):
             result = run_indexed_ldscore(index, query_gene_list_sources=sources, query_batch_size=2,
-                                        output_dir=output, _allow_partial_for_tests=True)
+                                        output_dir=output)
         label = "indexed LD-score assembly"
     else:
         output = tmp_path / "direct"

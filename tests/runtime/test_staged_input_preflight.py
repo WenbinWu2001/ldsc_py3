@@ -7,7 +7,7 @@ import pytest
 
 from ldsc._ldscore.gene_index import scoring as index_scoring, build as index_module
 from ldsc._ldscore import calculator as ldscore_calculator
-from ldsc._ldscore.gene_index.scoring import _load_gene_ldscore_index
+from ldsc._ldscore.gene_index.scoring import load_gene_ldscore_index
 from ldsc.errors import LDSCInputError
 from tests.ldscore.test_plink_workflow_resolution import write_inputs, index_args
 
@@ -150,18 +150,18 @@ def test_direct_reports_late_reference_and_annotation_defects_before_staging(tmp
 
 def test_index_missing_late_component_precedes_any_operator_load(tmp_path, monkeypatch):
     from tests.ldscore.test_gene_index_streaming import two_chromosome_index
-    path = two_chromosome_index(tmp_path)
+    path = two_chromosome_index(tmp_path, monkeypatch)
     (path / "chromosomes/chr22/ldscore_operator.npz").unlink()
     monkeypatch.setattr(index_scoring, "_load_index_chromosome", forbid_work)
     with pytest.raises(LDSCInputError, match="ldscore_operator"):
-        _load_gene_ldscore_index(path, _allow_partial_for_tests=True)
+        load_gene_ldscore_index(path)
 
 
 def test_builder_reports_all_declared_inputs_before_staging(tmp_path, monkeypatch):
     from ldsc._annotation import sources as _annotation_sources
     write_inputs(tmp_path)
     (tmp_path / "1000G.EUR.QC.22.fam").unlink()
-    args = index_args(tmp_path, str(tmp_path / "1000G.EUR.QC.*"), tmp_path / "index")
+    args = index_args(tmp_path, str(tmp_path / "1000G.EUR.QC.*"), tmp_path / "index", monkeypatch)
     args.baseline_annot_sources = [str(tmp_path / "missing.annot")]
     args.keep_indivs_file = str(tmp_path / "missing.keep")
     monkeypatch.setattr(_annotation_sources, "_scan", forbid_work)
@@ -229,7 +229,7 @@ def test_r2_builder_aggregates_late_trio_and_keep_defects(tmp_path, monkeypatch)
 def test_index_late_metadata_and_early_header_errors_precede_operator_loading(tmp_path, monkeypatch):
     import json
     from tests.ldscore.test_gene_index_streaming import two_chromosome_index
-    path = two_chromosome_index(tmp_path)
+    path = two_chromosome_index(tmp_path, monkeypatch)
     component = path/'chromosomes/chr22/metadata.json'
     metadata = json.loads(component.read_text())
     metadata['chromosome'] = '21'
@@ -237,7 +237,7 @@ def test_index_late_metadata_and_early_header_errors_precede_operator_loading(tm
     (path/'chromosomes/chr21/atoms.parquet').write_bytes(b'not parquet')
     monkeypatch.setattr(index_scoring, '_load_index_chromosome', forbid_work)
     with pytest.raises(LDSCInputError) as failure:
-        _load_gene_ldscore_index(path, _allow_partial_for_tests=True)
+        load_gene_ldscore_index(path)
     assert len(failure.value.input_issues) == 2
     assert set(failure.value.input_issues.chrom) == {'21', '22'}
 
@@ -247,7 +247,7 @@ def test_builder_aggregates_reference_and_restriction_content_errors(tmp_path, m
     write_inputs(tmp_path)
     (tmp_path/'1000G.EUR.QC.22.bed').write_bytes(b'bad')
     (tmp_path/'regression.tsv').write_text('nonsense\nvalue\n')
-    args = index_args(tmp_path, str(tmp_path/'1000G.EUR.QC.*'), tmp_path/'index')
+    args = index_args(tmp_path, str(tmp_path/'1000G.EUR.QC.*'), tmp_path/'index', monkeypatch)
     monkeypatch.setattr(_annotation_sources, '_scan', forbid_work)
     with pytest.raises(LDSCInputError) as failure:
         index_module.run_build_gene_ldscore_index_from_args(args)

@@ -53,7 +53,7 @@ def test_workflows_share_detected_budget_and_managed_processes(tmp_path, monkeyp
     from ldsc._ldscore.gene_index import build as builder
     from ldsc._ldscore import calculator as direct
     from ldsc._ldscore.gene_index import scoring as _gene_index_scoring
-    from ldsc._ldscore.gene_index.scoring import _load_gene_ldscore_index
+    from ldsc._ldscore.gene_index.scoring import load_gene_ldscore_index
     from ldsc import RegressionRunner, RegressionConfig
     from tests.ldscore.test_plink_workflow_resolution import write_inputs, index_args
     from tests.regression.test_regression_streaming import batch_inputs
@@ -72,10 +72,10 @@ def test_workflows_share_detected_budget_and_managed_processes(tmp_path, monkeyp
     monkeypatch.setattr(parallelism, "ProcessPoolExecutor", construct)
     write_inputs(tmp_path)
     token = str(tmp_path / "1000G.EUR.QC.*")
-    args = index_args(tmp_path, token, tmp_path / "index", workers=workers)
+    args = index_args(tmp_path, token, tmp_path / "index", monkeypatch, workers=workers)
     args.workers = workers
     path = builder.run_build_gene_ldscore_index_from_args(args)
-    index = _load_gene_ldscore_index(path, _allow_partial_for_tests=True)
+    index = load_gene_ldscore_index(path)
     np.testing.assert_array_equal(index.gene_support, [4, 4])
 
     workflow[0] = "direct"
@@ -93,7 +93,7 @@ def test_workflows_share_detected_budget_and_managed_processes(tmp_path, monkeyp
     query = tmp_path / "query.txt"
     query.write_text("G21\n")
     result = _gene_index_scoring.run_indexed_ldscore(path, query_gene_list_sources=[query], workers=workers,
-                                        output_dir=tmp_path / "indexed", _allow_partial_for_tests=True)
+                                        output_dir=tmp_path / "indexed")
     np.testing.assert_allclose(result.baseline_table["base"], np.ones(8), atol=1e-7)
     np.testing.assert_allclose(result.read_queries(["query"])["query"], [1.] * 4 + [0.] * 4, atol=1e-7)
     assert calls == {name: [expected] for name in calls}

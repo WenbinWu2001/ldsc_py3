@@ -8,7 +8,8 @@ import pytest
 
 from ldsc._ldscore.gene_index import build as gene_ldscore_index
 from ldsc._ldscore import calculator as ldscore_calculator
-from ldsc._ldscore.gene_index.scoring import _load_gene_ldscore_index
+from ldsc._ldscore.gene_index.scoring import load_gene_ldscore_index
+from tests.gene_index_helpers import narrow_index_chromosomes
 from ldsc._refpanel import builder as r2_matrix_builder
 from ldsc.errors import LDSCInputError
 
@@ -34,7 +35,9 @@ def write_inputs(root):
                                    "ENSG22\tG22\t22\t100\t400\thg19\n")
 
 
-def index_args(root, token, output, *, workers=2):
+def index_args(root, token, output, monkeypatch, *, workers=2):
+    """Parse build arguments for the chromosome 21 and 22 panel and narrow the index chromosome set to it."""
+    narrow_index_chromosomes(monkeypatch, ("21", "22"))
     args = gene_ldscore_index.build_parser().parse_args([
         "--baseline-annot-sources", str(root / "baseline.annot"), "--plink-prefix", token,
         "--gene-coordinate-file", str(root / "genes.tsv"), "--genome-build", "hg19",
@@ -42,12 +45,11 @@ def index_args(root, token, output, *, workers=2):
         "--gene-exclude-regions", "none", "--regr-snps-exclude-regions", "none",
         "--regr-snps-file", str(root / "regression.tsv"), "--workers", str(workers), "--output-dir", str(output),
     ])
-    args._test_chromosomes = ("21", "22")
     return args
 
 
 @pytest.mark.parametrize("form", ["plain", "glob", "at", "exact"])
-def test_gene_index_and_ldscore_share_plink_resolution_and_scores(tmp_path, form):
+def test_gene_index_and_ldscore_share_plink_resolution_and_scores(tmp_path, form, monkeypatch):
     write_inputs(tmp_path)
     if form == "exact":
         prefix = tmp_path / "joint"
@@ -57,8 +59,8 @@ def test_gene_index_and_ldscore_share_plink_resolution_and_scores(tmp_path, form
         token = str(prefix)
     else:
         token = str(tmp_path / ("1000G.EUR.QC." + {"plain": "", "glob": "*", "at": "@"}[form]))
-    output = gene_ldscore_index.run_build_gene_ldscore_index_from_args(index_args(tmp_path, token, tmp_path / "index"))
-    index = _load_gene_ldscore_index(output, _allow_partial_for_tests=True)
+    output = gene_ldscore_index.run_build_gene_ldscore_index_from_args(index_args(tmp_path, token, tmp_path / "index", monkeypatch))
+    index = load_gene_ldscore_index(output)
     assert index.chromosomes == ("21", "22")
     np.testing.assert_array_equal(index.gene_support, [4, 4])
     for chrom in index.chromosomes:
@@ -86,11 +88,11 @@ def test_gene_index_and_ldscore_share_plink_resolution_and_scores(tmp_path, form
     np.testing.assert_allclose(result.read_queries(["query"])["query"], np.tile([1., 0., 0., 0.], 2), atol=1e-7)
 
 
-def test_gene_index_reports_every_plink_problem_before_projection(tmp_path):
+def test_gene_index_reports_every_plink_problem_before_projection(tmp_path, monkeypatch):
     write_inputs(tmp_path)
     (tmp_path / "1000G.EUR.QC.21.bed").unlink()
     (tmp_path / "1000G.EUR.QC.22.fam").unlink()
-    args = index_args(tmp_path, str(tmp_path / "1000G.EUR.QC."), tmp_path / "index")
+    args = index_args(tmp_path, str(tmp_path / "1000G.EUR.QC."), tmp_path / "index", monkeypatch)
     with pytest.raises(LDSCInputError, match="complete .bed/.bim/.fam"):
         gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
     audit = pd.read_csv(tmp_path / ".index.build-state/plink_input_issues.tsv", sep="\t")
@@ -140,10 +142,10 @@ def test_r2_builder_retries_failure_without_touching_other_markers(tmp_path, sco
     assert not (output / "diagnostics/plink_input_issues.tsv").exists()
 
 
-def test_failed_gene_index_build_can_retry_with_its_failure_marker(tmp_path):
+def test_failed_gene_index_build_can_retry_with_its_failure_marker(tmp_path, monkeypatch):
     write_inputs(tmp_path)
     output = tmp_path / "index"
-    args = index_args(tmp_path, str(tmp_path / "missing-panel"), output)
+    args = index_args(tmp_path, str(tmp_path / "missing-panel"), output, monkeypatch)
     args.overwrite = True
     with pytest.raises(LDSCInputError, match="No selected PLINK input exists"):
         gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
@@ -157,6 +159,6 @@ def test_failed_gene_index_build_can_retry_with_its_failure_marker(tmp_path):
     args.plink_prefix = str(tmp_path / "1000G.EUR.QC.")
     gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
     assert not marker.exists()
-    index = _load_gene_ldscore_index(output, _allow_partial_for_tests=True)
+    index = load_gene_ldscore_index(output)
     assert index.chromosomes == ("21", "22")
     np.testing.assert_array_equal(index.gene_support, [4, 4])

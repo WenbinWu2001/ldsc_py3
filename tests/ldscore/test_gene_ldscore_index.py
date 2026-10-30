@@ -7,7 +7,6 @@ from argparse import Namespace
 from dataclasses import replace
 import gc
 import hashlib
-import inspect
 import json
 from pathlib import Path
 import shutil
@@ -44,21 +43,15 @@ from ldsc._ldscore.gene_index.artifact import calculate_index_id, IndexChromosom
 from ldsc._annotation.gene_lists import GeneCatalog, GeneCatalogValidationError
 from ldsc._ldscore.calculator import LDScoreCalculator
 from tests.cli_parsing import parse_command
-from tests.gene_index_helpers import write_gene_ldscore_index
+from ldsc._core.chromosomes import AUTOSOMES
+from ldsc._ldscore.gene_index.scoring import load_gene_ldscore_index, run_indexed_ldscore
+from tests.gene_index_helpers import narrow_index_chromosomes, write_gene_ldscore_index
 
 
-def load_gene_ldscore_index(path):
-    """Load a deliberately partial test fixture through the private seam."""
-    return _gene_index_scoring._load_gene_ldscore_index(
-        path, _allow_partial_for_tests=True
-    )
-
-
-def run_indexed_ldscore(*args, **kwargs):
-    """Run against a deliberately partial test index through the private seam."""
-    return _gene_index_scoring.run_indexed_ldscore(
-        *args, **kwargs, _allow_partial_for_tests=True
-    )
+@pytest.fixture(autouse=True)
+def _chromosome_22_indexes(monkeypatch):
+    """Index fixtures in this module cover chromosome 22 unless a test narrows otherwise."""
+    narrow_index_chromosomes(monkeypatch, ("22",))
 
 
 def _rows(*items: tuple[str, int, str]) -> pd.DataFrame:
@@ -74,9 +67,6 @@ def test_builder_parser_requires_catalog():
     parser = gene_ldscore_index.build_parser()
 
     assert "--gene-coordinate-file" in parser.format_help()
-    assert "_allow_partial_for_tests" not in inspect.signature(
-        _gene_index_scoring.load_gene_ldscore_index
-    ).parameters
     with pytest.raises(SystemExit):
         parser.parse_args(
             [
@@ -210,6 +200,7 @@ def _artifact_payload():
 
 
 def _configure_two_chromosome_builder(tmp_path, monkeypatch):
+    narrow_index_chromosomes(monkeypatch, ("1", "2"))
     chromosome, catalog, index_identity = _artifact_payload()
     identity_rows = chromosome.baseline_rows[["CHR", "POS", "SNP"]].copy()
     embedded_catalog = pd.concat(
@@ -291,7 +282,6 @@ def _configure_two_chromosome_builder(tmp_path, monkeypatch):
         genetic_map_hg19_sources=None,
         genetic_map_hg38_sources=None,
         gene_coordinate_file=str(tmp_path / "catalog.tsv.gz"),
-        _test_chromosomes=("1", "2"),
         snp_batch_size=128,
         atom_batch_size=64,
         workers=2,
@@ -1047,7 +1037,6 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
         genetic_map_hg19_sources=None,
         genetic_map_hg38_sources=None,
         gene_coordinate_file=str(tmp_path / "catalog.tsv.gz"),
-        _test_chromosomes=("22",),
         snp_batch_size=128,
         atom_batch_size=64,
         workers=1,
@@ -1227,7 +1216,6 @@ def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path,
         genetic_map_hg19_sources=None,
         genetic_map_hg38_sources=None,
         gene_coordinate_file=str(tmp_path / "catalog.tsv.gz"),
-        _test_chromosomes=("22",),
         snp_batch_size=128,
         atom_batch_size=64,
         workers=1,
@@ -1529,7 +1517,7 @@ def test_index_artifact_round_trip_uses_approved_tree_and_payloads(tmp_path, snp
     assert load_gene_ldscore_index(index_dir).index_id == expected_index_id
 
 
-def test_public_loader_rejects_partial_index_before_gene_resolution(tmp_path):
+def test_public_loader_rejects_partial_index_before_gene_resolution(tmp_path, monkeypatch):
     chromosome, catalog, index_identity = _artifact_payload()
     index_dir = write_gene_ldscore_index(
         tmp_path / "index",
@@ -1538,8 +1526,9 @@ def test_public_loader_rejects_partial_index_before_gene_resolution(tmp_path):
         chromosomes={"22": chromosome},
     )
 
+    narrow_index_chromosomes(monkeypatch, AUTOSOMES)
     with pytest.raises(LDSCInputError, match="autosomes 1 through 22"):
-        _gene_index_scoring.load_gene_ldscore_index(index_dir)
+        load_gene_ldscore_index(index_dir)
 
 
 def test_chr_pos_index_round_trip_uses_coordinate_identity_and_publishes_plink_labels(tmp_path):
@@ -1709,9 +1698,7 @@ def test_post_commit_cleanup_failure_warns_but_published_index_succeeds(tmp_path
     assert str(leftovers[0]) in log_text
     assert "published index is valid" in log_text
 
-    gene_ldscore_index._recover_gene_index_publication(
-        output, _allow_partial_for_tests=True
-    )
+    gene_ldscore_index._recover_gene_index_publication(output)
     assert not leftovers[0].exists()
 
 
@@ -1781,13 +1768,13 @@ def test_index_publication_recovery_restores_one_valid_owned_backup(tmp_path, fa
         notes = index_dir / "notes.txt"
         notes.write_text("user data")
         with pytest.raises(LDSCInputError, match="unrecognized gene-index target"):
-            gene_ldscore_index._recover_gene_index_publication(index_dir, _allow_partial_for_tests=True)
+            gene_ldscore_index._recover_gene_index_publication(index_dir)
         assert notes.read_text() == "user data"
         assert backup.is_dir()
         return
 
     gene_ldscore_index._recover_gene_index_publication(
-        index_dir, _allow_partial_for_tests=True
+        index_dir
     )
 
     assert load_gene_ldscore_index(index_dir).index_id == calculate_index_id(index_identity)
@@ -1956,12 +1943,6 @@ def test_explicit_indexed_cli_writes_the_canonical_workflow_log(tmp_path, monkey
     marker.write_text("earlier failed overwrite")
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("LDSC_INDEXED_OUT", str(output_dir))
-    real_load = _gene_index_scoring._load_gene_ldscore_index
-    monkeypatch.setattr(
-        _gene_index_scoring,
-        "_load_gene_ldscore_index",
-        lambda path, **_kwargs: real_load(path, _allow_partial_for_tests=True),
-    )
 
     cli.main(
         [
@@ -2067,12 +2048,6 @@ def test_python_indexed_mode_inherits_index_identity_over_registered_global_conf
     )
     genes = tmp_path / "focal.txt"
     genes.write_text("G1\n", encoding="utf-8")
-    real_load = _gene_index_scoring._load_gene_ldscore_index
-    monkeypatch.setattr(
-        _gene_index_scoring,
-        "_load_gene_ldscore_index",
-        lambda path, **_kwargs: real_load(path, _allow_partial_for_tests=True),
-    )
 
     set_global_config(registered)
     try:

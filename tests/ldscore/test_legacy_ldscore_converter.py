@@ -482,3 +482,12 @@ def test_loader_rejects_imported_count_and_overlap_threshold_drift(tmp_path: Pat
 
     with pytest.raises(LDSCInputError, match="count_config and overlap_config disagree"):
         ldsc.load_ldscore_from_dir(str(output))
+
+
+def test_converter_parser_rejects_abbreviated_flags(capsys):
+    from ldsc._ldscore.legacy_converter import build_parser
+
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args(["--legacy-ref", "r", "--legacy-weight-dir", "w", "--output-dir", "o"])
+    assert exc.value.code == 2
+    assert "--legacy-ref" in capsys.readouterr().err

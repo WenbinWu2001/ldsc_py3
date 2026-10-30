@@ -1,6 +1,6 @@
 # R² Matrix: Format Specification and Read Pipeline
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-30
 
 This document defines the canonical **index** format for R² matrices and describes how the read pipeline validates, binds, and streams them into the LD-score accumulation.
 
@@ -142,7 +142,7 @@ to the retained reference SNPs when the reader builds its remap (§3).
 
 Stored as UTF-8 byte strings, accessed via
 `pq.ParquetFile(path).schema_arrow.metadata`.
-Both readers check every key above (except the informational `ldsc:row_group_size`) in `read_r2_parquet_contracts` before decoding any pair and report all defects of all files in one error; no value is defaulted.
+`ldscore` and `query-r2-matrix` open each chromosome through `R2MatrixChromosome` (section 3), which checks every key above (except the informational `ldsc:row_group_size`) before decoding any pair; opening several chromosomes reports all defects of all of them in one error, and no value is defaulted.
 
 ### 2.6 Canonical Example
 
@@ -189,6 +189,13 @@ The sidecar is **required**. Because the parquet stores only indices, it is
 meaningless without the exact sidecar; there is no synthesize-from-parquet
 fallback. A missing sidecar is a hard error.
 
+Readers accept exactly the layout the writer produces, with no column aliases or alternative layouts.
+The `# ldsc:*` lines must record `artifact_type=ref_panel_metadata` and the same `snp_identifier` and `genome_build` as the R² Parquet file footer.
+The header must be the seven tab-separated columns above, in that order.
+Every row must name the file's chromosome, with an integer `POS`, a numeric or `NA` `CM`, and a `MAF` in [0, 0.5].
+A sidecar that fails any of these checks is rejected before any computation, by `ldscore` and `query-r2-matrix` alike, with an error that names the command and its troubleshooting section.
+Both files of a chromosome are named by `r2_matrix_file_paths` in `src/ldsc/_refpanel/r2_format.py`; `src/ldsc/_genome/build_policy.py` spells the names again because its tier cannot import that module, and `tests/refpanel/test_r2_matrix_chromosome.py` checks that the two agree.
+
 The sidecar feeds the partitioned-heritability workflow as before: the R² matrix SNPs `A` before filtering,
 all-SNP and common-SNP counts via `MAF`, and the genetic-map (`CM`) window.
 
@@ -196,23 +203,21 @@ all-SNP and common-SNP counts via `MAF`, and the genetic-map (`CM`) window.
 
 ## 3. Read Pipeline
 
-Implemented in `SortedR2BlockReader` (`src/ldsc/_ldscore/compute.py`), the single
-point of contact between the LD-score algorithm and the parquet.
+Implemented in `src/ldsc/_refpanel/r2_format.py`.
+`R2MatrixChromosome` opens one chromosome of an R² matrix for `ldscore` or `query-r2-matrix`: opening checks that both files exist and validates the Parquet footer (section 2.5), and the first `sidecar()` call parses, validates and binds the sidecar (sections 2.7 and 4) and keeps it.
+A process therefore parses each chromosome's sidecar once, however many readers it builds from the handle.
+`SortedR2BlockReader`, built by `R2MatrixChromosome.pair_reader`, is the single point of contact between the LD-score algorithm and the parquet.
 
-### 3.1 Open, Bind, Remap (`__init__` → `_init_index_path`)
+### 3.1 Open, Bind, Remap (`SortedR2BlockReader.__init__`)
 
 The reader receives the **retained** metadata (the retained reference SNPs, in
 matrix order) exactly as the rest of the pipeline produces it — the index format
 does not change any filtering/restriction/intersection step. It then:
 
-1. Confirms the schema is the index layout (`IDX_1/IDX_2/R2/SIGN_R` present); any other
-   schema raises an actionable "regenerate with `ldsc build-r2-matrix`" error.
-2. Reads `ldsc:sorted_by_build` (required) and checks it against the analysis
-   build.
-3. Loads the **full** R² matrix sidecar (`chrN_meta.tsv.gz`) — all `n_snps` rows in
-   build order.
-4. Validates the binding (§4): recomputes the identity hash and checks
-   `len(sidecar) == n_snps`; mismatch is a hard error.
+1. Relies on the footer contract checked when the chromosome was opened, including the index layout (`IDX_1/IDX_2/R2/SIGN_R`).
+2. Checks `ldsc:sorted_by_build` against the analysis build.
+3. Takes the **full** R² matrix sidecar (`chrN_meta.tsv.gz`), all `n_snps` rows in build order, from `R2MatrixChromosome.sidecar()`.
+4. The handle has validated the binding (§4) on its first parse: it recomputes the identity hash and checks `len(sidecar) == n_snps`; a mismatch is a hard error.
 5. Builds `remap: build_idx → retained_idx` (int32, `-1` for SNPs that are not
    retained reference SNPs) and `retained_build_idx: matrix_idx → build_idx`
    (ascending, for pruning) via `build_index_remap`. Matching uses the same
@@ -237,9 +242,7 @@ does not change any filtering/restriction/intersection step. It then:
    lets §3.4 accumulate LD scores with no pair deduplication; with each
    `(IDX_1, IDX_2)` pair unique (§2.2) and the remap injective, every decoded
    retained pair is necessarily unique.
-6. No window index is built: LD-score computation streams every row group once
-   (`iter_all_pairs`, §3.3). The coarse-row-group startup warning from the parquet
-   footer statistics is retained.
+6. No window index is built: LD-score computation streams every row group once (`iter_all_pairs`, §3.3).
 
 <a id="32-decode-_decode_index_row_group"></a>
 
@@ -258,7 +261,8 @@ The reader **dequantizes** the int16 column (`r2 = int16_values / ldsc:r2_scale`
 Each decoded batch is a numeric
 `(i:int32, j:int32, r2:float32)` triple of retained-matrix index pairs.
 
-The public chromosome workflow calls `R2MatrixRefPanel.prepare_chromosome`, which aligns annotation rows to the filtered sidecar, takes authoritative CM/MAF from that sidecar, validates LD windows, and calls `build_reader`. That single reader factory checks the parquet against the shared contract (`read_r2_parquet_contract`) and the active identity configuration; production and adapter tests share the same path. The numerical kernel receives this prepared state, and its context manager closes the reader after success or failure. Stored values are already unbiased, so ordinary and regression-weight LD scores apply no sample-size correction.
+The public chromosome workflow calls `R2MatrixRefPanel.prepare_chromosome`.
+It opens the chromosome with `R2MatrixRefPanel.open_chromosome`, which also requires the footer to record the active SNP identifier mode and genome build, checks the LD window and truncation, aligns annotation rows to the filtered sidecar, takes authoritative CM/MAF from that sidecar, and builds the pair reader from the same handle; production and adapter tests share the same path. The numerical kernel receives this prepared state, and its context manager closes the reader after success or failure. Stored values are already unbiased, so ordinary and regression-weight LD scores apply no sample-size correction.
 
 ### 3.3 Pair streaming (`iter_all_pairs`)
 
@@ -338,7 +342,7 @@ The CLI checks every selected chromosome file in its header preflight, before pa
 `R2MatrixRefPanel.prepare_chromosome` repeats the check for each chromosome it prepares, for example through `LDScoreCalculator.compute_chromosome`.
 Because `build-r2-matrix` chooses the stored pairs from the `CM` values as written to the sidecar (section 2.7), a window no wider than the R² matrix's never needs a pair the R² matrix did not store, in any unit.
 A PLINK `--ld-wind-cm` run matches an R² matrix cM run only when both use the same `CM` values: `.bim` column 3, or the genetic map the R² matrix was built with.
-Code: `validate_ldscore_window_within_r2_matrix_window` in `src/ldsc/_ldscore/compute.py` and `inspect_r2_headers` in `src/ldsc/_runtime/preflight.py`.
+Code: `R2MatrixChromosome.check_ld_window` in `src/ldsc/_refpanel/r2_format.py` and `inspect_r2_headers` in `src/ldsc/_refpanel/preflight.py`.
 
 **`--ld-wind-snps` counts R² matrix rows.**
 For an R² matrix, `--ld-wind-snps K` spans `K` sidecar rows on each side, whatever SNPs the run keeps.
@@ -415,7 +419,9 @@ canonical index format offline. Existing 10-column R² matrices must be regenera
 | `_core/snp_identity.py` | `sidecar_identity_sha256` binding hash |
 | `_refpanel/plink.py` | `PlinkBEDFile` genotype source for the build: selective reads retain the selected packed payload; unrestricted R² matrix builds opt into disk streaming. Both decode bounded standardized blocks |
 | `_refpanel/builder.py` | build loop: sidecar built first, hash + `n_snps` passed to the writer |
-| `_refpanel/r2_format.py` | `SortedR2BlockReader` index path: full-sidecar load, binding validation, `build_index_remap`, gather decode, `iter_all_pairs` streaming; `ld_score_streaming_from_r2_reader` pair accumulation; raw/former-format and block/query/cache paths removed |
+| `_refpanel/r2_format.py` | file names (`r2_matrix_file_paths`, `r2_matrix_chromosomes`, `resolve_r2_build_dir`); `R2MatrixChromosome`: footer contract, strict sidecar reading and binding validation, LD-window and truncation checks; `SortedR2BlockReader`: `build_index_remap`, gather decode, `iter_all_pairs` streaming |
+| `_ldscore/compute.py` | `ld_score_streaming_from_r2_reader` pair accumulation |
 | `_ldscore/compute.py` | `ProjectionAccumulator`: selected-output float64 scores, rectangular sparse pair operators, bounded annotation operands, and shared weight projection |
-| `_refpanel/adapters.py` | mandatory sidecar loading; shared `prepare_chromosome` alignment/window policy and `build_reader` contract and identity checks |
+| `_refpanel/adapters.py` | `R2MatrixRefPanel.open_chromosome` identity check against the run configuration; reference filtering of the sidecar; shared `prepare_chromosome` alignment/window policy |
+| `_refpanel/query.py` | `R2Matrix`: opens every chromosome through `R2MatrixChromosome` for `query-r2-matrix` |
 | `tests/` | index writer/reader/binding/remap tests; cross-mode parity gate; build→read parity |

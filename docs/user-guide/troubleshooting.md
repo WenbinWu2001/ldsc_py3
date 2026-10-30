@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-10-29
+Last updated on: 2026-10-30
 
 This reference expands run-aborting `ldsc` errors with at least three distinct plausible causes, following the [current logging and error-message guide](../dev/design/logging.md#diagnostics-and-troubleshooting).
 It also retains guidance for failed-run artifacts, documented query omissions, and cleanup warnings that users need to interpret.
@@ -679,28 +679,28 @@ A chromosome emptied by `--ref-panel-snps-file` or genotype QC is skipped with a
 
 ### `ldscore`: an R² matrix is incompatible
 
-**Symptom:** `R2 parquet '...' does not match the format written by the current ldsc build-r2-matrix: ...` / `ldscore could not use R2 parquet ...` / `ldscore cannot use R2 parquet ... omits SNP pairs with adjusted R2 below ...` / `... sidecar ... missing`
+**Symptom:** `ldscore could not use R2 matrix chromosome N: ...` / `ldscore could not use N R2 matrix chromosomes: ...` / `ldscore could not use R2 Parquet file '...': it is sorted for ...` / `ldscore cannot use R2 Parquet file ... omits SNP pairs with unbiased R2 below ...` / `... is wider than the input R2 matrix window ...` / `... windows in different units cannot be checked for coverage ...`
 
 **Likely causes & how to check** (most probable first):
 
 | # | Likely cause | How to check |
 |---|--------------|--------------|
-| 1 | The R² matrix was written by an older LDSC3 version or another tool | Inspect columns; current files contain `IDX_1`, `IDX_2`, `R2`, and `SIGN_R`. The former `SIGN` column is no longer accepted; rebuild according to the [current format requirements](../reference/formats/r2-matrices.md#5-caveats-and-constraints). |
-| 2 | The matching `chrN_meta.tsv.gz` sidecar is missing or was copied from another R² matrix | Confirm each `chrN_r2.parquet` has a same-directory `chrN_meta.tsv.gz` with matching timestamps/provenance |
-| 3 | Parquet schema metadata was stripped or edited | The error lists each missing or invalid key; current R² matrices record `ldsc:r2_encoding`, `ldsc:r2_scale`, `ldsc:r2_bias=unbiased`, `ldsc:n_samples`, `ldsc:ld_window_mode`/`ldsc:ld_window_value`, `ldsc:r2_min`, `ldsc:sorted_by_build`, `ldsc:n_snps`, `ldsc:sidecar_identity_sha256`, and identity keys, with an int16 `R2` column |
-| 4 | The R² matrix directory mixes chromosomes or builds from different reference-panel runs | List files in the R² matrix directory and compare recorded `genome_build` metadata |
-| 5 | Duplicate or conflicting pair rows survived in the R² matrix | Regenerate from a deduplicated reference-panel source and current `ldsc build-r2-matrix` |
-| 6 | The R² matrix was built with a positive `--r2-min`, so it omits low-R² pairs | The error names `ldsc:r2_min`; rebuild the R² matrix without `--r2-min` for `ldscore`, and keep the truncated R² matrix only for `ldsc query-r2-matrix` |
-| 7 | The LD window is in a different unit from the R² matrix's build window, or wider than it (`windows in different units cannot be checked for coverage` / `is wider than the input R2 matrix window`) | The error names both windows; rerun with the R² matrix's unit and a value no wider, or rebuild the R² matrix with the requested window. See [LD windows for R² matrices](../reference/formats/r2-matrices.md#37-ld-windows-and-sidecar-values-in-ldscore) |
+| 1 | A chromosome's sidecar or R² Parquet file is missing, or the chromosome was not built | The error names the missing file; each `chrN_r2.parquet` needs a same-directory `chrN_meta.tsv.gz`, and the reverse |
+| 2 | The sidecar does not belong to its R² Parquet file: copied from another R² matrix, rows reordered or edited | The error names `ldsc:sidecar_identity_sha256`, `ldsc:n_snps`, or identity lines (`ldsc:snp_identifier`, `ldsc:genome_build`) that differ between the two files |
+| 3 | The sidecar was edited or written by another tool | The error shows the sidecar's columns against `CHR, POS, SNP, A1, A2, CM, MAF`, or counts rows with an invalid `POS`, `CM` or `MAF` (MAF must lie in [0, 0.5]), or lists another chromosome; renamed or reordered columns are not accepted |
+| 4 | The R² matrix was written by an older LDSC3 version or another tool, or its Parquet metadata was stripped or edited | The error lists each missing or invalid footer key; current R² matrices record `ldsc:r2_encoding`, `ldsc:r2_scale`, `ldsc:r2_bias=unbiased`, `ldsc:n_samples`, `ldsc:ld_window_mode`/`ldsc:ld_window_value`, `ldsc:r2_min`, `ldsc:sorted_by_build`, `ldsc:n_snps`, `ldsc:sidecar_identity_sha256`, and identity keys, with an int16 `R2` column and a `SIGN_R` column ([format requirements](../reference/formats/r2-matrices.md#5-caveats-and-constraints)) |
+| 5 | The R² matrix and the run use different genome builds, or the directory mixes builds | Compare the error's `sorted for` build with `--genome-build`; pass the build-specific `hg19/` or `hg38/` directory |
+| 6 | Distinct R² matrix SNPs share one SNP identity under the selected mode (`collapse onto the same retained SNP`) | Use an allele-aware `--snp-identifier`, or rebuild the R² matrix after removing duplicate SNP identities |
+| 7 | The R² matrix was built with a positive `--r2-min`, so it omits low-R² pairs | The error names `ldsc:r2_min`; rebuild the R² matrix without `--r2-min` for `ldscore`, and keep the truncated R² matrix only for `ldsc query-r2-matrix` |
+| 8 | The LD window is in a different unit from the R² matrix's build window, or wider than it (`windows in different units cannot be checked for coverage` / `is wider than the input R2 matrix window`) | The error names both windows; rerun with the R² matrix's unit and a value no wider, or rebuild the R² matrix with the requested window. See [LD windows for R² matrices](../reference/formats/r2-matrices.md#37-ld-windows-and-sidecar-values-in-ldscore) |
 
 **Remedies:**
 
-1. Regenerate the reference panel with the current `ldsc build-r2-matrix`.
-2. Keep each `chrN_r2.parquet` with its matching `chrN_meta.tsv.gz` sidecar; do
-   not hand-edit or independently copy sidecars.
+1. Regenerate the R² matrix with the current `ldsc build-r2-matrix`.
+2. Keep each `chrN_r2.parquet` with its matching `chrN_meta.tsv.gz` sidecar; do not hand-edit or independently copy sidecars.
 3. Use one consistent R² matrix directory per genome build and reference-panel run.
 
-**Developer reference:** `_refpanel.r2_format.read_r2_parquet_contracts`, `_refpanel.r2_format.SortedR2BlockReader`, sidecar-binding guards, and `validate_ldscore_window_within_r2_matrix_window` · **Exception:** `LDSCInputError`; `LDSCUsageError` for LD-window mismatches (cause 7)
+**Developer reference:** `_refpanel.r2_format.R2MatrixChromosome` (file, footer, sidecar and binding checks, `check_ld_window`, `reject_truncation`), `_refpanel.r2_format.SortedR2BlockReader`, and `_refpanel.adapters.R2MatrixRefPanel.open_chromosome` · **Exception:** `LDSCInputError`; `LDSCUsageError` for LD-window mismatches (cause 8)
 
 ### `ldscore`: genome build could not be resolved consistently
 
@@ -825,28 +825,32 @@ SNP selection is checked for every chromosome before any genotypes are read, and
 
 **Developer reference:** `_refpanel.builder.R2MatrixBuilder._resolve_source_genome_build()`, `_genome.build_policy.GenomeBuildCheck`, and `_core.columns.resolve_restriction_chr_pos_columns()` · **Exception:** `LDSCInputError`
 
-### `build-r2-matrix`: reference-panel artifact is incompatible
+## `query-r2-matrix`
 
-**Symptom:** `Reference-panel metadata sidecar is missing...` / `...required identity/provenance keys are missing...` / `...has missing, non-numeric, or out-of-range MAF for ... SNP rows...`
+<a id="query-r2-matrix-r2-matrix-is-incompatible"></a>
+
+### `query-r2-matrix`: an R² matrix is incompatible
+
+**Symptom:** `query-r2-matrix could not use R2 matrix chromosome N: ...` / `query-r2-matrix could not use N R2 matrix chromosomes: ...`
 
 **Likely causes & how to check** (most probable first):
 
 | # | Likely cause | How to check |
 |---|--------------|--------------|
-| 1 | The R² Parquet file was copied without its matching `chrN_meta.tsv.gz` sidecar | Confirm each `chrN_r2.parquet` has a same-directory `chrN_meta.tsv.gz` |
-| 2 | The artifact was written by an older LDSC3 version | Inspect parquet or sidecar metadata for `artifact_type`, `snp_identifier`, and `genome_build` |
-| 3 | A parent directory with multiple build children was passed without a concrete build | Check for `hg19/` and `hg38/` children under `--r2-matrix-dir` |
-| 4 | The metadata sidecar lacks required SNP identity columns for the active mode | Inspect sidecar columns for SNP or CHR/POS plus A1/A2 in allele-aware modes |
-| 5 | The selected chromosome/build was not generated | List `chr*_r2.parquet` files in the selected build directory |
-| 6 | The sidecar was edited or produced by another tool, leaving `MAF` missing, non-numeric, or outside [0, 0.5] | The error names the count and first SNPs; `build-r2-matrix` writes the minor-allele (`A1`) frequency for every row |
+| 1 | A chromosome's sidecar or R² Parquet file is missing | The error names the missing file; each `chrN_r2.parquet` needs a same-directory `chrN_meta.tsv.gz`, and the reverse |
+| 2 | The sidecar does not belong to its R² Parquet file: copied from another R² matrix, rows reordered or edited | The error names `ldsc:sidecar_identity_sha256`, `ldsc:n_snps`, or identity lines that differ between the two files; this check runs when a query first touches the chromosome |
+| 3 | The sidecar was edited or written by another tool | The error shows the sidecar's columns against `CHR, POS, SNP, A1, A2, CM, MAF`, or counts rows with an invalid `POS`, `CM` or `MAF`, or lists another chromosome |
+| 4 | The R² matrix was written by an older LDSC3 version or another tool, or its Parquet metadata was stripped or edited | The error lists each missing or invalid footer key; see the [format requirements](../reference/formats/r2-matrices.md#5-caveats-and-constraints) |
+
+An R² matrix built with a positive `--r2-min` is valid here: `query-r2-matrix` reports a pair it did not store as `status=absent`.
 
 **Remedies:**
 
-1. Keep R² Parquet files and their sidecars together as one artifact family.
-2. Regenerate the reference panel with the current `ldsc build-r2-matrix`.
-3. Pass a concrete build-specific R² matrix directory or set the matching genome build.
+1. Regenerate the R² matrix with the current `ldsc build-r2-matrix`.
+2. Keep each `chrN_r2.parquet` with its matching `chrN_meta.tsv.gz` sidecar; do not hand-edit or independently copy sidecars.
+3. Pass the build-specific `hg19/` or `hg38/` directory, or `--genome-build`, when the R² matrix root holds both builds.
 
-**Developer reference:** `_refpanel.adapters.R2MatrixRefPanel` and metadata sidecar readers · **Exception:** `LDSCInputError`
+**Developer reference:** `_refpanel.r2_format.R2MatrixChromosome` and `_refpanel.query.R2Matrix.open` · **Exception:** `LDSCInputError`
 
 ## `convert-legacy-ldscores`
 

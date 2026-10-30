@@ -1,6 +1,6 @@
 # Code Structure
 
-Last updated on: 2026-10-29
+Last updated on: 2026-10-30
 
 This is the authoritative contributor entry for LDSC3.
 Start here to locate a change.
@@ -113,14 +113,14 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 | `ldsc._annotation.overlap` | annotation overlap-block computation (`OverlapContribution`, `compute_overlap`, `sum_overlap_contributions`); a product of annotations over reference SNPs without LD |
 | `ldsc._annotation.outputs` | `AnnotationDirectoryWriter` for the `ldsc annotate` result directory |
 | `ldsc._refpanel.plink` | PLINK genotype reader (`PlinkBEDFile` and its `__GenotypeArrayInMemory__` base): selective SNP reads with fused individual filtering retain only selected packed genotypes; unrestricted panel builds opt into disk streaming instead |
-| `ldsc._refpanel.r2_format` | the R² matrix format: schema constants, Parquet and sidecar writers, contract readers and checks, sidecar binding, `SortedR2BlockReader` and the pair lookup used by `query-r2-matrix` |
+| `ldsc._refpanel.r2_format` | the R² matrix format: file names (`r2_matrix_file_paths`, `r2_matrix_chromosomes`, `resolve_r2_build_dir`), schema constants, Parquet and sidecar writers, `R2MatrixChromosome` (footer contract, strict sidecar reading, sidecar binding, LD-window and truncation checks for `ldscore` and `query-r2-matrix`), `SortedR2BlockReader` and the pair lookup used by `query-r2-matrix` |
 | `ldsc._refpanel.windows` | LD-window geometry shared by `ldscore` and `build-r2-matrix`: `window_coordinates`, `get_block_lefts`, and window checks |
 | `ldsc._refpanel.prepared` | the `PreparedChromosome` contract, the chromosome annotation input `ChromosomeAnnotations`, and the `ArrayAnnotations`/`MappedAnnotations` accessors |
 | `ldsc._refpanel.funnel` | the reference-SNP funnel: `ReferenceSNPFunnel` records what each reference-preparation step removed, with readers, writers and the run-level warning text |
 | `ldsc._refpanel.adapters` | runtime PLINK/R²-matrix adapters; `RefPanel.prepare_chromosome` owns reference filtering, annotation alignment, window/bias policy, and reader lifetime |
 | `ldsc._refpanel.builder`, `ldsc._refpanel.build_kernel` | R²-matrix build workflow (source-build inference, optional liftover, explicit SNP/sample restrictions, optional `r2_min` threshold) and its kernel (genetic maps, pairwise R² emission, restriction masks) |
 | `ldsc._refpanel.query` | public `query-r2-matrix` CLI/API, `R2Matrix`, one-shot `query_r2_matrix()`, endpoint key resolution, sign harmonization, and optional unbiased-R²-to-Pearson-r conversion |
-| `ldsc._refpanel.preflight` | `inspect_r2_headers` and the genetic-map header check for the declared-input gate |
+| `ldsc._refpanel.preflight` | `inspect_r2_headers` (each R² matrix chromosome's files, footer and sidecar header, for either reading command) and the genetic-map header check for the declared-input gate |
 | `ldsc._refpanel.outputs` | `QueryR2MatrixDirectoryWriter` for the `query-r2-matrix` result directory |
 | `ldsc._sumstats.munger` | raw-summary-statistics CLI/API orchestration, `--input-format auto` / `--infer-only` header inference, Parquet/TSV munged output writing, self-describing `sumstats.parquet` footer identity metadata, diagnostics under `diagnostics/`, canonical `CHR`/`POS` summary-statistics output, and munged summary-statistics loader |
 | `ldsc._sumstats.munge_input` | private workflow helper resolving raw schema, DANER/sample-size settings, bounded source-build evidence and keep-lists into `ResolvedMungeInput` |

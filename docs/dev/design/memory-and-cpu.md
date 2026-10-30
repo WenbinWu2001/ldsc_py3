@@ -1,6 +1,6 @@
 # Memory and CPU efficiency design
 
-Last updated on: 2026-10-29
+Last updated on: 2026-10-30
 
 <a id="annotation-and-workflow-memory-design"></a>
 
@@ -358,7 +358,7 @@ The small prepared no-output Python route still returns a materialized `LDScoreR
 
 ### Streamed R² projection
 
-[`SortedR2BlockReader.iter_all_pairs()`](../../../src/ldsc/_ldscore/compute.py) visits row groups once in stored order and decodes bounded Arrow record batches of at most 65,536 rows, including when a stored row group is larger.
+[`SortedR2BlockReader.iter_all_pairs()`](../../../src/ldsc/_refpanel/r2_format.py) visits row groups once in stored order and decodes bounded Arrow record batches of at most 65,536 rows, including when a stored row group is larger.
 It reads only endpoint indices and R², with no sign column, decoded-row-group cache, or dense window matrix.
 Mode-dependent sidecar identity validation and remapping happen once per chromosome reader.
 Builder pair uniqueness plus an injective retained-SNP remap remove the need for a repeated per-pair identity join or deduplication set.

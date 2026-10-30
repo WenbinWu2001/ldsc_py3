@@ -139,7 +139,7 @@ PARTITIONED_H2_REQUIRES_OVERLAP_MESSAGE = (
     "overlap sidecar; if so, regenerate with the current `ldsc ldscore`. "
     "Other causes & fixes: docs/user-guide/troubleshooting.md#partitioned-h2-missing-overlap-matrix"
 )
-FAILED_RG_NOTE = "Failed; see rg_full.tsv error column; use --output-dir for diagnostics/rg.log."
+FAILED_RG_NOTE = "Failed; see the rg_full.tsv error column and diagnostics/rg.log."
 REGRESSION_IDENTITY_KEY_COLUMN = "_ldsc_regression_identity_key"
 LEGACY_SUMSTATS_DROP_COLUMNS = [
     "trait_name",
@@ -412,11 +412,7 @@ class RegressionRunner:
             context=sumstats_table.source_path or sumstats_table.trait_name or "sumstats",
         )
         ldscore_mode = _ldscore_identity_mode(ldscore_result, self.global_config, fallback_mode=identifier_mode)
-        ldscore_frame = _assemble_regression_ldscore_table(
-            ldscore_result,
-            [],
-            snp_identifier=ldscore_mode,
-        )
+        ldscore_frame = _assemble_regression_ldscore_table(ldscore_result)
         ldscore_frame["_ldsc_source_row"] = np.arange(len(ldscore_frame), dtype=np.int64)
         sumstats_frame = sumstats_table.data
         dropped_identity_rows = 0
@@ -434,7 +430,7 @@ class RegressionRunner:
                 logger=LOGGER,
             )
             dropped_identity_rows = int(len(sumstats_dropped) + len(ldscore_dropped))
-            sumstats_mode = _sumstats_identity_mode(sumstats_table, self.global_config, fallback_mode=ldscore_mode)
+            sumstats_mode = _sumstats_identity_mode(sumstats_table, fallback_mode=ldscore_mode)
             LOGGER.warning(
                 f"Identity downgrade enabled: LD-score mode {ldscore_mode}, summary-statistics mode {sumstats_mode}; "
                 f"running regression with effective snp_identifier={identifier_mode!r}. "
@@ -640,9 +636,9 @@ class RegressionRunner:
         weight_column = REGRESSION_LD_SCORE_COLUMN
         ref_ld_columns = list(ldscore_result.baseline_columns)
         ldscore_mode = _ldscore_identity_mode(ldscore_result, self.global_config, fallback_mode=identifier_mode)
-        trait_1_mode = _sumstats_identity_mode(sumstats_table_1, self.global_config, fallback_mode=ldscore_mode)
-        trait_2_mode = _sumstats_identity_mode(sumstats_table_2, self.global_config, fallback_mode=ldscore_mode)
-        ldscore_frame = _assemble_regression_ldscore_table(ldscore_result, [], snp_identifier=ldscore_mode)
+        trait_1_mode = _sumstats_identity_mode(sumstats_table_1, fallback_mode=ldscore_mode)
+        trait_2_mode = _sumstats_identity_mode(sumstats_table_2, fallback_mode=ldscore_mode)
+        ldscore_frame = _assemble_regression_ldscore_table(ldscore_result)
         left_frame = sumstats_table_1.data
         right_frame = sumstats_table_2.data
         if identity.downgrade_applied:
@@ -874,7 +870,7 @@ class RegressionRunner:
         intercept = None
         if not config.use_intercept:
             intercept = 1
-        elif config.intercept_h2 is not None and not isinstance(config.intercept_h2, list):
+        elif config.intercept_h2 is not None:
             intercept = float(config.intercept_h2)
         two_step = config.two_step_cutoff
         if two_step is None and intercept is None and len(dataset.retained_ld_columns) == 1:
@@ -1720,7 +1716,6 @@ def _project_legacy_sumstats_to_panel(
 
 def _sumstats_identity_mode(
     sumstats_table: SumstatsTable,
-    runner_config: GlobalConfig,
     *,
     fallback_mode: str,
 ) -> str:
@@ -1749,7 +1744,7 @@ def _resolve_h2_identity(
 ):
     """Resolve one summary-statistics table and one LD-score result for h2 merging."""
     ldscore_mode = _ldscore_identity_mode(ldscore_result, runner_config)
-    sumstats_mode = _sumstats_identity_mode(sumstats_table, runner_config, fallback_mode=ldscore_mode)
+    sumstats_mode = _sumstats_identity_mode(sumstats_table, fallback_mode=ldscore_mode)
     return resolve_regression_identity_mode(
         sumstats_mode,
         ldscore_mode,
@@ -1766,8 +1761,8 @@ def _resolve_rg_identity(
 ):
     """Resolve trait 1, trait 2, and LD-score SNP identifier modes for rg."""
     ldscore_mode = _ldscore_identity_mode(ldscore_result, runner_config)
-    trait_1_mode = _sumstats_identity_mode(sumstats_table_1, runner_config, fallback_mode=ldscore_mode)
-    trait_2_mode = _sumstats_identity_mode(sumstats_table_2, runner_config, fallback_mode=ldscore_mode)
+    trait_1_mode = _sumstats_identity_mode(sumstats_table_1, fallback_mode=ldscore_mode)
+    trait_2_mode = _sumstats_identity_mode(sumstats_table_2, fallback_mode=ldscore_mode)
     pairwise = [
         resolve_regression_identity_mode(
             trait_1_mode,
@@ -1902,24 +1897,9 @@ def _validate_partitioned_query_columns(ldscore_result: LDScoreSource | LDScoreR
     return requested
 
 
-def _assemble_regression_ldscore_table(
-    ldscore_result: LDScoreSource | LDScoreResult,
-    query_columns: Sequence[str],
-    *,
-    snp_identifier: str | None = None,
-) -> pd.DataFrame:
-    """Build the table used for one regression dataset from split LD-score tables."""
-    baseline_table = ldscore_result.baseline_table.reset_index(drop=True)
-    if not query_columns:
-        return baseline_table.copy()
-    query_table = ldscore_result.read_queries(query_columns)
-    assert_same_snp_rows(
-        baseline_table,
-        query_table,
-        context="query rows must match baseline rows on CHR/SNP/POS",
-        snp_identifier=snp_identifier or getattr(ldscore_result.config_snapshot, "snp_identifier", "chr_pos_allele_aware"),
-    )
-    return pd.concat([baseline_table, query_table.loc[:, list(query_columns)]], axis=1)
+def _assemble_regression_ldscore_table(ldscore_result: LDScoreSource | LDScoreResult) -> pd.DataFrame:
+    """Return a copy of the baseline LD-score table, the base of one regression dataset."""
+    return ldscore_result.baseline_table.reset_index(drop=True).copy()
 
 
 def _count_totals_for_columns(count_records: Sequence[dict[str, Any]], columns: Sequence[str]) -> dict[str, np.ndarray]:
@@ -3003,32 +2983,30 @@ def run_h2_from_args(args):
             hsq, dataset, trait_name=_trait_label(sumstats_table), n_snps_used=n_snps_used,
             samp_prev=config.samp_prev, pop_prev=config.pop_prev,
         )
-        output_dir_arg = getattr(args, "output_dir", None)
-        if output_dir_arg:
-            written = H2DirectoryWriter().write(
-                summary,
-                H2OutputConfig(
-                    output_dir=output_dir,
-                    overwrite=getattr(args, "overwrite", False),
-                ),
-                metadata=_h2_metadata(
-                    args,
-                    sumstats_table,
-                    outcome,
-                    samp_prev=config.samp_prev,
-                    pop_prev=config.pop_prev,
-                ),
-                diagnostic_bins=outcome.diagnostic_bins,
-            )
-            audit_path = _write_or_remove_legacy_sumstats_audit(
-                Path(output_dir),
-                legacy_used=_has_legacy_sumstats_source(sumstats_table),
-                drops=legacy_drops,
+        written = H2DirectoryWriter().write(
+            summary,
+            H2OutputConfig(
+                output_dir=output_dir,
                 overwrite=getattr(args, "overwrite", False),
-            )
-            if audit_path is not None:
-                written["legacy_sumstats_drops"] = str(audit_path)
-            log_outputs(**written)
+            ),
+            metadata=_h2_metadata(
+                args,
+                sumstats_table,
+                outcome,
+                samp_prev=config.samp_prev,
+                pop_prev=config.pop_prev,
+            ),
+            diagnostic_bins=outcome.diagnostic_bins,
+        )
+        audit_path = _write_or_remove_legacy_sumstats_audit(
+            Path(output_dir),
+            legacy_used=_has_legacy_sumstats_source(sumstats_table),
+            drops=legacy_drops,
+            overwrite=getattr(args, "overwrite", False),
+        )
+        if audit_path is not None:
+            written["legacy_sumstats_drops"] = str(audit_path)
+        log_outputs(**written)
         LOGGER.info(f"Finished h2 regression with {n_snps_used} regression SNPs.")
     return summary
 
@@ -3248,25 +3226,23 @@ def run_rg_from_args(args):
                 config=config,
                 prevalences=prevalences,
             )
-        output_dir_arg = getattr(args, "output_dir", None)
-        if output_dir_arg:
-            written = RgDirectoryWriter().write(
-                result,
-                RgOutputConfig(
-                    output_dir=output_dir,
-                    overwrite=getattr(args, "overwrite", False),
-                    write_per_pair_detail=getattr(args, "write_per_pair_detail", False),
-                ),
-            )
-            audit_path = _write_or_remove_legacy_sumstats_audit(
-                Path(output_dir),
-                legacy_used=any(_has_legacy_sumstats_source(table) for table in sumstats_tables),
-                drops=legacy_drops,
+        written = RgDirectoryWriter().write(
+            result,
+            RgOutputConfig(
+                output_dir=output_dir,
                 overwrite=getattr(args, "overwrite", False),
-            )
-            if audit_path is not None:
-                written["legacy_sumstats_drops"] = str(audit_path)
-            log_outputs(**written)
+                write_per_pair_detail=getattr(args, "write_per_pair_detail", False),
+            ),
+        )
+        audit_path = _write_or_remove_legacy_sumstats_audit(
+            Path(output_dir),
+            legacy_used=any(_has_legacy_sumstats_source(table) for table in sumstats_tables),
+            drops=legacy_drops,
+            overwrite=getattr(args, "overwrite", False),
+        )
+        if audit_path is not None:
+            written["legacy_sumstats_drops"] = str(audit_path)
+        log_outputs(**written)
         LOGGER.info(
             f"Finished rg regression for {len(result.rg)} trait pairs "
             f"and {len(result.h2_per_trait)} traits."

@@ -453,3 +453,16 @@ def test_loader_rejects_a_relative_ldscore_directory(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path / "elsewhere")
     with pytest.raises(LDSCInputError, match="relative"):
         load_fitted_partitioned_model(model_dir)
+
+
+def test_loader_requires_retained_ld_columns(tmp_path):
+    # partitioned-h2 records the coefficient order whenever it writes the delete table.
+    model_dir = tmp_path / "fit" / "query"
+    model_dir.mkdir(parents=True)
+    (model_dir / "metadata.json").write_text(json.dumps({"ldscore_dir": str(tmp_path)}), encoding="utf-8")
+    pd.DataFrame({"category": ["base", "query"], "coefficient": [0.1, 0.2], "coefficient_se": [0.01, 0.02]}
+                 ).to_csv(model_dir / "partitioned_h2_full.tsv", sep="\t", index=False)
+    pd.DataFrame({"delete_block": [0, 1], "base": [0.09, 0.11], "query": [0.19, 0.21]}
+                 ).to_parquet(model_dir / "coefficient_delete_values.parquet", index=False)
+    with pytest.raises(LDSCInputError, match="retained_ld_columns"):
+        load_fitted_partitioned_model(model_dir)

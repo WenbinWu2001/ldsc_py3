@@ -27,6 +27,8 @@ from .._annotation.storage import AnnotationWorkspace
 from .quantile_inputs import prepare_quantile_statistics
 from .quantile_storage import AlignmentDiagnostics
 from .outputs import (
+    QUANTILE_H2_COLUMNS,
+    STANDARDIZED_COEFFICIENT_COLUMNS,
     QuantileH2DirectoryWriter,
     QuantileH2OutputConfig,
 )
@@ -37,37 +39,6 @@ from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_o
 
 
 LOGGER = logging.getLogger("LDSC.quantile_h2")
-
-QUANTILE_H2_COLUMNS = [
-    "quantile",
-    "target_value_lower",
-    "target_value_upper",
-    "n_snps",
-    "prop_snps",
-    "h2_obs",
-    "h2_obs_se",
-    "h2_liab",
-    "h2_liab_se",
-    "prop_h2",
-    "prop_h2_se",
-    "enrichment",
-    "enrichment_se",
-    "enrichment_p",
-]
-
-STANDARDIZED_COEFFICIENT_COLUMNS = [
-    "annotation",
-    "annotation_type",
-    "annotation_sd",
-    "tau",
-    "tau_se",
-    "tau_z",
-    "tau_p",
-    "tau_star",
-    "tau_star_se",
-    "tau_star_z",
-    "tau_star_p",
-]
 
 
 @serial_calculation
@@ -369,7 +340,14 @@ def load_fitted_partitioned_model(result_dir: str | Path) -> FittedPartitionedMo
             "regenerate fitted-result files."
         )
     annotation_names = [str(column) for column in delete_frame.columns if column != "delete_block"]
-    retained = [str(name) for name in metadata.get("retained_ld_columns", annotation_names)]
+    if "retained_ld_columns" not in metadata:
+        raise LDSCInputError(
+            "quantile-h2 fitted-model metadata is missing retained_ld_columns, the coefficient order."
+            " Restore the original fitted summary, coefficient-delete table, and metadata from the same "
+            "partitioned-h2 fit, or rerun that fit. LD scores do not need to be recomputed solely to "
+            "regenerate fitted-result files."
+        )
+    retained = [str(name) for name in metadata["retained_ld_columns"]]
     if retained != annotation_names:
         raise LDSCInputError(
             "quantile-h2 fitted-model coefficient order disagrees with metadata retained_ld_columns. "
@@ -582,7 +560,7 @@ def add_quantile_h2_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the standalone parser used by the unified CLI."""
+    """Build the standalone ``quantile-h2`` parser used by ``run_quantile_h2``."""
     parser = argparse.ArgumentParser(
         prog="ldsc quantile-h2",
         description="Project a fitted partitioned-LDSC model onto continuous-annotation quantiles.",
@@ -820,14 +798,7 @@ def run_quantile_h2(**kwargs) -> QuantileH2Result:
     )
 
 
-def main(argv: Sequence[str] | None = None) -> QuantileH2Result:
-    """Parse standalone arguments and execute ``quantile-h2``."""
-    return run_quantile_h2_from_args(build_parser().parse_args(argv))
-
-
 __all__ = [
-    "QUANTILE_H2_COLUMNS",
-    "STANDARDIZED_COEFFICIENT_COLUMNS",
     "compute_quantile_h2",
     "compute_standardized_coefficients",
     "add_quantile_h2_arguments",

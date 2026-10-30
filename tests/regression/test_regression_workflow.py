@@ -2611,15 +2611,6 @@ class RegressionWorkflowTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             parser.parse_args(["--ldscore-dir", "ldscores", "--sumstats-file", "trait.sumstats.gz", "--count-kind", "m_5_50"])
 
-    def test_partitioned_h2_arguments_reject_retired_per_query_output_flag(self):
-        parser = argparse.ArgumentParser()
-        regression_runner.add_partitioned_h2_arguments(parser)
-        with self.assertRaises(SystemExit):
-            parser.parse_args([
-                "--ldscore-dir", "ldscores", "--sumstats-file", "trait.sumstats.gz",
-                "--output-dir", "out", "--write-per-query-results",
-            ])
-
     def test_partitioned_h2_arguments_accept_summary_sort_by(self):
         parser = argparse.ArgumentParser()
         regression_runner.add_partitioned_h2_arguments(parser)

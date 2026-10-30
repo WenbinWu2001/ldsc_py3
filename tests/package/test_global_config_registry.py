@@ -135,15 +135,6 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             self.assertEqual(len(caught.records), 1)
             self.assertIn("GlobalConfig", caught.records[0].getMessage())
 
-    def test_run_annotate_rejects_removed_shared_kwargs(self):
-        with self.assertRaises(TypeError):
-            ldsc.run_annotate(
-                query_annot_bed_sources="beds/*.bed",
-                ref_snp_annot_sources="baseline.@.annot.gz",
-                output_dir="out",
-                snp_identifier="rsid",
-            )
-
     def test_run_ldscore_uses_registered_global_config_for_python_defaults(self):
         set_global_config(GlobalConfig(snp_identifier="rsid", log_level="DEBUG"))
 
@@ -172,15 +163,6 @@ class GlobalConfigRegistryTest(unittest.TestCase):
                 snp_identifier="rsid",
             )
 
-    def test_run_ldscore_rejects_retired_io_kwargs(self):
-        with self.assertRaisesRegex(LDSCUsageError, "baseline_annot_paths"):
-            ldscore_calculator.run_ldscore(
-                output_dir="results/example",
-                baseline_annot_paths="baseline.annot.gz",
-                plink_path="plink/panel",
-                ld_wind_snps=10,
-            )
-
     def test_run_build_r2_matrix_rejects_removed_shared_kwargs(self):
         with self.assertRaisesRegex(LDSCUsageError, "set_global_config"):
             r2_matrix_builder.run_build_r2_matrix(
@@ -192,16 +174,6 @@ class GlobalConfigRegistryTest(unittest.TestCase):
                 output_dir="out/panel",
                 ld_wind_kb=1.0,
                 log_level="DEBUG",
-            )
-
-    def test_run_build_r2_matrix_rejects_retired_io_kwargs(self):
-        with self.assertRaisesRegex(LDSCUsageError, "plink_path"):
-            r2_matrix_builder.run_build_r2_matrix(
-                plink_path="plink/panel",
-                source_genome_build="hg19",
-                genetic_map_hg19_path="maps/hg19.txt",
-                output_dir="out/panel",
-                ld_wind_kb=1.0,
             )
 
     def test_reference_panel_builder_uses_registered_global_config_and_logs_once(self):

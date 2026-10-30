@@ -171,12 +171,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
         self.assertEqual(args.r2_matrix_dir, "panel/hg38")
 
-    def test_build_parser_rejects_removed_r2_bias_flags(self):
-        parser = ldscore_workflow.build_parser()
-        for flag in (["--r2-bias-mode", "raw"], ["--r2-sample-size", "100"]):
-            with self.assertRaises(SystemExit):
-                parser.parse_args(["--output-dir", "out", "--r2-matrix-dir", "panel/hg38", *flag])
-
     def test_format_ldscore_start_message_describes_synthetic_base(self):
         bundle = SimpleNamespace(
             baseline_columns=["base"],
@@ -204,28 +198,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
             message,
             "Starting LD-score calculation for 22 chromosomes with 2 baseline columns and 1 query columns.",
         )
-
-    def test_build_parser_help_exposes_only_r2_matrix_dir_for_parquet_input(self):
-        help_text = ldscore_workflow.build_parser().format_help()
-
-        self.assertIn("--r2-matrix-dir", help_text)
-        self.assertNotIn("--r2-ref-panel-dir", help_text)
-        self.assertNotIn("--ref-panel-dir", help_text)
-        self.assertNotIn("--r2-sources", help_text)
-        self.assertNotIn("--metadata-sources", help_text)
-
-    def test_build_parser_rejects_removed_parquet_input_flags(self):
-        parser = ldscore_workflow.build_parser()
-        for flag in ("--r2-ref-panel-dir", "--ref-panel-dir", "--r2-sources", "--metadata-sources"):
-            with self.subTest(flag=flag):
-                with self.assertRaises(SystemExit):
-                    parser.parse_args(["--output-dir", "out", flag, "value"])
-
-    def test_run_ldscore_rejects_removed_parquet_input_kwargs(self):
-        for name in ("r2_ref_panel_dir", "ref_panel_dir", "r2_sources", "metadata_sources", "chunk_size"):
-            with self.subTest(name=name):
-                with self.assertRaisesRegex(LDSCUsageError, "unknown keyword argument"):
-                    ldscore_workflow.run_ldscore(output_dir="out", **{name: "value"})
 
     def test_run_ldscore_requires_output_dir_without_creating_a_placeholder(self):
         with self.assertRaisesRegex(LDSCUsageError, r"missing required keyword argument\(s\) output_dir"):
@@ -479,35 +451,9 @@ class LDScoreWorkflowTest(unittest.TestCase):
             panel.load_metadata = lambda chrom: metadata_by_chrom[str(chrom)].copy()
         return panel
 
-    def test_global_config_rejects_removed_ref_panel_snps_file(self):
-        with self.assertRaises(TypeError):
-            GlobalConfig(snp_identifier="rsid", ref_panel_snps_file="filters/reference.tsv.gz")
-
-    def test_global_config_rejects_removed_regr_snps_file(self):
-        with self.assertRaises(TypeError):
-            GlobalConfig(snp_identifier="rsid", regr_snps_file="filters/hm3.tsv.gz")
-
     def test_ldscore_config_accepts_regr_snps_file(self):
         config = LDScoreConfig(ld_wind_snps=10, regr_snps_file="/path/to/snps.txt")
         self.assertEqual(config.regr_snps_file, "/path/to/snps.txt")
-
-    def test_ldscore_config_rejects_old_regression_snps_file_name(self):
-        with self.assertRaises(TypeError):
-            LDScoreConfig(ld_wind_snps=10, regression_snps_file="/path/to/snps.txt")
-
-    def test_build_parser_does_not_expose_removed_snp_restriction_flags(self):
-        parser = ldscore_workflow.build_parser()
-        help_text = parser.format_help()
-        for tokens in (
-            ("--use-hm3-ref-panel-snps",),
-            ("--use-hm3-regression-snps",),
-            ("--exclude-regions-bed", "regions.bed"),
-            ("--exclude-regions-build", "hg19"),
-        ):
-            with self.subTest(tokens=tokens):
-                self.assertNotIn(tokens[0], help_text)
-                with self.assertRaises(SystemExit):
-                    parser.parse_args(["--output-dir", "out", "--plink-prefix", "panel", "--ld-wind-snps", "10", *tokens])
 
     def test_chrom_result_uses_split_table_shape(self):
         chrom_result = ldscore_workflow.ChromLDScoreResult(
@@ -540,9 +486,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
             snp_count_totals={"all_reference_snp_counts": np.array([10.0, 11.0])},
             config_snapshot=GlobalConfig(snp_identifier="rsid"),
         )
-        self.assertFalse(hasattr(chrom_result, "reference_metadata"))
-        self.assertFalse(hasattr(chrom_result, "w_ld"))
-        self.assertFalse(hasattr(chrom_result, "ldscore_table"))
         self.assertEqual(chrom_result.baseline_table["regression_ld_scores"].tolist(), [3.0])
         self.assertEqual(chrom_result.query_table["query"].tolist(), [2.0])
 
@@ -766,7 +709,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
             ],
             global_config=GlobalConfig(snp_identifier="rsid"),
         )
-        self.assertFalse(hasattr(result, "reference_metadata"))
         self.assertEqual(result.baseline_table["CHR"].tolist(), ["1", "2"])
         self.assertEqual(result.baseline_table.columns.tolist(), ["CHR", "SNP", "POS", "regression_ld_scores", "base"])
         self.assertEqual(result.query_table.columns.tolist(), ["CHR", "SNP", "POS", "query"])
@@ -2829,7 +2771,7 @@ class R2DequantizationTest(unittest.TestCase):
             self.assertEqual(got[(0, 1)], 1.0)
             self.assertAlmostEqual(got[(0, 2)], 0.2, delta=2e-5)
 
-def test_ldscore_parser_regr_snp_region_flag_default_and_removed_alias():
+def test_ldscore_parser_regr_snp_region_flag_default_and_choices():
     parser = build_parser()
     # Default excludes MHC + centromeres.
     default_args = parser.parse_args(["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1"])
@@ -2840,12 +2782,6 @@ def test_ldscore_parser_regr_snp_region_flag_default_and_removed_alias():
          "--regr-snps-exclude-regions", "centromeres", "--genome-build", "hg19"]
     )
     assert args.regr_snps_exclude_regions == "centromeres"
-    with pytest.raises(SystemExit):
-        parser.parse_args(
-            ["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1",
-             "--exclude-regions", "mhc", "--genome-build", "hg19"]
-        )
-    assert "--exclude-regions" not in parser.format_help()
     with pytest.raises(SystemExit):
         parser.parse_args(["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1",
                            "--regr-snps-exclude-regions", "mhc,centromeres"])

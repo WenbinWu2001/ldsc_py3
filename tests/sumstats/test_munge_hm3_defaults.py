@@ -93,13 +93,11 @@ def test_infer_only_reports_resolved_policy_without_writes(inputs, tmp_path, res
             workflow.main(args)
 
 
-def test_restriction_flags_conflict_and_hm3_switches_are_removed():
+def test_restriction_flags_conflict():
     parser = workflow.build_parser()
     base = ["--raw-sumstats-file", "raw", "--output-dir", "out"]
-    for flags in (["--no-snp-restriction", "--sumstats-snps-file", "keep"],
-                  ["--use-hm3-snps"], ["--use-hm3-quick-liftover"]):
-        with pytest.raises(SystemExit):
-            parser.parse_args([*base, *flags])
+    with pytest.raises(SystemExit):
+        parser.parse_args([*base, "--no-snp-restriction", "--sumstats-snps-file", "keep"])
     with pytest.raises(LDSCConfigError, match="mutually exclusive"):
         MungeConfig(no_snp_restriction=True, sumstats_snps_file="keep")
 

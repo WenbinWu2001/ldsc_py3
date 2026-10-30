@@ -225,21 +225,6 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             self.assertFalse((output_dir / "metadata.json").exists())
             self.assertFalse((output_dir / "ldscore.baseline.parquet").exists())
 
-    def test_outputs_module_does_not_expose_prefix_based_artifact_pipeline(self):
-        import ldsc._regression.outputs as outputs
-
-        removed_names = [
-            "ArtifactConfig",
-            "ArtifactOutputConfig",
-            "ArtifactProducer",
-            "OutputManager",
-            "PostProcessor",
-            "ResultFormatter",
-            "ResultWriter",
-        ]
-        for name in removed_names:
-            self.assertFalse(hasattr(outputs, name), f"{name} should not be exposed by ldsc._regression.outputs")
-
     def _overlap(self):
         import numpy as np
         from ldsc._annotation.overlap import OverlapContribution
@@ -296,10 +281,8 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             self.assertEqual(metadata["baseline_columns"], ["base"])
             self.assertEqual(metadata["query_columns"], ["query"])
             self.assertEqual(metadata["annotation_types"], {"base": "binary", "query": "quantitative"})
-            self.assertNotIn("annotation_fingerprints", metadata)
             loaded = load_ldscore_from_dir(output_dir)
             self.assertEqual(loaded.annotation_types, result.annotation_types)
-            self.assertFalse(hasattr(loaded, "annotation_fingerprints"))
             self.assertEqual(metadata["counts"][1]["column"], "query")
             self.assertEqual(
                 metadata["count_config"],

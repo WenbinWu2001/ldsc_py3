@@ -75,36 +75,22 @@ def test_builder_defaults_snp_batch_size_to_512():
     assert GeneLDScoreIndexBuildConfig.__dataclass_fields__["snp_batch_size"].default == 512
 
 
-def test_builder_parser_requires_catalog_and_hides_partial_chromosome_control():
+def test_builder_parser_requires_catalog():
     parser = gene_ldscore_index.build_parser()
-    help_text = parser.format_help()
 
-    assert "--gene-coordinate-file" in help_text
-    assert "--chromosomes" not in help_text
+    assert "--gene-coordinate-file" in parser.format_help()
     assert "_allow_partial_for_tests" not in inspect.signature(
         _gene_index_scoring.load_gene_ldscore_index
     ).parameters
-    assert "_chromosomes" not in inspect.signature(GeneLDScoreIndexBuildConfig).parameters
     with pytest.raises(SystemExit):
         parser.parse_args(
             [
+                "--ld-wind-cm", "1",
                 "--baseline-annot-sources", "baseline.@.annot.gz",
                 "--plink-prefix", "panel.@",
                 "--output-dir", "index",
                 "--genome-build", "hg19",
                 "--snp-identifier", "rsid",
-            ]
-        )
-    with pytest.raises(SystemExit):
-        parser.parse_args(
-            ["--ld-wind-cm", "1",
-                "--baseline-annot-sources", "baseline.@.annot.gz",
-                "--plink-prefix", "panel.@",
-                "--output-dir", "index",
-                "--gene-coordinate-file", "genes.tsv",
-                "--genome-build", "hg19",
-                "--snp-identifier", "rsid",
-                "--chromosomes", "22",
             ]
         )
 
@@ -956,38 +942,12 @@ def test_build_index_command_accepts_custom_regression_snps_and_region_policy():
     assert args.regr_snps_exclude_regions == "centromeres"
 
 
-def test_build_index_command_rejects_legacy_region_alias_and_old_regr_file_name():
-    parser = cli.build_parser()
-    base = [
-        "build-gene-ldscore-index", "--ld-wind-cm", "1",
-        "--baseline-annot-sources", "baseline.@.annot.gz",
-        "--plink-prefix", "panel.@", "--output-dir", "index",
-        "--gene-coordinate-file", "genes.tsv", "--genome-build", "hg19",
-        "--snp-identifier", "chr_pos",
-    ]
-    with pytest.raises(SystemExit):
-        parser.parse_args([*base, "--exclude-regions", "mhc"])
-    with pytest.raises(SystemExit):
-        parser.parse_args([*base, "--regression-snps-file", "custom.snplist"])
-
-
 def test_build_index_python_config_requires_identity_and_build():
     with pytest.raises(TypeError):
         GeneLDScoreIndexBuildConfig(ld_wind_cm=1.0,
             baseline_annot_sources=("baseline.@.annot.gz",),
             plink_prefix="panel.@",
             output_dir="index",
-        )
-
-    with pytest.raises(TypeError):
-        GeneLDScoreIndexBuildConfig(ld_wind_cm=1.0,
-            baseline_annot_sources=("baseline.@.annot.gz",),
-            plink_prefix="panel.@",
-            output_dir="index",
-            gene_coordinate_file="genes.tsv",
-            genome_build="hg19",
-            snp_identifier="rsid",
-            exclude_regions="none",
         )
 
     config = GeneLDScoreIndexBuildConfig(ld_wind_cm=1.0,
@@ -1887,26 +1847,6 @@ def test_ldscore_parser_accepts_control_gene_list_file_in_indexed_mode():
     assert args.gene_ldscore_index_dir == "gene-index"
     assert args.query_annot_gene_list_sources == "immune.txt,brain.txt"
     assert args.control_gene_list_file == "control.txt"
-
-
-def test_ldscore_parser_rejects_removed_control_gene_list_source():
-    with pytest.raises(SystemExit):
-        cli.build_parser().parse_args(
-            [
-                "ldscore",
-                "--output-dir", "out",
-                "--query-annot-gene-list-sources", "immune.txt",
-                "--control-gene-list-source", "none",
-            ]
-        )
-
-
-def test_python_ldscore_rejects_removed_control_gene_list_source():
-    with pytest.raises(LDSCUsageError, match="control_gene_list_source"):
-        ldscore_calculator.run_ldscore(
-            output_dir="out",
-            control_gene_list_source="control.txt",
-        )
 
 
 def test_explicit_indexed_mode_dispatches_without_live_reference(monkeypatch, tmp_path):

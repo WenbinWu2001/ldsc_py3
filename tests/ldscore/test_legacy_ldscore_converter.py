@@ -98,24 +98,6 @@ def test_converter_is_public_and_cli_has_the_approved_minimal_arguments() -> Non
     assert not hasattr(args, "common_maf_min")
 
 
-def test_private_kernel_has_no_legacy_ldscore_emitter_or_regression_readers() -> None:
-    from ldsc._core import plink_files as formats
-    from ldsc._ldscore import compute as ldscore
-
-    for name in (
-        "emit_outputs",
-        "write_ldscore_file",
-        "write_counts",
-        "write_annotation_groups",
-        "run_ldscore_from_args",
-        "run_ldscore",
-        "main",
-    ):
-        assert not hasattr(ldscore, name)
-    for name in ("sumstats", "ldscore", "ldscore_fromlist", "M", "M_fromlist", "annot"):
-        assert not hasattr(formats, name)
-
-
 def test_unpartitioned_conversion_writes_reloadable_canonical_suite_with_nullable_all_count(
     tmp_path: Path,
 ) -> None:

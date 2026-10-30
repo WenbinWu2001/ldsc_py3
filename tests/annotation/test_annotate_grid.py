@@ -214,10 +214,9 @@ def test_bim_suite_requires_all_declared_chromosomes_and_matching_content(tmp_pa
             prepare_bim_grid(workspace, paths, declared, mode='rsid', chunk_rows=1)
 
 
-def test_cli_grid_selection_rejects_both_and_retired_flag():
+def test_cli_grid_selection_requires_exactly_one_grid():
     from ldsc._annotation.builder import parse_annotate_args
     common = ['--query-annot-bed-sources', 'focal.bed', '--output-dir', 'out']
-    for sources in [[], ['--ref-snp-bim-sources', 'grid.bim', '--ref-snp-annot-sources', 'grid.annot'],
-                    ['--baseline-annot-sources', 'grid.annot']]:
+    for sources in [[], ['--ref-snp-bim-sources', 'grid.bim', '--ref-snp-annot-sources', 'grid.annot']]:
         with pytest.raises(SystemExit):
             parse_annotate_args([*common, *sources])

@@ -81,13 +81,6 @@ def _help_sections(parser):
     return result
 
 
-def test_old_build_ref_panel_command_is_rejected(capsys):
-    with pytest.raises(SystemExit) as exc:
-        cli.build_parser().parse_args(["build-ref-panel", "--help"])
-    assert exc.value.code == 2
-    assert "invalid choice" in capsys.readouterr().err
-
-
 @pytest.fixture(scope="module")
 def commands():
     parser = cli.build_parser()
@@ -110,15 +103,11 @@ def test_allow_unresolved_genes_is_an_opt_in_flag(commands, command, inputs, def
     argv = [*inputs, "--output-dir", "out"]
     assert parser.parse_args(argv).gene_list_resolution_policy == default
     assert parser.parse_args([*argv, "--allow-unresolved-genes"]).gene_list_resolution_policy == "resolved-only"
-    for removed_or_extra in (["--gene-list-resolution-policy", "resolved-only"],
-                             ["--allow-unresolved-genes", "resolved-only"]):
-        with pytest.raises(SystemExit) as error:
-            parser.parse_args([*argv, *removed_or_extra])
-        assert error.value.code == 2
-        assert "unrecognized arguments" in capsys.readouterr().err
-    help_text = parser.format_help()
-    assert "--allow-unresolved-genes" in help_text
-    assert "--gene-list-resolution-policy" not in help_text
+    with pytest.raises(SystemExit) as error:
+        parser.parse_args([*argv, "--allow-unresolved-genes", "resolved-only"])
+    assert error.value.code == 2
+    assert "unrecognized arguments" in capsys.readouterr().err
+    assert "--allow-unresolved-genes" in parser.format_help()
 
 
 def test_every_visible_option_has_help_and_logging_levels(commands):

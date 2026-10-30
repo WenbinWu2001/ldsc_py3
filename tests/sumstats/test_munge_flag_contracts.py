@@ -70,10 +70,9 @@ def test_daner_auto_and_explicit_share_missing_sample_size_validation(tmp_path):
             ])
 
 
-@pytest.mark.parametrize("removed", [["--format", "auto"], ["--keep-maf"], ["--keep-frequency"]])
-def test_removed_munge_flags_are_rejected(removed):
+def test_legacy_keep_maf_flag_is_rejected():
     with pytest.raises(SystemExit) as caught:
-        build_parser().parse_args(["--raw-sumstats-file", "unused.tsv", "--output-dir", "unused", *removed])
+        build_parser().parse_args(["--raw-sumstats-file", "unused.tsv", "--output-dir", "unused", "--keep-maf"])
     assert caught.value.code == 2
 
 

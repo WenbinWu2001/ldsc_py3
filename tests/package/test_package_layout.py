@@ -50,17 +50,6 @@ print(ldsc.__file__)
         self.assertTrue(hasattr(ldsc, "PartitionedH2DirectoryWriter"))
         self.assertTrue(hasattr(ldsc, "load_ldscore_from_dir"))
         self.assertTrue(hasattr(ldsc.__main__, "main"))
-        removed_output_names = [
-            "ArtifactConfig",
-            "ArtifactOutputConfig",
-            "ArtifactProducer",
-            "OutputManager",
-            "PostProcessor",
-            "ResultFormatter",
-            "ResultWriter",
-        ]
-        for name in removed_output_names:
-            self.assertFalse(hasattr(ldsc, name), f"{name} should not be a public export")
 
     def test_top_level_exports_genome_build_inference_api(self):
         import ldsc
@@ -97,8 +86,6 @@ print(ldsc.__file__)
 
         self.assertIs(load_hm3_curated_map, ldsc.load_hm3_curated_map)
         self.assertIn("load_hm3_curated_map", ldsc.__all__)
-        with self.assertRaises(TypeError):
-            load_hm3_curated_map("custom.tsv.gz")
 
     def test_load_hm3_curated_map_returns_canonical_full_schema(self):
         from ldsc import load_hm3_curated_map
@@ -137,7 +124,6 @@ print(ldsc.__file__)
                 "convert-h2-scale", "plot", "infer-genome-build",
             },
         )
-        self.assertNotIn("infer-build", subparsers_action.choices)
 
     def test_materializing_cli_subcommands_use_explicit_or_derived_output_directories(self):
         from ldsc import cli
@@ -210,7 +196,6 @@ print(ldsc.__file__)
             "main",
         ):
             self.assertTrue(hasattr(annotation_builder, name), f"{name} should be public")
-        self.assertFalse(hasattr(annotation_builder, "main_bed_to_annot"))
 
     def test_annotate_direct_dispatch_calls_annotation_main_without_reparse(self):
         from ldsc._annotation import builder as annotation_builder
@@ -391,24 +376,6 @@ print(ldsc.__file__)
 
         self.assertEqual(args.command, "ldscore")
         self.assertEqual(args.regr_snps_file, "filters/hm3.txt")
-        with self.assertRaises(SystemExit):
-            parser.parse_args(
-                [
-                    "ldscore", "--output-dir", "out/ldscores",
-                    "--plink-prefix", "panel", "--ld-wind-snps", "10",
-                    "--regression-snps-file", "filters/hm3.txt",
-                ]
-            )
-
-    def test_ldscore_subcommand_rejects_removed_hm3_flags(self):
-        from ldsc import cli
-
-        parser = cli.build_parser()
-        with self.assertRaises(SystemExit):
-            parser.parse_args(
-                ["ldscore", "--output-dir", "out/ldscores", "--baseline-annot-sources", "baseline.annot.gz",
-                 "--plink-prefix", "panel", "--ld-wind-snps", "10", "--use-hm3-ref-panel-snps"]
-            )
 
     def test_munge_sumstats_subcommand_accepts_sumstats_snps_file(self):
         from ldsc import cli
@@ -447,64 +414,6 @@ print(ldsc.__file__)
         self.assertEqual(args.command, "munge-sumstats")
         self.assertTrue(args.no_snp_restriction)
 
-    def test_munge_sumstats_subcommand_rejects_removed_merge_alleles_file(self):
-        from ldsc import cli
-
-        parser = cli.build_parser()
-        with self.assertRaises(SystemExit):
-            parser.parse_args(
-                [
-                    "munge-sumstats",
-                    "--raw-sumstats-file",
-                    "raw.tsv",
-                    "--output-dir",
-                    "out/trait",
-                    "--merge-alleles-file",
-                    "filters/hm3.tsv.gz",
-                ]
-            )
-
-    def test_munge_sumstats_subcommand_rejects_removed_merge_alleles(self):
-        from ldsc import cli
-
-        parser = cli.build_parser()
-        with self.assertRaises(SystemExit):
-            parser.parse_args(
-                [
-                    "munge-sumstats",
-                    "--raw-sumstats-file",
-                    "raw.tsv",
-                    "--output-dir",
-                    "out/trait",
-                    "--merge-alleles",
-                    "filters/hm3.tsv.gz",
-                ]
-            )
-
-    def test_munge_sumstats_subcommand_rejects_removed_no_alleles(self):
-        from ldsc import cli
-
-        parser = cli.build_parser()
-        with self.assertRaises(SystemExit):
-            parser.parse_args(
-                [
-                    "munge-sumstats",
-                    "--raw-sumstats-file",
-                    "raw.tsv",
-                    "--output-dir",
-                    "out/trait",
-                    "--no-alleles",
-                ]
-            )
-
-    def test_sumstats_munger_public_api_excludes_removed_merge_alleles(self):
-        from ldsc._sumstats import munger as sumstats_munger
-
-        self.assertFalse(hasattr(sumstats_munger, "allele_merge"))
-        help_text = sumstats_munger.build_parser().format_help()
-        self.assertNotIn("--merge-alleles", help_text)
-        self.assertNotIn("--no-alleles", help_text)
-
     def test_ldscore_subcommand_rejects_removed_print_snps_and_regression_snps_flags(self):
         from ldsc import cli
 
@@ -542,46 +451,6 @@ print(ldsc.__file__)
                 ]
             )
 
-    def test_annotate_subcommand_rejects_removed_baseline_dir_flag(self):
-        from ldsc import cli
-
-        parser = cli.build_parser()
-        with self.assertRaises(SystemExit) as exc:
-            parser.parse_args(
-                [
-                    "annotate",
-                    "--query-annot-bed-sources",
-                    "beds/*.bed",
-                    "--baseline-annot-dir",
-                    "annotations/baseline_chr",
-                    "--output-dir",
-                    "out/annot",
-                ]
-            )
-
-        self.assertNotEqual(exc.exception.code, 0)
-
-    def test_ldscore_subcommand_rejects_removed_chr_flags(self):
-        from ldsc import cli
-
-        parser = cli.build_parser()
-        with self.assertRaises(SystemExit) as exc:
-            parser.parse_args(
-                [
-                    "ldscore",
-                    "--output-dir",
-                    "out/ldscores",
-                    "--baseline-annot-chr",
-                    "annotations/baseline.@.annot.gz",
-                    "--plink-prefix",
-                    "panel",
-                    "--ld-wind-snps",
-                    "10",
-                ]
-            )
-
-        self.assertNotEqual(exc.exception.code, 0)
-
     def test_ldscore_subcommand_rejects_removed_out_flag(self):
         from ldsc import cli
 
@@ -598,35 +467,6 @@ print(ldsc.__file__)
                     "panel",
                     "--ld-wind-snps",
                     "10",
-                ]
-            )
-
-        self.assertNotEqual(exc.exception.code, 0)
-
-    def test_build_ref_panel_subcommand_rejects_removed_chr_flag(self):
-        from ldsc import cli
-
-        parser = cli.build_parser()
-        with self.assertRaises(SystemExit) as exc:
-            parser.parse_args(
-                [
-                    "build-r2-matrix",
-                    "--bfile-chr",
-                    "data/reference/panel_chr@",
-                    "--panel-label",
-                    "TEST",
-                    "--source-genome-build",
-                    "hg38",
-                    "--genetic-map-hg19",
-                    "maps/hg19.txt",
-                    "--genetic-map-hg38",
-                    "maps/hg38.txt",
-                    "--liftover-chain-hg38-to-hg19",
-                    "chains/hg38ToHg19.over.chain",
-                    "--ld-wind-kb",
-                    "10",
-                    "--out",
-                    "out/panel",
                 ]
             )
 

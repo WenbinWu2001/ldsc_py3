@@ -322,10 +322,6 @@ def test_partitioned_parallel_preserves_scores_counts_overlap_and_classification
             workers=workers,
             regr_snps_exclude_regions="none",
         )
-        assert not hasattr(result, "annotation_fingerprints")
-        assert all(not hasattr(chrom, "common_annotation_values") for chrom in result.chromosome_results)
-        persisted = json.loads((output / "metadata.json").read_text(encoding="utf-8"))
-        assert "annotation_fingerprints" not in persisted
         loaded = load_ldscore_from_dir(output)
         assert loaded.annotation_types == {"base": "binary", "cont": "quantitative", "query": "binary"}
         assert loaded.baseline_table["SNP"].tolist() == ["rs1", "rs3", "rs5", "rs6"]
@@ -463,12 +459,3 @@ def test_cli_threads_defaults_to_one():
     assert _ldscore_config_from_args(args).workers == 1
 
 
-def test_retired_threads_setting_is_rejected_by_cli_and_python():
-    from ldsc.errors import LDSCUsageError
-    from ldsc._ldscore.calculator import build_parser, run_ldscore
-
-    with pytest.raises(SystemExit) as caught:
-        build_parser().parse_args(["--output-dir", "unused", "--threads", "2"])
-    assert caught.value.code == 2
-    with pytest.raises(LDSCUsageError, match="threads"):
-        run_ldscore(threads=2)

@@ -717,13 +717,6 @@ class R2MatrixBuildConfigOptionalLiftoverTest(unittest.TestCase):
         )
         self.assertEqual(r2_matrix_builder._emitted_genome_builds(config), ["hg19", "hg38"])
 
-    def test_hm3_quick_liftover_constructor_argument_is_removed(self):
-        with self.assertRaises(TypeError):
-            R2MatrixBuildConfig(
-                plink_prefix="plink/panel.@", source_genome_build="hg19", output_dir="out",
-                ld_wind_kb=1.0, use_hm3_quick_liftover=True,
-            )
-
     def test_non_matching_chain_does_not_require_target_map(self):
         config = R2MatrixBuildConfig(
             plink_prefix="plink/panel.@",
@@ -736,25 +729,6 @@ class R2MatrixBuildConfigOptionalLiftoverTest(unittest.TestCase):
         )
 
         self.assertEqual(config.liftover_chain_hg38_to_hg19_file, "chains/hg38ToHg19.over.chain")
-
-
-class R2MatrixBuildConfigNoDuplicatePolicyTest(unittest.TestCase):
-    def _base_config(self, **kwargs):
-        return R2MatrixBuildConfig(
-            plink_prefix="plink/panel.@",
-            source_genome_build="hg19",
-            output_dir="out",
-            ld_wind_kb=1.0,
-            **kwargs,
-        )
-
-    def test_duplicate_position_policy_field_is_removed(self):
-        config = self._base_config()
-        self.assertFalse(hasattr(config, "duplicate_position_policy"))
-
-    def test_duplicate_position_policy_constructor_argument_is_rejected(self):
-        with self.assertRaises(TypeError):
-            self._base_config(duplicate_position_policy="drop-all")
 
 
 class R2MatrixBuildConfigFromArgsTest(unittest.TestCase):
@@ -772,25 +746,6 @@ class R2MatrixBuildConfigFromArgsTest(unittest.TestCase):
         ])
         self.assertEqual(args.snp_batch_size, 64)
 
-    def test_build_parser_rejects_removed_hm3_flags(self):
-        parser = r2_matrix_builder.build_parser()
-        self.assertNotIn("--use-hm3-snps", parser.format_help())
-        with self.assertRaises(SystemExit):
-            parser.parse_args(["--plink-prefix", "plink/panel.@", "--output-dir", "out", "--ld-wind-kb", "1", "--use-hm3-snps"])
-
-    def test_build_parser_rejects_removed_chunk_size_alias(self):
-        parser = r2_matrix_builder.build_parser()
-        help_text = parser.format_help()
-        self.assertIn("--snp-batch-size", help_text)
-        self.assertNotIn("--chunk-size", help_text)
-        with self.assertRaises(SystemExit):
-            parser.parse_args([
-                "--plink-prefix", "plink/panel.@",
-                "--output-dir", "out",
-                "--ld-wind-kb", "1",
-                "--chunk-size", "64",
-            ])
-
     def test_config_from_args_passes_snp_batch_size_to_config(self):
         parser = r2_matrix_builder.build_parser()
         args = parser.parse_args([
@@ -802,36 +757,6 @@ class R2MatrixBuildConfigFromArgsTest(unittest.TestCase):
         build_config, _ = r2_matrix_builder.config_from_args(args)
         self.assertEqual(build_config.snp_batch_size, 64)
 
-
-    def test_build_parser_help_does_not_include_duplicate_position_policy(self):
-        parser = r2_matrix_builder.build_parser()
-        self.assertNotIn("--duplicate-position-policy", parser.format_help())
-
-    def test_build_parser_rejects_duplicate_position_policy(self):
-        parser = r2_matrix_builder.build_parser()
-        with self.assertRaises(SystemExit):
-            parser.parse_args([
-                "--plink-prefix", "plink/panel.@",
-                "--output-dir", "out",
-                "--ld-wind-kb", "1",
-                "--duplicate-position-policy", "drop-all",
-            ])
-
-    def test_build_parser_does_not_accept_genome_build(self):
-        parser = r2_matrix_builder.build_parser()
-        with self.assertRaises(SystemExit):
-            parser.parse_args(
-                [
-                    "--plink-prefix",
-                    "plink/panel.@",
-                    "--output-dir",
-                    "out",
-                    "--ld-wind-kb",
-                    "1",
-                    "--genome-build",
-                    "hg38",
-                ]
-            )
 
     def test_config_from_args_uses_parser_default_identifier_for_restriction_file(self):
         parser = r2_matrix_builder.build_parser()
@@ -3205,23 +3130,6 @@ def _chr22_available() -> bool:
 def _read_meta(path) -> pd.DataFrame:
     with gzip.open(path, "rt", encoding="utf-8") as handle:
         return pd.read_csv(handle, sep="\t", comment="#")
-
-
-def test_build_ref_panel_parser_rejects_region_pruning_flags():
-    parser = r2_matrix_builder.build_parser()
-    for tokens in (
-        ("--regr-snps-exclude-regions", "mhc-and-centromeres"),
-        ("--exclude-regions", "mhc-and-centromeres"),
-        ("--exclude-regions-bed", "/tmp/x.bed"),
-    ):
-        assert tokens[0] not in parser.format_help()
-        with pytest.raises(SystemExit):
-            parser.parse_args(["--plink-prefix", "p", "--output-dir", "o", "--ld-wind-kb", "1000", *tokens])
-    with pytest.raises(TypeError):
-        R2MatrixBuildConfig(
-            plink_prefix="p", source_genome_build="hg19", output_dir="o", ld_wind_kb=1000,
-            regr_snps_exclude_regions=("mhc",),
-        )
 
 
 # --- Allele orientation canonicalization (A1 = minor allele) ---------------

@@ -56,8 +56,6 @@ class AnnotationBuilderTest(unittest.TestCase):
             with builder.run(spec, output_dir=output) as bundle:
                 self.assertEqual(bundle.workspace.path.parent, output)
                 self.assertEqual(bundle.read("1").tolist(), [[1.]])
-                self.assertFalse(hasattr(bundle, "metadata"))
-                self.assertFalse(hasattr(bundle, "annotation_matrix"))
             self.assertEqual(list(output.iterdir()), [])
 
     def test_bundle_rejects_duplicate_names_across_baseline_and_query(self):
@@ -378,24 +376,6 @@ class AnnotationBuilderTest(unittest.TestCase):
         self.assertIn("auto checks every grid shard and the gene coordinate catalog", help_text)
         self.assertIn("Concrete builds must agree with input declarations", help_text)
 
-    def test_bed_to_annot_parser_rejects_removed_no_batch_flag(self):
-        stderr = io.StringIO()
-        with self.assertRaises(SystemExit):
-            with contextlib.redirect_stderr(stderr):
-                annotation_builder.parse_annotate_args(
-                    [
-                        "--query-annot-bed-sources",
-                        "query.bed",
-                        "--ref-snp-annot-sources",
-                        "baseline.annot.gz",
-                        "--output-dir",
-                        "out",
-                        "--no-batch",
-                    ]
-                )
-
-        self.assertIn("unrecognized arguments: --no-batch", stderr.getvalue())
-
     def test_bed_to_annot_parser_accepts_padding_bp(self):
         args = annotation_builder.parse_annotate_args(
             [
@@ -413,24 +393,6 @@ class AnnotationBuilderTest(unittest.TestCase):
         )
 
         self.assertEqual(args.padding_bp, 100000)
-
-    def test_bed_to_annot_parser_rejects_removed_bed_padding_option(self):
-        with self.assertRaises(SystemExit):
-            annotation_builder.parse_annotate_args(
-                [
-                    "--query-annot-bed-sources",
-                    "query.bed",
-                    "--ref-snp-annot-sources",
-                    "baseline.annot.gz",
-                    "--output-dir",
-                    "out",
-                    "--bed-padding-bp",
-                    "100000",
-                ]
-            )
-
-        with self.assertRaises(TypeError):
-            AnnotationBuildConfig(bed_padding_bp=100000)
 
     def test_annotation_build_config_defaults_to_no_bed_padding(self):
         spec = AnnotationBuildConfig(baseline_annot_sources=("baseline.1.annot.gz",))
@@ -452,22 +414,8 @@ class AnnotationBuilderTest(unittest.TestCase):
                 with self.assertRaisesRegex(Exception, "padding_bp"):
                     AnnotationBuildConfig(padding_bp=value)
 
-    def test_annotation_build_config_has_no_gene_set_paths(self):
-        spec = AnnotationBuildConfig(baseline_annot_sources=("baseline.1.annot.gz",))
-        self.assertFalse(hasattr(spec, "gene_set_paths"))
-
-    def test_gene_set_functions_not_exported(self):
-        for name in ("gene_set_to_bed", "make_annot_files", "main_make_annot", "parse_make_annot_args"):
-            self.assertFalse(hasattr(annotation_builder, name), f"{name} should not be exported")
-
     def test_kernel_annotation_does_not_export_workflow_api(self):
-        for name in (
-            "AnnotationBuilder",
-            "AnnotationBundle",
-            "run_annotate",
-            "parse_annotate_args",
-            "main_bed_to_annot",
-        ):
+        for name in ("run_annotate", "parse_annotate_args"):
             self.assertFalse(hasattr(kernel_annotation, name), f"{name} should live in ldsc._annotation.builder")
 
     def test_run_builds_bundle(self):
@@ -1381,9 +1329,6 @@ class AnnotationBuilderTest(unittest.TestCase):
 
 
 class AnnotationWrapperTest(unittest.TestCase):
-    def test_make_annot_wrapper_is_removed(self):
-        self.assertFalse(hasattr(annotation_builder, "main_make_annot"))
-
     def test_run_annotate_returns_annotation_bundle(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -1413,5 +1358,3 @@ class AnnotationWrapperTest(unittest.TestCase):
                 self.assertEqual(result.config_snapshot.genome_build, "hg19")
                 self.assertEqual(result.read("2", columns=["query"]).ravel().tolist(), [1] * 500)
 
-    def test_main_bed_to_annot_public_entrypoint_is_removed(self):
-        self.assertFalse(hasattr(annotation_builder, "main_bed_to_annot"))

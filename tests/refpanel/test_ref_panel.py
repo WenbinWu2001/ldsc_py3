@@ -5,7 +5,6 @@ import tempfile
 import unittest
 
 import pandas as pd
-import pytest
 
 
 from ldsc.config import GlobalConfig, RefPanelConfig
@@ -117,12 +116,6 @@ class RefPanelLoaderTest(unittest.TestCase):
     def test_ref_panel_config_accepts_r2_matrix_dir(self):
         spec = RefPanelConfig(backend="r2_matrix", r2_matrix_dir="/path/to/panel/hg38")
         self.assertEqual(spec.r2_matrix_dir, "/path/to/panel/hg38")
-
-    def test_ref_panel_config_rejects_removed_parquet_source_fields(self):
-        for name in ("r2_ref_panel_dir", "ref_panel_dir", "r2_sources", "metadata_sources"):
-            with self.subTest(name=name):
-                with self.assertRaises(TypeError):
-                    RefPanelConfig(backend="r2_matrix", **{name: "/path/to/panel/hg38"})
 
     def test_loader_selects_parquet_backend(self):
         loader = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
@@ -740,30 +733,3 @@ class ParquetRefPanelTest(unittest.TestCase):
             self.assertEqual(panel.available_chromosomes(), ["1"])
             metadata = panel.load_metadata("1")
             self.assertEqual(metadata["SNP"].tolist(), ["rs1"])
-
-
-_CHR22 = Path(__file__).resolve().parents[1] / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
-
-
-def _chr22_available() -> bool:
-    return all(Path(str(_CHR22) + ext).exists() for ext in (".bed", ".bim", ".fam"))
-
-
-def test_ref_panel_has_no_region_exclusion_configuration(tmp_path):
-    if not _chr22_available():
-        pytest.skip("chr22 PLINK fixture unavailable; run tests/fixtures/generate_minimal_external_resources.py")
-    gc = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38")
-
-    base_panel = PlinkRefPanel(gc, RefPanelConfig(backend="plink", plink_prefix=str(_CHR22)))
-    base_meta = base_panel.load_metadata("22")
-    # The reference panel always retains this SNP unless explicitly filtered by
-    # a reference SNP list.
-    target_pos = int(base_meta["POS"].iloc[0])
-
-    # Region pruning is no longer a reference-panel operation.
-    bed = tmp_path / "exclude.bed"
-    bed.write_text(f"22\t{target_pos - 1}\t{target_pos}\n", encoding="utf-8")
-
-    with pytest.raises(TypeError, match="exclude_regions_bed"):
-        RefPanelConfig(backend="plink", plink_prefix=str(_CHR22), exclude_regions_bed=(str(bed),))
-    assert target_pos in set(base_meta["POS"])

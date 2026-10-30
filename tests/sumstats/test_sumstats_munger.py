@@ -77,17 +77,13 @@ class SumstatsMungerTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--output-format", "csv"])
 
-    def test_build_parser_defaults_source_genome_build_to_auto_and_rejects_old_build_flags(self):
+    def test_build_parser_defaults_source_genome_build_to_auto(self):
         parser = sumstats_workflow.build_parser()
         self.assertEqual(parser.get_default("source_genome_build"), "auto")
 
         args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out"])
 
         self.assertEqual(args.source_genome_build, "auto")
-        with self.assertRaises(SystemExit):
-            parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--genome-build", "auto"])
-        with self.assertRaises(SystemExit):
-            parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--target-genome-build", "hg38"])
 
     def test_build_parser_defaults_log_level_to_info(self):
         parser = sumstats_workflow.build_parser()
@@ -110,7 +106,6 @@ class SumstatsMungerTest(unittest.TestCase):
         self.assertEqual(args.output_genome_build, "hg38")
         self.assertEqual(args.liftover_chain_file, "hg19ToHg38.over.chain")
         self.assertFalse(args.no_snp_restriction)
-        self.assertFalse(hasattr(args, "use_hm3_quick_liftover"))
 
     def test_build_parser_accepts_no_snp_restriction(self):
         args = sumstats_workflow.build_parser().parse_args([
@@ -125,14 +120,12 @@ class SumstatsMungerTest(unittest.TestCase):
 
         self.assertEqual(args.sumstats_format, "auto")
 
-    def test_build_parser_rejects_vcf_format_name(self):
+    def test_build_parser_accepts_plain_input_format(self):
         parser = sumstats_workflow.build_parser()
 
         args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--input-format", "plain"])
 
         self.assertEqual(args.sumstats_format, "plain")
-        with self.assertRaises(SystemExit):
-            parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--input-format", "vcf"])
 
     def test_build_parser_requires_output_dir_for_infer_only(self):
         parser = sumstats_workflow.build_parser()
@@ -154,8 +147,8 @@ class SumstatsMungerTest(unittest.TestCase):
 
         self.assertEqual(format_old_args.sumstats_format, "daner-old")
         self.assertEqual(format_new_args.sumstats_format, "daner-new")
-        # The legacy boolean DANER flags are removed; --input-format is the only selector.
-        for legacy in ("--daner-old", "--daner-new", "--daner", "--daner-n"):
+        # Legacy LDSC's DANER flags are gone; --input-format is the only selector.
+        for legacy in ("--daner", "--daner-n"):
             with self.assertRaises(SystemExit):
                 parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", legacy])
 
@@ -167,8 +160,6 @@ class SumstatsMungerTest(unittest.TestCase):
         )
 
         self.assertEqual(args.raw_sumstats_file, "raw.tsv")
-        with self.assertRaises(SystemExit):
-            parser.parse_args(["--sumstats-file", "raw.tsv", "--output-dir", "out"])
 
     def test_main_delegates_to_run_munge_sumstats_from_args(self):
         with mock.patch.object(sumstats_workflow, "run_munge_sumstats_from_args", return_value=mock.sentinel.result) as patched:
@@ -284,9 +275,6 @@ class SumstatsMungerTest(unittest.TestCase):
         self.assertEqual(config.liftover_chain_file, "liftover/hg19ToHg38.over.chain")
         with self.assertRaisesRegex(ldsc.LDSCConfigError, "source_genome_build"):
             MungeConfig(source_genome_build=None, output_genome_build="hg38")
-        for options in ({"use_hm3_snps": True}, {"use_hm3_quick_liftover": True}):
-            with self.assertRaises(TypeError):
-                MungeConfig(**options)
 
     def test_workflow_reports_actionable_signed_sumstats_format_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:

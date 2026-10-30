@@ -61,7 +61,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-from typing import Any, Sequence
+from typing import Any, Iterable, Sequence
 
 import numpy as np
 import pandas as pd
@@ -573,46 +573,9 @@ class RegressionRunner:
             order = [*merged.columns[:weight_position], *selected, *merged.columns[weight_position:]]
             merged = pd.DataFrame({name: (query_values if name in selected else merged)[name].to_numpy(copy=False)
                                    for name in order}, copy=False)
-        retained_ld_columns = list(ref_ld_columns)
-        dropped_ld_columns: list[str] = []
-        if retained_ld_columns:
-            variances = merged.loc[:, retained_ld_columns].var()
-            dropped_ld_columns = variances.index[variances == 0].tolist()
-            retained_ld_columns = [column for column in retained_ld_columns if column not in dropped_ld_columns]
-            if retained_ld_columns:
-                if dropped_ld_columns:
-                    merged = pd.DataFrame({name: merged[name].to_numpy(copy=False) for name in merged
-                                           if name not in dropped_ld_columns}, copy=False)
-                    LOGGER.warning(
-                        "Dropped %d zero-variance LD-score column(s) after merging with summary statistics. "
-                        "These annotations are constant on the regression SNP set and receive no coefficient; "
-                        "names are retained in fitted-model metadata (dropped_zero_variance_ld_columns).",
-                        len(dropped_ld_columns),
-                    )
-            else:
-                raise LDSCInputError(
-                    "h2 regression cannot run because all retained LD-score columns have zero variance "
-                    "after merging with summary statistics. Most likely the LD-score directory contains a constant "
-                    "annotation on the retained SNP set. Use LD scores with at least one varying annotation "
-                    "or broaden the regression SNP set."
-                )
-
-        count_totals = _count_totals_for_columns(
-            [prepared.counts_by_column[column] for column in ref_ld_columns if column in prepared.counts_by_column],
-            ref_ld_columns,
-        )
-        count_key = _select_count_key(count_totals, config.use_common_counts, ref_ld_columns)
-        if dropped_ld_columns:
-            dropped_index = [ref_ld_columns.index(column) for column in dropped_ld_columns]
-            keep_index = [idx for idx in range(len(ref_ld_columns)) if idx not in dropped_index]
-            for key, values in list(count_totals.items()):
-                count_totals[key] = np.asarray(values)[keep_index]
-
-        dataset = replace(
-            prepared.dataset, merged=merged, ref_ld_columns=ref_ld_columns,
-            reference_snp_count_totals=count_totals, count_key_used_for_regression=count_key,
-            retained_ld_columns=retained_ld_columns, dropped_zero_variance_ld_columns=dropped_ld_columns,
-        )
+        dataset = replace(prepared.dataset, ref_ld_columns=ref_ld_columns, **_select_model_columns(
+            merged, ref_ld_columns, prepared.counts_by_column.values(), config.use_common_counts, command="h2",
+        ))
         dataset.validate()
         return dataset
 
@@ -723,45 +686,12 @@ class RegressionRunner:
                 merged.loc[transform, "FRQ2"], errors="coerce"
             )
 
-        retained_ld_columns = list(ref_ld_columns)
-        dropped_ld_columns: list[str] = []
-        if retained_ld_columns:
-            variances = merged.loc[:, retained_ld_columns].var()
-            dropped_ld_columns = variances.index[variances == 0].tolist()
-            retained_ld_columns = [column for column in retained_ld_columns if column not in dropped_ld_columns]
-            if retained_ld_columns:
-                merged = merged.loc[:, [column for column in merged.columns if column not in dropped_ld_columns]]
-                if dropped_ld_columns:
-                    LOGGER.warning(
-                        "Dropped %d zero-variance LD-score column(s) after merging with summary statistics. "
-                        "These annotations are constant on the regression SNP set and receive no coefficient; "
-                        "names are retained in fitted-model metadata (dropped_zero_variance_ld_columns).",
-                        len(dropped_ld_columns),
-                    )
-            else:
-                raise LDSCInputError(
-                    "rg regression cannot run because all retained LD-score columns have zero variance "
-                    "after merging the two traits with LD scores. Most likely the LD-score directory contains "
-                    "constant annotations on the retained SNP set. Use LD scores with at least one varying "
-                    "annotation or broaden the regression SNP set."
-                )
-
-        count_totals = _count_totals_for_columns(ldscore_result.count_records, ref_ld_columns)
-        if dropped_ld_columns:
-            dropped_index = [ref_ld_columns.index(column) for column in dropped_ld_columns]
-            keep_index = [idx for idx in range(len(ref_ld_columns)) if idx not in dropped_index]
-            for key, values in list(count_totals.items()):
-                count_totals[key] = np.asarray(values)[keep_index]
-        count_key = _select_count_key(count_totals, config.use_common_counts, ref_ld_columns)
-
+        # Model columns are chosen on the final pair SNP set, after allele harmonization.
         dataset = RGRegressionDataset(
-            merged=merged.reset_index(drop=True),
             ref_ld_columns=ref_ld_columns,
             weight_column=weight_column,
-            reference_snp_count_totals=count_totals,
-            count_key_used_for_regression=count_key,
-            retained_ld_columns=retained_ld_columns,
-            dropped_zero_variance_ld_columns=dropped_ld_columns,
+            **_select_model_columns(merged.reset_index(drop=True), ref_ld_columns, ldscore_result.count_records,
+                                    config.use_common_counts, command="rg"),
             trait_names=[_trait_label(sumstats_table_1), _trait_label(sumstats_table_2)],
             chromosomes_aggregated=[result.chrom for result in ldscore_result.chromosome_results],
             config_snapshot=ldscore_result.config_snapshot,
@@ -1854,6 +1784,54 @@ def _with_chr_pos_key(frame: pd.DataFrame, *, context: str) -> pd.DataFrame:
         logger=LOGGER,
     )
     return keyed
+
+
+def _select_model_columns(
+    merged: pd.DataFrame,
+    ref_ld_columns: Sequence[str],
+    count_records: Iterable[dict[str, Any]],
+    use_common_counts: bool,
+    *,
+    command: str,
+) -> dict[str, object]:
+    """Drop zero-variance LD-score columns and select the requested count vectors.
+
+    Each command calls this after its own SNP alignment, so variances are
+    taken on the rows that enter the fit. A dropped column's values are
+    constant there and identify no coefficient; its name is kept for the
+    fitted-model metadata. Returns the ``RegressionDataset`` fields
+    ``merged``, ``retained_ld_columns``, ``dropped_zero_variance_ld_columns``,
+    ``reference_snp_count_totals`` and ``count_key_used_for_regression``.
+    ``merged`` borrows the input's columns; callers must not modify them.
+    """
+    variances = merged.loc[:, list(ref_ld_columns)].var()
+    dropped = variances.index[variances == 0].tolist()
+    retained = [column for column in ref_ld_columns if column not in dropped]
+    if not retained:
+        raise LDSCInputError(
+            f"{command} regression cannot run because all retained LD-score columns have zero variance on the "
+            "merged regression SNPs. Most likely the LD-score directory contains constant annotations on the "
+            "retained SNP set. Use LD scores with at least one varying annotation or broaden the regression SNP set."
+        )
+    if dropped:
+        merged = pd.DataFrame({name: merged[name].to_numpy(copy=False) for name in merged if name not in dropped},
+                              copy=False)
+        LOGGER.warning(
+            "Dropped %d zero-variance LD-score column(s) after merging with summary statistics. "
+            "These annotations are constant on the regression SNP set and receive no coefficient; "
+            "names are retained in fitted-model metadata (dropped_zero_variance_ld_columns).",
+            len(dropped),
+        )
+    count_totals = _count_totals_for_columns(list(count_records), ref_ld_columns)
+    count_key = _select_count_key(count_totals, use_common_counts, ref_ld_columns)
+    keep = [index for index, column in enumerate(ref_ld_columns) if column in retained]
+    return {
+        "merged": merged,
+        "retained_ld_columns": retained,
+        "dropped_zero_variance_ld_columns": dropped,
+        "reference_snp_count_totals": {key: np.asarray(values)[keep] for key, values in count_totals.items()},
+        "count_key_used_for_regression": count_key,
+    }
 
 
 def _select_count_key(

@@ -37,7 +37,8 @@ The user answered two rounds of design questions on 2026-10-30, confirmed the de
 
 - The user approved "regression fit" (`RegressionFit`) and "prepared trait summary statistics" on 2026-10-30 (`0c78a59`), and the older "fit outcome" wordings were reworded.
 - `rg` still stops the whole run when one trait's own heritability fit fails in its per-trait `h2` phase (`RegressionRunner.estimate_rg_pairs()` in `src/ldsc/_regression/runner.py`), even for an unestimable jackknife; only pair-level errors are recorded per pair.
-- `tests/regression/test_regression_streaming.py::test_public_directory_reader_does_not_import_regression` hung twice at interpreter exit inside Arrow's thread-pool shutdown, once blocking a full run for about 30 minutes; its `subprocess.run` has no timeout.
+- `tests/regression/test_regression_streaming.py::test_public_directory_reader_does_not_import_regression` hung twice at interpreter exit inside Arrow's thread-pool shutdown, once blocking a full run for about 30 minutes.
+  Its child now has a 120-second timeout, so a hang fails the test; the Arrow shutdown deadlock itself is not investigated.
 
 ## Completed: one R² matrix chromosome handle (2026-10-30)
 

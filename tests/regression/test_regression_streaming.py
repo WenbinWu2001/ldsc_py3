@@ -50,9 +50,11 @@ def test_public_directory_reader_does_not_import_regression(tmp_path):
                                       [[0.5, 1.0], [1.5, 2.0], [2.5, 3.0]])
         assert all(selected[name].dtype == np.float32 for name in source.query_columns)
     """)
+    # The child has hung at interpreter exit in pyarrow's thread-pool shutdown;
+    # a timeout fails the test instead of blocking the whole suite.
     completed = subprocess.run(
         [sys.executable, "-I", "-c", script, str(tmp_path)],
-        capture_output=True, text=True, check=False,
+        capture_output=True, text=True, check=False, timeout=120,
     )
     assert completed.returncode == 0, completed.stderr
 

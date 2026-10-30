@@ -170,11 +170,7 @@ def _log_phase_timing(phase: str, *, level=logging.INFO):
 
 @dataclass(frozen=True)
 class RegressionDataset:
-    """Merged regression-ready dataset built from summary statistics and LD-score tables.
-
-    ``legacy_sumstats_drops`` carries stable row-level projection diagnostics
-    when the source was legacy text; it is empty for native LDSC3 inputs.
-    """
+    """Merged regression-ready dataset built from summary statistics and LD-score tables."""
     merged: pd.DataFrame
     ref_ld_columns: list[str]
     weight_column: str
@@ -188,9 +184,6 @@ class RegressionDataset:
     effective_snp_identifier: str = "chr_pos_allele_aware"
     identity_downgrade_applied: bool = False
     ldscore_overlap: "LDScoreOverlap | None" = None
-    legacy_sumstats_drops: pd.DataFrame = field(
-        default_factory=lambda: pd.DataFrame(columns=LEGACY_SUMSTATS_DROP_COLUMNS)
-    )
 
     def validate(self) -> None:
         """Validate that the merged table contains the required LDSC columns."""
@@ -232,9 +225,7 @@ class _PartitionedModelInputs:
 class RGRegressionDataset:
     """Merged genetic-correlation dataset built from two traits and LD scores.
 
-    ``legacy_sumstats_drops`` combines projection diagnostics for both traits
-    before pairwise allele harmonization. ``ldscore_overlap`` lets the pair fit
-    apply the same collinearity check as h2.
+    ``ldscore_overlap`` lets the pair fit apply the same collinearity check as h2.
     """
     merged: pd.DataFrame
     ref_ld_columns: list[str]
@@ -249,9 +240,6 @@ class RGRegressionDataset:
     effective_snp_identifier: str = "chr_pos_allele_aware"
     identity_downgrade_applied: bool = False
     ldscore_overlap: "LDScoreOverlap | None" = None
-    legacy_sumstats_drops: pd.DataFrame = field(
-        default_factory=lambda: pd.DataFrame(columns=LEGACY_SUMSTATS_DROP_COLUMNS)
-    )
 
     def validate(self) -> None:
         """Validate that the merged table contains the required RG columns."""
@@ -398,9 +386,8 @@ class RegressionRunner:
         """
         print_global_config_banner(type(self).__name__, self.global_config)
         config = config or self.regression_config
-        legacy_drops = pd.DataFrame(columns=LEGACY_SUMSTATS_DROP_COLUMNS)
         if _is_legacy_sumstats(sumstats_table):
-            sumstats_table, legacy_drops = _project_legacy_sumstats_to_panel(sumstats_table, ldscore_result)
+            sumstats_table, _ = _project_legacy_sumstats_to_panel(sumstats_table, ldscore_result)
         weight_column = REGRESSION_LD_SCORE_COLUMN
         ref_ld_columns = list(ldscore_result.baseline_columns)
         identity = _resolve_h2_identity(sumstats_table, ldscore_result, self.global_config, config)
@@ -512,7 +499,6 @@ class RegressionRunner:
             effective_snp_identifier=identifier_mode,
             identity_downgrade_applied=identity.downgrade_applied,
             ldscore_overlap=ldscore_result.overlap,
-            legacy_sumstats_drops=legacy_drops,
         )
         dataset.validate()
         return PreparedRegressionInputs(dataset, source_rows, ldscore_result, ldscore_mode,
@@ -616,18 +602,10 @@ class RegressionRunner:
         print_global_config_banner(type(self).__name__, self.global_config)
         config = config or self.regression_config
         _require_rg_alleles([sumstats_table_1, sumstats_table_2])
-        legacy_drop_frames: list[pd.DataFrame] = []
         if _is_legacy_sumstats(sumstats_table_1):
-            sumstats_table_1, drops = _project_legacy_sumstats_to_panel(sumstats_table_1, ldscore_result)
-            legacy_drop_frames.append(drops)
+            sumstats_table_1, _ = _project_legacy_sumstats_to_panel(sumstats_table_1, ldscore_result)
         if _is_legacy_sumstats(sumstats_table_2):
-            sumstats_table_2, drops = _project_legacy_sumstats_to_panel(sumstats_table_2, ldscore_result)
-            legacy_drop_frames.append(drops)
-        legacy_drops = (
-            pd.concat(legacy_drop_frames, ignore_index=True)
-            if legacy_drop_frames
-            else pd.DataFrame(columns=LEGACY_SUMSTATS_DROP_COLUMNS)
-        )
+            sumstats_table_2, _ = _project_legacy_sumstats_to_panel(sumstats_table_2, ldscore_result)
         identity = _resolve_rg_identity(sumstats_table_1, sumstats_table_2, ldscore_result, self.global_config, config)
         identifier_mode = identity.effective_mode
         _regression_genome_build([sumstats_table_1, sumstats_table_2], ldscore_result,
@@ -809,7 +787,6 @@ class RegressionRunner:
             effective_snp_identifier=identifier_mode,
             identity_downgrade_applied=identity.downgrade_applied,
             ldscore_overlap=ldscore_result.overlap,
-            legacy_sumstats_drops=legacy_drops,
         )
         dataset.validate()
         return dataset
@@ -2974,8 +2951,6 @@ def run_h2_from_args(args):
         _log_effective_regression_identity([sumstats_table], ldscore_result, runner.global_config, config)
         with suppress_global_config_banner():
             dataset = runner.build_dataset(sumstats_table, ldscore_result, config=config)
-        if not legacy_drops.empty:
-            dataset = replace(dataset, legacy_sumstats_drops=legacy_drops)
         outcome = runner._fit_h2_dataset(dataset, config=config)
         hsq, dataset = outcome.estimator, outcome.dataset
         n_snps_used = outcome.n_snps

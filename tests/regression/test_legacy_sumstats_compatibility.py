@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gzip
+import json
 from pathlib import Path
 
 import numpy as np
@@ -333,12 +334,8 @@ def test_legacy_projection_drops_duplicate_source_clusters_and_records_stable_re
     assert dataset.merged["SNP"].tolist() == ["good"]
     reasons = sumstats.provenance.get("legacy_sumstats_drops", [])
     # Projection returns a new working table; the caller-owned table is never mutated.
+    # The drop reasons are checked through the h2 command's audit file below.
     assert reasons == []
-    projected = dataset.legacy_sumstats_drops
-    assert projected["reason"].value_counts().to_dict() == {
-        "duplicate_source_rsid": 2,
-        "missing_panel_rsid": 1,
-    }
 
 
 def test_legacy_rg_keeps_missing_frq_and_harmonizes_trait_two_without_panel_alleles() -> None:
@@ -406,3 +403,39 @@ def test_legacy_sumstats_without_alleles_are_rejected_for_regression() -> None:
 
     with pytest.raises(LDSCInputError, match="legacy summary-statistics file.*A1.*A2"):
         RegressionRunner(regression_config=RegressionConfig()).build_dataset(sumstats, panel)
+
+
+def test_h2_command_records_legacy_projection_drops_in_its_audit(tmp_path: Path) -> None:
+    from ldsc._regression.runner import run_h2
+
+    n_snps = 60
+    rng = np.random.default_rng(7)
+    snps = [f"rs{index}" for index in range(n_snps)]
+    ldscore_dir = tmp_path / "ldscores"
+    ldscore_dir.mkdir()
+    pd.DataFrame(
+        {
+            "CHR": ["1"] * n_snps, "SNP": snps, "POS": np.arange(1, n_snps + 1) * 100,
+            "A1": ["A"] * n_snps, "A2": ["C"] * n_snps,
+            "regression_ld_scores": rng.uniform(1.0, 5.0, n_snps), "base": rng.uniform(1.0, 5.0, n_snps),
+        }
+    ).to_parquet(ldscore_dir / "ldscore.baseline.parquet", index=False)
+    (ldscore_dir / "metadata.json").write_text(json.dumps({
+        "schema_version": 1, "artifact_type": "ldscore", "files": {"baseline": "ldscore.baseline.parquet"},
+        "snp_identifier": "rsid", "genome_build": "hg38", "chromosomes": ["1"], "baseline_columns": ["base"],
+        "query_columns": [], "query_batches": [],
+        "counts": [{"group": "baseline", "column": "base", "all_reference_snp_count": 100.0,
+                    "common_reference_snp_count": 80.0}],
+    }), encoding="utf-8")
+    # rs0 appears twice and "missing" is absent from the LD scores.
+    rows = [(snp, rng.normal(0.0, 1.5)) for snp in snps] + [("rs0", 0.5), ("missing", 1.0)]
+    sumstats = tmp_path / "trait.sumstats.gz"
+    with gzip.open(sumstats, "wt", encoding="utf-8") as handle:
+        handle.write("SNP\tA1\tA2\tZ\tN\n")
+        handle.writelines(f"{snp}\tA\tC\t{z:.4f}\t1000\n" for snp, z in rows)
+
+    run_h2(sumstats_file=str(sumstats), ldscore_dir=str(ldscore_dir), output_dir=str(tmp_path / "out"), num_blocks=10)
+
+    audit = pd.read_csv(tmp_path / "out/diagnostics/dropped_snps/legacy_sumstats.tsv.gz", sep="\t")
+    assert audit["reason"].value_counts().to_dict() == {"duplicate_source_rsid": 2, "missing_panel_rsid": 1}
+    assert sorted(audit["SNP"]) == ["missing", "rs0", "rs0"]

@@ -471,9 +471,6 @@ class SumstatsMunger:
         """
         if munge_config is None:
             munge_config = raw_sumstats_config
-        elif isinstance(munge_config, GlobalConfig) and global_config is None:
-            global_config = munge_config
-            munge_config = raw_sumstats_config
         if raw_sumstats_config.raw_sumstats_file is None:
             raise LDSCUserError(
                 "No input summary statistics given to munge-sumstats. Most likely --raw-sumstats-file was omitted. "

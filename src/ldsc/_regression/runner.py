@@ -1986,7 +1986,7 @@ def summarize_total_h2(
     probabilities in (0, 1). ``intercept_se`` is NaN for a fixed intercept, and
     ``ratio``/``ratio_se`` are NaN when the mean chi-square is at most 1.
     ``n_snps_used`` is the post-chi-square-filter SNP
-    count from the internal fit outcome; when omitted it falls back
+    count from the regression fit; when omitted it falls back
     to the supplied dataset's row count. Workflows supply the fitted dataset.
     """
     obs = _scalar(hsq.tot)
@@ -2211,7 +2211,7 @@ def _summarize_rg_pair(
     (``rg``/``rg_se``/``z``/``p``) is scale-invariant and unconverted. A trait's
     ``h2_*_liab`` is NaN unless its prevalence is finite; ``gencov_liab`` is NaN
     only when no prevalence was supplied for the run. ``n_snps_used`` is the
-    post-product-filter SNP count from the internal fit outcome; it falls
+    post-product-filter SNP count from the regression fit; it falls
     back to the supplied dataset's row count. Workflows supply the fitted dataset.
     """
     h2_1_obs = _numeric_attr(getattr(rg_result, "hsq1", None), "tot", "h2_1_obs")

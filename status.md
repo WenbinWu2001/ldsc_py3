@@ -33,8 +33,7 @@ The user answered two rounds of design questions on 2026-10-30, confirmed the de
 
 ### Left open from candidate 3
 
-- The user approved "regression fit" (`RegressionFit`) and "prepared trait summary statistics" on 2026-10-30 (`0c78a59`).
-  Older text still says "fit outcome", now a wording to avoid: `docs/reference/regression-options.md:184`, `docs/reference/formats/artifact-metadata.md:331`, and the docstrings at `src/ldsc/_regression/runner.py:1989` and `:2214`; rewriting them needs the user's go-ahead.
+- The user approved "regression fit" (`RegressionFit`) and "prepared trait summary statistics" on 2026-10-30 (`0c78a59`), and the older "fit outcome" wordings were reworded.
 - `rg` pair datasets keep no panel coordinates and `_fit_rg_dataset()` adds no block-jackknife context, unlike `h2`; this was agreed as a separate follow-up.
 - There is no public dataset-level `rg` fit, so `rg` tests that fit a dataset they built still call `_fit_rg_dataset()`.
 - Missing or infinite LD scores and regression weights are not covered by the new drop.

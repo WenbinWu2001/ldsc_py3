@@ -328,7 +328,7 @@ rank-bin summaries used by `ldsc plot`; it is a required current `h2` artifact.
 | `dropped_nonfinite_statistic_rows` | Summary-statistics rows dropped because `Z` or `N` was missing or infinite; see [missing or infinite statistics](../regression-options.md#16-missing-or-infinite-statistics). | None. |
 | `n_snps` | Number of SNPs retained after the effective chi-square filter. | None. |
 | `effective_chisq_max` | Chi-square cap actually applied (`null` when uncapped). | None. |
-| `n_blocks_used` | Realized jackknife block count from the fit outcome. | None. |
+| `n_blocks_used` | Realized jackknife block count from the regression fit. | None. |
 | `samp_prev` | Sample (case) prevalence applied for liability conversion, or `null` for an observed-scale run. | None. |
 | `pop_prev` | Population prevalence applied, or `null`. | None. |
 | `scale` | `observed` or `liability` (the latter when both prevalences are supplied). | None. |

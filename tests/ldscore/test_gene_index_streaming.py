@@ -7,12 +7,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ldsc._ldscore.gene_index import scoring as index_scoring, build as index_module
+from ldsc._ldscore.gene_index import scoring as index_scoring
 from ldsc._ldscore.gene_index import artifact as _gene_index_artifact
 from ldsc._ldscore.gene_index.artifact import _catalog_identity_records
+from tests.gene_index_helpers import write_gene_ldscore_index
 from tests.ldscore.test_gene_ldscore_index import (
-    _artifact_payload, _fixture_funnel, load_gene_ldscore_index, publish_gene_ldscore_index,
-    run_indexed_ldscore,
+    _artifact_payload, _fixture_funnel, load_gene_ldscore_index, run_indexed_ldscore,
 )
 
 
@@ -29,9 +29,9 @@ def two_chromosome_index(tmp_path):
     first = replace(record, baseline_rows=record.baseline_rows.assign(
         CHR="21", SNP=["rs3", "rs4"]), atom_model=replace(record.atom_model, chromosome="21"),
         reference_snp_funnel=_fixture_funnel("21"))
-    return publish_gene_ldscore_index(
+    return write_gene_ldscore_index(
         tmp_path / "index", index_identity=identity, gene_catalog=catalog,
-        chromosomes={"21": first, "22": record}, overwrite=False,
+        chromosomes={"21": first, "22": record},
     )
 
 

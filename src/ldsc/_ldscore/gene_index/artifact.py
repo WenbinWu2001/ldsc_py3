@@ -446,47 +446,6 @@ def _finalize_staged_index_artifact(
         )
 
 
-def _write_index_artifact(
-    index_path: Path,
-    *,
-    index_id: str,
-    index_identity: dict,
-    gene_catalog: pd.DataFrame,
-    chromosomes: dict[str, IndexChromosomeData],
-) -> None:
-    """Write one complete staged index in the canonical single-directory layout."""
-    index_path.mkdir(parents=True, exist_ok=True)
-    _write_json(
-        index_path / "metadata.json",
-        {
-            "artifact_type": "gene_ldscore_index",
-            "format_version": _INDEX_FORMAT_VERSION,
-            "index_id": index_id,
-            "snp_identifier": index_identity["snp_identifier"],
-            "genome_build": index_identity["genome_build"],
-            "index_identity": index_identity,
-            "chromosomes": list(chromosomes),
-        },
-    )
-    gene_catalog.to_parquet(index_path / "gene_catalog.parquet", index=False)
-    for chrom, record in chromosomes.items():
-        chrom_path = index_path / "chromosomes" / f"chr{chrom}"
-        chrom_path.mkdir(parents=True)
-        _write_json(
-            chrom_path / "metadata.json",
-            {
-                **_index_chromosome_metadata(
-                    chrom,
-                    record,
-                    snp_identifier=str(index_identity["snp_identifier"]),
-                    genome_build=str(index_identity["genome_build"]),
-                ),
-                "index_id": index_id,
-            },
-        )
-        _write_index_chromosome_payload(chrom_path, chrom=chrom, record=record)
-
-
 def inspect_index_paths(directory, *, metadata=None):
     """Inspect root declarations and all component paths without loading arrays."""
     from ..._runtime.preflight import InputGate, check_readable, input_issue

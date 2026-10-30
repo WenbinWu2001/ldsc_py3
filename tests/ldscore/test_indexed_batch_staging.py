@@ -75,14 +75,15 @@ def test_variation_summaries_preserve_producer_precision_and_nan_semantics(split
 
 @pytest.mark.parametrize("width", [1, 2])
 def test_query_pruning_precedes_float32_narrowing_and_allows_skipped_batch(tmp_path, width):
-    from tests.ldscore.test_gene_ldscore_index import _artifact_payload, publish_gene_ldscore_index
+    from tests.gene_index_helpers import write_gene_ldscore_index
+    from tests.ldscore.test_gene_ldscore_index import _artifact_payload
 
     record, catalog, identity = _artifact_payload()
     # G1 selects atoms 0,1 and varies only below float32 precision.
     # G2 selects atoms 1,2 and is exactly constant in float64.
     record = replace(record, operator=sparse.csr_matrix([[1., 0., 1.], [1. + 2.**-30, 0., 1.]]))
-    index = publish_gene_ldscore_index(tmp_path / "index", index_identity=identity,
-                                      gene_catalog=catalog, chromosomes={"22": record}, overwrite=False)
+    index = write_gene_ldscore_index(tmp_path / "index", index_identity=identity,
+                                    gene_catalog=catalog, chromosomes={"22": record})
     constant, varying = tmp_path / "constant.txt", tmp_path / "varying.txt"
     constant.write_text("G2\n")
     varying.write_text("G1\n")

@@ -44,19 +44,13 @@ from ldsc._ldscore.gene_index.artifact import calculate_index_id, IndexChromosom
 from ldsc._annotation.gene_lists import GeneCatalog, GeneCatalogValidationError
 from ldsc._ldscore.calculator import LDScoreCalculator
 from tests.cli_parsing import parse_command
+from tests.gene_index_helpers import write_gene_ldscore_index
 
 
 def load_gene_ldscore_index(path):
     """Load a deliberately partial test fixture through the private seam."""
     return _gene_index_scoring._load_gene_ldscore_index(
         path, _allow_partial_for_tests=True
-    )
-
-
-def publish_gene_ldscore_index(*args, **kwargs):
-    """Publish a deliberately partial test fixture through the private seam."""
-    return gene_ldscore_index.publish_gene_ldscore_index(
-        *args, **kwargs, _allow_partial_for_tests=True
     )
 
 
@@ -305,6 +299,29 @@ def _configure_two_chromosome_builder(tmp_path, monkeypatch):
         log_level="INFO",
     )
     return chromosome, output, args
+
+
+def _build_fixture_index(tmp_path, monkeypatch):
+    """Configure the two-chromosome build to publish in-memory chromosome records.
+
+    Returns ``(output, args, index_identity)``. Running
+    ``run_build_gene_ldscore_index_from_args(args)`` then takes the production
+    path from output preflight through staging, commit and recovery.
+    """
+    from tests.worker_fixtures import local_task_pool
+    monkeypatch.setattr("ldsc._runtime.parallelism.ProcessPoolExecutor", local_task_pool)
+    chromosome, output, args = _configure_two_chromosome_builder(tmp_path, monkeypatch)
+
+    def fixture_chromosome(chrom, *_args, **_kwargs):
+        return replace(
+            chromosome,
+            baseline_rows=chromosome.baseline_rows.assign(CHR=chrom),
+            atom_model=build_disjoint_atoms(chrom, np.array([[0, 10], [5, 15]], dtype=np.int64)),
+            reference_snp_funnel=_fixture_funnel(chrom),
+        )
+
+    monkeypatch.setattr(gene_ldscore_index, "build_plink_index_chromosome", fixture_chromosome)
+    return output, args, gene_ldscore_index._builder_index_identity()
 
 
 def test_selected_individual_identity_uses_fam_row_order():
@@ -1473,12 +1490,11 @@ def test_canonical_table_identity_ignores_row_order_when_key_sort_is_declared():
 def test_index_artifact_round_trip_uses_approved_tree_and_payloads(tmp_path, snp_identifier, expected_index_id):
     chromosome, catalog, index_identity = _artifact_payload()
     index_identity = {**index_identity, "snp_identifier": snp_identifier}
-    index_dir = publish_gene_ldscore_index(
+    index_dir = write_gene_ldscore_index(
         tmp_path / "index",
         index_identity=index_identity,
         gene_catalog=catalog,
         chromosomes={"22": chromosome},
-        overwrite=False,
     )
     loaded = load_gene_ldscore_index(index_dir)
 
@@ -1515,12 +1531,11 @@ def test_index_artifact_round_trip_uses_approved_tree_and_payloads(tmp_path, snp
 
 def test_public_loader_rejects_partial_index_before_gene_resolution(tmp_path):
     chromosome, catalog, index_identity = _artifact_payload()
-    index_dir = publish_gene_ldscore_index(
+    index_dir = write_gene_ldscore_index(
         tmp_path / "index",
         index_identity=index_identity,
         gene_catalog=catalog,
         chromosomes={"22": chromosome},
-        overwrite=False,
     )
 
     with pytest.raises(LDSCInputError, match="autosomes 1 through 22"):
@@ -1530,9 +1545,9 @@ def test_public_loader_rejects_partial_index_before_gene_resolution(tmp_path):
 def test_chr_pos_index_round_trip_uses_coordinate_identity_and_publishes_plink_labels(tmp_path):
     chromosome, catalog, index_identity = _artifact_payload()
     chr_pos_identity = {**index_identity, "snp_identifier": "chr_pos"}
-    index_dir = publish_gene_ldscore_index(
+    index_dir = write_gene_ldscore_index(
         tmp_path / "index", index_identity=chr_pos_identity, gene_catalog=catalog,
-        chromosomes={"22": chromosome}, overwrite=False,
+        chromosomes={"22": chromosome},
     )
 
     loaded = load_gene_ldscore_index(index_dir)
@@ -1561,9 +1576,9 @@ def test_index_loader_rejects_component_identity_metadata_and_published_row_tamp
 ):
     chromosome, catalog, index_identity = _artifact_payload()
     index_identity = {**index_identity, "snp_identifier": snp_identifier}
-    index_dir = publish_gene_ldscore_index(
+    index_dir = write_gene_ldscore_index(
         tmp_path / "index", index_identity=index_identity, gene_catalog=catalog,
-        chromosomes={"22": chromosome}, overwrite=False,
+        chromosomes={"22": chromosome},
     )
     component_metadata_path = index_dir / "chromosomes" / "chr22" / "metadata.json"
     component_metadata = json.loads(component_metadata_path.read_text(encoding="utf-8"))
@@ -1591,20 +1606,19 @@ def test_chr_pos_index_loader_rejects_repeated_coordinates_even_when_labels_diff
         baseline_rows=chromosome.baseline_rows.assign(POS=[1, 1], SNP=["label-a", "label-b"]),
     )
     with pytest.raises(LDSCInputError, match="duplicate effective identities"):
-        publish_gene_ldscore_index(
+        write_gene_ldscore_index(
             tmp_path / "index",
             index_identity={**index_identity, "snp_identifier": "chr_pos"},
             gene_catalog=catalog,
             chromosomes={"22": chromosome},
-            overwrite=False,
         )
 
 
 def test_index_loader_rejects_semantic_id_and_sparse_dtype_corruption(tmp_path):
     chromosome, catalog, index_identity = _artifact_payload()
-    index_dir = publish_gene_ldscore_index(
+    index_dir = write_gene_ldscore_index(
         tmp_path / "index", index_identity=index_identity, gene_catalog=catalog,
-        chromosomes={"22": chromosome}, overwrite=False,
+        chromosomes={"22": chromosome},
     )
     metadata_path = index_dir / "metadata.json"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -1623,9 +1637,9 @@ def test_index_loader_rejects_semantic_id_and_sparse_dtype_corruption(tmp_path):
 
 def test_index_loader_rejects_noncanonical_catalog_and_baseline_row_order(tmp_path):
     chromosome, catalog, index_identity = _artifact_payload()
-    index_dir = publish_gene_ldscore_index(
+    index_dir = write_gene_ldscore_index(
         tmp_path / "index", index_identity=index_identity, gene_catalog=catalog,
-        chromosomes={"22": chromosome}, overwrite=False,
+        chromosomes={"22": chromosome},
     )
     catalog_path = index_dir / "gene_catalog.parquet"
     reversed_catalog = pd.read_parquet(catalog_path).iloc[::-1].reset_index(drop=True)
@@ -1643,9 +1657,9 @@ def test_index_loader_rejects_noncanonical_catalog_and_baseline_row_order(tmp_pa
 
 def test_index_loader_rejects_chromosome_coverage_corruption(tmp_path):
     chromosome, catalog, index_identity = _artifact_payload()
-    index_dir = publish_gene_ldscore_index(
+    index_dir = write_gene_ldscore_index(
         tmp_path / "index", index_identity=index_identity, gene_catalog=catalog,
-        chromosomes={"22": chromosome}, overwrite=False,
+        chromosomes={"22": chromosome},
     )
     metadata_path = index_dir / "metadata.json"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -1656,36 +1670,25 @@ def test_index_loader_rejects_chromosome_coverage_corruption(tmp_path):
         load_gene_ldscore_index(index_dir)
 
 
-def test_index_publication_requires_overwrite_and_replaces_complete_index(tmp_path):
-    chromosome, catalog, index_identity = _artifact_payload()
-    index_dir = tmp_path / "index"
-    publish_gene_ldscore_index(
-        index_dir, index_identity=index_identity, gene_catalog=catalog,
-        chromosomes={"22": chromosome}, overwrite=False,
-    )
+def test_index_publication_requires_overwrite_and_replaces_complete_index(tmp_path, monkeypatch):
+    output, args, identity = _build_fixture_index(tmp_path, monkeypatch)
+    gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
     with pytest.raises(FileExistsError, match="--overwrite"):
-        publish_gene_ldscore_index(
-            index_dir, index_identity=index_identity, gene_catalog=catalog,
-            chromosomes={"22": chromosome}, overwrite=False,
-        )
-    replacement_identity = {**index_identity, "padding_bp": 0}
-    publish_gene_ldscore_index(
-        index_dir, index_identity=replacement_identity, gene_catalog=catalog,
-        chromosomes={"22": chromosome}, overwrite=True,
-    )
-    assert load_gene_ldscore_index(index_dir).index_id == calculate_index_id(replacement_identity)
+        gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
+
+    replacement_identity = {**identity, "padding_bp": 0}
+    monkeypatch.setattr(gene_ldscore_index, "_builder_index_identity", lambda *_a, **_k: replacement_identity)
+    args.overwrite = True
+    gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
+    assert load_gene_ldscore_index(output).index_id == calculate_index_id(replacement_identity)
 
 
-def test_post_commit_cleanup_failure_warns_but_published_index_succeeds(
-    tmp_path, monkeypatch, caplog
-):
-    chromosome, catalog, index_identity = _artifact_payload()
-    index_dir = tmp_path / "index"
-    publish_gene_ldscore_index(
-        index_dir, index_identity=index_identity, gene_catalog=catalog,
-        chromosomes={"22": chromosome}, overwrite=False,
-    )
-    replacement_identity = {**index_identity, "padding_bp": 0}
+def test_post_commit_cleanup_failure_warns_but_published_index_succeeds(tmp_path, monkeypatch):
+    output, args, identity = _build_fixture_index(tmp_path, monkeypatch)
+    gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
+    replacement_identity = {**identity, "padding_bp": 0}
+    monkeypatch.setattr(gene_ldscore_index, "_builder_index_identity", lambda *_a, **_k: replacement_identity)
+    args.overwrite = True
     real_rmtree = shutil.rmtree
 
     def fail_transaction_cleanup(path, *args, **kwargs):
@@ -1694,24 +1697,20 @@ def test_post_commit_cleanup_failure_warns_but_published_index_succeeds(
             raise OSError(16, "injected device or resource busy", str(candidate))
         return real_rmtree(path, *args, **kwargs)
 
-    with monkeypatch.context() as patcher, caplog.at_level(
-        "WARNING", logger="LDSC.gene_ldscore_index"
-    ):
+    with monkeypatch.context() as patcher:
         patcher.setattr(gene_ldscore_index.shutil, "rmtree", fail_transaction_cleanup)
-        published = publish_gene_ldscore_index(
-            index_dir, index_identity=replacement_identity, gene_catalog=catalog,
-            chromosomes={"22": chromosome}, overwrite=True,
-        )
+        published = gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
 
-    assert published == index_dir
-    assert load_gene_ldscore_index(index_dir).index_id == calculate_index_id(replacement_identity)
+    assert published == output
+    assert load_gene_ldscore_index(output).index_id == calculate_index_id(replacement_identity)
     leftovers = list(tmp_path.glob(".index.stage-*"))
     assert len(leftovers) == 1
-    assert str(leftovers[0]) in caplog.text
-    assert "published index is valid" in caplog.text
+    log_text = (output / "diagnostics" / "build-gene-ldscore-index.log").read_text(encoding="utf-8")
+    assert str(leftovers[0]) in log_text
+    assert "published index is valid" in log_text
 
     gene_ldscore_index._recover_gene_index_publication(
-        index_dir, _allow_partial_for_tests=True
+        output, _allow_partial_for_tests=True
     )
     assert not leftovers[0].exists()
 
@@ -1761,9 +1760,9 @@ def test_final_log_move_failure_warns_and_retains_hidden_log(tmp_path, monkeypat
 @pytest.mark.parametrize("failed_destination", ["absent", "marker", "unrecognized"])
 def test_index_publication_recovery_restores_one_valid_owned_backup(tmp_path, failed_destination):
     chromosome, catalog, index_identity = _artifact_payload()
-    index_dir = publish_gene_ldscore_index(
+    index_dir = write_gene_ldscore_index(
         tmp_path / "index", index_identity=index_identity, gene_catalog=catalog,
-        chromosomes={"22": chromosome}, overwrite=False,
+        chromosomes={"22": chromosome},
     )
     transaction = tmp_path / ".index.stage-interrupted"
     transaction.mkdir()
@@ -1812,12 +1811,11 @@ def test_retry_discards_a_marked_partial_stage_instead_of_reusing_it(tmp_path):
 
 def test_index_loader_rejects_embedded_catalog_policy_and_source_tampering(tmp_path):
     chromosome, catalog, index_identity = _artifact_payload()
-    index_dir = publish_gene_ldscore_index(
+    index_dir = write_gene_ldscore_index(
         tmp_path / "index",
         index_identity=index_identity,
         gene_catalog=catalog,
         chromosomes={"22": chromosome},
-        overwrite=False,
     )
     catalog_path = index_dir / "gene_catalog.parquet"
     tampered = pd.read_parquet(catalog_path)
@@ -1837,32 +1835,34 @@ def test_index_loader_rejects_embedded_catalog_policy_and_source_tampering(tmp_p
 
 
 def test_failed_index_overwrite_rolls_back_without_mutating_valid_index(tmp_path, monkeypatch):
-    chromosome, catalog, index_identity = _artifact_payload()
-    index_dir = tmp_path / "index"
-    publish_gene_ldscore_index(
-        index_dir, index_identity=index_identity, gene_catalog=catalog,
-        chromosomes={"22": chromosome}, overwrite=False,
+    output, args, identity = _build_fixture_index(tmp_path, monkeypatch)
+    gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
+    original_id = load_gene_ldscore_index(output).index_id
+    monkeypatch.setattr(
+        gene_ldscore_index, "_builder_index_identity", lambda *_a, **_k: {**identity, "padding_bp": 0}
     )
-    original_id = load_gene_ldscore_index(index_dir).index_id
+    args.overwrite = True
+    real_replace = gene_ldscore_index.os.replace
 
-    def fail_write(*args, **kwargs):
-        raise RuntimeError("injected publication failure")
+    def fail_installing_replacement(source, destination):
+        # The valid index has already moved to the transaction backup.
+        source = Path(source)
+        if source.name == output.name and source.parent.name.startswith(".index.stage-"):
+            raise OSError(16, "injected publication failure", str(destination))
+        return real_replace(source, destination)
 
-    monkeypatch.setattr(gene_ldscore_index, "_write_index_artifact", fail_write)
-    with pytest.raises(RuntimeError, match="injected"):
-        publish_gene_ldscore_index(
-            index_dir, index_identity={**index_identity, "padding_bp": 0}, gene_catalog=catalog,
-            chromosomes={"22": chromosome}, overwrite=True,
-        )
+    monkeypatch.setattr(gene_ldscore_index.os, "replace", fail_installing_replacement)
+    with pytest.raises(OSError, match="injected"):
+        gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
 
-    assert load_gene_ldscore_index(index_dir).index_id == original_id
+    assert load_gene_ldscore_index(output).index_id == original_id
 
 
 def test_indexed_gene_lists_assemble_control_queries_and_canonical_output(tmp_path, monkeypatch):
     chromosome, catalog, index_identity = _artifact_payload()
-    index_dir = publish_gene_ldscore_index(
+    index_dir = write_gene_ldscore_index(
         tmp_path / "index", index_identity=index_identity, gene_catalog=catalog,
-        chromosomes={"22": chromosome}, overwrite=False,
+        chromosomes={"22": chromosome},
     )
     genes = tmp_path / "focal.txt"
     control = tmp_path / "control.txt"
@@ -1944,9 +1944,9 @@ def test_explicit_indexed_mode_dispatches_without_live_reference(monkeypatch, tm
 
 def test_explicit_indexed_cli_writes_the_canonical_workflow_log(tmp_path, monkeypatch):
     chromosome, catalog, index_identity = _artifact_payload()
-    index_dir = publish_gene_ldscore_index(
+    index_dir = write_gene_ldscore_index(
         tmp_path / "index", index_identity=index_identity, gene_catalog=catalog,
-        chromosomes={"22": chromosome}, overwrite=False,
+        chromosomes={"22": chromosome},
     )
     genes = tmp_path / "focal.txt"
     genes.write_text("G1\n", encoding="utf-8")
@@ -1981,9 +1981,9 @@ def test_explicit_indexed_cli_writes_the_canonical_workflow_log(tmp_path, monkey
 
 def test_indexed_control_gene_list_file_must_resolve_to_a_file(tmp_path):
     chromosome, catalog, index_identity = _artifact_payload()
-    index_dir = publish_gene_ldscore_index(
+    index_dir = write_gene_ldscore_index(
         tmp_path / "index", index_identity=index_identity, gene_catalog=catalog,
-        chromosomes={"22": chromosome}, overwrite=False,
+        chromosomes={"22": chromosome},
     )
     genes = tmp_path / "focal.txt"
     genes.write_text("G1\n", encoding="utf-8")
@@ -2061,9 +2061,9 @@ def test_python_indexed_mode_inherits_index_identity_over_registered_global_conf
     registered, tmp_path, monkeypatch
 ):
     chromosome, catalog, index_identity = _artifact_payload()
-    index_dir = publish_gene_ldscore_index(
+    index_dir = write_gene_ldscore_index(
         tmp_path / "index", index_identity=index_identity, gene_catalog=catalog,
-        chromosomes={"22": chromosome}, overwrite=False,
+        chromosomes={"22": chromosome},
     )
     genes = tmp_path / "focal.txt"
     genes.write_text("G1\n", encoding="utf-8")
@@ -2091,9 +2091,9 @@ def test_python_indexed_mode_inherits_index_identity_over_registered_global_conf
 
 def test_indexed_strict_unresolved_stops_at_gate_a_with_complete_audit(tmp_path):
     chromosome, catalog, index_identity = _artifact_payload()
-    index_dir = publish_gene_ldscore_index(
+    index_dir = write_gene_ldscore_index(
         tmp_path / "index", index_identity=index_identity, gene_catalog=catalog,
-        chromosomes={"22": chromosome}, overwrite=False,
+        chromosomes={"22": chromosome},
     )
     genes = tmp_path / "missing.txt"
     genes.write_text("NOT_A_GENE\n", encoding="utf-8")
@@ -2149,15 +2149,12 @@ def test_failure_marker_does_not_authorize_replacing_unrecognized_contents(tmp_p
     assert sorted(path.name for path in output.iterdir()) == before
 
 
-def test_index_publisher_accepts_failure_marker_only_destination(tmp_path):
-    chromosome, catalog, identity = _artifact_payload()
-    output = tmp_path / "index"
+def test_index_build_accepts_failure_marker_only_destination(tmp_path, monkeypatch):
+    output, args, identity = _build_fixture_index(tmp_path, monkeypatch)
     output.mkdir()
     marker = output / "RUN_FAILED.txt"
     marker.write_text("old failure\n")
-    published = publish_gene_ldscore_index(
-        output, index_identity=identity, gene_catalog=catalog,
-        chromosomes={"22": chromosome}, overwrite=True,
-    )
+    args.overwrite = True
+    published = gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
     assert load_gene_ldscore_index(published).index_id == calculate_index_id(identity)
     assert not marker.exists()

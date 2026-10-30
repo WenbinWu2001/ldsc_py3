@@ -98,14 +98,11 @@ from .artifact import (
     StagedIndexChromosome,
     _canonical_frame_sha256,
     _catalog_identity_records,
-    _directory_payload_bytes,
     _finalize_staged_index_artifact,
     _index_chromosome_metadata,
     _read_json,
     _remove_gene_index_transaction,
-    _scientific_payload_bytes,
     _stage_index_chromosome,
-    _write_index_artifact,
     _write_json,
     calculate_index_id,
     index_global_config,
@@ -1457,107 +1454,6 @@ def _selected_individual_ids(fam, selected_indices: Sequence[int]) -> list[str]:
     if not isinstance(identifiers, pd.DataFrame) or identifiers.shape[1] != 1:
         raise LDSCInternalError("PLINK FAM individual identity table must contain exactly one IID column.")
     return identifiers.iloc[list(selected_indices), 0].astype(str).tolist()
-
-
-@report_phase(LOGGER, 'publication', 'immutable gene LD-score index')
-def publish_gene_ldscore_index(
-    index_dir: str | Path,
-    *,
-    index_identity: dict,
-    gene_catalog: pd.DataFrame,
-    chromosomes: dict[str, IndexChromosomeData],
-    overwrite: bool,
-    diagnostic_payload: dict | None = None,
-    _allow_partial_for_tests: bool = False,
-) -> Path:
-    """Stage, reload, and atomically publish one complete in-memory index.
-
-    Parameters
-    ----------
-    index_dir : path-like
-        Public destination for one complete immutable index.
-    index_identity : dict
-        Canonical scientific identity payload used to calculate ``index_id``.
-    gene_catalog : pandas.DataFrame
-        Complete embedded catalog in canonical ``gene_index`` order.
-    chromosomes : dict of str to IndexChromosomeData
-        Ordered chromosome records to persist in the index.
-    overwrite : bool
-        Replace an existing valid complete index when true. Unrecognized
-        nonempty destinations are never replaced. A directory containing only
-        the owned failure marker may be reused.
-    diagnostic_payload : dict, optional
-        Successful-build diagnostic record. When supplied, payload-byte fields
-        are added in place before the record is written.
-
-    Returns
-    -------
-    pathlib.Path
-        Published index directory after staged and destination reload
-        validation.
-
-    Raises
-    ------
-    FileExistsError
-        If the destination is an existing valid index without ``overwrite``,
-        or is a nonempty unrecognized directory.
-    LDSCInputError
-        If the complete staged or published index fails reload validation.
-
-    Notes
-    -----
-    Existing valid indexes require ``overwrite=True`` and are kept loadable
-    until their complete replacement has passed staged reload validation.
-    Nonempty directories that are neither valid indexes nor failed builds
-    containing only ``RUN_FAILED.txt`` are rejected even with overwrite. The failure marker remains in place
-    until publication replaces the destination; it does not authorize removal
-    of unrelated contents.
-    Mutable live logs are stored in hidden sibling build state and never enter
-    the replaceable transaction. The workflow wrapper moves the closed
-    successful log into published diagnostics. Once the destination has been
-    replaced and reload-validated, failure to remove the builder-owned
-    transaction tree is reported as a warning and does not change publication
-    success. This convenience seam writes supplied chromosome records into a
-    new transaction; the CLI builder instead persists worker shards directly
-    into its run transaction and moves that already-written tree at commit.
-    """
-    destination = Path(index_dir)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    _preflight_gene_index_output(
-        destination, overwrite=overwrite, _allow_partial_for_tests=_allow_partial_for_tests,
-    )
-    index_id = calculate_index_id(index_identity)
-    stage_parent = _create_gene_index_transaction(destination)
-    staged_index = stage_parent / destination.name
-    try:
-        _write_index_artifact(
-            staged_index,
-            index_id=index_id,
-            index_identity=index_identity,
-            gene_catalog=gene_catalog,
-            chromosomes=chromosomes,
-        )
-        if diagnostic_payload is not None:
-            diagnostic_payload["payload_bytes"] = _scientific_payload_bytes(staged_index)
-            chromosome_diagnostics = diagnostic_payload.get("chromosomes", {})
-            for chrom in chromosomes:
-                values = chromosome_diagnostics.get(chrom)
-                if isinstance(values, dict):
-                    values["payload_bytes"] = _directory_payload_bytes(
-                        staged_index / "chromosomes" / f"chr{chrom}"
-                    )
-            _write_json(
-                staged_index / "diagnostics" / "build-gene-ldscore-index.json",
-                diagnostic_payload,
-            )
-        return _commit_staged_gene_ldscore_index(
-            stage_parent,
-            destination,
-            _allow_partial_for_tests=_allow_partial_for_tests,
-        )
-    except Exception:
-        _remove_gene_index_transaction(stage_parent, published=False)
-        raise
 
 
 def _create_gene_index_transaction(destination: Path) -> Path:

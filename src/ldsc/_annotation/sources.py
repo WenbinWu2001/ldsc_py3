@@ -29,7 +29,7 @@ from .tables import _annotation_parse_error_message, _validate_annotation_values
 from .._core.snp_identity import identity_base_mode, is_allele_aware_mode
 from .._core.row_alignment import assert_same_snp_rows
 from .semantics import require_unique_annotation_names
-from .._core.chromosomes import chrom_sort_key, normalize_chromosome
+from .._core.chromosomes import chrom_sort_key
 from ..errors import LDSCInputError, LDSCUserError
 
 LOGGER = logging.getLogger("LDSC.annotation")
@@ -154,10 +154,9 @@ def _aligned_metadata(sources, mode, chunk_rows):
 
 
 @report_phase(LOGGER, 'staging', 'retained annotation metadata')
-def _select_rows(groups, group_rows, workspace, identity, drops, mode, chrom, *, input_counts=None):
+def _select_rows(groups, group_rows, workspace, identity, drops, mode, *, input_counts=None):
     """Write final metadata and bounded row locators, counting retained rows."""
     selections, counts, writers = [], {}, {}
-    selected_chrom = normalize_chromosome(chrom) if chrom is not None else None
     with ExitStack() as stack:
         for ordinal, (group, chunk_rows) in enumerate(zip(groups, group_rows)):
             selection = FrameSpool(workspace.path / f"selection-{ordinal}")
@@ -170,8 +169,6 @@ def _select_rows(groups, group_rows, workspace, identity, drops, mode, chrom, *,
                         input_counts[label] = input_counts.get(label, 0) + int(count)
                 keep, dropped = identity.select(metadata)
                 drops.append(dropped)
-                if selected_chrom is not None:
-                    keep &= metadata["CHR"].to_numpy() == selected_chrom
                 retained = metadata.loc[keep]
                 selection.append(pd.DataFrame({"row": np.flatnonzero(keep) + offset,
                                                "CHR": retained["CHR"].to_numpy()}))
@@ -248,15 +245,14 @@ def _write_values(groups, selections, group_rows, counts, workspace, columns):
 
 
 @report_phase(LOGGER, 'preparation', 'annotation alignment and identity validation')
-def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, chunk_rows=None, chrom=None, declared_chromosomes=None, input_issues=(), autosomes_only=False, header_widths=None):
+def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, chunk_rows=None, declared_chromosomes=None, input_issues=(), autosomes_only=False, header_widths=None):
     """Scan, validate, and stage aligned whole-genome or chromosome-sharded inputs.
 
     ``workspace`` owns every scratch file. Automatic chunk sizes target 16 MiB
     of parsed cells and at most 65,536 rows per independently scanned file.
     Metadata is reblocked using the combined width of each discovered aligned
     group; explicit ``chunk_rows`` controls both input passes and alignment. Identity
-    passes inspect metadata, and global duplicates precede requested chromosome
-    selection. A second input pass writes final values using retained locators;
+    passes inspect metadata. A second input pass writes final values using retained locators;
     no numeric staging copy is created. Binary eligibility spans every input
     chunk and chromosome and is determined before float32 narrowing.
     INFO records mark input reading, identity/shard preparation, storage column
@@ -285,16 +281,7 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
         for i, path in enumerate(paths):
             declared = declared_chromosomes.get(str(path), '')
             try:
-                scan_rows = chunk_rows
-                if scan_rows is None and header_widths is not None:
-                    scan_rows = _chunk_size(header_widths[str(path)])
-                if scan_rows is None:
-                    width = 1
-                    try:
-                        width = len(pd.read_csv(path, sep=r"\s+", nrows=0).columns)
-                    except (OSError, EOFError, ValueError, UnicodeError):
-                        pass  # The complete scan records the existing parse diagnostic.
-                    scan_rows = _chunk_size(width)
+                scan_rows = chunk_rows if chunk_rows is not None else _chunk_size(header_widths[str(path)])
                 source = _scan(path, workspace.path / f"source-{i}", mode, scan_rows, source_progress=source_progress)
                 if autosomes_only and not source.chromosomes.issubset(AUTOSOMES):
                     raise LDSCInputError(
@@ -352,7 +339,7 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
             for metadata in _aligned_metadata(group, mode, rows):
                 advance(len(metadata), object=f'annotation group ({len(group)} files)')
                 identity.add(metadata)
-        selections, counts = _select_rows(groups, group_rows, workspace, identity, drops, mode, chrom,
+        selections, counts = _select_rows(groups, group_rows, workspace, identity, drops, mode,
                                          input_counts=input_counts)
     (workspace.path / "identity.sqlite").unlink()
     shards = _write_values(groups, selections, group_rows, counts, workspace, columns)

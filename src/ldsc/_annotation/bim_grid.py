@@ -84,7 +84,7 @@ def prepare_bim_grid(workspace, paths, declared, *, mode, autosomes_only=False, 
             for metadata in _metadata_chunks(source, chunk_rows):
                 identity.add(metadata)
         selections, counts = _select_rows(
-            groups, [chunk_rows] * len(groups), workspace, identity, drops, mode, None,
+            groups, [chunk_rows] * len(groups), workspace, identity, drops, mode,
             input_counts=input_counts,
         )
     index_path.unlink()

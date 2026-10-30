@@ -305,8 +305,7 @@ def run_annotate_from_args(args: argparse.Namespace) -> AnnotationBundle:
 def main(argv: Sequence[str] | None = None) -> AnnotationBundle:
     """Parse annotation arguments, run projection, and return the bundle.
 
-    ``main()`` replaces the removed ``main_bed_to_annot()`` public entry point.
-    It is used by direct ``ldsc annotate`` dispatch and by script-style
-    invocations that want parser behavior plus the produced result object.
+    Direct ``ldsc annotate`` dispatch uses it, as do script-style invocations
+    that want parser behavior plus the produced result object.
     """
     return run_annotate_from_args(parse_annotate_args(argv))

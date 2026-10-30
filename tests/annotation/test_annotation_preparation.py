@@ -12,20 +12,19 @@ from ldsc._runtime.workflow_logging import workflow_logging
 from ldsc.errors import LDSCInputError
 
 
-@pytest.mark.parametrize("chrom, chromosomes, snps", [(None, 2, 2), ("2", 1, 1)])
-def test_preparation_log_marks_main_steps_and_retained_logical_rows(tmp_path, capsys, chrom, chromosomes, snps):
+def test_preparation_log_marks_main_steps_and_retained_logical_rows(tmp_path, capsys):
     paths = [tmp_path / f"{role}.annot" for role in ("baseline", "query")]
     for path, column in zip(paths, ("base", "query")):
         path.write_text(f"CHR SNP POS {column}\n1 duplicate 1 1\n1 rs1 2 .5\n2 duplicate 1 1\n2 rs2 2 .25\n")
     log_path = tmp_path / "preparation.log"
     with workflow_logging("annotate", log_path, log_level="INFO"), AnnotationWorkspace(tmp_path / "out") as workspace:
-        prepared = prepare_annotation_sources(workspace, paths[:1], paths[1:], mode="rsid", chunk_rows=1, chrom=chrom)
+        prepared = prepare_annotation_sources(workspace, paths[:1], paths[1:], mode="rsid", chunk_rows=1)
         messages = log_path.read_text().splitlines()
         assert "Reading annotation inputs: baseline files=1, query files=1." in messages
         assert "Checking SNP identities and preparing chromosome annotations." in messages
         completed = [line for line in messages if line.startswith("Annotation preparation complete:")]
         assert len(completed) == 1
-        assert completed[0].startswith(f"Annotation preparation complete: chromosomes={chromosomes}, retained SNPs={snps}, elapsed=")
+        assert completed[0].startswith("Annotation preparation complete: chromosomes=2, retained SNPs=2, elapsed=")
         assert messages.index(completed[0]) > messages.index("Checking SNP identities and preparing chromosome annotations.") > messages.index("Reading annotation inputs: baseline files=1, query files=1.")
         np.testing.assert_array_equal(prepared.shards["2"].read(columns=["base", "query"]), [[.25, .25]])
     assert capsys.readouterr() == ("", "")
@@ -168,16 +167,17 @@ def test_automatic_tiles_align_unequal_widths_and_preserve_logical_rows(tmp_path
 
 
 @pytest.mark.parametrize("chunk_rows", [1, 3, None])
-def test_chromosome_selection_follows_global_conflicts_and_preserves_order(tmp_path, chunk_rows):
+def test_identity_cleanup_follows_global_conflicts_and_preserves_order(tmp_path, chunk_rows):
     first = tmp_path / "first.annot"
     second = tmp_path / "second.annot"
     first.write_text("CHR SNP POS A1 A2 base\n1 duplicate 10 A C 1\n1 conflict 20 A C 2\n1 retained1 30 A C 3\n")
     second.write_text("CHR SNP POS A1 A2 base\n2 retained2 40 A C -1.25\n2 duplicate 20 G T 5\n2 conflict 30 A G 6\n2 invalid 10 N C 7\n2 retained3 5 A C 0.125\n")
     with AnnotationWorkspace(tmp_path / "out") as workspace:
         prepared = prepare_annotation_sources(workspace, [second, first], [],
-                                              mode="rsid_allele_aware", chunk_rows=chunk_rows, chrom="2")
-        assert list(prepared.shards) == ["2"]
+                                              mode="rsid_allele_aware", chunk_rows=chunk_rows)
+        assert sorted(prepared.shards) == ["1", "2"]
         assert prepared.scope_chromosomes == ("1", "2")
+        assert prepared.shards["1"].metadata().POS.tolist() == [30]
         assert prepared.shards["2"].metadata().POS.tolist() == [40, 5]
         np.testing.assert_array_equal(prepared.shards["2"].read(columns=["base"]), [[-1.25], [.125]])
         drops = pd.concat(prepared.drops.frames(), ignore_index=True)
@@ -208,7 +208,7 @@ def test_failed_preparation_keeps_validation_and_workspace_ownership(tmp_path, d
     persistent.write_text("user-owned")
     with pytest.raises(LDSCInputError, match=message):
         with AnnotationWorkspace(output) as workspace:
-            prepare_annotation_sources(workspace, [baseline], [query], mode="rsid", chunk_rows=2, chrom="1")
+            prepare_annotation_sources(workspace, [baseline], [query], mode="rsid", chunk_rows=2)
     assert list(output.iterdir()) == [persistent]
     assert persistent.read_text() == "user-owned"
 

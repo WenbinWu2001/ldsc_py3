@@ -1,6 +1,6 @@
 # Features and compatibility
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-30
 
 [Audit overview](README.md) · [Workflow counts and membership](workflow-index.md) · [Verification](verification.md)
 
@@ -150,7 +150,7 @@ This is a substantial method/validation extension, not an omitted input alias.
 **Recommended prevention.** State the validated SNP scope and avoid advertising structural-variant support until appropriate references and scientific validation exist.
 
 **Evidence and verification.** source-inspected
-[src/ldsc/_core/snp_identity.py](<../../../../src/ldsc/_core/snp_identity.py>); [docs/reference/ldscore-snp-universes.md](<../../../reference/ldscore-snp-universes.md>); [src/ldsc/_regression/estimators.py:_filter_alleles](<../../../../src/ldsc/_regression/estimators.py>).
+[src/ldsc/_core/snp_identity.py](<../../../../src/ldsc/_core/snp_identity.py>); [docs/reference/ldscore-snp-universes.md](<../../../reference/ldscore-snp-universes.md>); [src/ldsc/_regression/runner.py:_allele_pair_flags](<../../../../src/ldsc/_regression/runner.py>).
 
 <a id="issue-314"></a>
 

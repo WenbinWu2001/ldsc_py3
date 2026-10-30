@@ -21,6 +21,7 @@ It used two synthetic chromosomes, each with four PLINK SNPs plus 25,000 annotat
 | Spawned processes | 2.29 s | 638.2 MiB |
 
 Each task sent about 5.1 KB of storage descriptors and gene-coordinate-catalog metadata, not baseline arrays.
+The probe used no regression-SNP restriction or genetic map; with them, each task also carries the run's regression-SNP keys and, since `3d78484`, its own chromosome's genetic-map rows, so real per-task payloads are larger.
 Both runs produced the same index identity and gene-support counts, and twenty exact comparisons of baseline tables, sparse operators, counts, overlaps and atom statistics passed.
 Each setting ran once, and summed RSS counts shared pages more than once, so the numbers show the direction of the memory cost rather than a stable overhead estimate.
 Full-genome memory needs were not measured.

@@ -1,6 +1,6 @@
 # Inputs, workflows, and diagnostics
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-30
 
 [Audit overview](README.md) · [Workflow counts and membership](workflow-index.md) · [Verification](verification.md)
 
@@ -436,7 +436,7 @@ Coordinate-family allele-aware identity also distinguishes variants sharing an r
 **Recommended prevention.** Explain ambiguity versus a true mismatch, preserve row-level drop reasons, and discourage manually flipping all alleles without checking signed effects.
 
 **Evidence and verification.** source-inspected
-[src/ldsc/_regression/runner.py:_orient_sumstats_z_to_reference_alleles](<../../../../src/ldsc/_regression/runner.py>); [src/ldsc/_regression/estimators.py:_filter_alleles](<../../../../src/ldsc/_regression/estimators.py>); [docs/reference/formats/legacy-sumstats.md](<../../../reference/formats/legacy-sumstats.md>).
+[src/ldsc/_regression/runner.py:_orient_sumstats_z_to_reference_alleles](<../../../../src/ldsc/_regression/runner.py>); [src/ldsc/_regression/runner.py:_allele_pair_flags](<../../../../src/ldsc/_regression/runner.py>); [docs/reference/formats/legacy-sumstats.md](<../../../reference/formats/legacy-sumstats.md>).
 
 Legacy implementation context: [`ldscore/regressions.py`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/ldscore/regressions.py), [`ldscore/sumstats.py`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/ldscore/sumstats.py).
 
@@ -1758,7 +1758,7 @@ Matching counts are not a guarantee that a signed cross-study comparison is iden
 **Recommended prevention.** Explain separate filter reasons with counts/examples and do not bypass ambiguity solely because a supplied list agrees.
 
 **Evidence and verification.** source-inspected
-[src/ldsc/_regression/runner.py:_orient_sumstats_z_to_reference_alleles](<../../../../src/ldsc/_regression/runner.py>); [src/ldsc/_regression/estimators.py:_filter_alleles](<../../../../src/ldsc/_regression/estimators.py>); [docs/reference/formats/legacy-sumstats.md](<../../../reference/formats/legacy-sumstats.md>).
+[src/ldsc/_regression/runner.py:_orient_sumstats_z_to_reference_alleles](<../../../../src/ldsc/_regression/runner.py>); [src/ldsc/_regression/runner.py:_allele_pair_flags](<../../../../src/ldsc/_regression/runner.py>); [docs/reference/formats/legacy-sumstats.md](<../../../reference/formats/legacy-sumstats.md>).
 
 Legacy implementation context: [`munge_sumstats.py`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/munge_sumstats.py).
 

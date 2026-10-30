@@ -856,7 +856,7 @@ An emptied intersection still must yield an actionable failure with the selected
 **Recommended prevention.** Preserve explicit allele-drop reasons and include both incompatible and strand-complement cases in the issue-to-test map.
 
 **Evidence and verification.** source-inspected
-[src/ldsc/_regression/runner.py:build_rg_dataset](<../../../../src/ldsc/_regression/runner.py>); [src/ldsc/_regression/estimators.py:_filter_alleles](<../../../../src/ldsc/_regression/estimators.py>); [tests/regression/test_regression_workflow.py:test_build_rg_dataset_harmonizes_alleles_and_flips_second_trait_z](<../../../../tests/regression/test_regression_workflow.py>).
+[src/ldsc/_regression/runner.py:build_rg_dataset](<../../../../src/ldsc/_regression/runner.py>); [src/ldsc/_regression/runner.py:_allele_pair_flags](<../../../../src/ldsc/_regression/runner.py>); [tests/regression/test_regression_workflow.py:test_build_rg_dataset_harmonizes_alleles_and_flips_second_trait_z](<../../../../tests/regression/test_regression_workflow.py>).
 
 Legacy implementation context: [`ldscore/regressions.py`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/ldscore/regressions.py), [`ldscore/sumstats.py`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/ldscore/sumstats.py).
 
@@ -1143,7 +1143,7 @@ High INFO does not make two allele representations compatible, and omitting HM3 
 **Recommended prevention.** Cross-link #137/#140 as one mechanism while counting each issue once; preserve explicit incompatibility diagnostics rather than advise hand-deleting allele classes.
 
 **Evidence and verification.** source-inspected
-[src/ldsc/_regression/runner.py:build_rg_dataset](<../../../../src/ldsc/_regression/runner.py>); [src/ldsc/_regression/estimators.py:_filter_alleles](<../../../../src/ldsc/_regression/estimators.py>); [tests/regression/test_regression_workflow.py](<../../../../tests/regression/test_regression_workflow.py>).
+[src/ldsc/_regression/runner.py:build_rg_dataset](<../../../../src/ldsc/_regression/runner.py>); [src/ldsc/_regression/runner.py:_allele_pair_flags](<../../../../src/ldsc/_regression/runner.py>); [tests/regression/test_regression_workflow.py](<../../../../tests/regression/test_regression_workflow.py>).
 
 Legacy implementation context: [`ldscore/regressions.py`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/ldscore/regressions.py), [`ldscore/sumstats.py`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/ldscore/sumstats.py).
 

@@ -260,6 +260,7 @@ The historical packing change left score accumulators and aggregation alone; lat
 BED intervals are normalized with bounded buffers.
 Gene identifiers resolve once against shared gene-coordinate-catalog lookup state; selected gene-coordinate-catalog indices and complete row audits are staged per source.
 Direct BED/gene projection prepares only the active execution batch, builds each query on each chromosome, and closes that private batch owner before advancing.
+Each execution batch reuses the query statuses resolved for the run instead of resolving every query again, and projection reads only the shard's `POS` metadata.
 Global source resolution, duplicate cleanup, coverage/support gates, and the shared baseline/control remain outside that loop.
 A fixed gene control, when requested by direct/indexed LD scoring, belongs to the shared baseline group.
 
@@ -428,10 +429,12 @@ Process startup, IPC, and one native thread per worker have costs; extra workers
 
 ## Immutable gene LD-score index access
 
-[`LoadedGeneLDScoreIndex`](../../../src/ldsc/_ldscore/gene_index/build.py) retains gene-coordinate-catalog and settings metadata, chromosome component paths, and compact support summaries.
+[`LoadedGeneLDScoreIndex`](../../../src/ldsc/_ldscore/gene_index/scoring.py) retains gene-coordinate-catalog and settings metadata, chromosome component paths, and compact support summaries.
 Integrity validation loads and releases one chromosome at a time.
 Assembly uses `_ldscore/gene_index/batches.py` with one active query batch and a persistent chromosome-worker pool.
+A task receives a small chromosome loader (`LoadedGeneLDScoreIndex.chromosome_loader()`) and, for each query in the batch, that chromosome's included gene rows, which the parent resolves once per batch; tasks receive neither the gene coordinate catalog nor the gene-list batch.
 Each task reloads its chromosome operator, writes lossless float64 Parquet for that batch, and returns only compact counts, overlap blocks, and exact variation summaries.
+Query scores are filled column-major by row blocks of the operator product, which leaves each row's arithmetic unchanged and lets Arrow use each query column without a copy.
 The coordinator reduces those summaries in index order and applies the shared query-status policy before narrowing values.
 [`_ldscore.fragments.write_query_fragments`](../../../src/ldsc/_ldscore/fragments.py) validates, converts, and writes one chromosome at a time, deleting each consumed fragment.
 There is no genome-wide query concatenation or retained-column copy in this path.
@@ -458,12 +461,15 @@ The [index mathematics](../../reference/methods/gene-ldscore-index-math.md) defi
 It then traverses the genotype blocks again for each atom batch, retaining the resulting float64 sparse operator blocks until their final horizontal assembly.
 Atom batching bounds the active dense projection but does not bound the complete chromosome operator or the final assembly copies.
 This builder also explicitly reads its chromosome baseline matrix into float64.
+Common-SNP atom overlaps multiply the baseline by a common-row indicator instead of a copied common-row baseline, adding the same rows in the same order.
+Each construction task receives only its own chromosome's genetic-map rows.
 These are remaining large allocations, not eliminated by compressed NPZ storage.
 Construction workers stage components and return `StagedIndexChromosome` descriptors rather than sending full operators through process IPC.
 
 Later indexed query runs amortize that genotype work through sparse operator-by-selector multiplication.
 The immutable index fixes the reference SNPs, baseline, gene geometry, output rows, and LD-window settings; live overrides would invalidate reuse and remain rejected.
 Loading validates components one chromosome at a time without caching every operator.
+Each reload checks identity drops from the identity keys and genomic order in one pass, and content digests hash their canonical text in row chunks with the same digest.
 Within scoring, the persistent process pool avoids repeated process startup, but each chromosome task reloads its operator for the active query batch.
 This deliberate extra reading/validation trades CPU and I/O for a bounded fragment backlog and shorter operator/array lifetimes.
 The complete [index contract](../../reference/gene-ldscore-index.md) and [`test_gene_index_streaming.py`](../../../tests/ldscore/test_gene_index_streaming.py) cover ownership and numerical behavior.
@@ -473,6 +479,7 @@ The complete [index contract](../../reference/gene-ldscore-index.md) and [`test_
 Query concurrency defaults to one worker.
 `_regression.partitioned_parallel._QueryWorkers` reuses whole-model workers across loading batches, with 1 BLAS thread per worker.
 Shared numerical columns and each active query batch use dtype-preserving read-only maps.
+Only the columns a fit reads (LD scores, weights, `Z`, `N`, `SNP`, and the panel coordinates) are staged for workers, and the parent does not map them.
 Nonnumeric columns and compact model metadata are loaded from private snapshots.
 Each task carries its query name, column descriptor, and a unique fit directory.
 Workers stage complete model results and return compact outcomes.
@@ -492,8 +499,12 @@ No chromosome-wise regression estimates are substituted for the genome-wide mode
 
 `_dataset_from_query_values()` builds each model frame from borrowed aligned columns without concatenating or resetting copies of the baseline.
 Zero-variance column removal preserves those shared values.
-`_fit_h2_dataset()` slices only when the chi-square filter removes rows, then materializes the numerical design once.
-The kernel reuses its own normalized/weighted design buffers only when the result dtype is preserved, including promotion from float32 inputs to float64 weights.
+Baseline LD-score variances are computed once per trait and reused by every query model's zero-variance check.
+`_fit_h2_dataset()` fills the numerical design column by column from the rows the chi-square filter keeps, without first copying the aligned frame.
+The design keeps the column-major layout `DataFrame.to_numpy()` gives, because the BLAS reductions, and so the bitwise results, depend on layout.
+Per-query partitioned fits keep no filtered frame; their summaries need only the fitted SNP count.
+The kernel scales a multi-column float64 design with a free intercept directly into its intercept buffer, in the same layout.
+Otherwise it reuses its own normalized/weighted design buffers only when the result dtype is preserved, including promotion from float32 inputs to float64 weights.
 Shared inputs remain read-only throughout fitting.
 
 `estimate_partitioned_h2_batch(..., output_dir=..., query_batch_size=100)` writes each completed fit's per-annotation table, float64 coefficient delete values, and metadata privately through [`stage_partitioned_h2_fit()`](../../../src/ldsc/_regression/outputs.py), then releases estimator details.

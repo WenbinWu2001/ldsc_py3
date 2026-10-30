@@ -63,7 +63,6 @@ from .._core.columns import (
 from ..config import GlobalConfig, MungeConfig, normalize_trait_name, get_global_config
 from ..errors import (
     LDSCConfigError,
-    LDSCDependencyError,
     LDSCInputError,
     LDSCUsageError,
     LDSCUserError,
@@ -1933,15 +1932,8 @@ def _write_sumstats_parquet(
     its ``ldsc:*`` identity keys are merged into the Parquet schema footer so the
     file is self-describing downstream.
     """
-    try:
-        import pyarrow as pa
-        import pyarrow.parquet as pq
-    except ImportError as exc:
-        raise LDSCDependencyError(
-            "munge-sumstats needs the 'pyarrow' package to write Parquet output, but it is not installed. "
-            "Most likely Parquet output was requested in an environment missing pyarrow. "
-            "Install it (pip install pyarrow) or choose --output-format tsv.gz."
-        ) from exc
+    import pyarrow as pa
+    import pyarrow.parquet as pq
 
     frame = _prepare_sumstats_parquet_frame(data)
     schema = pa.Schema.from_pandas(frame, preserve_index=False)

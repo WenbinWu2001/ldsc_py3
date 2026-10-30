@@ -39,7 +39,7 @@ from .._core.snp_identity import (
     normalize_snp_identifier_mode,
 )
 from .build_kernel import PairColumns
-from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError, LDSCUsageError
+from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from .windows import _LDWindowSpec, _format_ld_window_spec, _requested_ld_window_spec
 
 _LDSCORE_PARQUET_DOC = "docs/user-guide/troubleshooting.md#ldscore-r2-matrix-is-incompatible"
@@ -224,15 +224,8 @@ def read_r2_parquet_contracts(paths: Sequence) -> list[R2ParquetContract]:
 
 def _check_r2_parquet_contract(path) -> tuple[R2ParquetContract | None, list[str]]:
     """Return the parsed contract of one R2 Parquet file, or ``None`` and its defects."""
-    try:
-        import pyarrow as pa
-        import pyarrow.parquet as pq
-    except ImportError as exc:
-        raise LDSCDependencyError(
-            "Reading R2 matrices requires pyarrow. Most likely "
-            "R2 matrix input was requested in an environment missing pyarrow. "
-            "Install pyarrow or use PLINK reference-panel input instead."
-        ) from exc
+    import pyarrow as pa
+    import pyarrow.parquet as pq
 
     try:
         schema = pq.read_schema(str(path))
@@ -451,14 +444,7 @@ class SortedR2BlockReader:
             renamed[optional_cm] = "CM"
         metadata = metadata.rename(columns=renamed)
 
-        try:
-            import pyarrow.parquet as pq
-        except ImportError as exc:
-            raise LDSCDependencyError(
-                "ldscore could not read R2 matrix input because pyarrow is not installed. "
-                "Most likely R2 matrix input was requested in an environment missing pyarrow. "
-                "Install pyarrow or use PLINK reference-panel input instead."
-            ) from exc
+        import pyarrow.parquet as pq
 
         self.contract = read_r2_parquet_contract(paths[0])
 
@@ -693,15 +679,8 @@ def write_r2_parquet(
     """
 
     _ensure_parent_dir(path)
-    try:
-        import pyarrow as pa
-        import pyarrow.parquet as pq
-    except ImportError as exc:
-        raise LDSCDependencyError(
-            "build-r2-matrix could not write R2 Parquet files because pyarrow is not installed. "
-            "Most likely R2 matrix generation was requested in an environment missing pyarrow. "
-            "Install pyarrow and rerun build-r2-matrix."
-        ) from exc
+    import pyarrow as pa
+    import pyarrow.parquet as pq
 
     if int(n_snps) >= 2**31:
         raise LDSCInputError(

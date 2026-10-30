@@ -35,7 +35,7 @@ import pandas as pd
 
 from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from ..config import get_global_config
-from ..errors import LDSCDependencyError, LDSCInputError
+from ..errors import LDSCInputError
 from .._runtime.paths import ensure_output_directory, normalize_path_token, preflight_output_artifact_family
 
 
@@ -116,9 +116,6 @@ def plot_result(
     LDSCInputError
         If source metadata or the selected numerical table violates the
         plotting contract.
-    LDSCDependencyError
-        If the required Matplotlib dependency cannot be imported from the
-        active environment.
     FileExistsError
         If a fixed plot artifact exists and ``overwrite`` is ``False``.
 
@@ -392,16 +389,8 @@ def _select_contract(metadata: dict[str, Any]) -> _PlotContract:
 
 
 def _load_builders():
-    try:
-        from . import builders as _builders
-    except ImportError as exc:
-        if exc.name == "matplotlib" or (exc.name and exc.name.startswith("matplotlib.")):
-            raise LDSCDependencyError(
-                "Plotting requires Matplotlib, which is a required LDSC3 dependency. "
-                "Repair the active environment with `pip install 'matplotlib>=3.9,<4'`, "
-                "then rerun the command."
-            ) from exc
-        raise
+    from . import builders as _builders
+
     return _builders
 
 

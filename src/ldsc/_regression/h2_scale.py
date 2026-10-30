@@ -35,7 +35,7 @@ import pandas as pd
 from .estimators import liability_conversion_factor
 from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from ..config import get_global_config
-from ..errors import LDSCDependencyError, LDSCInputError, LDSCUsageError
+from ..errors import LDSCInputError, LDSCUsageError
 from .._runtime.paths import (
     ensure_output_directory,
     normalize_path_token,
@@ -142,10 +142,6 @@ def convert_h2_scale(
     LDSCUsageError
         If prevalence arguments are missing, mutually incompatible, outside
         ``(0, 1)``, or define an invalid sensitivity grid.
-    LDSCDependencyError
-        If sensitivity mode is requested and the required Matplotlib
-        dependency cannot be imported from the active environment. Exact mode
-        does not import Matplotlib.
     FileExistsError
         If a fixed conversion artifact exists and ``overwrite`` is ``False``.
 
@@ -461,16 +457,11 @@ def _population_prevalence_grid(
 
 
 def _load_pyplot():
-    try:
-        import matplotlib
+    import matplotlib
 
-        matplotlib.use("Agg", force=True)
-        import matplotlib.pyplot as pyplot
-    except ImportError as exc:
-        raise LDSCDependencyError(
-            "Prevalence-range conversion requires Matplotlib, which is a required LDSC dependency. "
-            "Repair the active environment with `pip install 'matplotlib>=3.9,<4'`, then rerun the command."
-        ) from exc
+    matplotlib.use("Agg", force=True)
+    import matplotlib.pyplot as pyplot
+
     return pyplot
 
 

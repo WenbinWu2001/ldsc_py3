@@ -533,7 +533,7 @@ Saved fit coefficients, counts, overlaps, and delete values support quantile ana
 Figure-producing paths import Matplotlib lazily, avoiding its startup work for non-plotting calls.
 
 Multi-trait `estimate_rg_pairs()` prepares each trait once per run: it projects a legacy input once, checks all genome builds together once, and keys a trait's rows for a merge on first use.
-Keyed rows are kept per effective SNP identifier mode and downgrade cleanup, so each trait holds at most two keyed copies: one under the LD-score directory's mode and one under its base mode for downgraded pairs; the baseline LD scores are keyed the same way once per run.
+Keyed rows are kept per effective SNP identifier mode and downgrade cleanup, so each trait holds at most two keyed copies: one for merges in the LD-score directory's mode and one for downgraded merges, which run in its base mode after cleanup; the baseline LD scores are keyed the same way once per run.
 Each pair's merged dataset is still built separately inside that pair's error handling, so a keying error in a downgraded pair fails only that pair.
 It computes the standalone per-trait heritability summaries once per trait; those are distinct from the pair-specific fits on pair-specific SNP intersections.
 There is no all-pairs merged-data cache or substitution of one trait's full-support fit for a pair-specific estimate.

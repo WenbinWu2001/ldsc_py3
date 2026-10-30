@@ -362,7 +362,8 @@ class _PreparedTraitSumstats:
     ``legacy_drops`` rows with reason ``nonfinite_statistic``. Rows keyed
     for a merge are built on first use and cached per effective SNP identifier
     mode and downgrade cleanup, so a trait shared by many rg pairs is keyed at
-    most twice: under the LD-score directory's mode and under its base mode.
+    most twice: once for merges in the LD-score directory's mode and once for
+    downgraded merges, which run in its base mode after cleanup.
     """
 
     table: SumstatsTable

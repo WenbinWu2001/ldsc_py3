@@ -545,7 +545,7 @@ class WorkflowConfigTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             MungeConfig(sumstats_file="sumstats/trait.tsv.gz")
         with self.assertRaises(TypeError):
-            RefPanelConfig(plink_path="plink/panel")
+            RefPanelConfig(backend="plink", plink_path="plink/panel")
 
 
 class IdentifierHelpersTest(unittest.TestCase):

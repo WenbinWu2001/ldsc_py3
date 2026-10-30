@@ -120,9 +120,18 @@ def _validate_r2_identity_matches_config(metadata: dict[str, object], global_con
 
 class RefPanel(ABC):
     """Abstract chromosome-scoped reference-panel interface."""
+    _backend: str
+
     def __init__(self, global_config: GlobalConfig, spec: RefPanelConfig) -> None:
         """Store shared configuration without chromosome payload caches."""
         validate_auto_genome_build_mode(global_config.snp_identifier, global_config.genome_build)
+        if spec.backend != self._backend:
+            raise LDSCConfigError(
+                f"{type(self).__name__} cannot use RefPanelConfig(backend={spec.backend!r}). "
+                "Most likely the configuration was written for the other reference-panel form. "
+                f"Pass RefPanelConfig(backend={self._backend!r}, ...), or let RefPanelLoader.load choose "
+                "the adapter from the configuration."
+            )
         self.global_config = global_config
         self.spec = spec
 
@@ -237,6 +246,7 @@ class PlinkRefPanel(RefPanel):
     repeated discovery for workflow-validated inputs. Direct Python use resolves
     and caches the same mapping lazily from BIM contents.
     """
+    _backend = "plink"
 
     def __init__(self, global_config: GlobalConfig, spec: RefPanelConfig, *,
                  chromosome_prefixes: dict[str, str] | None = None) -> None:
@@ -421,6 +431,8 @@ class R2MatrixRefPanel(RefPanel):
     is a hard error. The paired R2 Parquet file (``chrN_r2.parquet``) stores only
     sidecar-row indices and is meaningless without the exact matching sidecar.
     """
+    _backend = "r2_matrix"
+
     def available_chromosomes(self) -> list[str]:
         """List chromosomes from explicit config, R2 matrix directory, sidecars, or R2 Parquet files."""
         if self.spec.chromosomes is not None:
@@ -674,23 +686,15 @@ def _r2_matrix_dir_metadata_paths(r2_matrix_dir: str | Path, *, genome_build: st
 
 class RefPanelLoader:
     """Instantiate the backend requested by a :class:`RefPanelConfig`."""
-    def __init__(self, global_config: GlobalConfig, ref_panel_config: RefPanelConfig | None = None) -> None:
-        """Store shared configuration for future backend instantiation."""
+    def __init__(self, global_config: GlobalConfig) -> None:
+        """Store the shared configuration used for every loaded panel."""
         self.global_config = global_config
-        self.ref_panel_config = ref_panel_config or RefPanelConfig()
 
     def load(self, ref_panel_spec: RefPanelConfig) -> RefPanel:
-        """Return a concrete reference-panel adapter for ``ref_panel_spec``."""
+        """Return the adapter that ``ref_panel_spec.backend`` names."""
         global_config = self._global_config_for_spec(ref_panel_spec)
-        backend = ref_panel_spec.backend
-        if backend == "plink":
-            return PlinkRefPanel(global_config, ref_panel_spec)
-        if backend == "r2_matrix":
-            return R2MatrixRefPanel(global_config, ref_panel_spec)
-        raise LDSCConfigError(
-            f"Unsupported reference-panel backend {backend!r}. Most likely a Python "
-            "caller supplied an invalid RefPanelConfig backend. Use `plink` or `r2_matrix`."
-        )
+        adapter = PlinkRefPanel if ref_panel_spec.backend == "plink" else R2MatrixRefPanel
+        return adapter(global_config, ref_panel_spec)
 
     def _global_config_for_spec(self, ref_panel_spec: RefPanelConfig) -> GlobalConfig:
         """Validate direct Python build declarations before backend loading."""

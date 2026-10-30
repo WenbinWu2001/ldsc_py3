@@ -9,7 +9,7 @@ import pytest
 
 
 from ldsc.config import GlobalConfig, RefPanelConfig
-from ldsc.errors import LDSCInputError
+from ldsc.errors import LDSCConfigError, LDSCInputError
 from ldsc._refpanel.adapters import (
     R2MatrixRefPanel,
     PlinkRefPanel,
@@ -88,9 +88,24 @@ def _write_meta_sidecar(
         handle.write(rows)
 
 
+class RefPanelBackendTest(unittest.TestCase):
+    def test_backend_is_required_and_has_no_auto_value(self):
+        with self.assertRaises(TypeError):
+            RefPanelConfig(plink_prefix=str(PLINK_PREFIX))
+        with self.assertRaisesRegex(LDSCConfigError, "backend"):
+            RefPanelConfig(backend="auto", plink_prefix=str(PLINK_PREFIX))
+
+    def test_adapters_reject_a_config_for_the_other_backend(self):
+        config = GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")
+        with self.assertRaisesRegex(LDSCConfigError, "PlinkRefPanel.*backend='r2_matrix'"):
+            PlinkRefPanel(config, RefPanelConfig(backend="r2_matrix", r2_matrix_dir="/path/to/panel/hg38"))
+        with self.assertRaisesRegex(LDSCConfigError, "R2MatrixRefPanel.*backend='plink'"):
+            R2MatrixRefPanel(config, RefPanelConfig(backend="plink", plink_prefix=str(PLINK_PREFIX)))
+
+
 class RefPanelLoaderTest(unittest.TestCase):
     def test_loader_selects_plink_backend(self):
-        loader = RefPanelLoader(GlobalConfig(snp_identifier="rsid"), RefPanelConfig())
+        loader = RefPanelLoader(GlobalConfig(snp_identifier="rsid"))
         spec = RefPanelConfig(backend="plink", plink_prefix=str(PLINK_PREFIX))
         panel = loader.load(spec)
         self.assertIsInstance(panel, PlinkRefPanel)
@@ -110,7 +125,7 @@ class RefPanelLoaderTest(unittest.TestCase):
                     RefPanelConfig(backend="r2_matrix", **{name: "/path/to/panel/hg38"})
 
     def test_loader_selects_parquet_backend(self):
-        loader = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RefPanelConfig())
+        loader = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
         spec = RefPanelConfig(backend="r2_matrix", chromosomes=("1",))
         panel = loader.load(spec)
         self.assertIsInstance(panel, R2MatrixRefPanel)
@@ -119,10 +134,7 @@ class RefPanelLoaderTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             restriction = Path(tmpdir) / "snps.tsv"
             restriction.write_text("CHR\tHG38_POS\n1\t10\n", encoding="utf-8")
-            loader = RefPanelLoader(
-                GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="auto"),
-                RefPanelConfig(),
-            )
+            loader = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="auto"))
 
             resolved = loader._global_config_for_spec(
                 RefPanelConfig(backend="plink", ref_panel_snps_file=str(restriction))

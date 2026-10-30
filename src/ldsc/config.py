@@ -49,7 +49,7 @@ SNPIdentifierMode = Literal["rsid", "rsid_allele_aware", "chr_pos", "chr_pos_all
 GenomeBuildInput = Literal["auto", "hg19", "hg37", "hg38", "GRCh37", "GRCh38"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 LOG_LEVEL_CHOICES: tuple[LogLevel, ...] = ("DEBUG", "INFO", "WARNING", "ERROR")
-RefPanelBackend = Literal["auto", "plink", "r2_matrix"]
+RefPanelBackend = Literal["plink", "r2_matrix"]
 
 
 class ConfigMismatchError(LDSCConfigError, ValueError):
@@ -433,9 +433,10 @@ class RefPanelConfig:
 
     Parameters
     ----------
-    backend : {"auto", "plink", "r2_matrix"}, optional
-        Backend family used to supply LD reference information. Default is
-        ``"auto"``.
+    backend : {"plink", "r2_matrix"}
+        Reference-panel form: PLINK genotypes or an R2 matrix. Required; it
+        must match the adapter, ``PlinkRefPanel`` or ``R2MatrixRefPanel``, and
+        ``RefPanelLoader.load`` chooses the adapter from it.
     plink_prefix : str or os.PathLike[str] or None, optional
         Exact PLINK ``.bed/.bim/.fam`` prefix, plain chromosome-suite stem,
         glob, or explicit ``@`` suite token. Default is ``None``.
@@ -451,7 +452,7 @@ class RefPanelConfig:
         Optional path to a one-column IID keep file applied in PLINK mode before
         genotype-derived MAF is computed. Default is ``None``.
     """
-    backend: RefPanelBackend = "auto"
+    backend: RefPanelBackend
     plink_prefix: str | PathLike[str] | None = None
     r2_matrix_dir: str | PathLike[str] | None = None
     chromosomes: tuple[str, ...] | list[str] | None = None
@@ -463,8 +464,8 @@ class RefPanelConfig:
 
     def __post_init__(self) -> None:
         """Normalize backend path tokens and validate R2-matrix settings."""
-        if self.backend not in {"auto", "plink", "r2_matrix"}:
-            raise LDSCConfigError(_invalid_choice_message("RefPanelConfig", "backend", self.backend, "'auto', 'plink', or 'r2_matrix'"))
+        if self.backend not in {"plink", "r2_matrix"}:
+            raise LDSCConfigError(_invalid_choice_message("RefPanelConfig", "backend", self.backend, "'plink' or 'r2_matrix'"))
         if self.maf_min is not None and not 0 <= self.maf_min <= 0.5:
             raise LDSCConfigError(_range_message("RefPanelConfig", "maf_min", self.maf_min, "[0, 0.5]"))
         object.__setattr__(self, "plink_prefix", _normalize_optional_path(self.plink_prefix))

@@ -1,6 +1,6 @@
 # Using LDSC3 from Python
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-29
 
 This page collects the Python API for each workflow in the user guide.
 Each section below assumes the setup described here and links back to the workflow page that explains the analysis.
@@ -490,12 +490,14 @@ To read selected query columns genome-wide, `read_queries()` is simpler.
 For a small calculation that fits in one query batch, `LDScoreCalculator.run(..., output_config=None)` computes LD scores from prepared in-memory inputs and writes no annotation, diagnostic, log or output files; it may still read existing reference-panel files.
 
 ```python
-from ldsc import AnnotationBundle, GlobalConfig, LDScoreCalculator, LDScoreConfig
+from ldsc import (
+    AnnotationBundle, GlobalConfig, LDScoreCalculator, LDScoreConfig, PlinkRefPanel, RefPanelConfig,
+)
 
 if __name__ == "__main__":
     config = GlobalConfig(snp_identifier="rsid", genome_build="hg19")
     # metadata, baseline_values and query_values are aligned in-memory DataFrames.
-    # ref_panel is an already-configured PlinkRefPanel or R2MatrixRefPanel.
+    ref_panel = PlinkRefPanel(config, RefPanelConfig(backend="plink", plink_prefix="1000G.EUR.QC.@"))
     with AnnotationBundle.from_frames(
         metadata, baseline_values, query_values, config_snapshot=config,
     ) as annotations:
@@ -506,6 +508,8 @@ if __name__ == "__main__":
     # result.query_table and the in-memory diagnostics remain available after the block.
 ```
 
+- `RefPanelConfig.backend` is required and must match the adapter: `backend="plink"` with `plink_prefix` for `PlinkRefPanel`, or `backend="r2_matrix"` with `r2_matrix_dir` for `R2MatrixRefPanel`.
+  `RefPanelLoader(config).load(spec)` chooses the adapter from `backend`; an adapter given a configuration for the other form raises `LDSCConfigError`.
 - `metadata` must contain `CHR`, a one-based integer `POS`, and `SNP` for an rsID-family mode; supply both `A1` and `A2` or neither.
 - The frames align by position; annotation values must be finite numbers, and annotation names must be unique and differ from the metadata columns.
 - `from_frames()` stores columns of exact 0/1 values as binary and copies other columns as float32; reads always return float32.

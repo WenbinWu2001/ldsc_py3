@@ -77,7 +77,7 @@ def prepare_synthetic_base(panel, config, workspace):
             continue
         root = workspace.path/f'base-{chrom}'
         root.mkdir()
-        metadata = metadata.rename(columns={'BP':'POS'})
+        metadata = metadata.rename(columns={'BP':'POS'}, copy=False)
         columns = ['CHR','SNP','CM','POS',*[c for c in ('A1','A2') if c in metadata]]
         metadata.loc[:,columns].to_parquet(root/'metadata.parquet',index=False)
         values = ColumnStore.create(root/'values.npy',len(metadata),['base'],dtype=bool)

@@ -346,7 +346,10 @@ class LDScoreResult:
                 raise LDSCInputError("LD-score result has no query table.")
             return None
         metadata = [name for name in ("CHR", "SNP", "POS", "A1", "A2") if name in self.query_table]
-        return self.query_table.loc[:, metadata + list(columns)].reset_index(drop=True)
+        selected = self.query_table.loc[:, metadata + list(columns)]
+        if not isinstance(selected.index, pd.RangeIndex) or selected.index.start != 0:
+            selected = selected.reset_index(drop=True)
+        return selected
 
 
 def _log_annotation_classification(result):
@@ -587,8 +590,13 @@ class LDScoreCalculator:
         annotation_types: dict[str, str] | None = None,
         identity_drops: TsvDiagnostics | None = None,
     ) -> ChromLDScoreResult:
-        """Convert one kernel chromosome result into the typed public result."""
-        reference_metadata = chrom_result.metadata.reset_index(drop=True).copy()
+        """Convert one kernel chromosome result into the typed public result.
+
+        The kernel's metadata is already a private frame with a RangeIndex. The
+        baseline and query tables are column subsets of one sorted table, so
+        their rows match by construction and need no row comparison.
+        """
+        reference_metadata = chrom_result.metadata
         ld_scores = pd.DataFrame(chrom_result.ld_scores, columns=list(chrom_result.ldscore_columns))
         ld_regression_snps = frozenset(build_snp_id_series(reference_metadata, global_config.snp_identifier))
         metadata_columns = ["CHR", "SNP", "POS", *[column for column in ("A1", "A2") if column in reference_metadata.columns]]
@@ -597,9 +605,10 @@ class LDScoreCalculator:
             [
                 reference_metadata.loc[:, metadata_columns],
                 ld_scores,
-                pd.DataFrame({REGRESSION_LD_SCORE_COLUMN: regression_weights}),
+                pd.DataFrame({REGRESSION_LD_SCORE_COLUMN: regression_weights}, copy=False),
             ],
             axis=1,
+            copy=False,
         )
         ldscore_table = sort_frame_by_genomic_position(ldscore_table)
         count_map = {
@@ -635,7 +644,6 @@ class LDScoreCalculator:
             identity_drops=identity_drops,
             annotation_types=dict(annotation_types or {}),
         )
-        result.validate()
         return result
 
     def _aggregate_chromosome_results(
@@ -732,27 +740,11 @@ class LDScoreCalculator:
                 query_fragments=tuple(result.query_fragment for result in ordered if result.query_fragment is not None),
                 query_statuses=(), gene_list_batch=None, chromosome_scope={}, index_provenance={}, **shared,
             )
-        merged_table = pd.concat(
-            [
-                _join_split_tables(
-                    result.baseline_table,
-                    result.query_table,
-                    result.query_columns,
-                    snp_identifier=getattr(result.config_snapshot, "snp_identifier", global_config.snp_identifier),
-                )
-                for result in chromosome_results
-            ],
-            axis=0,
-            ignore_index=True,
-        )
-        merged_table = sort_frame_by_genomic_position(merged_table)
-        _assert_canonical_maf(merged_table)
-        baseline_table, query_table = _split_ldscore_table(
-            merged_table,
-            baseline_columns=list(chromosome_results[0].baseline_columns),
-            query_columns=list(chromosome_results[0].query_columns),
-            snp_identifier=global_config.snp_identifier,
-        )
+        baseline_table = concat_chromosome_tables([(result.chrom, result.baseline_table) for result in chromosome_results])
+        _assert_canonical_maf(baseline_table)
+        query_table = None
+        if query_columns:
+            query_table = concat_chromosome_tables([(result.chrom, result.query_table) for result in chromosome_results])
         result = LDScoreResult(
             baseline_table=baseline_table,
             query_table=query_table,
@@ -949,7 +941,10 @@ def _split_ldscore_table(
             "a kernel result omitted expected baseline annotation scores. Re-run with DEBUG "
             "logging and report the traceback."
         )
-    baseline_table = ldscore_table.loc[:, baseline_order].reset_index(drop=True).copy()
+    if not isinstance(ldscore_table.index, pd.RangeIndex) or ldscore_table.index.start != 0:
+        ldscore_table = ldscore_table.reset_index(drop=True)
+    # Both tables are column selections (copies) of one frame, so their rows match.
+    baseline_table = ldscore_table.loc[:, baseline_order]
     query_table = None
     if query_columns:
         missing_query = [column for column in query_order if column not in ldscore_table.columns]
@@ -960,34 +955,8 @@ def _split_ldscore_table(
                 "a kernel result omitted expected query annotation scores. Re-run with DEBUG "
                 "logging and report the traceback."
             )
-        query_table = ldscore_table.loc[:, query_order].reset_index(drop=True).copy()
-        assert_same_snp_rows(
-            baseline_table,
-            query_table,
-            context="query rows must match baseline rows on CHR/SNP/POS",
-            snp_identifier=snp_identifier,
-        )
+        query_table = ldscore_table.loc[:, query_order]
     return baseline_table, query_table
-
-
-def _join_split_tables(
-    baseline_table: pd.DataFrame,
-    query_table: pd.DataFrame | None,
-    query_columns: Sequence[str],
-    *,
-    snp_identifier: str = "chr_pos_allele_aware",
-) -> pd.DataFrame:
-    """Join split LD-score tables for sorting or regression assembly."""
-    if query_table is None:
-        return baseline_table.copy()
-    assert_same_snp_rows(
-        baseline_table,
-        query_table,
-        context="query rows must match baseline rows on CHR/SNP/POS",
-        snp_identifier=snp_identifier,
-    )
-    query_values = query_table.loc[:, list(query_columns)].reset_index(drop=True)
-    return pd.concat([baseline_table.reset_index(drop=True), query_values], axis=1)
 
 
 def _count_records_from_totals(

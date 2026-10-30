@@ -188,6 +188,7 @@ def write_ldscore_batches(writer, results, output_config, query_status_order=())
                 close()
     from .source import load_ldscore_from_dir
     from .._annotation.gene_query_storage import persistent_gene_diagnostics
+    shared.baseline_table = None  # the reload below reads the published baseline
     source = load_ldscore_from_dir(str(root))
     paths = {key: str(value) for key, value in family.paths.items()}
     return replace(source, output_paths=paths, query_statuses=shared.query_statuses,

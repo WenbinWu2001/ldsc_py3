@@ -365,9 +365,12 @@ def compute_chromosome(
     """
     metadata = prepared.metadata
     regression_selected = regression_mask_from_keys(metadata, regression_keys, snp_identifier)
-    regression_mask = regression_mask_from_keys(
-        metadata, regression_keys, snp_identifier, region_intervals=regression_regions,
-    )
+    regression_mask = regression_selected
+    if regression_regions is not None and regression_regions.intervals:
+        # The same membership with excluded regions removed, without matching the keys again.
+        keep = regression_selected.astype(bool) & np.asarray(
+            region_exclusion_keep_mask(metadata, regression_regions), dtype=bool)
+        regression_mask = keep.astype(np.float32)
     output_rows = np.flatnonzero(regression_mask)
     n_baseline = len(prepared.baseline_columns)
     annotations = (prepared.annotations if include_baseline

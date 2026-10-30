@@ -91,30 +91,35 @@ class LDScoreOverlap:
 
 
 def overlap_to_long_frame(overlap: LDScoreOverlap) -> pd.DataFrame:
-    """Flatten the baseline-rows block plus query diagonal into long/tidy rows."""
-    rows = []
-    block_all = overlap.baseline_block_all
-    block_common = overlap.baseline_block_common
-    for row_name in block_all.index:
-        for col_name in block_all.columns:
-            rows.append({
-                "row_annotation": row_name,
-                "col_annotation": col_name,
-                "overlap_all_snps": float(block_all.at[row_name, col_name]),
-                "overlap_common_snps": (
-                    None if block_common is None else float(block_common.at[row_name, col_name])
-                ),
-            })
-    for q in overlap.query_diagonal_all.index:
-        rows.append({
-            "row_annotation": q,
-            "col_annotation": q,
-            "overlap_all_snps": float(overlap.query_diagonal_all.at[q]),
-            "overlap_common_snps": (
-                None if overlap.query_diagonal_common is None else float(overlap.query_diagonal_common.at[q])
-            ),
-        })
-    return pd.DataFrame(rows, columns=["row_annotation", "col_annotation", "overlap_all_snps", "overlap_common_snps"])
+    """Flatten the baseline-rows block plus query diagonal into long/tidy rows.
+
+    Rows run over the block row by row, then over the query diagonal. A missing
+    common-SNP part is ``None`` (an all-``None`` object column when no common
+    blocks exist, ``NaN`` beside common values otherwise).
+    """
+    columns = ["row_annotation", "col_annotation", "overlap_all_snps", "overlap_common_snps"]
+    block_all, block_common = overlap.baseline_block_all, overlap.baseline_block_common
+    diagonal_all, diagonal_common = overlap.query_diagonal_all, overlap.query_diagonal_common
+    n_rows, n_cols = block_all.shape
+    if n_rows * n_cols + len(diagonal_all) == 0:
+        return pd.DataFrame([], columns=columns)
+    queries = diagonal_all.index.to_numpy(dtype=object)
+
+    def common_part(values, size):
+        return np.full(size, None, dtype=object) if values is None else np.asarray(values, dtype=np.float64).ravel()
+
+    common = [common_part(None if block_common is None else block_common.to_numpy(dtype=np.float64), n_rows * n_cols),
+              common_part(None if diagonal_common is None else diagonal_common.to_numpy(dtype=np.float64), len(queries))]
+    common_values = (np.concatenate(common) if block_common is None and diagonal_common is None
+                     else np.concatenate([np.asarray(part, dtype=np.float64) if part.dtype != object
+                                          else np.full(len(part), np.nan) for part in common]))
+    return pd.DataFrame({
+        "row_annotation": np.concatenate([np.repeat(block_all.index.to_numpy(dtype=object), n_cols), queries]),
+        "col_annotation": np.concatenate([np.tile(block_all.columns.to_numpy(dtype=object), n_rows), queries]),
+        "overlap_all_snps": np.concatenate([block_all.to_numpy(dtype=np.float64).ravel(),
+                                            diagonal_all.to_numpy(dtype=np.float64)]),
+        "overlap_common_snps": common_values,
+    }, columns=columns)
 
 
 def _clean_block(pivoted: pd.DataFrame, baseline_columns: list[str], all_columns: list[str]) -> pd.DataFrame:

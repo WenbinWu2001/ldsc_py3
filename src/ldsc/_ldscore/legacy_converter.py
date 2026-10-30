@@ -387,6 +387,7 @@ class LegacyLDScoreConverter:
             selected_files.extend((reference_path, weight_path, common_path))
 
         baseline = pd.concat(frames, ignore_index=True)
+        frames.clear()
         if baseline.empty:
             raise LDSCInputError(
                 "Legacy reference and weight suites have an empty genome-wide rsID intersection. "
@@ -427,7 +428,7 @@ class LegacyLDScoreConverter:
             baseline_columns=["base"],
             query_columns=[],
             ld_reference_snps=frozenset(),
-            ld_regression_snps=frozenset(baseline["SNP"].astype(str)),
+            ld_regression_snps=frozenset(),  # not written; the published directory is reloaded for use
             chromosome_results=[],
             count_config=dict(_COUNT_CONFIG),
             config_snapshot=GlobalConfig(snp_identifier=mode, genome_build=effective_build),
@@ -521,9 +522,10 @@ class LegacyLDScoreConverter:
             _validate_global_source_ids(
                 frequency["SNP"], seen_frequency, "frequency", frequency_path, chrom
             )
-            frequency_payload = frequency.loc[:, ["SNP", freq_column]].copy()
+            frequency_payload = frequency.loc[:, ["SNP", freq_column]]
+            # Only SNP and the frequency are read from the join, so join on the SNP column alone.
             annotation_with_frequency = pd.merge(
-                annotation,
+                annotation.loc[:, ["SNP"]],
                 frequency_payload,
                 how="left",
                 on="SNP",
@@ -561,9 +563,11 @@ class LegacyLDScoreConverter:
                     )
                 )
 
-            matrix = annotation.loc[:, [column_mapping[column] for column in reference_columns]].to_numpy(
-                dtype=float
-            )
+            # Fill the float64 matrix column by column in the column-major layout that
+            # DataFrame.to_numpy() returns, so sums and products see the same memory order.
+            matrix = np.empty((len(annotation), len(reference_columns)), dtype=float, order="F")
+            for index, column in enumerate(reference_columns):
+                matrix[:, index] = annotation[column_mapping[column]].to_numpy(dtype=float)
             frequency_values = annotation_with_frequency[freq_column].to_numpy(dtype=float)
             if freq_column.upper() == "MAF":
                 common_mask = frequency_values > 0.05
@@ -631,6 +635,7 @@ class LegacyLDScoreConverter:
             )
 
         baseline = pd.concat(frames, ignore_index=True)
+        frames.clear()
         if baseline.empty:
             raise LDSCInputError(
                 "Legacy reference and weight suites have an empty genome-wide rsID intersection. "
@@ -682,7 +687,7 @@ class LegacyLDScoreConverter:
             baseline_columns=list(reference_columns),
             query_columns=[],
             ld_reference_snps=frozenset(seen_annotations),
-            ld_regression_snps=frozenset(baseline["SNP"].astype(str)),
+            ld_regression_snps=frozenset(),  # not written; the published directory is reloaded for use
             chromosome_results=[],
             count_config=dict(_COUNT_CONFIG),
             config_snapshot=GlobalConfig(snp_identifier=mode, genome_build=effective_build),
@@ -1295,9 +1300,9 @@ def _join_reference_weight(
     chrom: int,
     issues: list[dict[str, object]],
 ) -> pd.DataFrame:
-    ref = reference.loc[:, ["CHR", "SNP", "BP", *reference_columns]].copy()
-    wgt = weight.loc[:, ["CHR", "SNP", "BP", weight_column]].copy().rename(
-        columns={"CHR": "weight_CHR", "BP": "weight_BP", weight_column: "regression_ld_scores"}
+    ref = reference.loc[:, ["CHR", "SNP", "BP", *reference_columns]]
+    wgt = weight.loc[:, ["CHR", "SNP", "BP", weight_column]].rename(
+        columns={"CHR": "weight_CHR", "BP": "weight_BP", weight_column: "regression_ld_scores"}, copy=False
     )
     ref_ids = set(ref["SNP"].astype(str))
     weight_ids = set(wgt["SNP"].astype(str))
@@ -1322,7 +1327,7 @@ def _join_reference_weight(
             )
         )
     return merged.loc[:, ["CHR", "BP", "SNP", "regression_ld_scores", *reference_columns]].rename(
-        columns={"BP": "POS"}
+        columns={"BP": "POS"}, copy=False
     )
 
 
@@ -1374,7 +1379,7 @@ def _resolve_output_coordinates(
     declaration assumes one-based coordinates and performs no conversion.
     rsID output carries no coordinate build and requires no inference.
     """
-    output = frame.copy()
+    output = frame.copy(deep=False)  # the 0-based branch below replaces POS in this frame only
     from .._genome.build_policy import GenomeBuildCheck
     check = build_check or GenomeBuildCheck(build_hint, context='convert-legacy-ldscores', logger=LOGGER)
     if build_check is None and mode != "rsid":
@@ -1406,12 +1411,21 @@ def _resolve_output_coordinates(
 
 
 def _sort_baseline(frame: pd.DataFrame) -> pd.DataFrame:
-    ordered = frame.copy()
-    ordered["CHR"] = ordered["CHR"].astype(str)
-    ordered["POS"] = pd.to_numeric(ordered["POS"], errors="raise").astype("int64")
-    ordered["_chrom_order"] = pd.to_numeric(ordered["CHR"], errors="coerce")
-    ordered = ordered.sort_values(["_chrom_order", "POS", "SNP"], kind="mergesort").drop(columns="_chrom_order")
-    return ordered.reset_index(drop=True)
+    """Return rows ordered by numeric chromosome, POS and SNP, with string CHR and int64 POS.
+
+    Only the three sort keys are sorted; the full table is copied once by the
+    resulting row permutation.
+    """
+    chrom = frame["CHR"].astype(str)
+    pos = pd.to_numeric(frame["POS"], errors="raise").astype("int64")
+    keys = pd.DataFrame({"_chrom_order": pd.to_numeric(chrom, errors="coerce").to_numpy(), "POS": pos.to_numpy(),
+                         "SNP": frame["SNP"].to_numpy()})
+    order = keys.sort_values(["_chrom_order", "POS", "SNP"], kind="mergesort").index.to_numpy()
+    ordered = frame.take(order)
+    ordered["CHR"] = chrom.to_numpy()[order]
+    ordered["POS"] = pos.to_numpy()[order]
+    ordered.index = pd.RangeIndex(len(ordered))
+    return ordered
 
 
 def _build_provenance(

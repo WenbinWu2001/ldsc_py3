@@ -312,23 +312,39 @@ class LDScoreSource:
                 )
             return None
         metadata = None
-        values = []
+        values = {}
+        frames = 0
         for batch in self.query_batches:
             selected = [name for name in dict.fromkeys(columns) if name in batch["query_columns"]]
             if not selected:
                 continue
             identity = [name for name in ("CHR", "SNP", "POS", "A1", "A2") if name in batch["schema"]]
             frame = pd.read_parquet(batch["path"], columns=[*identity, *selected])
-            current = frame.loc[:, identity]
             if metadata is None:
-                metadata = current
+                metadata = frame.loc[:, identity]
             else:
-                assert_same_snp_rows(metadata, current, context="selected query batch files must have identical SNP rows",
+                assert_same_snp_rows(metadata, frame.loc[:, identity],
+                                     context="selected query batch files must have identical SNP rows",
                                      snp_identifier=self.snp_identifier)
-            values.append(frame.loc[:, selected])
+            values.update((name, frame[name]) for name in selected)
+            frames += 1
         if metadata is None:
             return self.query_metadata.copy()
-        return pd.concat([metadata, pd.concat(values, axis=1).loc[:, columns]], axis=1)
+        if frames == 1 and len(set(columns)) == len(columns):
+            # One file read in the requested order is already the selection.
+            return frame
+        return pd.concat([metadata, *(values[name] for name in columns)], axis=1)
+
+
+def _same_identity_rows(identities: pd.DataFrame, baseline: pd.DataFrame) -> bool:
+    """Return whether every identity column equals the baseline column exactly, row by row."""
+    if len(identities) != len(baseline) or not set(identities.columns) <= set(baseline.columns):
+        return False
+    for column in identities.columns:
+        left, right = baseline[column].to_numpy(), identities[column].to_numpy()
+        if not ((left == right) | (pd.isna(left) & pd.isna(right))).all():
+            return False
+    return True
 
 
 def load_ldscore_from_dir(
@@ -436,11 +452,13 @@ def load_ldscore_from_dir(
     for entry in query_batches:
         identities = pd.read_parquet(entry["path"], columns=[
             name for name in ("CHR", "SNP", "POS", "A1", "A2") if name in entry["schema"]])
-        validate_ldscore_allele_columns(
-            identities,
-            table_name="query_table",
-            snp_identifier=effective_identifier,
-        )
+        # Rows identical to the validated baseline rows need no second allele check.
+        if not _same_identity_rows(identities, baseline_table):
+            validate_ldscore_allele_columns(
+                identities,
+                table_name="query_table",
+                snp_identifier=effective_identifier,
+            )
         if query_table is None:
             query_table = identities
         del identities

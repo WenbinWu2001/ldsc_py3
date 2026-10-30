@@ -53,7 +53,7 @@ def ref_metadata_file(chrom: str) -> str:
 def _cast_parquet_floats(df: pd.DataFrame) -> pd.DataFrame:
     """Return a parquet-ready frame with float64 columns narrowed to float32."""
     float64_cols = [c for c in df.columns if df[c].dtype == np.float64]
-    return df.astype({c: np.float32 for c in float64_cols}) if float64_cols else df
+    return df.astype({c: np.float32 for c in float64_cols}, copy=False) if float64_cols else df
 
 
 def _write_chromosome_aligned_parquet(

@@ -1,12 +1,11 @@
 from __future__ import annotations
-from tests.annotation_fixtures import resolve_gene_fixture, fixture_gene_audit
+from tests.annotation_fixtures import resolve_gene_fixture
 
 from dataclasses import replace as dataclass_replace
 from pathlib import Path
 import json
 import tempfile
 import unittest
-import warnings
 from types import SimpleNamespace
 
 import pandas as pd
@@ -1223,4 +1222,3 @@ class FixedOutputDirectoryTest(unittest.TestCase):
 
             with self.assertRaisesRegex(module.LDSCInputError, "config_snapshot"):
                 module.SumstatsMunger().write_output(table, tmpdir)
-

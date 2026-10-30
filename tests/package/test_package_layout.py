@@ -1,14 +1,11 @@
 from pathlib import Path
-import runpy
 import tempfile
 import subprocess
 import sys
 import unittest
-import warnings
 from unittest import mock
 
 import pandas as pd
-
 
 
 class PackageLayoutTest(unittest.TestCase):
@@ -534,4 +531,3 @@ print(ldsc.__file__)
                 cli.main(["build-r2-matrix", "--help"])
 
         self.assertEqual(exc.exception.code, 0)
-

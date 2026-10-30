@@ -42,7 +42,6 @@ from ldsc._ldscore.gene_index.build import (
 from ldsc._ldscore.gene_index.artifact import calculate_index_id, IndexChromosomeData
 from ldsc._annotation.gene_lists import GeneCatalog, GeneCatalogValidationError
 from ldsc._ldscore.calculator import LDScoreCalculator
-from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 
 
 def load_gene_ldscore_index(path):

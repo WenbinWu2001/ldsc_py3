@@ -1,17 +1,15 @@
-from pathlib import Path
 import unittest
 import warnings
 
 
 from ldsc._core import columns as ci
-from ldsc._core import snp_identity
 from ldsc._core.columns import (
     POS_COLUMN_SPEC,
     resolve_restriction_chr_pos_columns,
     resolve_restriction_rsid_column,
     resolve_required_column,
 )
-from ldsc.errors import LDSCConfigError, LDSCInputError
+from ldsc.errors import LDSCInputError
 
 
 class ColumnInferenceTest(unittest.TestCase):

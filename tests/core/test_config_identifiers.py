@@ -1,9 +1,7 @@
 from pathlib import Path
-import importlib
 import tempfile
 import unittest
 import warnings
-from unittest import mock
 
 import pandas as pd
 
@@ -28,7 +26,6 @@ from ldsc._core.identifiers import (
     infer_chr_pos_columns,
     infer_snp_column,
     normalize_chromosome,
-    normalize_snp_identifier_mode,
     read_global_snp_restriction,
     read_snp_restriction_keys,
     validate_unique_snp_ids,

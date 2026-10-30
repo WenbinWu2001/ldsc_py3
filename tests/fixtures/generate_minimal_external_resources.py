@@ -14,7 +14,7 @@ from typing import Iterable
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKSPACE_ROOT = REPO_ROOT.parent
-SOURCE_PREFIX = WORKSPACE_ROOT / "resources" / "example_1kg_30x" / "genomes_30x_chr22"
+SOURCE_PREFIX = WORKSPACE_ROOT / "resources" / "example_1kg_30x_PLINK" / "genomes_30x_chr22"
 SOURCE_HG19_MAP = (
     WORKSPACE_ROOT
     / "resources"

@@ -457,5 +457,3 @@ def test_cli_threads_defaults_to_one():
     parser = build_parser()
     args = parser.parse_args(["--output-dir", "x", "--ld-wind-cm", "1"])
     assert _ldscore_config_from_args(args).workers == 1
-
-

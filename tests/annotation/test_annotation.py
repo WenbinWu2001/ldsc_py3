@@ -6,7 +6,6 @@ import io
 import json
 import tempfile
 import unittest
-from unittest import mock
 
 import numpy as np
 import pandas as pd
@@ -1192,4 +1191,3 @@ class AnnotationWrapperTest(unittest.TestCase):
             ]) as result:
                 self.assertEqual(result.config_snapshot.genome_build, "hg19")
                 self.assertEqual(result.read("2", columns=["query"]).ravel().tolist(), [1] * 500)
-

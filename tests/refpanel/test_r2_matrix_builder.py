@@ -2547,8 +2547,6 @@ class RefPanelOutputFamilyTest(unittest.TestCase):
 class R2MatrixBuilderSourceOnlySmokeTest(unittest.TestCase):
     def test_hm3_chr22_subset_builds_source_only_without_liftover_chain_or_map(self):
         prefix = MINIMAL_EXTERNAL_FIXTURES / "plink" / "hm3_chr22_subset"
-        if not (Path(str(prefix) + ".bed").exists() and Path(str(prefix) + ".bim").exists() and Path(str(prefix) + ".fam").exists()):
-            self.skipTest("minimal chr22 PLINK fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             build_result = r2_matrix_builder.run_build_r2_matrix(
@@ -2578,8 +2576,6 @@ class R2MatrixBuilderSourceOnlySmokeTest(unittest.TestCase):
 
     def test_hm3_chr22_subset_sidecar_is_canonical_a1_minor(self):
         prefix = MINIMAL_EXTERNAL_FIXTURES / "plink" / "hm3_chr22_subset"
-        if not (Path(str(prefix) + ".bed").exists() and Path(str(prefix) + ".bim").exists() and Path(str(prefix) + ".fam").exists()):
-            self.skipTest("minimal chr22 PLINK fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             build_result = r2_matrix_builder.run_build_r2_matrix(
@@ -2602,8 +2598,6 @@ class R2MatrixBuilderSourceOnlySmokeTest(unittest.TestCase):
         from ldsc._core.snp_identity import sidecar_identity_sha256
 
         prefix = MINIMAL_EXTERNAL_FIXTURES / "plink" / "hm3_chr22_subset"
-        if not (Path(str(prefix) + ".bed").exists() and Path(str(prefix) + ".bim").exists() and Path(str(prefix) + ".fam").exists()):
-            self.skipTest("minimal chr22 PLINK fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             build_result = r2_matrix_builder.run_build_r2_matrix(
@@ -2636,12 +2630,8 @@ class R2MatrixBuilderParityTest(unittest.TestCase):
             self.skipTest("resources directory is not available from this workspace")
 
         prefix = MINIMAL_EXTERNAL_FIXTURES / "plink" / "hm3_chr22_subset"
-        if not (Path(str(prefix) + ".bed").exists() and Path(str(prefix) + ".bim").exists() and Path(str(prefix) + ".fam").exists()):
-            self.skipTest("minimal chr22 PLINK fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
 
         map_hg38 = MINIMAL_EXTERNAL_FIXTURES / "genetic_maps" / "genetic_map_hg38_chr22_subset.txt"
-        if not map_hg38.exists():
-            self.skipTest("minimal hg38 genetic-map fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             build_result = r2_matrix_builder.run_build_r2_matrix(
@@ -2676,12 +2666,8 @@ class R2MatrixBuilderParityTest(unittest.TestCase):
             self.skipTest("resources directory is not available from this workspace")
 
         prefix = MINIMAL_EXTERNAL_FIXTURES / "plink" / "hm3_chr22_subset"
-        if not (Path(str(prefix) + ".bed").exists() and Path(str(prefix) + ".bim").exists() and Path(str(prefix) + ".fam").exists()):
-            self.skipTest("minimal chr22 PLINK fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
 
         map_hg38 = MINIMAL_EXTERNAL_FIXTURES / "genetic_maps" / "genetic_map_hg38_chr22_subset.txt"
-        if not map_hg38.exists():
-            self.skipTest("minimal hg38 genetic-map fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
 
         real_bed = r2_matrix_builder.PlinkBEDFile
         live_refs: list[weakref.ref] = []
@@ -2726,12 +2712,8 @@ class R2MatrixBuilderParityTest(unittest.TestCase):
             self.skipTest("resources directory is not available from this workspace")
 
         prefix = MINIMAL_EXTERNAL_FIXTURES / "plink" / "hm3_chr22_subset"
-        if not (Path(str(prefix) + ".bed").exists() and Path(str(prefix) + ".bim").exists() and Path(str(prefix) + ".fam").exists()):
-            self.skipTest("minimal chr22 PLINK fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
 
         map_hg38 = MINIMAL_EXTERNAL_FIXTURES / "genetic_maps" / "genetic_map_hg38_chr22_subset.txt"
-        if not map_hg38.exists():
-            self.skipTest("minimal hg38 genetic-map fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with self.assertRaisesRegex(LDSCUsageError, "cannot emit hg19.*hg19 genetic map was not supplied"):
@@ -2753,13 +2735,9 @@ class R2MatrixBuilderParityTest(unittest.TestCase):
             self.skipTest("resources directory is not available from this workspace")
 
         prefix = MINIMAL_EXTERNAL_FIXTURES / "plink" / "hm3_chr22_subset"
-        if not (Path(str(prefix) + ".bed").exists() and Path(str(prefix) + ".bim").exists() and Path(str(prefix) + ".fam").exists()):
-            self.skipTest("minimal chr22 PLINK fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
 
         map_hg19 = MINIMAL_EXTERNAL_FIXTURES / "genetic_maps" / "genetic_map_hg19_chr22_subset.txt"
         map_hg38 = MINIMAL_EXTERNAL_FIXTURES / "genetic_maps" / "genetic_map_hg38_chr22_subset.txt"
-        if not (map_hg19.exists() and map_hg38.exists()):
-            self.skipTest("minimal genetic-map fixtures are unavailable; run tests/fixtures/generate_minimal_external_resources.py")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -2828,13 +2806,9 @@ class R2MatrixBuilderParityTest(unittest.TestCase):
             self.skipTest("resources directory is not available from this workspace")
 
         prefix = MINIMAL_EXTERNAL_FIXTURES / "plink" / "hm3_chr22_subset"
-        if not (Path(str(prefix) + ".bed").exists() and Path(str(prefix) + ".bim").exists() and Path(str(prefix) + ".fam").exists()):
-            self.skipTest("minimal chr22 PLINK fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
 
         map_hg19 = MINIMAL_EXTERNAL_FIXTURES / "genetic_maps" / "genetic_map_hg19_chr22_subset.txt"
         map_hg38 = MINIMAL_EXTERNAL_FIXTURES / "genetic_maps" / "genetic_map_hg38_chr22_subset.txt"
-        if not (map_hg19.exists() and map_hg38.exists()):
-            self.skipTest("minimal genetic-map fixtures are unavailable; run tests/fixtures/generate_minimal_external_resources.py")
 
         chain = resources / "liftover" / "hg38ToHg19.over.chain"
 
@@ -3038,16 +3012,6 @@ class SidecarIdentityHashTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Region exclusion behavior test (Task 7)
 # ---------------------------------------------------------------------------
-_CHR22 = Path(__file__).resolve().parents[1] / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
-
-
-def _chr22_available() -> bool:
-    return all(Path(str(_CHR22) + ext).exists() for ext in (".bed", ".bim", ".fam"))
-
-
-def _read_meta(path) -> pd.DataFrame:
-    with gzip.open(path, "rt", encoding="utf-8") as handle:
-        return pd.read_csv(handle, sep="\t", comment="#")
 
 
 # --- Allele orientation canonicalization (A1 = minor allele) ---------------

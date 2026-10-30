@@ -169,5 +169,3 @@ def test_annotation_loader_rejects_missing_or_non_numeric_values(tmp_path, name,
     for expected in (path.name, column, count, "one field per header column", "NA",
                      "numeric, non-missing annotation values"):
         assert expected in message
-
-

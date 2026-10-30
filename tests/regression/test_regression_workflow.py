@@ -1,4 +1,4 @@
-from tests.annotation_fixtures import build_annotation_fixture, make_annotation_bundle, fixture_metadata, fixture_values, fixture_ids
+from tests.annotation_fixtures import make_annotation_bundle
 import argparse
 import contextlib
 from dataclasses import replace
@@ -10,7 +10,6 @@ import math
 from pathlib import Path
 import tempfile
 import unittest
-import warnings
 from unittest import mock
 
 import numpy as np
@@ -28,7 +27,6 @@ from ldsc import cli
 from ldsc._regression import runner as regression_runner
 from ldsc._regression.runner import RegressionRunner
 from ldsc._sumstats.munger import SumstatsTable
-from ldsc._annotation.builder import AnnotationBundle
 
 
 @contextlib.contextmanager
@@ -2409,11 +2407,12 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(parsed.count_kind, "all")
         self.assertEqual(parsed.log_level, "DEBUG")
         with self.assertRaises(SystemExit):
-            parser.parse_args(["--ldscore", "x", "--counts", "m", "--sumstats-file", "trait.sumstats.gz"])
+            parser.parse_args(["--ldscore", "x", "--sumstats-file", "trait.sumstats.gz", "--output-dir", "out"])
         with self.assertRaises(SystemExit):
-            parser.parse_args(["--ldscore-dir", "ldscores", "--sumstats", "trait.sumstats.gz"])
+            parser.parse_args(["--ldscore-dir", "ldscores", "--sumstats", "trait.sumstats.gz", "--output-dir", "out"])
         with self.assertRaises(SystemExit):
-            parser.parse_args(["--ldscore-dir", "ldscores", "--sumstats-file", "trait.sumstats.gz", "--count-kind", "m_5_50"])
+            parser.parse_args(["--ldscore-dir", "ldscores", "--sumstats-file", "trait.sumstats.gz", "--output-dir", "out",
+                               "--count-kind", "m_5_50"])
 
     def test_partitioned_h2_arguments_accept_summary_sort_by(self):
         parser = argparse.ArgumentParser()
@@ -2451,6 +2450,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "ldscores",
                     "--sumstats-file",
                     "trait.sumstats.gz",
+                    "--output-dir",
+                    "out",
                     "--summary-sort-by",
                     "prop_h2",
                 ]
@@ -2498,10 +2499,13 @@ class RegressionWorkflowTest(unittest.TestCase):
                 [
                     "--ldscore-dir",
                     "ldscores",
+                    "--sumstats-sources",
+                    "a.sumstats.gz",
+                    "b.sumstats.gz",
+                    "--output-dir",
+                    "out",
                     "--sumstats-1-file",
                     "a.sumstats.gz",
-                    "--sumstats-2-file",
-                    "b.sumstats.gz",
                 ]
             )
         with self.assertRaises(SystemExit):
@@ -2512,6 +2516,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "--sumstats-sources",
                     "a.sumstats.gz",
                     "b.sumstats.gz",
+                    "--output-dir",
+                    "out",
                     "--anchor-trait-file",
                     "a.sumstats.gz",
                 ]

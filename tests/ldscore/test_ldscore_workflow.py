@@ -1,6 +1,6 @@
 from __future__ import annotations
 from ldsc._runtime.serial_calculation import serial_calculation
-from tests.annotation_fixtures import build_annotation_fixture, make_annotation_bundle, fixture_metadata, fixture_values, fixture_ids, replace_fixture_queries
+from tests.annotation_fixtures import build_annotation_fixture, make_annotation_bundle, fixture_metadata, fixture_values, replace_fixture_queries
 
 from tests.ref_panel_helpers import compute_plink, write_tiny_plink
 
@@ -15,7 +15,6 @@ from types import SimpleNamespace
 import tempfile
 import unittest
 from unittest import mock
-import warnings
 
 import numpy as np
 import pandas as pd
@@ -1961,7 +1960,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
             pd.testing.assert_frame_equal(pd.read_parquet(result.output_paths['baseline']),result.baseline_table)
 
 
-
     def test_run_ldscore_from_args_resolves_annotation_and_plink_suites(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -2119,8 +2117,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
             with self.assertRaisesRegex(LDSCInputError,
                     r'no reference SNPs on the annotation SNP grid for chromosome 1 \(1 annotation rows, 2 reference-panel SNPs\)'):
                 ldscore_workflow.run_ldscore_from_args(build_parser().parse_args(argv))
-
-
 
 
     @unittest.skipUnless(_HAS_BITARRAY, "bitarray is not installed")
@@ -2733,13 +2729,6 @@ def test_ldscore_region_build_uses_genome_build_and_requires_it_for_rsid():
         GlobalConfig(snp_identifier="rsid"),
         (),
     ) is None
-
-
-_CHR22 = Path(__file__).resolve().parents[1] / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
-
-
-def _chr22_available() -> bool:
-    return all(Path(str(_CHR22) + ext).exists() for ext in (".bed", ".bim", ".fam"))
 
 
 def test_regression_region_mask_leaves_reference_counts_and_ld_contributors_intact():

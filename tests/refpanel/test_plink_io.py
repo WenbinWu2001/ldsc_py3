@@ -2,7 +2,6 @@ from pathlib import Path
 import tempfile
 import gzip
 import unittest
-from unittest import mock
 
 import numpy as np
 from numpy.testing import assert_array_almost_equal, assert_array_equal
@@ -200,20 +199,6 @@ class IndexParquetRuntimeTest(unittest.TestCase):
             identifier_mode="rsid",
             genome_build=genome_build,
         )
-
-    def _four_snp_panel(self):
-        return self._panel_meta(["rs1", "rs2", "rs3", "rs4"], [100, 120, 140, 160])
-
-    def _four_snp_reader_meta(self):
-        return self._reader_meta(["rs1", "rs2", "rs3", "rs4"], [100, 120, 140, 160])
-
-    def _four_snp_pairs(self):
-        return [
-            {"i": 0, "j": 1, "R2": 0.4, "sign": "+"},
-            {"i": 0, "j": 2, "R2": 0.2, "sign": "+"},
-            {"i": 1, "j": 2, "R2": 0.6, "sign": "+"},
-            {"i": 2, "j": 3, "R2": 0.5, "sign": "+"},
-        ]
 
     def test_index_init_raises_on_build_mismatch(self):
         with tempfile.TemporaryDirectory() as tmpdir:

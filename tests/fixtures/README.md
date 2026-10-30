@@ -1,10 +1,10 @@
 # Test Fixtures
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-29
 
 The default suite keeps fixture data small and purpose-specific.
 
-- `annotation`: tiny annotation and frequency fixtures used by annotation tests.
+- `annotation`: a tiny annotation fixture used by annotation tests.
 - `plink`: 5-individual/8-SNP PLINK fixture for low-level PLINK I/O.
 - `minimal_external_resources`: 32-SNP chromosome 22 subset generated from the local 1KG 30x resources by intersecting source BIM hg38 positions with the packaged `hm3_chr_pos_reference.tsv.gz`.
 

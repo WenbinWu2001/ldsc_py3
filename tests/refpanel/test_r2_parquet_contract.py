@@ -24,8 +24,6 @@ from ldsc._refpanel.adapters import R2MatrixRefPanel
 from ldsc._core.snp_identity import sidecar_identity_sha256
 from ldsc._refpanel.query import R2Matrix
 
-ANCHOR = "docs/user-guide/troubleshooting.md#ldscore-r2-matrix-is-incompatible"
-
 
 def _write_panel(root: Path, chrom: str = "1", *, snp_identifier: str = "chr_pos_allele_aware") -> Path:
     """Write one package-format chromosome (sidecar + R2 parquet) with the real writers."""

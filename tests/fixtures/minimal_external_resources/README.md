@@ -1,5 +1,7 @@
 # Minimal External Resource Fixtures
 
+Last updated on: 2026-10-29
+
 These fixtures are a small, deterministic subset of the local 1KG 30x
 chromosome 22 reference-panel resources. They exist so parity tests exercise the
 same PLINK, genetic-map, liftover, parquet, and LD-score code paths without
@@ -14,7 +16,7 @@ python tests/fixtures/generate_minimal_external_resources.py
 Selection rule:
 
 - take chromosome 22 positions from `src/ldsc/data/hm3_chr_pos_reference.tsv.gz`
-- intersect those hg38 positions with `resources/example_1kg_30x/genomes_30x_chr22.bim`
+- intersect those hg38 positions with `resources/example_1kg_30x_PLINK/genomes_30x_chr22.bim`
 - keep the first 32 matching SNPs in source order
 - copy the matching SNP records from the SNP-major PLINK `.bed`
 - write small hg19/hg38 genetic-map slices bracketing the selected positions

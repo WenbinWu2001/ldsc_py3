@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import ldsc._refpanel.build_kernel as kernel_builder
 from ldsc._refpanel.r2_format import write_r2_parquet, write_runtime_metadata_sidecar
 from ldsc._core.snp_identity import sidecar_identity_sha256
 from ldsc._refpanel.query import unbiased_r2_to_pearson_r

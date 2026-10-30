@@ -518,7 +518,7 @@ def apply_sumstats_liftover(
         source_duplicate_result.report,
         workflow_label="Summary-statistics liftover",
     )
-    work = work.loc[source_duplicate_result.keep_mask].copy()
+    work = work.take(np.flatnonzero(source_duplicate_result.keep_mask))
     if len(work) == 0:
         _raise_sumstats_all_dropped(
             source=source,
@@ -568,8 +568,9 @@ def apply_sumstats_liftover(
         workflow_label="Summary-statistics liftover",
     )
     if target_duplicate_count:
-        lifted = lifted.loc[target_duplicate_result.keep_mask].copy()
-    lifted = lifted.drop(columns=["_ldsc_source_POS"], errors="ignore").reset_index(drop=True)
+        lifted = lifted.take(np.flatnonzero(target_duplicate_result.keep_mask))
+    lifted = lifted.drop(columns=["_ldsc_source_POS"], errors="ignore")
+    lifted.index = pd.RangeIndex(len(lifted))
     if len(lifted) == 0:
         _raise_sumstats_all_dropped(
             source=source,
@@ -750,7 +751,8 @@ def _apply_hm3_liftover(
     source_column = f"{source_build}_POS"
     target_column = f"{request.target_build}_POS"
     lookup = mapping.loc[:, ["CHR", source_column, target_column]].rename(columns={source_column: "POS"})
-    joined = frame.merge(lookup, on=["CHR", "POS"], how="left", sort=False)
+    # Only the target positions are needed from the map; merge the keys alone.
+    joined = frame.loc[:, ["CHR", "POS"]].merge(lookup, on=["CHR", "POS"], how="left", sort=False)
     unmapped = joined[target_column].isna()
     unmapped_mask = unmapped.to_numpy(dtype=bool)
     drop_frame = _liftover_drop_frame(
@@ -770,7 +772,7 @@ def _apply_hm3_liftover(
             ),
             workflow_label="Summary-statistics liftover",
         )
-    lifted = frame.loc[~unmapped_mask].copy()
+    lifted = frame.take(np.flatnonzero(~unmapped_mask))
     lifted["POS"] = joined.loc[~unmapped, target_column].to_numpy(dtype=np.int64)
     return lifted, int(unmapped.sum()), drop_frame
 

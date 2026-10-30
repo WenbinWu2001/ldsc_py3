@@ -592,8 +592,10 @@ class SumstatsMunger:
             # clean run from a missing or stale dropped-SNP artifact.
             _write_sumstats_dropped_snps_sidecar(drop_frame, dropped_snps_path)
             _log_sumstats_dropped_snps_summary(drop_frame, dropped_snps_path)
+            if not (isinstance(data.index, pd.RangeIndex) and data.index.start == 0 and data.index.step == 1):
+                data = data.reset_index(drop=True)
             table = SumstatsTable(
-                data=data.reset_index(drop=True),
+                data=data,
                 has_alleles={"A1", "A2"}.issubset(data.columns),
                 source_path=source_path,
                 trait_name=raw_sumstats_config.trait_name,
@@ -1815,13 +1817,13 @@ def _sumstats_output_files(
 
 def _prepare_curated_sumstats_frame(data: pd.DataFrame) -> pd.DataFrame:
     """Return a copy with fixed summary-statistics output columns and coordinate placeholders."""
-    frame = data.copy()
-    if "CHR" not in frame.columns:
-        frame["CHR"] = pd.NA
-    if "POS" not in frame.columns:
-        frame["POS"] = pd.NA
-    columns = [col for col in ("SNP", "CHR", "POS", "A1", "A2", "Z", "N", "FRQ") if col in frame.columns]
-    return frame.loc[:, columns]
+    columns = [col for col in ("SNP", "CHR", "POS", "A1", "A2", "Z", "N", "FRQ")
+               if col in data.columns or col in ("CHR", "POS")]
+    frame = data.loc[:, [col for col in columns if col in data.columns]]
+    for col in ("CHR", "POS"):
+        if col not in frame.columns:
+            frame.insert(columns.index(col), col, pd.NA)
+    return frame
 
 
 def _prepare_sumstats_parquet_frame(data: pd.DataFrame) -> pd.DataFrame:
@@ -1834,7 +1836,6 @@ def _prepare_sumstats_parquet_frame(data: pd.DataFrame) -> pd.DataFrame:
     missing-coordinate row group.
     """
     frame = _prepare_curated_sumstats_frame(data)
-    frame["_ldsc_original_order"] = range(len(frame))
     chr_missing = coordinate_missing_mask(frame["CHR"])
     pos_missing = coordinate_missing_mask(frame["POS"])
     pos_numeric = pd.to_numeric(frame["POS"], errors="coerce")
@@ -1859,21 +1860,19 @@ def _prepare_sumstats_parquet_frame(data: pd.DataFrame) -> pd.DataFrame:
         ).astype(object)
         frame.loc[complete, "POS"] = complete_pos.astype("int64")
 
-    frame["_ldsc_missing_coordinate"] = ~complete
-    frame["_ldsc_pos_sort"] = pos_numeric.where(complete, pd.NA)
-    frame["_ldsc_chrom_rank"] = 10_000
+    # Sort a frame of the keys alone, then take the rows once.
+    keys = pd.DataFrame({"missing": ~complete, "pos": pos_numeric.where(complete, pd.NA)})
+    keys["rank"] = 10_000
     if complete.any():
         unique_chroms = pd.unique(frame.loc[complete, "CHR"])
         rank_map = {chrom: chrom_sort_key(chrom)[1] for chrom in unique_chroms}
-        frame.loc[complete, "_ldsc_chrom_rank"] = frame.loc[complete, "CHR"].map(rank_map).astype("int64")
-
-    frame = frame.sort_values(
-        by=["_ldsc_missing_coordinate", "_ldsc_chrom_rank", "_ldsc_pos_sort", "_ldsc_original_order"],
-        kind="mergesort",
-    ).reset_index(drop=True)
-    return frame.drop(
-        columns=["_ldsc_original_order", "_ldsc_missing_coordinate", "_ldsc_pos_sort", "_ldsc_chrom_rank"]
-    )
+        keys.loc[complete, "rank"] = frame.loc[complete, "CHR"].map(rank_map).astype("int64")
+    keys["order"] = range(len(frame))
+    keys.index = pd.RangeIndex(len(keys))
+    order = keys.sort_values(by=["missing", "rank", "pos", "order"], kind="mergesort").index.to_numpy()
+    frame = frame.take(order)
+    frame.index = pd.RangeIndex(len(frame))
+    return frame
 
 
 def _write_sumstats_tsv_gz(data: pd.DataFrame, path: str) -> None:

@@ -22,7 +22,7 @@ No input configuration is mutated and no artifacts are written here.
 import logging
 from collections import Counter
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 import pandas as pd
@@ -44,12 +44,12 @@ from .._core.identifiers import (
 from .._genome.liftover import SumstatsLiftoverRequest, apply_sumstats_liftover
 from .._core.snp_identity import (
     RestrictionIdentityKeys,
+    _combine_base_and_allele_keys,
     allele_set_series,
     base_key_series,
     clean_identity_artifact_table,
     identity_mode_family,
     is_allele_aware_mode,
-    restriction_membership_mask,
 )
 
 LOGGER = logging.getLogger("LDSC.sumstats_munger.kernel")
@@ -67,10 +67,23 @@ class _SumstatsRestriction:
     n_rows_before_filter: int = 0
     n_usable_row_identifiers: int = 0
     n_rows_kept: int = 0
+    _key_indexes: dict = field(default_factory=dict, repr=False, compare=False)
 
     @property
     def n_rows_removed(self):
         return self.n_rows_before_filter - self.n_rows_kept
+
+    def key_index(self, kind):
+        """Return the allele-aware keep-list keys as an Index, built once per run.
+
+        ``"identity"`` gives the matching keys and ``"base"`` their base keys
+        without alleles; membership is ``get_indexer(...) >= 0``.
+        """
+        if kind not in self._key_indexes:
+            keys = (self.identity_keys.keys if kind == "identity"
+                    else _restriction_base_key_universe(self.identity_keys))
+            self._key_indexes[kind] = pd.Index(list(keys), dtype=object)
+        return self._key_indexes[kind]
 
 
 @dataclass(frozen=True)
@@ -282,7 +295,10 @@ def parse_dat(dat_gen, request: ResolvedMungeInput) -> _ParsedChunks:
                 raw_col for raw_col in dat.columns
                 if convert_colname[raw_col] not in {'INFO', 'CHR', 'POS', 'A1', 'A2'}
             ]
-            dat = dat.dropna(axis=0, how="any", subset=required_raw_cols).reset_index(drop=True)
+            complete = dat[required_raw_cols].notna().all(axis=1).to_numpy()
+            if not complete.all():
+                dat = dat.take(np.flatnonzero(complete))
+            dat.index = pd.RangeIndex(len(dat))
             drops['NA'] += old - len(dat)
             dat = _coerce_info_list_columns(dat, request.info_list_columns)
             dat.columns = map(lambda x: convert_colname[x], dat.columns)
@@ -303,7 +319,7 @@ def parse_dat(dat_gen, request: ResolvedMungeInput) -> _ParsedChunks:
                 if len(dat) == 0:
                     continue
 
-            ii = np.array([True for i in range(len(dat))])
+            ii = np.ones(len(dat), dtype=bool)
             if qc.info_min is not None:
                 old = ii.sum()
                 ii &= filter_info(dat['INFO'], qc, warning_counts=warning_counts)
@@ -319,7 +335,8 @@ def parse_dat(dat_gen, request: ResolvedMungeInput) -> _ParsedChunks:
                 old = new
 
             old = ii.sum()
-            dat.drop(columns=['INFO'], errors='ignore', inplace=True)
+            if 'INFO' in dat.columns:
+                del dat['INFO']
             ii &= filter_pvals(dat.P, warning_counts=warning_counts)
             new = ii.sum()
             drops['P'] += old - new
@@ -331,14 +348,15 @@ def parse_dat(dat_gen, request: ResolvedMungeInput) -> _ParsedChunks:
             if ii.sum() == 0:
                 continue
 
-            retained = dat[ii].reset_index(drop=True)
+            retained = dat if ii.all() else dat.take(np.flatnonzero(ii))
+            retained.index = pd.RangeIndex(len(retained))
             retained = _filter_sumstats_chunk_to_restriction(retained, restriction, request.source_path)
             if len(retained) == 0:
                 continue
 
-            dat_list.append(retained.reset_index(drop=True))
+            dat_list.append(retained)
 
-    dat = pd.concat(dat_list, axis=0).reset_index(drop=True) if dat_list else pd.DataFrame()
+    dat = pd.concat(dat_list, axis=0, ignore_index=True) if dat_list else pd.DataFrame()
     msg = (
         f"Read {tot_snps} input SNP rows from --raw-sumstats-file.\n"
         f"Removed {drops['NA']} SNPs with missing values.\n"
@@ -446,7 +464,9 @@ def _filter_sumstats_chunk_to_restriction(dat, restriction, source_path):
     restriction.n_rows_before_filter += old
     restriction.n_usable_row_identifiers += int(usable_mask.sum())
     restriction.n_rows_kept += kept
-    return dat.loc[keep].reset_index(drop=True)
+    retained = dat.take(np.flatnonzero(keep.to_numpy(dtype=bool)))
+    retained.index = pd.RangeIndex(len(retained))
+    return retained
 
 
 def _filter_allele_aware_chunk_to_identity_restriction(dat, restriction, source_path):
@@ -457,44 +477,26 @@ def _filter_allele_aware_chunk_to_identity_restriction(dat, restriction, source_
     dropped-SNP sidecar reports identity-specific reasons.  For membership
     matching, use only the chunk rows that can produce effective identity keys.
     """
-    original_row_column = '_ldsc_original_chunk_row'
-    work = dat.copy()
-    work[original_row_column] = range(len(work))
-    _, allele_reasons = allele_set_series(
-        work,
-        context=f"--sumstats-snps-file filtering for {source_path}",
-    )
-    matchable = work.loc[allele_reasons.isna()].copy()
-    if len(matchable) > 0:
-        keep_matchable = restriction_membership_mask(
-            matchable,
-            restriction.identity_keys,
-            restriction.mode,
-            context=f"--sumstats-snps-file filtering for {source_path}",
-        )
-        kept_matchable = matchable.loc[keep_matchable].copy()
-        matchable_original_rows = set(matchable[original_row_column].tolist())
-    else:
-        kept_matchable = matchable
-        matchable_original_rows = set()
-
-    unmatchable_mask = ~work[original_row_column].isin(matchable_original_rows)
-    base_keys = base_key_series(
-        work,
-        restriction.mode,
-        context=f"--sumstats-snps-file filtering for {source_path}",
-    )
-    unmatchable_base_universe = _restriction_base_key_universe(restriction.identity_keys)
-    unmatchable = work.loc[unmatchable_mask & base_keys.isin(unmatchable_base_universe)].copy()
-    retained = pd.concat([kept_matchable, unmatchable], axis=0, ignore_index=True)
-    retained = retained.drop(columns=[original_row_column], errors='ignore')
+    context = f"--sumstats-snps-file filtering for {source_path}"
+    # Allele sets and base keys are formed once per chunk; both are per row,
+    # so restricting them to the matchable rows equals keying those rows alone.
+    allele_set, allele_reasons = allele_set_series(dat, context=context)
+    matchable = allele_reasons.isna().to_numpy()
+    base_keys = base_key_series(dat, restriction.mode, context=context)
+    keys = (base_keys if restriction.identity_keys.match_kind == "base"
+            else _combine_base_and_allele_keys(base_keys, allele_set))
+    kept_matchable = np.flatnonzero(matchable & (restriction.key_index("identity").get_indexer(keys) >= 0))
+    unmatchable = np.flatnonzero(~matchable & (restriction.key_index("base").get_indexer(base_keys) >= 0))
+    # Matched rows come first, then rows kept by base key, each in input order.
+    retained = dat.take(np.concatenate([kept_matchable, unmatchable]))
+    retained.index = pd.RangeIndex(len(retained))
 
     restriction.n_rows_before_filter += len(dat)
-    restriction.n_usable_row_identifiers += len(matchable)
+    restriction.n_usable_row_identifiers += int(matchable.sum())
     # Bad allele rows retained by base key are counted as drops only when
     # global identity cleanup actually removes them.
     restriction.n_rows_kept += len(retained)
-    return retained.reset_index(drop=True)
+    return retained
 
 
 def _restriction_base_key_universe(identity_keys: RestrictionIdentityKeys) -> set[str]:
@@ -570,7 +572,8 @@ def _normalize_chr_pos_chunk(dat, request, counts):
     _accumulate_coordinate_drop_counts(counts, report)
     if coordinate_basis == '0-based' and len(normalized) > 0:
         normalized['POS'] = normalized['POS'].astype('int64') + 1
-    return normalized.reset_index(drop=True)
+    normalized.index = pd.RangeIndex(len(normalized))  # a new frame, never the caller's
+    return normalized
 
 
 def _accumulate_coordinate_drop_counts(counts, report):
@@ -608,21 +611,27 @@ def process_n(dat, qc: MungeQC):
         N = dat.N_CAS + dat.N_CON
         P = dat.N_CAS / N
         dat['N'] = N * P / P[N == N.max()].mean()
-        dat.drop(['N_CAS', 'N_CON'], inplace=True, axis=1)
+        del dat['N_CAS'], dat['N_CON']
         # NB no filtering on N done here -- that is done in the next code block
 
     if 'N' in dat.columns:
         N_min = qc.N_min if qc.N_min else dat.N.quantile(0.9) / 1.5
         old = len(dat)
-        dat = dat[dat.N >= N_min].reset_index(drop=True)
+        keep = (dat.N >= N_min).to_numpy()
+        if not keep.all():
+            dat = dat.take(np.flatnonzero(keep))
+            dat.index = pd.RangeIndex(len(dat))
         new = len(dat)
         LOGGER.info(f"Removed {old - new} SNPs with N < {N_min} ({new} SNPs remain).")
 
     elif 'NSTUDY' in dat.columns and 'N' not in dat.columns:
         nstudy_min = qc.nstudy_min if qc.nstudy_min else dat.NSTUDY.max()
         old = len(dat)
-        dat = dat[dat.NSTUDY >= nstudy_min].drop(
-            ['NSTUDY'], axis=1).reset_index(drop=True)
+        keep = (dat.NSTUDY >= nstudy_min).to_numpy()
+        if not keep.all():
+            dat = dat.take(np.flatnonzero(keep))
+            dat.index = pd.RangeIndex(len(dat))
+        del dat['NSTUDY']
         new = len(dat)
         LOGGER.info(f"Removed {old - new} SNPs with NSTUDY < {nstudy_min} ({new} SNPs remain).")
 
@@ -721,7 +730,8 @@ def munge_sumstats(request: ResolvedMungeInput) -> MungeResult:
             "Other causes & fixes: docs/user-guide/troubleshooting.md#munge-sumstats-no-snps-remain-after-filtering"
         )
 
-    dat = dat.reset_index(drop=True)
+    # Parsed chunks are concatenated with a fresh RangeIndex; the parsed
+    # result is not used again, so the steps below may change it in place.
     median_msg = None
     if not request.a1_inc:
         median_msg = check_median(dat.SIGNED_SUMSTAT, signed_sumstat_null, 0.1, sign_cname)
@@ -737,7 +747,7 @@ def munge_sumstats(request: ResolvedMungeInput) -> MungeResult:
     if not request.a1_inc:
         LOGGER.info(median_msg)
         dat.Z *= (-1) ** (dat.SIGNED_SUMSTAT < signed_sumstat_null)
-        dat.drop('SIGNED_SUMSTAT', inplace=True, axis=1)
+        del dat['SIGNED_SUMSTAT']
     n_before = len(dat)
     dat, liftover_report, liftover_drop_frame = apply_sumstats_liftover(
         dat, request.liftover_request, source_build=request.genome_build,

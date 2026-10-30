@@ -124,6 +124,23 @@ def test_munge_checks_small_coordinate_keep_list(tmp_path, requested, fails):
         assert result['genome_build'] == 'hg19'
 
 
+def test_munge_explicit_build_does_not_read_text_coordinate_rows(tmp_path, monkeypatch):
+    from ldsc import GlobalConfig
+    from ldsc._genome import build_policy
+    from ldsc._sumstats.munge_input import _resolve_source_coordinates
+    source = tmp_path / 'raw.tsv'
+    coordinates(1, 'hg38').to_csv(source, sep='\t', index=False)
+
+    def unexpected_read(*args, **kwargs):
+        raise AssertionError('an explicit build read the raw coordinate rows')
+
+    monkeypatch.setattr(build_policy, '_table_frames', unexpected_read)
+    result = _resolve_source_coordinates(source, {'CHR': 'CHR', 'POS': 'POS'},
+        GlobalConfig(snp_identifier='chr_pos', genome_build='hg19'), None, 0)
+    assert result['genome_build'] == 'hg19'
+    assert result['genome_build_inferred'] is False
+
+
 def test_munge_trusts_the_selected_build_specific_source_column(tmp_path):
     from ldsc import GlobalConfig
     from ldsc._sumstats.munge_input import _resolve_source_coordinates

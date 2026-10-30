@@ -250,6 +250,10 @@ class GenomeBuildCheck:
                 self.unchecked(role, path, 'unlabeled descriptive coordinates; no coordinate computation')
                 return
             if coordinate_columns is not None:
+                if self.explicit and not parquet:
+                    # Text coordinate rows carry no build declaration, so an
+                    # explicit build records nothing from scanning them.
+                    return
                 chr_col, pos_col = coordinate_columns
                 self.frames(role, path, (frame.rename(columns={chr_col: 'CHR', pos_col: 'POS'})
                                         for frame in _table_frames(path, [chr_col, pos_col], parquet)))

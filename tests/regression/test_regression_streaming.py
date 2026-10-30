@@ -197,7 +197,7 @@ def test_batch_fits_match_separate_models_and_release_details(tmp_path, monkeypa
             workflow._coefficient_delete_frame(outcome.estimator, outcome.dataset.retained_ld_columns),
         )
     del outcome, dataset
-    original_prepare, original_fit = runner.prepare_inputs, runner._fit_h2_dataset
+    original_prepare, original_fit = runner._prepare_h2_inputs, runner._fit_h2_dataset
     preparations, live, reads = [], [], []
     original_read = type(source).read_queries
 
@@ -215,7 +215,7 @@ def test_batch_fits_match_separate_models_and_release_details(tmp_path, monkeypa
         live.append(weakref.ref(outcome.estimator))
         return outcome
 
-    monkeypatch.setattr(runner, "prepare_inputs", prepare)
+    monkeypatch.setattr(runner, "_prepare_h2_inputs", prepare)
     monkeypatch.setattr(runner, "_fit_h2_dataset", fit)
     monkeypatch.setattr(type(source), "read_queries", read)
     result = runner.estimate_partitioned_h2_batch(table, source, output_dir=tmp_path / "out",

@@ -295,12 +295,17 @@ class PartitionedH2BatchResult:
     Worker completion order does not affect status order, stable summary
     sorting, or the final per-query folder order. Worker-count provenance is
     recorded once in root metadata and referenced by successful query metadata.
+    ``legacy_sumstats_drops`` holds the rows the legacy ``.sumstats(.gz)``
+    projection dropped, with the columns of
+    ``diagnostics/dropped_snps/legacy_sumstats.tsv.gz``; it is ``None`` when
+    the input was not a legacy table.
     """
 
     summary: pd.DataFrame
     output_paths: dict[str, str] = field(default_factory=dict)
     per_query_artifacts: dict[str, PartitionedH2FitArtifacts] = field(default_factory=dict)
     query_status: pd.DataFrame = field(default_factory=pd.DataFrame)
+    legacy_sumstats_drops: pd.DataFrame | None = None
 
 
 @dataclass(frozen=True)
@@ -328,6 +333,11 @@ class RgResultFamily:
         for an in-memory table. Recorded in the root ``metadata.json``.
     ldscore_dir : str or None, optional
         Source LD-score directory when the LD scores were read from disk.
+    legacy_sumstats_drops : pandas.DataFrame or None, optional
+        Rows the legacy ``.sumstats(.gz)`` projection dropped, for all legacy
+        traits in input order, with the columns of
+        ``diagnostics/dropped_snps/legacy_sumstats.tsv.gz``; ``None`` when no
+        input was a legacy table.
     """
 
     rg: pd.DataFrame
@@ -336,6 +346,55 @@ class RgResultFamily:
     per_pair_metadata: list[dict[str, object]]
     sumstats_files: list[str | None] | None = None
     ldscore_dir: str | None = None
+    legacy_sumstats_drops: pd.DataFrame | None = None
+
+
+@dataclass(frozen=True)
+class _PreparedTraitSumstats:
+    """One trait's summary statistics, prepared once for every model that uses it.
+
+    For a legacy ``.sumstats(.gz)`` input, ``table`` is its projection onto the
+    LD-score panel and ``legacy_drops`` records the rows that projection dropped;
+    otherwise ``table`` is the input and ``legacy_drops`` is ``None``. Rows keyed
+    for a merge are built on first use and cached per effective SNP identifier
+    mode and downgrade cleanup, so a trait shared by many rg pairs is keyed at
+    most twice: under the LD-score directory's mode and under its base mode.
+    """
+
+    table: SumstatsTable
+    legacy_drops: pd.DataFrame | None = None
+    _keyed: dict[tuple[str, bool], tuple[pd.DataFrame, int]] = field(default_factory=dict, repr=False, compare=False)
+
+    @property
+    def context(self) -> str:
+        """Name the trait in messages."""
+        return self.table.source_path or self.table.trait_name or "sumstats"
+
+    def keyed_rows(self, mode: str, *, cleaned: bool) -> tuple[pd.DataFrame, int]:
+        """Return rows keyed for a ``mode`` merge and the rows a downgrade cleanup dropped."""
+        if (mode, cleaned) not in self._keyed:
+            self._keyed[mode, cleaned] = _key_regression_rows(self.table.data, mode, cleaned=cleaned, context=self.context)
+        return self._keyed[mode, cleaned]
+
+
+@dataclass(frozen=True)
+class _PreparedLDScores:
+    """Baseline LD scores keyed for merges, cached like ``_PreparedTraitSumstats``.
+
+    Keyed frames carry ``_ldsc_source_row``, each row's position in the
+    baseline table, so query batches reuse exactly the same join.
+    """
+
+    source: LDScoreSource | LDScoreResult
+    _keyed: dict[tuple[str, bool], tuple[pd.DataFrame, int]] = field(default_factory=dict, repr=False, compare=False)
+
+    def keyed_rows(self, mode: str, *, cleaned: bool) -> tuple[pd.DataFrame, int]:
+        """Return baseline rows keyed for a ``mode`` merge and the rows a downgrade cleanup dropped."""
+        if (mode, cleaned) not in self._keyed:
+            frame = _assemble_regression_ldscore_table(self.source)
+            frame["_ldsc_source_row"] = np.arange(len(frame), dtype=np.int64)
+            self._keyed[mode, cleaned] = _key_regression_rows(frame, mode, cleaned=cleaned, context="LD-score table")
+        return self._keyed[mode, cleaned]
 
 
 class RegressionRunner:
@@ -385,93 +444,56 @@ class RegressionRunner:
         variance and count selection occur in ``dataset_from_prepared``;
         chi-square filtering, weights, and jackknife work occur inside each fit.
         """
+        trait = _prepare_trait_sumstats(sumstats_table, ldscore_result)
+        return self._prepare_h2_inputs(trait, _PreparedLDScores(ldscore_result), config or self.regression_config)
+
+    def _prepare_h2_inputs(
+        self,
+        trait: _PreparedTraitSumstats,
+        ldscores: _PreparedLDScores,
+        config: RegressionConfig,
+        *,
+        build_checked: bool = False,
+    ) -> PreparedRegressionInputs:
+        """Merge one prepared trait with the baseline LD scores; see ``prepare_inputs``.
+
+        ``build_checked`` skips the genome-build check when the caller already
+        checked this trait and LD-score directory together.
+        """
         print_global_config_banner(type(self).__name__, self.global_config)
-        config = config or self.regression_config
-        if _is_legacy_sumstats(sumstats_table):
-            sumstats_table, _ = _project_legacy_sumstats_to_panel(sumstats_table, ldscore_result)
+        sumstats_table, ldscore_result = trait.table, ldscores.source
         weight_column = REGRESSION_LD_SCORE_COLUMN
         ref_ld_columns = list(ldscore_result.baseline_columns)
         identity = _resolve_h2_identity(sumstats_table, ldscore_result, self.global_config, config)
         identifier_mode = identity.effective_mode
-        _regression_genome_build(
-            sumstats_table,
-            ldscore_result,
-            identifier_mode,
-            context=sumstats_table.source_path or sumstats_table.trait_name or "sumstats",
-        )
+        if not build_checked:
+            _regression_genome_build(sumstats_table, ldscore_result, identifier_mode, context=trait.context)
         ldscore_mode = _ldscore_identity_mode(ldscore_result, self.global_config, fallback_mode=identifier_mode)
-        ldscore_frame = _assemble_regression_ldscore_table(ldscore_result)
-        ldscore_frame["_ldsc_source_row"] = np.arange(len(ldscore_frame), dtype=np.int64)
-        sumstats_frame = sumstats_table.data
-        dropped_identity_rows = 0
+        sumstats_keyed, sumstats_dropped = trait.keyed_rows(identifier_mode, cleaned=identity.downgrade_applied)
+        ldscore_keyed, ldscore_dropped = ldscores.keyed_rows(identifier_mode, cleaned=identity.downgrade_applied)
         if identity.downgrade_applied:
-            sumstats_frame, sumstats_dropped = _prepare_regression_identity_table(
-                sumstats_frame,
-                identifier_mode,
-                context=sumstats_table.source_path or "sumstats",
-                logger=LOGGER,
-            )
-            ldscore_frame, ldscore_dropped = _prepare_regression_identity_table(
-                ldscore_frame,
-                identifier_mode,
-                context="LD-score table",
-                logger=LOGGER,
-            )
-            dropped_identity_rows = int(len(sumstats_dropped) + len(ldscore_dropped))
             sumstats_mode = _sumstats_identity_mode(sumstats_table, fallback_mode=ldscore_mode)
             LOGGER.warning(
                 f"Identity downgrade enabled: LD-score mode {ldscore_mode}, summary-statistics mode {sumstats_mode}; "
                 f"running regression with effective snp_identifier={identifier_mode!r}. "
-                f"Dropped {dropped_identity_rows} duplicate effective-key rows before merge."
+                f"Dropped {sumstats_dropped + ldscore_dropped} duplicate effective-key rows before merge."
             )
-        if is_allele_aware_mode(identifier_mode):
-            sumstats_keyed = _with_effective_identity_key(
-                sumstats_frame,
-                identifier_mode,
-                context=sumstats_table.source_path or "sumstats",
-            )
-            ldscore_keyed = _with_effective_identity_key(ldscore_frame, identifier_mode, context="LD-score table")
-            ldscore_columns = [REGRESSION_IDENTITY_KEY_COLUMN, *ref_ld_columns, weight_column, "_ldsc_source_row"]
-            ldscore_payload = ldscore_keyed.loc[:, ldscore_columns].copy()
-            if {"A1", "A2"}.issubset(ldscore_keyed.columns):
-                ldscore_payload["A1_ld"] = ldscore_keyed["A1"]
-                ldscore_payload["A2_ld"] = ldscore_keyed["A2"]
-            # LD-score is the left frame so the inner merge inherits its genomic
-            # order; the block jackknife needs genomically contiguous rows for valid
-            # SEs, and the sumstats order alone (legacy .sumstats.gz is unsorted) does
-            # not guarantee that. Values still align by key regardless of side.
-            merged = pd.merge(
-                ldscore_payload.reset_index(drop=True),
-                sumstats_keyed,
-                how="inner",
-                on=REGRESSION_IDENTITY_KEY_COLUMN,
-                sort=False,
-            )
-            if {"A1", "A2", "A1_ld", "A2_ld"}.issubset(merged.columns):
-                merged = _orient_sumstats_z_to_reference_alleles(merged)
-        elif identity_mode_family(identifier_mode) == "rsid":
-            merged = pd.merge(
-                ldscore_frame.loc[:, ["SNP", *ref_ld_columns, weight_column, "_ldsc_source_row"]].reset_index(drop=True),
-                sumstats_frame,
-                how="inner",
-                on="SNP",
-                sort=False,
-            )
-        else:
-            sumstats_keyed = _with_chr_pos_key(sumstats_frame, context=sumstats_table.source_path or "sumstats")
-            ldscore_keyed = _with_chr_pos_key(ldscore_frame, context="LD-score table")
-            merged = pd.merge(
-                ldscore_keyed.loc[:, [CHR_POS_KEY_COLUMN, *ref_ld_columns, weight_column, "_ldsc_source_row"]].reset_index(drop=True),
-                sumstats_keyed,
-                how="inner",
-                on=CHR_POS_KEY_COLUMN,
-                sort=False,
-            )
+        key = _merge_key_column(identifier_mode)
+        ldscore_payload = ldscore_keyed.loc[:, [key, *ref_ld_columns, weight_column, "_ldsc_source_row"]]
+        allele_aware = is_allele_aware_mode(identifier_mode)
+        if allele_aware and {"A1", "A2"}.issubset(ldscore_keyed.columns):
+            ldscore_payload = ldscore_payload.assign(A1_ld=ldscore_keyed["A1"], A2_ld=ldscore_keyed["A2"])
+        # LD-score is the left frame so the inner merge inherits its genomic
+        # order; the block jackknife needs genomically contiguous rows for valid
+        # SEs, and the sumstats order alone (legacy .sumstats.gz is unsorted) does
+        # not guarantee that. Values still align by key regardless of side.
+        merged = pd.merge(ldscore_payload.reset_index(drop=True), sumstats_keyed, how="inner", on=key, sort=False)
+        if allele_aware and {"A1", "A2", "A1_ld", "A2_ld"}.issubset(merged.columns):
+            merged = _orient_sumstats_z_to_reference_alleles(merged)
         if merged.empty:
-            source = sumstats_table.source_path or sumstats_table.trait_name or "sumstats"
             raise LDSCInputError(
                 f"h2 regression retained no overlapping {identifier_mode} SNPs after merging summary statistics "
-                f"'{source}' with {len(ldscore_frame)} LD-score rows. Most likely the summary statistics and "
+                f"'{trait.context}' with {len(ldscore_keyed)} LD-score rows. Most likely the summary statistics and "
                 "LD-score directory use different SNP identifiers or genome builds. Regenerate both inputs "
                 "with the same `--snp-identifier` and `--genome-build`, or use `--allow-identity-downgrade` "
                 f"for same-family allele-aware/base mixes. Other causes & fixes: {_REGRESSION_NO_OVERLAP_DOC}"
@@ -600,116 +622,65 @@ class RegressionRunner:
         LD-score columns on the final RG SNP set. Both traits must carry
         ``A1``/``A2``; otherwise ``LDSCInputError`` is raised.
         """
-        print_global_config_banner(type(self).__name__, self.global_config)
-        config = config or self.regression_config
         _require_rg_alleles([sumstats_table_1, sumstats_table_2])
-        if _is_legacy_sumstats(sumstats_table_1):
-            sumstats_table_1, _ = _project_legacy_sumstats_to_panel(sumstats_table_1, ldscore_result)
-        if _is_legacy_sumstats(sumstats_table_2):
-            sumstats_table_2, _ = _project_legacy_sumstats_to_panel(sumstats_table_2, ldscore_result)
+        return self._rg_dataset(
+            _prepare_trait_sumstats(sumstats_table_1, ldscore_result),
+            _prepare_trait_sumstats(sumstats_table_2, ldscore_result),
+            _PreparedLDScores(ldscore_result),
+            config or self.regression_config,
+        )
+
+    def _rg_dataset(
+        self,
+        trait_1: _PreparedTraitSumstats,
+        trait_2: _PreparedTraitSumstats,
+        ldscores: _PreparedLDScores,
+        config: RegressionConfig,
+        *,
+        build_checked: bool = False,
+    ) -> RGRegressionDataset:
+        """Build one pair's dataset from prepared traits; see ``build_rg_dataset``.
+
+        ``build_checked`` skips the genome-build check when the caller already
+        checked both traits and the LD-score directory together.
+        """
+        print_global_config_banner(type(self).__name__, self.global_config)
+        sumstats_table_1, sumstats_table_2, ldscore_result = trait_1.table, trait_2.table, ldscores.source
         identity = _resolve_rg_identity(sumstats_table_1, sumstats_table_2, ldscore_result, self.global_config, config)
         identifier_mode = identity.effective_mode
-        _regression_genome_build([sumstats_table_1, sumstats_table_2], ldscore_result,
-                                 identifier_mode, context="rg")
+        if not build_checked:
+            _regression_genome_build([sumstats_table_1, sumstats_table_2], ldscore_result,
+                                     identifier_mode, context="rg")
 
         weight_column = REGRESSION_LD_SCORE_COLUMN
         ref_ld_columns = list(ldscore_result.baseline_columns)
-        ldscore_mode = _ldscore_identity_mode(ldscore_result, self.global_config, fallback_mode=identifier_mode)
-        trait_1_mode = _sumstats_identity_mode(sumstats_table_1, fallback_mode=ldscore_mode)
-        trait_2_mode = _sumstats_identity_mode(sumstats_table_2, fallback_mode=ldscore_mode)
-        ldscore_frame = _assemble_regression_ldscore_table(ldscore_result)
-        left_frame = sumstats_table_1.data
-        right_frame = sumstats_table_2.data
+        left_keyed, left_dropped = trait_1.keyed_rows(identifier_mode, cleaned=identity.downgrade_applied)
+        right_keyed, right_dropped = trait_2.keyed_rows(identifier_mode, cleaned=identity.downgrade_applied)
+        ldscore_keyed, ldscore_dropped = ldscores.keyed_rows(identifier_mode, cleaned=identity.downgrade_applied)
         if identity.downgrade_applied:
-            left_frame, left_dropped = _prepare_regression_identity_table(
-                left_frame,
-                identifier_mode,
-                context=sumstats_table_1.source_path or "trait 1 summary statistics",
-                logger=LOGGER,
-            )
-            right_frame, right_dropped = _prepare_regression_identity_table(
-                right_frame,
-                identifier_mode,
-                context=sumstats_table_2.source_path or "trait 2 summary statistics",
-                logger=LOGGER,
-            )
-            ldscore_frame, ldscore_dropped = _prepare_regression_identity_table(
-                ldscore_frame,
-                identifier_mode,
-                context="LD-score table",
-                logger=LOGGER,
-            )
-            dropped_identity_rows = int(len(left_dropped) + len(right_dropped) + len(ldscore_dropped))
+            ldscore_mode = _ldscore_identity_mode(ldscore_result, self.global_config, fallback_mode=identifier_mode)
+            trait_1_mode = _sumstats_identity_mode(sumstats_table_1, fallback_mode=ldscore_mode)
+            trait_2_mode = _sumstats_identity_mode(sumstats_table_2, fallback_mode=ldscore_mode)
             LOGGER.warning(
                 f"Identity downgrade enabled: LD-score mode {ldscore_mode}, trait 1 mode {trait_1_mode}, "
                 f"trait 2 mode {trait_2_mode}; running rg with effective snp_identifier={identifier_mode!r}. "
-                f"Dropped {dropped_identity_rows} duplicate effective-key rows before merge."
+                f"Dropped {left_dropped + right_dropped + ldscore_dropped} duplicate effective-key rows before merge."
             )
 
-        left = left_frame.rename(columns={"N": "N1", "Z": "Z1"})
-        left = left.rename(columns={"FRQ": "FRQ1"})
-        right = right_frame.rename(
-            columns={"A1": "A1x", "A2": "A2x", "N": "N2", "Z": "Z2", "FRQ": "FRQ2"}
-        )
+        key = _merge_key_column(identifier_mode)
+        left = left_keyed.rename(columns={"N": "N1", "Z": "Z1", "FRQ": "FRQ1"})
+        right = right_keyed.rename(columns={"A1": "A1x", "A2": "A2x", "N": "N2", "Z": "Z2", "FRQ": "FRQ2"})
         right_payload = [column for column in ["A1x", "A2x", "N2", "Z2", "FRQ2"] if column in right.columns]
-        if is_allele_aware_mode(identifier_mode):
-            left_keyed = _with_effective_identity_key(left_frame, identifier_mode, context=sumstats_table_1.source_path or "sumstats")
-            left = left_keyed.rename(columns={"N": "N1", "Z": "Z1", "FRQ": "FRQ1"})
-            right_keyed = _with_effective_identity_key(right_frame, identifier_mode, context=sumstats_table_2.source_path or "sumstats")
-            right = right_keyed.rename(
-                columns={"A1": "A1x", "A2": "A2x", "N": "N2", "Z": "Z2", "FRQ": "FRQ2"}
-            )
-            right_payload = [column for column in ["A1x", "A2x", "N2", "Z2", "FRQ2"] if column in right.columns]
-            ldscore_keyed = _with_effective_identity_key(ldscore_frame, identifier_mode, context="LD-score table")
-            # LD-score leads the first merge so the result (and the final merge below)
-            # inherits its genomic order for valid jackknife block SEs. See build_dataset.
-            left_with_ld = pd.merge(
-                ldscore_keyed.loc[:, [REGRESSION_IDENTITY_KEY_COLUMN, *ref_ld_columns, weight_column]].reset_index(drop=True),
-                left,
-                how="inner",
-                on=REGRESSION_IDENTITY_KEY_COLUMN,
-                sort=False,
-            )
-            merged = pd.merge(
-                left_with_ld,
-                right.loc[:, [REGRESSION_IDENTITY_KEY_COLUMN, *right_payload]],
-                how="inner",
-                on=REGRESSION_IDENTITY_KEY_COLUMN,
-                sort=False,
-            )
-        elif identity_mode_family(identifier_mode) == "rsid":
-            left_with_ld = pd.merge(
-                ldscore_frame.loc[:, ["SNP", *ref_ld_columns, weight_column]].reset_index(drop=True),
-                left,
-                how="inner",
-                on="SNP",
-                sort=False,
-            )
-            merged = pd.merge(
-                left_with_ld,
-                right.loc[:, ["SNP", *right_payload]],
-                how="inner",
-                on="SNP",
-                sort=False,
-            )
-        else:
-            left_keyed = _with_chr_pos_key(left, context=sumstats_table_1.source_path or "sumstats")
-            right_keyed = _with_chr_pos_key(right, context=sumstats_table_2.source_path or "sumstats")
-            ldscore_keyed = _with_chr_pos_key(ldscore_frame, context="LD-score table")
-            left_with_ld = pd.merge(
-                ldscore_keyed.loc[:, [CHR_POS_KEY_COLUMN, *ref_ld_columns, weight_column]].reset_index(drop=True),
-                left_keyed,
-                how="inner",
-                on=CHR_POS_KEY_COLUMN,
-                sort=False,
-            )
-            merged = pd.merge(
-                left_with_ld,
-                right_keyed.loc[:, [CHR_POS_KEY_COLUMN, *right_payload]],
-                how="inner",
-                on=CHR_POS_KEY_COLUMN,
-                sort=False,
-            )
+        # LD-score leads the first merge so the result (and the final merge below)
+        # inherits its genomic order for valid jackknife block SEs. See build_dataset.
+        left_with_ld = pd.merge(
+            ldscore_keyed.loc[:, [key, *ref_ld_columns, weight_column]].reset_index(drop=True),
+            left,
+            how="inner",
+            on=key,
+            sort=False,
+        )
+        merged = pd.merge(left_with_ld, right.loc[:, [key, *right_payload]], how="inner", on=key, sort=False)
         required_numeric = ["Z1", "N1", "Z2", "N2", weight_column, *ref_ld_columns]
         merged = merged.dropna(subset=[column for column in required_numeric if column in merged.columns]).reset_index(
             drop=True
@@ -717,7 +688,7 @@ class RegressionRunner:
         if merged.empty:
             raise LDSCInputError(
                 f"rg regression retained no overlapping {identifier_mode} SNPs after merging both summary-statistics "
-                f"tables with {len(ldscore_frame)} LD-score rows. Most likely one trait was munged with a "
+                f"tables with {len(ldscore_keyed)} LD-score rows. Most likely one trait was munged with a "
                 "different SNP identifier mode, genome build, or allele convention than the LD-score directory. "
                 "Regenerate all inputs with matching identity settings, or use `--allow-identity-downgrade` "
                 f"for same-family allele-aware/base mixes. Other causes & fixes: {_REGRESSION_NO_OVERLAP_DOC}"
@@ -1118,7 +1089,10 @@ class RegressionRunner:
             metadata["ldscore_dir"] = _absolute_ldscore_dir(metadata["ldscore_dir"])
         with AnnotationWorkspace(output_dir) as workspace:
             with _log_phase_timing("shared regression preparation"):
-                prepared = self.prepare_inputs(sumstats_table, ldscore_result, config=config)
+                trait = _prepare_trait_sumstats(sumstats_table, ldscore_result)
+                prepared = self._prepare_h2_inputs(trait, _PreparedLDScores(ldscore_result), config)
+                # Fits need only the aligned rows; release the trait's keyed copy.
+                legacy_drops, trait = trait.legacy_drops, None
             if not queries:
                 dataset = self.dataset_from_prepared(prepared, config=config)
                 if len(dataset.retained_ld_columns) == 1:
@@ -1138,7 +1112,7 @@ class RegressionRunner:
                                   "n_blocks_used": outcome.n_blocks},
                         coefficient_delete_values=_coefficient_delete_frame(outcome.estimator, outcome.dataset.retained_ld_columns),
                     )
-                return PartitionedH2BatchResult(summary, paths)
+                return PartitionedH2BatchResult(summary, paths, legacy_sumstats_drops=legacy_drops)
 
             rows, private_artifacts, statuses = [], {}, []
             first_error = None
@@ -1199,7 +1173,8 @@ class RegressionRunner:
                 paths = writer.write(summary, PartitionedH2OutputConfig(output_dir=output_dir, overwrite=overwrite,
                                                                        write_per_query_results=True),
                                      per_query_artifacts=private_artifacts, metadata=metadata, query_status=query_status)
-            return PartitionedH2BatchResult(summary, paths, published_query_artifacts(output_dir, summary), query_status)
+            return PartitionedH2BatchResult(summary, paths, published_query_artifacts(output_dir, summary), query_status,
+                                            legacy_drops)
 
     def estimate_rg(
         self,
@@ -1333,22 +1308,29 @@ class RegressionRunner:
         # recorded as a failed pair instead of stopping the run.
         _require_rg_alleles(tables)
         tables = _disambiguate_trait_names(tables)
-
+        # Run-level preparation: each trait is projected once, and one joint
+        # genome-build check covers every pair, whose effective SNP identifier
+        # mode stays in the LD-score directory's family.
+        traits = [_prepare_trait_sumstats(table, ldscore_result) for table in tables]
+        tables = [trait.table for trait in traits]
         _regression_genome_build(tables, ldscore_result,
                                  _ldscore_identity_mode(ldscore_result, self.global_config), context="rg")
+        ldscores = _PreparedLDScores(ldscore_result)
         prev = list(prevalences) if prevalences is not None else [(None, None)] * len(tables)
 
         h2_rows = []
         from .._runtime.progress import PhaseProgress
         with suppress_global_config_banner(), PhaseProgress(LOGGER, "computation", "per-trait h2", len(tables)) as progress:
-            for table, (samp_prev, pop_prev) in zip(tables, prev):
-                h2_dataset = self.build_dataset(table, ldscore_result, config=config)
+            for trait, (samp_prev, pop_prev) in zip(traits, prev):
+                h2_dataset = self.dataset_from_prepared(
+                    self._prepare_h2_inputs(trait, ldscores, config, build_checked=True), config=config,
+                )
                 outcome = self._fit_h2_dataset(h2_dataset, config=config, log_level=logging.DEBUG)
                 hsq, h2_dataset = outcome.estimator, outcome.dataset
                 n_snps_used = outcome.n_snps
                 h2_rows.append(
                     summarize_total_h2(
-                        hsq, h2_dataset, trait_name=_trait_label(table), n_snps_used=n_snps_used,
+                        hsq, h2_dataset, trait_name=_trait_label(trait.table), n_snps_used=n_snps_used,
                         samp_prev=samp_prev, pop_prev=pop_prev,
                     )
                 )
@@ -1365,7 +1347,8 @@ class RegressionRunner:
                 trait_1 = _trait_label(tables[i])
                 trait_2 = _trait_label(tables[j])
                 try:
-                    dataset = self.build_rg_dataset(tables[i], tables[j], ldscore_result, config=config)
+                    # Pair-specific keyed rows are built here, so an error fails only this pair.
+                    dataset = self._rg_dataset(traits[i], traits[j], ldscores, config, build_checked=True)
                     outcome = self._fit_rg_dataset(dataset, config=config)
                     fitted, dataset = outcome.estimator, outcome.dataset
                     n_snps_used = outcome.n_snps
@@ -1389,10 +1372,12 @@ class RegressionRunner:
         rg_full = pd.DataFrame(rg_full_rows, columns=RG_FULL_COLUMNS)
         rg = pd.DataFrame(rg_rows, columns=RG_CONCISE_COLUMNS)
         source_metadata = ldscore_result.output_paths.get("metadata")
+        legacy_drops = [trait.legacy_drops for trait in traits if trait.legacy_drops is not None]
         return RgResultFamily(
             rg=rg, rg_full=rg_full, h2_per_trait=h2_per_trait, per_pair_metadata=per_pair_metadata,
             sumstats_files=[table.source_path for table in tables],
             ldscore_dir=str(Path(source_metadata).resolve().parent) if source_metadata else None,
+            legacy_sumstats_drops=pd.concat(legacy_drops, ignore_index=True) if legacy_drops else None,
         )
 
 
@@ -1420,7 +1405,7 @@ def _regression_genome_build(
     for table in tables:
         source = table.source_path or table.trait_name or context
         build = getattr(table.config_snapshot, 'genome_build', None)
-        if _is_legacy_sumstats(table):
+        if _has_legacy_sumstats_source(table):
             check.unchecked(role, [source], 'legacy rsID projection inherits panel coordinates')
         elif build in {'hg19', 'hg38'}:
             check.declared(role, source, build)
@@ -1443,14 +1428,24 @@ def _snapshot_identity_mode(snapshot: GlobalConfig | None) -> str | None:
     return normalize_snp_identifier_mode(value)
 
 
-def _is_legacy_sumstats(table: SumstatsTable) -> bool:
-    """Return whether ``table`` came from a legacy munged text artifact."""
-    return bool(getattr(table, "provenance", {}).get("legacy_ldsc", False)) and "legacy_projection" not in table.provenance
-
-
 def _has_legacy_sumstats_source(table: SumstatsTable) -> bool:
     """Return whether ``table`` originated from legacy text."""
     return bool(table.provenance.get("legacy_ldsc", False))
+
+
+def _prepare_trait_sumstats(
+    table: SumstatsTable,
+    ldscore_result: LDScoreSource | LDScoreResult,
+) -> _PreparedTraitSumstats:
+    """Prepare one trait's summary statistics once for every model that uses it.
+
+    A legacy ``.sumstats(.gz)`` table is projected onto the LD-score panel under
+    the panel's recorded SNP identifier mode; other tables are used as given.
+    """
+    if not _has_legacy_sumstats_source(table):
+        return _PreparedTraitSumstats(table)
+    projected, drops = _project_legacy_sumstats_to_panel(table, ldscore_result)
+    return _PreparedTraitSumstats(projected, legacy_drops=drops)
 
 
 def _project_legacy_sumstats_to_panel(
@@ -1666,22 +1661,7 @@ def _project_legacy_sumstats_to_panel(
         panel_mode,
         len(drops),
     )
-    projected_table = replace(
-        table,
-        data=projected_frame,
-        has_alleles=True,
-        provenance={
-            **table.provenance,
-            "legacy_projection": {
-                "panel_snp_identifier": panel_mode,
-                "retained_rows": len(projected_frame),
-                "dropped_rows": len(drops),
-                "invalid_frq_values": invalid_frq_count,
-            },
-        },
-        config_snapshot=panel_snapshot,
-    )
-    return projected_table, drops
+    return replace(table, data=projected_frame, has_alleles=True, config_snapshot=panel_snapshot), drops
 
 
 def _sumstats_identity_mode(
@@ -1772,6 +1752,32 @@ def _prepare_regression_identity_table(
         logger=logger,
     )
     return cleanup.cleaned, cleanup.dropped
+
+
+def _key_regression_rows(frame: pd.DataFrame, mode: str, *, cleaned: bool, context: str) -> tuple[pd.DataFrame, int]:
+    """Key one side of a regression merge for ``mode``.
+
+    ``cleaned`` first applies the identity-downgrade cleanup. Allele-aware modes
+    add the effective identity key and coordinate-family base modes the
+    ``CHR:POS`` key; ``rsid`` merges on ``SNP`` as given. Returns the keyed rows
+    and the number of duplicate effective-key rows the cleanup dropped.
+    """
+    dropped = 0
+    if cleaned:
+        frame, dropped_rows = _prepare_regression_identity_table(frame, mode, context=context, logger=LOGGER)
+        dropped = len(dropped_rows)
+    if is_allele_aware_mode(mode):
+        frame = _with_effective_identity_key(frame, mode, context=context)
+    elif identity_mode_family(mode) != "rsid":
+        frame = _with_chr_pos_key(frame, context=context)
+    return frame, dropped
+
+
+def _merge_key_column(mode: str) -> str:
+    """Return the column ``_key_regression_rows`` merges on under ``mode``."""
+    if is_allele_aware_mode(mode):
+        return REGRESSION_IDENTITY_KEY_COLUMN
+    return "SNP" if identity_mode_family(mode) == "rsid" else CHR_POS_KEY_COLUMN
 
 
 def _with_effective_identity_key(frame: pd.DataFrame, mode: str, *, context: str) -> pd.DataFrame:
@@ -2616,7 +2622,11 @@ def _log_effective_regression_identity(
     modes.append(ld_mode)
     sources.append(ld_source)
     for table in sumstats_tables:
-        mode, source = describe(_trait_label(table), table.config_snapshot)
+        if _has_legacy_sumstats_source(table):
+            # Projection gives a legacy table the LD-score directory's mode.
+            mode, source = ld_mode, f"{_trait_label(table)}={ld_mode} (legacy projection onto the LD-score panel)"
+        else:
+            mode, source = describe(_trait_label(table), table.config_snapshot)
         modes.append(mode)
         sources.append(source)
 
@@ -2934,12 +2944,14 @@ def run_h2_from_args(args):
         LOGGER.info(f"Starting h2 regression for '{args.sumstats_file}' using LD-score directory '{args.ldscore_dir}'.")
         sumstats_table = _load_sumstats_table(args.sumstats_file, getattr(args, "trait_name", None))
         ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
-        legacy_drops = pd.DataFrame(columns=LEGACY_SUMSTATS_DROP_COLUMNS)
-        if _is_legacy_sumstats(sumstats_table):
-            sumstats_table, legacy_drops = _project_legacy_sumstats_to_panel(sumstats_table, ldscore_result)
         _log_effective_regression_identity([sumstats_table], ldscore_result, runner.global_config, config)
+        trait = _prepare_trait_sumstats(sumstats_table, ldscore_result)
         with suppress_global_config_banner():
-            dataset = runner.build_dataset(sumstats_table, ldscore_result, config=config)
+            dataset = runner.dataset_from_prepared(
+                runner._prepare_h2_inputs(trait, _PreparedLDScores(ldscore_result), config), config=config,
+            )
+        # The fit needs only the aligned rows; release the trait's keyed copy.
+        legacy_drops, trait = trait.legacy_drops, None
         outcome = runner._fit_h2_dataset(dataset, config=config)
         hsq, dataset = outcome.estimator, outcome.dataset
         n_snps_used = outcome.n_snps
@@ -3027,10 +3039,6 @@ def run_partitioned_h2_from_args(args):
             sumstats_table = _load_sumstats_table(args.sumstats_file, getattr(args, "trait_name", None))
         with _log_phase_timing("LD-score loading"):
             ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
-        legacy_drops = pd.DataFrame(columns=LEGACY_SUMSTATS_DROP_COLUMNS)
-        with _log_phase_timing("legacy projection"):
-            if _is_legacy_sumstats(sumstats_table):
-                sumstats_table, legacy_drops = _project_legacy_sumstats_to_panel(sumstats_table, ldscore_result)
         has_queries = bool(ldscore_result.query_columns)
         _log_effective_regression_identity([sumstats_table], ldscore_result, runner.global_config, config)
         _log_partitioned_h2_regime(ldscore_result, has_queries)
@@ -3056,7 +3064,7 @@ def run_partitioned_h2_from_args(args):
         summary, written = result.summary, dict(result.output_paths)
         audit_path = _write_or_remove_legacy_sumstats_audit(
             Path(output_dir), legacy_used=_has_legacy_sumstats_source(sumstats_table),
-            drops=legacy_drops, overwrite=getattr(args, "overwrite", False),
+            drops=result.legacy_sumstats_drops, overwrite=getattr(args, "overwrite", False),
         )
         if audit_path is not None:
             written["legacy_sumstats_drops"] = str(audit_path)
@@ -3160,19 +3168,6 @@ def run_rg_from_args(args):
                 )
         anchor_index = _resolve_anchor_index(getattr(args, "anchor_trait", None), sumstats_paths, sumstats_tables)
         ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
-        legacy_drop_frames: list[pd.DataFrame] = []
-        projected_tables: list[SumstatsTable] = []
-        for table in sumstats_tables:
-            if _is_legacy_sumstats(table):
-                table, drops = _project_legacy_sumstats_to_panel(table, ldscore_result)
-                legacy_drop_frames.append(drops)
-            projected_tables.append(table)
-        sumstats_tables = projected_tables
-        legacy_drops = (
-            pd.concat(legacy_drop_frames, ignore_index=True)
-            if legacy_drop_frames
-            else pd.DataFrame(columns=LEGACY_SUMSTATS_DROP_COLUMNS)
-        )
         _log_effective_regression_identity(sumstats_tables, ldscore_result, runner.global_config, config)
         with suppress_global_config_banner():
             result = runner.estimate_rg_pairs(
@@ -3193,7 +3188,7 @@ def run_rg_from_args(args):
         audit_path = _write_or_remove_legacy_sumstats_audit(
             Path(output_dir),
             legacy_used=any(_has_legacy_sumstats_source(table) for table in sumstats_tables),
-            drops=legacy_drops,
+            drops=result.legacy_sumstats_drops,
             overwrite=getattr(args, "overwrite", False),
         )
         if audit_path is not None:
@@ -3540,7 +3535,7 @@ def _write_or_remove_legacy_sumstats_audit(
     output_dir: Path,
     *,
     legacy_used: bool,
-    drops: pd.DataFrame,
+    drops: pd.DataFrame | None,
     overwrite: bool,
 ) -> Path | None:
     """Write the stable legacy projection audit, or remove a stale owned copy."""

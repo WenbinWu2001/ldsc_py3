@@ -2572,6 +2572,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 rg_full=pd.DataFrame([{"trait_1": "a", "trait_2": "b", "n_snps_used": 1, "rg": 0.1, "rg_se": 0.01, "z": 10.0, "p": 0.02, "status": "ok", "error": ""}]),
                 h2_per_trait=pd.DataFrame([{"trait_name": "a"}, {"trait_name": "b"}]),
                 per_pair_metadata=[],
+                legacy_sumstats_drops=pd.DataFrame(columns=regression_runner.LEGACY_SUMSTATS_DROP_COLUMNS),
             )
             args = type(
                 "Args",
@@ -2678,6 +2679,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 rg_full=pd.DataFrame(),
                 h2_per_trait=pd.DataFrame(),
                 per_pair_metadata=[],
+                legacy_sumstats_drops=pd.DataFrame(columns=regression_runner.LEGACY_SUMSTATS_DROP_COLUMNS),
             )
             args = type(
                 "Args",

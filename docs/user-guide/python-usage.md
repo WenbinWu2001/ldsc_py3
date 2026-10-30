@@ -1,6 +1,6 @@
 # Using LDSC3 from Python
 
-Last updated on: 2026-10-29
+Last updated on: 2026-10-30
 
 This page collects the Python API for each workflow in the user guide.
 Each section below assumes the setup described here and links back to the workflow page that explains the analysis.
@@ -97,7 +97,8 @@ To reopen a saved directory in a later session, use `load_ldscore_from_dir(ldsco
 
 `run_partitioned_h2` accepts the `partitioned-h2` option names without the leading `--`, for example `trait_name`, `count_kind="all"` for all-SNP counts, `intercept_h2=1.0` for a fixed intercept, `summary_sort_by`, `continue_on_query_error` and `overwrite`; see [regression options](../reference/regression-options.md).
 It writes `partitioned_h2.tsv`, the per-query results and `diagnostics/partitioned-h2.log`, which `plot_result()` and `run_quantile_h2` read later.
-It returns a `PartitionedH2BatchResult` with `summary`, `output_paths`, `per_query_artifacts` and `query_status`.
+It returns a `PartitionedH2BatchResult` with `summary`, `output_paths`, `per_query_artifacts`, `query_status` and `legacy_sumstats_drops`.
+`legacy_sumstats_drops` lists the rows the projection of a legacy `.sumstats(.gz)` input dropped, as in `diagnostics/dropped_snps/legacy_sumstats.tsv.gz`, and is `None` for other inputs.
 The in-memory `summary` has the scientific columns only; the saved `partitioned_h2.tsv` adds `query_result_dir`.
 
 ### Fit loaded inputs

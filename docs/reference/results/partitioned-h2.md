@@ -1,6 +1,6 @@
 # Partitioned-Heritability Result Columns
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-30
 
 TODO: add an example output file str.
 
@@ -154,7 +154,7 @@ table.
 
 `RegressionRunner.estimate_partitioned_h2_batch(..., output_dir=..., query_batch_size=100)` shares trait/baseline preparation, fits each query separately, and stages completed details immediately.
 After stable summary sorting, the writer publishes the canonical per-query tree.
-The returned `PartitionedH2BatchResult` contains `summary`, `output_paths`, and persistent `per_query_artifacts` paths.
+The returned `PartitionedH2BatchResult` contains `summary`, `output_paths`, persistent `per_query_artifacts` paths, `query_status`, and `legacy_sumstats_drops`, the legacy projection's dropped rows (`None` unless the input was a legacy `.sumstats(.gz)` table).
 The old annotation-bundle argument, retained-detail dictionaries, and `include_full_partitioned_h2` option are removed.
 Low-level writer callers pass `PartitionedH2FitArtifacts` through `per_query_artifacts`; `PartitionedH2OutputConfig.write_per_query_results` remains its publication control.
 

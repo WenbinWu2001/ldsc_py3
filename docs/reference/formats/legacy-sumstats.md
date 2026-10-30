@@ -1,6 +1,6 @@
 # Legacy Munged Summary-Statistics Compatibility
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-30
 
 This document defines the public compatibility boundary for munged summary statistics written by the legacy LDSC Python 2 implementation and consumed by LDSC3 regression workflows.
 
@@ -61,10 +61,12 @@ Because every regression CLI requires an output directory, a run with at least o
 
 Compatibility projection is automatic in both the public CLI regression workflows and the public Python regression workflow.
 `load_sumstats()` identifies `.sumstats` and `.sumstats.gz` as legacy inputs; users do not call a separate converter.
-`RegressionRunner` projects a marked legacy table onto the regression SNPs in the supplied LD-score directory before ordinary dataset assembly.
+`RegressionRunner` projects a marked legacy table onto the regression SNPs in the supplied LD-score directory before ordinary dataset assembly, once per run.
+`estimate_partitioned_h2_batch()` and `estimate_rg_pairs()` return the dropped rows as `legacy_sumstats_drops`; the commands write them to the audit above.
 
 An `rg` invocation may mix current self-describing Parquet summary statistics and legacy text summary statistics.
-Each legacy input is independently projected onto the panel identity.
+Each legacy input is independently projected onto the panel identity, once; its `h2_per_trait` row and every pair it joins start from that projection.
+A pair's effective SNP identifier mode, which can be the base mode under `--allow-identity-downgrade`, affects only how that pair is merged.
 Current Parquet inputs retain their recorded provenance and are never reinterpreted by the compatibility layer.
 After projection, all inputs pass through the same ordinary compatibility checks against the LD-score directory.
 

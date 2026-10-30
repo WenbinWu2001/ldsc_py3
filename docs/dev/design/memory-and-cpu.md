@@ -532,11 +532,13 @@ It preserves alignment and drop diagnostics; it still materializes the trait and
 Saved fit coefficients, counts, overlaps, and delete values support quantile analysis, heritability-scale conversion, and plotting without refitting the model.
 Figure-producing paths import Matplotlib lazily, avoiding its startup work for non-plotting calls.
 
-Multi-trait `estimate_rg_pairs()` retains loaded trait tables and compact pair summaries, but builds each pair's aligned dataset separately.
+Multi-trait `estimate_rg_pairs()` prepares each trait once per run: it projects a legacy input once, checks all genome builds together once, and keys a trait's rows for a merge on first use.
+Keyed rows are kept per effective SNP identifier mode and downgrade cleanup, so each trait holds at most two keyed copies: one under the LD-score directory's mode and one under its base mode for downgraded pairs; the baseline LD scores are keyed the same way once per run.
+Each pair's merged dataset is still built separately inside that pair's error handling, so a keying error in a downgraded pair fails only that pair.
 It computes the standalone per-trait heritability summaries once per trait; those are distinct from the pair-specific fits on pair-specific SNP intersections.
 There is no all-pairs merged-data cache or substitution of one trait's full-support fit for a pair-specific estimate.
-Current control flow is in `RegressionRunner.estimate_rg_pairs()`.
-A per-trait merge cache was rejected at design time: for fewer than ten traits it was estimated to save about 10% of wall time while holding 0.8–1.2 GB of extra state and roughly 3.5 times the code.
+Current control flow is in `RegressionRunner.estimate_rg_pairs()`, with the per-trait state in `_PreparedTraitSumstats`.
+A cache of each trait already merged with the LD scores was rejected at design time: for fewer than ten traits it was estimated to save about 10% of wall time while holding 0.8–1.2 GB of extra state and roughly 3.5 times the code.
 Reusing one heritability fit across pairs is statistically invalid, because `RatioJackknife` in [`_regression/jackknife.py`](../../../src/ldsc/_regression/jackknife.py) combines the `hsq1`, `hsq2`, and `gencov` delete-block vectors element by element, so all three must come from the same pair-specific SNP partition.
 Parallelizing independent pairs across processes was identified as the larger potential gain and remains unimplemented.
 

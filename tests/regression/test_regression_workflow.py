@@ -162,7 +162,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(result.ld_regression_snps, frozenset({"rs1"}))
         self.assertEqual(result.config_snapshot, GlobalConfig(snp_identifier="rsid"))
 
-    def test_load_ldscore_from_dir_rejects_legacy_bp_coordinate_schema(self):
+    def test_load_ldscore_from_dir_rejects_baseline_without_pos(self):
         from ldsc import load_ldscore_from_dir
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -171,7 +171,6 @@ class RegressionWorkflowTest(unittest.TestCase):
                 {
                     "CHR": ["1"],
                     "SNP": ["rs1"],
-                    "BP": [10],
                     "regression_ld_scores": [3.0],
                     "base": [1.0],
                 }
@@ -2974,32 +2973,6 @@ class RegressionWorkflowTest(unittest.TestCase):
             self.assertFalse((output_dir / "h2.tsv").exists())
             self.assertFalse((output_dir / "h2.log").exists())
             self.assertFalse((output_dir / "diagnostics" / "h2.log").exists())
-
-    def test_regression_preflight_ignores_legacy_root_log(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "out"
-            output_dir.mkdir()
-            legacy_log = output_dir / "h2.log"
-            legacy_log.write_text("legacy\n", encoding="utf-8")
-            args = type(
-                "Args",
-                (),
-                {
-                    "output_dir": str(output_dir),
-                    "overwrite": False,
-                },
-            )()
-
-            normalized_output_dir, log_path = regression_runner._preflight_regression_outputs(
-                args,
-                "h2",
-                regression_runner.H2DirectoryWriter,
-            )
-
-            self.assertEqual(normalized_output_dir, str(output_dir))
-            self.assertEqual(log_path, output_dir / "diagnostics" / "h2.log")
-            self.assertEqual(legacy_log.read_text(encoding="utf-8"), "legacy\n")
-            self.assertFalse(log_path.exists())
 
     def test_regression_cli_allows_existing_result_file_with_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:

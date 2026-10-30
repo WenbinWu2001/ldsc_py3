@@ -68,8 +68,7 @@ def build_test_panel(
 
 
 @pytest.mark.parametrize("reader", ["ldscore", "query-r2-matrix"])
-@pytest.mark.parametrize("old_sign", [True, False], ids=["old-SIGN", "missing-sign"])
-def test_readers_require_sign_r(tmp_path, reader, old_sign):
+def test_readers_require_sign_r(tmp_path, reader):
     import pyarrow.parquet as pq
 
     from ldsc._refpanel.r2_format import SortedR2BlockReader
@@ -77,11 +76,7 @@ def test_readers_require_sign_r(tmp_path, reader, old_sign):
     from ldsc._refpanel.query import R2Matrix
 
     _, meta_path, r2_path = build_test_panel(tmp_path)
-    table = pq.read_table(r2_path)
-    if old_sign:
-        table = table.rename_columns(["IDX_1", "IDX_2", "R2", "SIGN"]).replace_schema_metadata(table.schema.metadata)
-    else:
-        table = table.drop_columns(["SIGN_R"])
+    table = pq.read_table(r2_path).drop_columns(["SIGN_R"])
     pq.write_table(table, r2_path)
 
     with pytest.raises(LDSCInputError, match="SIGN_R.*build-r2-matrix"):

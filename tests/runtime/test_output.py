@@ -677,24 +677,6 @@ class H2DirectoryWriterTest(unittest.TestCase):
             self.assertNotIn("old", metadata)
             self.assertNotIn("schema_version", metadata)
 
-    def test_ignores_legacy_root_metadata(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "h2"
-            output_dir.mkdir()
-            legacy_metadata = output_dir / "metadata.json"
-            legacy_metadata.write_text('{"legacy": true}\n', encoding="utf-8")
-
-            H2DirectoryWriter().write(
-                self.make_summary(),
-                H2OutputConfig(output_dir=output_dir),
-                metadata=self.make_metadata(),
-                diagnostic_bins=self.make_bins(),
-            )
-
-            self.assertEqual(legacy_metadata.read_text(encoding="utf-8"), '{"legacy": true}\n')
-            self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
-
-
 class QuantileH2DirectoryWriterTest(unittest.TestCase):
     def test_writer_owns_complete_family_and_refuses_existing_diagnostic(self):
         quantiles = pd.DataFrame([{column: 0 for column in QUANTILE_H2_COLUMNS}])

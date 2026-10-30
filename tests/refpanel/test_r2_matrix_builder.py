@@ -1832,17 +1832,14 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
             patched.assert_called_once()
             self.assertEqual(result.chromosomes, ["1"])
 
-    def test_builder_run_ignores_legacy_root_diagnostics_without_overwrite(self):
+    def test_builder_run_preserves_unrelated_files_without_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
             config = self._build_config(tmpdir)
             output_dir = tmpdir / "out"
-            root_drop_dir = output_dir / "dropped_snps"
-            root_drop_dir.mkdir(parents=True)
-            (output_dir / "metadata.json").write_text('{"legacy": true}\n', encoding="utf-8")
-            (output_dir / "build-r2-matrix.log").write_text("legacy log\n", encoding="utf-8")
-            (root_drop_dir / "chr1_dropped.tsv.gz").write_text("legacy drops\n", encoding="utf-8")
+            output_dir.mkdir()
+            (output_dir / "notes.txt").write_text("user notes\n", encoding="utf-8")
             builder = r2_matrix_builder.R2MatrixBuilder(
                 global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")
             )
@@ -1860,9 +1857,7 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
             ):
                 result = builder.run(config)
 
-            self.assertEqual((output_dir / "metadata.json").read_text(encoding="utf-8"), '{"legacy": true}\n')
-            self.assertEqual((output_dir / "build-r2-matrix.log").read_text(encoding="utf-8"), "legacy log\n")
-            self.assertEqual((root_drop_dir / "chr1_dropped.tsv.gz").read_text(encoding="utf-8"), "legacy drops\n")
+            self.assertEqual((output_dir / "notes.txt").read_text(encoding="utf-8"), "user notes\n")
             self.assertEqual(result.chromosomes, ["1"])
             self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
             self.assertTrue((output_dir / "diagnostics" / "build-r2-matrix.log").exists())

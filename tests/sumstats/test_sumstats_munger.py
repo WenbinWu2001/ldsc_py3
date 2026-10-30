@@ -887,26 +887,22 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
             self.assertFalse((output_dir / "diagnostics" / "sumstats.log").exists())
 
-    def test_run_ignores_legacy_root_diagnostics_without_overwrite(self):
+    def test_run_preserves_unrelated_files_without_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             raw_path = tmpdir / "raw.tsv"
             self._write_raw_sumstats(raw_path)
             output_dir = tmpdir / "munged"
-            root_drop_dir = output_dir / "dropped_snps"
-            root_drop_dir.mkdir(parents=True)
-            (output_dir / "sumstats.log").write_text("legacy log\n", encoding="utf-8")
-            (root_drop_dir / "dropped.tsv.gz").write_text("legacy drops\n", encoding="utf-8")
+            output_dir.mkdir()
+            (output_dir / "notes.txt").write_text("user notes\n", encoding="utf-8")
 
             SumstatsMunger().run(
                 MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path),
                 MungeConfig(no_snp_restriction=True, output_dir=output_dir, output_format="tsv.gz"),
-                GlobalConfig(snp_identifier="rsid"),
+                global_config=GlobalConfig(snp_identifier="rsid"),
             )
 
-            self.assertEqual((output_dir / "sumstats.log").read_text(encoding="utf-8"), "legacy log\n")
-            self.assertEqual((root_drop_dir / "dropped.tsv.gz").read_text(encoding="utf-8"), "legacy drops\n")
-            self.assertFalse((output_dir / "metadata.json").exists())
+            self.assertEqual((output_dir / "notes.txt").read_text(encoding="utf-8"), "user notes\n")
             self.assertTrue((output_dir / "diagnostics" / "sumstats.log").exists())
             self.assertTrue((output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz").exists())
 

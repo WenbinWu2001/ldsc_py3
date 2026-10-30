@@ -22,7 +22,7 @@ import pyarrow.parquet as pq
 
 from .._core.snp_identity import identity_artifact_metadata
 from ..config import normalize_required_path
-from .source import validate_ldscore_baseline_table, validate_ldscore_query_table
+from .source import is_numbered_query_batch_file, validate_ldscore_baseline_table, validate_ldscore_query_table
 from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError
 from .._runtime.artifacts import ArtifactFamily, atomic_write_json, declare_artifacts, to_serializable
 from .._runtime.paths import ensure_output_directory, remove_output_artifacts
@@ -32,6 +32,22 @@ if TYPE_CHECKING:
     from .calculator import LDScoreResult
     from .source import LDScoreSource
 
+
+# File names inside an LD-score directory that other modules build paths from.
+BASELINE_FILE = "ldscore.baseline.parquet"
+LDSCORE_LOG = "diagnostics/ldscore.log"
+CHROMOSOME_LOG_DIR = "diagnostics/chromosome-logs"
+REF_METADATA_GLOB = "ref_metadata/chr*_meta.tsv.gz"
+
+
+def dropped_snps_file(chrom: str) -> str:
+    """Return a chromosome's dropped-SNP diagnostic, relative to an LD-score directory."""
+    return f"diagnostics/dropped_snps/chr{chrom}_dropped.tsv.gz"
+
+
+def ref_metadata_file(chrom: str) -> str:
+    """Return a chromosome's exported reference-metadata file, relative to an LD-score directory."""
+    return f"ref_metadata/chr{chrom}_meta.tsv.gz"
 
 
 def _cast_parquet_floats(df: pd.DataFrame) -> pd.DataFrame:
@@ -169,7 +185,7 @@ class LDScoreDirectoryWriter:
         batch = gene_list_batch if gene_list_batch is not None else getattr(result, "gene_list_batch", None)
         entries = {
             "metadata": ("metadata.json", scientific),
-            "baseline": ("ldscore.baseline.parquet", scientific),
+            "baseline": (BASELINE_FILE, scientific),
             "query": ("ldscore.query.parquet", scientific and (getattr(result, "query_table", None) is not None or len(query_batches) == 1)),
             "overlap": ("ldscore.overlap.parquet", scientific and getattr(result, "overlap", None) is not None),
             "query_status": ("diagnostics/query_annotation_status.tsv", bool(getattr(result, "query_statuses", ()))),
@@ -188,16 +204,16 @@ class LDScoreDirectoryWriter:
                 for ordinal, entry in enumerate(query_batches, 1):
                     entries[f"query_batch{ordinal:05d}"] = (entry["file"], True)
             for chrom in (getattr(result, "identity_drops_by_chrom", {}) or {}):
-                entries[f"dropped_snps_chr{chrom}"] = (f"diagnostics/dropped_snps/chr{chrom}_dropped.tsv.gz", True)
+                entries[f"dropped_snps_chr{chrom}"] = (dropped_snps_file(chrom), True)
         return declare_artifacts(
             output_dir, entries, label="LD-score output artifact",
-            extra_owned=[*([output_dir / "diagnostics/ldscore.log",
-                            *sorted((output_dir / "diagnostics/chromosome-logs").glob("chr*.log"))]
+            extra_owned=[*([output_dir / LDSCORE_LOG,
+                            *sorted((output_dir / CHROMOSOME_LOG_DIR).glob("chr*.log"))]
                            if include_logs else []),
-                         *sorted((output_dir / "ref_metadata").glob("chr*_meta.tsv.gz")),
-                         *sorted((output_dir / "diagnostics/dropped_snps").glob("chr*_dropped.tsv.gz")),
+                         *sorted(output_dir.glob(REF_METADATA_GLOB)),
+                         *sorted(output_dir.glob(dropped_snps_file("*"))),
                          *sorted(path for path in output_dir.glob("ldscore.query.batch*.parquet")
-                                 if path.name.removeprefix("ldscore.query.batch").removesuffix(".parquet").isdigit())],
+                                 if is_numbered_query_batch_file(path.name))],
         )
 
     def write_batches(

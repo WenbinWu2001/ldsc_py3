@@ -18,9 +18,9 @@ import pandas as pd
 from .._annotation.storage import TsvDiagnostics
 from .._annotation.semantics import require_unique_annotation_names
 from ..errors import LDSCInputError
-from .source import validate_ldscore_baseline_table, validate_ldscore_query_table
+from .source import query_batch_file_name, validate_ldscore_baseline_table, validate_ldscore_query_table
 from .._runtime.artifacts import to_serializable
-from .outputs import _write_chromosome_aligned_parquet
+from .outputs import BASELINE_FILE, _write_chromosome_aligned_parquet, dropped_snps_file
 from .._runtime.paths import ensure_output_directory, remove_output_artifacts
 from .._annotation.query_outcomes import gene_viability_errors
 
@@ -101,9 +101,9 @@ def write_ldscore_batches(writer, results, output_config, query_status_order=())
                         ld_window_snp_counts=getattr(result, "ld_window_snp_counts", None),
                         reference_snp_funnel=getattr(result, "reference_snp_funnel", None),
                     )
-                    baseline_rg = _write_chromosome_aligned_parquet(shared.baseline_table, stage / "ldscore.baseline.parquet", compression)
+                    baseline_rg = _write_chromosome_aligned_parquet(shared.baseline_table, stage / BASELINE_FILE, compression)
                     for chrom, artifact in result.identity_drops_by_chrom.items():
-                        path = stage / "diagnostics" / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz"
+                        path = stage / dropped_snps_file(chrom)
                         artifact.write_to(path)
                         shared.identity_drops_by_chrom[chrom] = TsvDiagnostics(path)
                 elif not shared.baseline_table.equals(result.baseline_table):
@@ -144,7 +144,7 @@ def write_ldscore_batches(writer, results, output_config, query_status_order=())
                                          query_diagonal_all=diagonal("query_diagonal_all"),
                                          query_diagonal_common=diagonal("query_diagonal_common"))
             for ordinal, entry in enumerate(query_batches, 1):
-                name = "ldscore.query.parquet" if len(query_batches) == 1 else f"ldscore.query.batch{ordinal:05d}.parquet"
+                name = query_batch_file_name(ordinal, len(query_batches))
                 (stage / entry["file"]).rename(stage / name)
                 entry["file"] = name
             shared.query_batches = query_batches
@@ -188,5 +188,5 @@ def write_ldscore_batches(writer, results, output_config, query_status_order=())
                    gene_list_batch=persistent_gene_diagnostics(shared.gene_list_batch, paths),
                    chromosome_scope=shared.chromosome_scope,
                    snp_universe_policy=shared.snp_universe_policy,
-                   identity_drops_by_chrom={chrom: TsvDiagnostics(root / "diagnostics" / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz")
+                   identity_drops_by_chrom={chrom: TsvDiagnostics(root / dropped_snps_file(chrom))
                                             for chrom in shared.identity_drops_by_chrom})

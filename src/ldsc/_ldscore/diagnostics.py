@@ -18,17 +18,17 @@ LOGGER = logging.getLogger("LDSC.ldscore")
 @contextmanager
 def ldscore_logs(output_dir, chromosomes, *, overwrite=False, log_level="INFO"):
     """Preflight/reset owned logs once per run; chromosome tasks append later."""
-    from .outputs import LDScoreDirectoryWriter
+    from .outputs import CHROMOSOME_LOG_DIR, LDSCORE_LOG, LDScoreDirectoryWriter
     if output_dir is None:
         yield {}
         return
     root = Path(output_dir)
-    main = root / "diagnostics" / "ldscore.log"
+    main = root / LDSCORE_LOG
     active = any(isinstance(handler, logging.FileHandler) and Path(handler.baseFilename).resolve() == main.resolve()
                  for handler in logging.getLogger("LDSC").handlers)
     if not active:
         LDScoreDirectoryWriter.artifact_family(root, include_logs=True).preflight(overwrite=overwrite)
-    directory = main.parent / "chromosome-logs"
+    directory = root / CHROMOSOME_LOG_DIR
     directory.mkdir(parents=True, exist_ok=True)
     if overwrite:
         for path in directory.glob("chr*.log"):

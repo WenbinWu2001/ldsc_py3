@@ -74,10 +74,13 @@ from ..config import (
 )
 from .._genome.hm3 import packaged_hm3_curated_map_path
 from .outputs import (
+    LDSCORE_LOG,
     LDScoreDirectoryWriter,
     LDScoreOutputConfig,
+    REF_METADATA_GLOB,
     REGRESSION_LD_SCORE_COLUMN,
     common_count_config,
+    ref_metadata_file,
 )
 from .._runtime.paths import (
     ensure_output_directory,
@@ -521,8 +524,8 @@ class LDScoreCalculator:
             result = self.output_writer.write_batches(results, output_config,
                 query_status_order=[status.query for status in annotation_bundle.query_statuses])
             if export_root is not None:
-                for path in (Path(export_root) / "ref_metadata").glob("chr*_meta.tsv.gz"):
-                    destination = Path(output_config.output_dir) / "ref_metadata" / path.name
+                for path in Path(export_root).glob(REF_METADATA_GLOB):
+                    destination = Path(output_config.output_dir) / path.relative_to(export_root)
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     os.replace(path, destination)
             _log_annotation_classification(result)
@@ -1386,7 +1389,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
     normalized_args = global_config = None
     output_config = _output_config_from_args(args)
     output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
-    log_path = output_dir / "diagnostics" / "ldscore.log"
+    log_path = output_dir / LDSCORE_LOG
     LDScoreDirectoryWriter.artifact_family(output_dir, include_logs=True).preflight(
         overwrite=output_config.overwrite, additional_paths=[log_path])
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1562,7 +1565,7 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> "LDScoreSource":
         )
     from .gene_index.scoring import run_indexed_ldscore
     output_dir = Path(normalize_path_token(args.output_dir))
-    log_path = output_dir / "diagnostics" / "ldscore.log"
+    log_path = output_dir / LDSCORE_LOG
     LDScoreDirectoryWriter.artifact_family(output_dir, include_logs=True).preflight(
         overwrite=bool(getattr(args, "overwrite", False)), additional_paths=[log_path],
     )
@@ -2338,9 +2341,8 @@ def _write_one_ref_metadata_sidecar(metadata: pd.DataFrame, chrom: str, output_d
     worker so the lean cross-process result does not carry per-SNP metadata.
     """
     columns = [c for c in ("CHR", "POS", "SNP", "A1", "A2", "CM", "MAF") if c in metadata.columns]
-    export_dir = Path(output_dir) / "ref_metadata"
-    export_dir.mkdir(parents=True, exist_ok=True)
-    path = export_dir / f"chr{chrom}_meta.tsv.gz"
+    path = Path(output_dir) / ref_metadata_file(chrom)
+    path.parent.mkdir(parents=True, exist_ok=True)
     metadata[columns].to_csv(path, sep="\t", index=False, na_rep="NA", float_format=SIDECAR_FLOAT_FORMAT,
                              compression="gzip")
     LOGGER.info(f"Wrote reference-metadata sidecar '{path}'.")

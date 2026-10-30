@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 import json
 import logging
 from pathlib import Path
+import re
 from typing import Any
 
 import pandas as pd
@@ -29,6 +30,18 @@ from .._core.snp_identity import (
 )
 from .._runtime.paths import normalize_path_token
 
+_QUERY_BATCH_FILE_RE = re.compile(r"ldscore\.query\.batch\d{5}\.parquet")
+
+
+def query_batch_file_name(ordinal: int, count: int) -> str:
+    """Return the file name of query batch ``ordinal`` (1-based) in an LD-score directory of ``count`` batches."""
+    return "ldscore.query.parquet" if count == 1 else f"ldscore.query.batch{ordinal:05d}.parquet"
+
+
+def is_numbered_query_batch_file(name: str) -> bool:
+    """Return whether ``name`` is a query-batch file of a multi-batch LD-score directory."""
+    return _QUERY_BATCH_FILE_RE.fullmatch(name) is not None
+
 
 LOGGER = logging.getLogger("LDSC.ldscore_source")
 _LDSCORE_SCHEMA_DOC = "docs/user-guide/troubleshooting.md#common-ldsc3-artifact-schema-or-provenance-is-incompatible"
@@ -44,7 +57,7 @@ def load_query_manifest(root, metadata, baseline_columns, baseline_schema):
     for ordinal, entry in enumerate(entries, 1):
         if not isinstance(entry, dict) or not isinstance(entry.get("query_columns"), list) or not entry["query_columns"] or not isinstance(entry.get("file"), str):
             raise LDSCInputError("LD-score query_batches contains an invalid file or query-column declaration. Regenerate the complete directory.")
-        expected_name = "ldscore.query.parquet" if len(entries) == 1 else f"ldscore.query.batch{ordinal:05d}.parquet"
+        expected_name = query_batch_file_name(ordinal, len(entries))
         if entry["file"] != expected_name or not isinstance(entry.get("row_groups"), list):
             raise LDSCInputError("LD-score query_batches must declare canonical ordered filenames and chromosome row_groups. Regenerate the complete directory.")
         path = root / entry["file"]

@@ -30,12 +30,14 @@ The user answered two rounds of design questions on 2026-10-30, confirmed the de
 - Full pytest at `a5afc19`: 2,301 passed, none skipped (2,291 at `1c472df`; ten new tests).
   The first full run, at `ea6277c`, failed one genome-build test whose stand-in tables lacked `provenance`; `a5afc19` fixed the stand-in.
   Every other commit ran its focused tests.
+- Follow-ups the user confirmed on 2026-10-30: `3c3447e` (`estimate_rg(dataset)` replaces the table-taking form and `_fit_rg_dataset`), `a60a1c6` (unestimable `rg` pairs, and jackknife messages that name the failed fit, block, genomic span and unsupported columns) and `e5bb065` (missing or infinite LD scores and regression weights stop the run; a damaged query fails only that query).
+  Full pytest at `e5bb065`: 2,310 passed, none skipped.
 
 ### Left open from candidate 3
 
 - The user approved "regression fit" (`RegressionFit`) and "prepared trait summary statistics" on 2026-10-30 (`0c78a59`), and the older "fit outcome" wordings were reworded.
 - `rg` still stops the whole run when one trait's own heritability fit fails in its per-trait `h2` phase (`RegressionRunner.estimate_rg_pairs()` in `src/ldsc/_regression/runner.py`), even for an unestimable jackknife; only pair-level errors are recorded per pair.
-- `tests/regression/test_regression_streaming.py::test_public_directory_reader_does_not_import_regression` hung once at interpreter exit inside Arrow's thread-pool shutdown; it passed when rerun.
+- `tests/regression/test_regression_streaming.py::test_public_directory_reader_does_not_import_regression` hung twice at interpreter exit inside Arrow's thread-pool shutdown, once blocking a full run for about 30 minutes; its `subprocess.run` has no timeout.
 
 ## Completed: one R² matrix chromosome handle (2026-10-30)
 

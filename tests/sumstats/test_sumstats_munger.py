@@ -965,6 +965,16 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertFalse((output_dir / "sumstats.metadata.json").exists())
             self.assertFalse(stale.exists())
 
+    def test_parquet_frame_converts_numeric_chromosomes_without_a_dtype_warning(self):
+        frame = pd.DataFrame({"SNP": ["rs1", "rs2", "rs3", "rs4"], "CHR": [2, 1, 1, 23], "POS": [5, 9, 3, 7],
+                              "A1": "A", "A2": "C", "Z": [1.0, 2.0, 3.0, 4.0], "N": 100.0})
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", FutureWarning)
+            prepared = sumstats_workflow._prepare_sumstats_parquet_frame(frame)
+        self.assertEqual(prepared["CHR"].tolist(), ["1", "1", "2", "X"])
+        self.assertEqual(prepared["CHR"].dtype, object)
+        self.assertEqual(prepared["POS"].tolist(), [3, 9, 5, 7])
+
     def test_parquet_output_sorts_by_chr_pos_records_row_groups_and_preserves_precision(self):
         import pyarrow.parquet as pq
 

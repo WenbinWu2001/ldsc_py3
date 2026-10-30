@@ -1854,6 +1854,10 @@ def _prepare_sumstats_parquet_frame(data: pd.DataFrame) -> pd.DataFrame:
             context="summary-statistics Parquet output",
             label="POS",
         )
+        if frame["CHR"].dtype.kind in "biuf":
+            # Normalized labels are strings: convert a numeric column to object
+            # first, as assignment would, instead of relying on implicit upcasting.
+            frame["CHR"] = frame["CHR"].astype(object)
         frame.loc[complete, "CHR"] = normalize_chromosome_series(
             frame.loc[complete, "CHR"],
             context="summary-statistics Parquet output",

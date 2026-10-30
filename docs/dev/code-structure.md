@@ -29,7 +29,8 @@ ldsc_py3_restructured/
 │   ├── _regression/          tier 7: estimators, h2/partitioned-h2/rg, liability scale, quantile-h2
 │   └── _plotting/            tier 8: result plots
 ├── tests/
-│   ├── conftest.py  annotation_fixtures.py  ref_panel_helpers.py  worker_fixtures.py   shared helpers
+│   ├── conftest.py  annotation_fixtures.py  gene_index_helpers.py  ref_panel_helpers.py  worker_fixtures.py
+│   │                         shared helpers
 │   ├── fixtures/             small checked-in inputs and golden expectations
 │   ├── core/  runtime/  genome/  annotation/  refpanel/  sumstats/  ldscore/  regression/  plotting/
 │   │                         one folder per domain package, named without the underscore
@@ -238,6 +239,7 @@ Each test file sits in the folder of the domain package whose code it mainly exe
 Tests of shared machinery that every workflow uses, such as output writers, workflow logs, failure markers, workers and input preflight, are in `tests/runtime/`.
 Tests of the root shell and of the package as a whole are in `tests/package/`.
 Shared helpers and `fixtures/` stay at the top of `tests/`; tests import them, and one another, by full module path, for example `from tests.annotation.test_annotate_streaming import inputs`.
+Gene LD-score index fixtures are written by `tests/gene_index_helpers.py` through the build's own staging and commit steps; a test that builds or loads an index covering fewer than autosomes 1 to 22 narrows the index chromosome set with its `narrow_index_chromosomes`.
 Each test folder has an `__init__.py`, which makes those full module paths importable.
 
 | Area | Main tests |

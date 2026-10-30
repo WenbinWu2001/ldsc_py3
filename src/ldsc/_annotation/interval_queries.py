@@ -37,6 +37,14 @@ class BedQuerySource:
 
 LOGGER = logging.getLogger('LDSC.annotation')
 
+def bed_query_name(path) -> str:
+    """Return the query annotation name of a BED file: its file name without the last suffix.
+
+    ``genes.bed`` gives ``genes``; ``genes.bed.gz`` gives ``genes.bed``.
+    """
+    return Path(path).stem
+
+
 @report_phase(LOGGER, 'validation/staging', 'BED interval content')
 def prepare_bed_queries(paths, workspace, *, chunk_rows=4096):
     """Parse each BED stream once, preserving header and line validation."""
@@ -67,7 +75,7 @@ def prepare_bed_queries(paths, workspace, *, chunk_rows=4096):
             failure, details = 'unreadable_source', str(exc).replace(str(path), path.name)
         if failure:
             shards = {}
-        sources.append(BedQuerySource(path.stem, path.name, shards, failure, details))
+        sources.append(BedQuerySource(bed_query_name(path), path.name, shards, failure, details))
     return sources
 
 

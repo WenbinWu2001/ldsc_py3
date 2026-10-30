@@ -14,7 +14,7 @@ import pandas as pd
 from .identity_cleanup import DiskIdentityIndex, IdentityDropSpool
 from .preflight import AUTOSOMES, resolve_annotation_inputs
 from .sources import (
-    PreparedAnnotationSources, _Source, _metadata_chunks, _select_rows, _snp_row_counts,
+    PreparedAnnotationSources, _Source, _metadata_chunks, _select_rows, _shard_path, _snp_row_counts,
 )
 from .storage import AnnotationShard, FrameSpool
 from .._runtime.preflight import InputGate
@@ -95,7 +95,7 @@ def prepare_bim_grid(workspace, paths, declared, *, mode, autosomes_only=False, 
         error = LDSCInputError("annotate retained no BIM SNP rows after identity cleanup. Supply valid, unique SNP identities.")
         error.annotation_drops = drops
         raise error
-    shards = {chrom: AnnotationShard(workspace.path / f"chrom-{chrom}" / "metadata.parquet", (), count)
+    shards = {chrom: AnnotationShard(_shard_path(workspace, chrom), (), count)
               for chrom, count in counts.items()}
     return PreparedAnnotationSources(
         shards, (), (), drops, tuple(sorted(input_counts, key=chrom_sort_key)),

@@ -9,11 +9,10 @@ generation.
 
 import logging
 from dataclasses import replace
-from pathlib import Path
 
 from .bundle import AnnotationBundle
 from .bim_grid import resolve_bim_grid_inputs, prepare_bim_grid
-from .interval_queries import prepare_bed_queries, build_query_shards, require_readable_bed_sources
+from .interval_queries import bed_query_name, prepare_bed_queries, build_query_shards, require_readable_bed_sources
 from .sources import prepare_annotation_sources
 from .storage import AnnotationWorkspace
 from .gene_query_storage import resolve_gene_lists_staged
@@ -148,11 +147,12 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                                  gene_list_resolution_policy=gene_list_resolution_policy or 'strict', gene_exclude_regions=gene_exclude_regions or 'none')
     output = ensure_output_directory(output_dir, label='output directory')
     writer = AnnotationDirectoryWriter()
-    writer.artifact_family(output, gene_lists=bool(genes)).preflight(overwrite=overwrite)
+    family = writer.artifact_family(output, gene_lists=bool(genes))
+    family.preflight(overwrite=overwrite)
     workspace = AnnotationWorkspace(output)
     batch = catalog = bundle = None
     try:
-        with workflow_logging('annotate', output/'diagnostics'/'annotate.log', log_level=config.log_level):
+        with workflow_logging('annotate', family.paths['log'], log_level=config.log_level):
             log_inputs(grid_kind='bim' if bim else 'annotation', grid_sources=f"{len(bim or baseline)} input declarations",
                        query_sources=f"{len(genes or bed)} input declarations; see diagnostics/metadata.json for source provenance",
                        padding_bp=spec.padding_bp, output_dir=str(output))
@@ -217,7 +217,7 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
             bundle = AnnotationBundle(prepared.shards, list(prepared.baseline_columns), [], workspace,
                                       config_snapshot=resolved_config, identity_drops=prepared.drops, gene_list_batch=batch)
             if batch is None:
-                names = [Path(path).stem for path in resolve_file_group(bed, label='BED file')]
+                names = [bed_query_name(path) for path in resolve_file_group(bed, label='BED file')]
                 require_unique_annotation_names(bundle.baseline_columns, names)
             scope = {'chromosomes': list(prepared.scope_chromosomes), 'grid_kind': 'bim' if bim else 'annotation',
                      'requires_all_autosomes': bool(declared), 'selection': 'validated_input_contents', 'validation_status': 'passed'}

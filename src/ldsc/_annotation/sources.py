@@ -109,6 +109,11 @@ def _layout(sources, label):
     return result
 
 
+def _shard_path(workspace, chrom, filename="metadata.parquet"):
+    """Return one file of a chromosome's prepared annotation shard in the scratch workspace."""
+    return workspace.path / f"chrom-{chrom}" / filename
+
+
 def _metadata_chunks(source, chunk_rows):
     """Reblock metadata after discovering which sources describe aligned rows."""
     parts, size = [], 0
@@ -176,9 +181,9 @@ def _select_rows(groups, group_rows, workspace, identity, drops, mode, *, input_
                 for label, rows in retained.groupby("CHR", sort=False):
                     table = pa.Table.from_pandas(rows, preserve_index=False)
                     if label not in writers:
-                        root = workspace.path / f"chrom-{label}"
-                        root.mkdir()
-                        writers[label] = stack.enter_context(pq.ParquetWriter(root / "metadata.parquet", table.schema))
+                        path = _shard_path(workspace, label)
+                        path.parent.mkdir()
+                        writers[label] = stack.enter_context(pq.ParquetWriter(path, table.schema))
                     writers[label].write_table(table)
                     counts[label] = counts.get(label, 0) + len(rows)
     return selections, counts
@@ -204,7 +209,7 @@ def _write_values(groups, selections, group_rows, counts, workspace, columns):
             quantitative.update(set(source.columns).difference(source.binary_columns))
     layouts = [(np.dtype(bool), "binary.npy", tuple(name for name in columns if name not in quantitative)),
                (np.dtype(np.float32), "continuous.npy", tuple(name for name in columns if name in quantitative))]
-    stores = {chrom: {dtype: ColumnStore.create(workspace.path / f"chrom-{chrom}" / filename, count, names, dtype=dtype)
+    stores = {chrom: {dtype: ColumnStore.create(_shard_path(workspace, chrom, filename), count, names, dtype=dtype)
                       for dtype, filename, names in layouts if names} for chrom, count in counts.items()}
     for group, selection, chunk_rows in zip(groups, selections, group_rows):
         for source in group:
@@ -240,7 +245,7 @@ def _write_values(groups, selections, group_rows, counts, workspace, columns):
             shutil.rmtree(source.spool.path.parent)
         if selection.n_rows:
             shutil.rmtree(selection.path)
-    return {label: AnnotationShard(workspace.path / f"chrom-{label}" / "metadata.parquet", tuple(stores[label].values()), counts[label])
+    return {label: AnnotationShard(_shard_path(workspace, label), tuple(stores[label].values()), counts[label])
             for label in sorted(stores, key=chrom_sort_key)}
 
 

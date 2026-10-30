@@ -33,8 +33,7 @@ from ldsc._refpanel import builder as r2_matrix_builder
 # --- columnar pair-emission test helpers -------------------------------------
 # The pair carrier is PairColumns (i, j, r2 float32, sign int8). These convert
 # the legacy {i,j,R2,sign} dict fixtures to/from columnar chunks so the existing
-# literals stay readable. The alias avoids the iter_pairwise rename below.
-_iter_pairwise_r2_rows = kernel_builder.iter_pairwise_r2_rows
+# literals stay readable.
 
 
 def pair_chunk(rows):
@@ -66,8 +65,8 @@ def flatten_pairs(chunks):
 
 
 def iter_pairs(**kwargs):
-    """iter_pairwise_r2_rows materialized back to dict rows for assertions."""
-    return flatten_pairs(_iter_pairwise_r2_rows(**kwargs))
+    """yield_pairwise_r2_rows materialized back to dict rows for assertions."""
+    return flatten_pairs(kernel_builder.yield_pairwise_r2_rows(**kwargs))
 
 
 _HAS_BITARRAY = importlib.util.find_spec("bitarray") is not None
@@ -254,34 +253,6 @@ class LiftOverTranslatorTest(unittest.TestCase):
 
         self.assertIn("summary-statistics liftover", str(exc.exception))
         self.assertIn("--liftover-chain-file", str(exc.exception))
-
-
-class RestrictionModeDetectionTest(unittest.TestCase):
-    def test_detect_restriction_identifier_mode_accepts_rsid_header(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.txt"
-            path.write_text("rsid\nrs1\nrs2\n", encoding="utf-8")
-
-            mode = kernel_builder.detect_restriction_identifier_mode(path)
-
-            self.assertEqual(mode, "rsid")
-
-    def test_detect_restriction_identifier_mode_accepts_chr_pos_header(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.txt"
-            path.write_text("CHR\tPOS\n1\t100\n1\t200\n", encoding="utf-8")
-
-            mode = kernel_builder.detect_restriction_identifier_mode(path)
-
-            self.assertEqual(mode, "chr_pos")
-
-    def test_detect_restriction_identifier_mode_rejects_headerless_input(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.txt"
-            path.write_text("rs1\nrs2\n", encoding="utf-8")
-
-            with self.assertRaisesRegex(LDSCInputError, "header"):
-                kernel_builder.detect_restriction_identifier_mode(path)
 
 
 class _SequentialSNPGetter:

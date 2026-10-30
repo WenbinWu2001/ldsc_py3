@@ -572,7 +572,7 @@ class R2MatrixRefPanel(RefPanel):
             cm_source="parquet_sidecar", reference_snp_funnel=funnel.frame(),
         )
 
-    def resolve_r2_paths(self, chrom: str, *, required: bool = True) -> list[str]:
+    def resolve_r2_paths(self, chrom: str) -> list[str]:
         """Resolve R2 Parquet file paths for one chromosome from ``r2_matrix_dir``."""
         chrom = normalize_chromosome(chrom)
         if self.spec.r2_matrix_dir is not None:

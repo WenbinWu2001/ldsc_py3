@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import argparse
 import gzip
-import logging
 import warnings
 from dataclasses import dataclass
 from os import PathLike
@@ -42,9 +41,6 @@ from .._core.snp_identity import (
 from .build_kernel import PairColumns
 from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from .windows import _LDWindowSpec, _format_ld_window_spec, _requested_ld_window_spec
-
-LOGGER = logging.getLogger("LDSC.ref_panel")
-
 
 _LDSCORE_PARQUET_DOC = "docs/user-guide/troubleshooting.md#ldscore-r2-matrix-is-incompatible"
 
@@ -161,12 +157,9 @@ def _validate_index_binding(full_sidecar: pd.DataFrame, *, n_snps: int, identity
         )
 
 
-def _arrow_column_to_numpy(column):
-    """Convert an Arrow column to NumPy across PyArrow array API versions."""
-    try:
-        return column.to_numpy(zero_copy_only=False)
-    except TypeError:
-        return column.to_numpy()
+def _arrow_to_numpy(column):
+    """Convert an Arrow column to a NumPy array, copying when Arrow cannot share memory."""
+    return column.to_numpy(zero_copy_only=False)
 
 
 @dataclass(frozen=True)
@@ -530,23 +523,11 @@ class SortedR2BlockReader:
         )
         self.m = len(retained_metadata)
 
-        meta = self._pf.metadata
-        if meta.num_row_groups > 0:
-            avg = meta.num_rows / meta.num_row_groups
-            if avg > 500_000:
-                LOGGER.warning(
-                    f"R2 matrix '{path}' stores {meta.num_rows} SNP-pair rows in "
-                    f"{meta.num_row_groups} large file blocks (average {avg:.0f} rows per block). "
-                    "Reading continues, but queries may be slower and require more memory. "
-                    "For repeated use, rebuild the R2 matrix with the current `ldsc build-r2-matrix`, "
-                    "which writes smaller file blocks by default."
-                )
-
     def _decode_index_batch(self, table, row_group_index: int) -> _DecodedR2RowGroup:
         """Dequantize and remap one bounded Arrow batch of stored pairs."""
-        idx1 = _arrow_column_to_numpy(table.column("IDX_1")).astype(np.int64, copy=False)
-        idx2 = _arrow_column_to_numpy(table.column("IDX_2")).astype(np.int64, copy=False)
-        stored = _arrow_column_to_numpy(table.column("R2")).astype(np.float32, copy=False)
+        idx1 = _arrow_to_numpy(table.column("IDX_1")).astype(np.int64, copy=False)
+        idx2 = _arrow_to_numpy(table.column("IDX_2")).astype(np.int64, copy=False)
+        stored = _arrow_to_numpy(table.column("R2")).astype(np.float32, copy=False)
         r2 = stored / np.float32(self.contract.r2_scale)
         i = self._remap[idx1]
         j = self._remap[idx2]
@@ -868,14 +849,6 @@ def write_runtime_metadata_sidecar(
 # row groups; above it, scan every row group sequentially (a large query touches
 # most groups anyway, so the linear scan beats per-group seek + pruning overhead).
 _RANDOM_STRATEGY_MAX_PAIRS = 50_000
-
-
-def _arrow_to_numpy(column):
-    """Convert an Arrow column to NumPy across PyArrow versions."""
-    try:
-        return column.to_numpy(zero_copy_only=False)
-    except TypeError:
-        return column.to_numpy()
 
 
 def _idx1_column_index(parquet_file) -> int:

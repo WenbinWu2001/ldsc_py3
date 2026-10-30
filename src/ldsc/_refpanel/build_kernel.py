@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass
 from os import PathLike
 from typing import Iterator, Sequence
@@ -13,14 +12,11 @@ import pandas as pd
 
 from .._core.coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from .._core.chromosomes import chrom_sort_key, normalize_chromosome
-from .._core.identifiers import open_text
 from .._core.columns import (
     CHR_COLUMN_SPEC,
     POS_COLUMN_SPEC,
     ColumnSpec,
     resolve_required_column,
-    resolve_restriction_chr_pos_columns,
-    resolve_restriction_rsid_column,
 )
 from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError
 from .._core.snp_identity import (
@@ -48,20 +44,6 @@ def _read_text_table(path: str | PathLike[str]) -> pd.DataFrame:
     text_path = str(path)
     compression = "gzip" if text_path.endswith(".gz") else None
     return pd.read_csv(text_path, sep=r"\s+", compression=compression)
-
-
-def _read_non_comment_lines(path: str | PathLike[str], limit: int = 5) -> list[str]:
-    """Return up to ``limit`` non-empty, non-comment lines from ``path``."""
-    lines: list[str] = []
-    with open_text(path) as handle:
-        for line in handle:
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            lines.append(stripped)
-            if len(lines) >= limit:
-                break
-    return lines
 
 
 def load_genetic_map(path: str | PathLike[str]) -> pd.DataFrame:
@@ -151,35 +133,6 @@ def interpolate_genetic_map_cm(
         np.asarray(positions, dtype=np.int64),
         chrom_map["POS"].to_numpy(dtype=np.int64),
         chrom_map["CM"].to_numpy(dtype=float),
-    )
-
-
-def detect_restriction_identifier_mode(path: str | PathLike[str]) -> str:
-    """Infer whether a SNP restriction file is keyed by rsID or coordinates."""
-
-    lines = _read_non_comment_lines(path, limit=2)
-    if not lines:
-        return "rsid"
-
-    header_fields = re.split(r"\t|,|\s+", lines[0])
-    try:
-        resolve_restriction_chr_pos_columns(header_fields, context=str(path))
-        return "chr_pos"
-    except (ValueError, LDSCInputError):
-        # Not a chr_pos restriction file; try rsid before raising a combined
-        # user-facing header error.
-        pass
-    try:
-        resolve_restriction_rsid_column(header_fields, context=str(path))
-        return "rsid"
-    except (ValueError, LDSCInputError):
-        # Neither supported restriction schema matched.
-        pass
-
-    raise LDSCInputError(
-        f"Cannot detect SNP restriction mode for {path}: no recognizable SNP or CHR/POS header was found. "
-        "Most likely the file has no header row or uses unsupported column names. "
-        "Add a header with SNP or CHR/POS columns."
     )
 
 
@@ -508,29 +461,6 @@ def yield_pairwise_r2_rows(
         )
         previous_chunk_width = current_chunk_width
     yield from _pop_pair_rows_before(pending_rows, m + 1)
-
-
-def iter_pairwise_r2_rows(
-    *,
-    block_left: np.ndarray,
-    snp_batch_size: int,
-    standardized_snp_getter,
-    m: int,
-    n: int,
-    r2_min: float = 0.0,
-) -> list[PairColumns]:
-    """Materialize :func:`yield_pairwise_r2_rows` as an in-memory list of chunks."""
-
-    return list(
-        yield_pairwise_r2_rows(
-            block_left=block_left,
-            snp_batch_size=snp_batch_size,
-            standardized_snp_getter=standardized_snp_getter,
-            m=m,
-            n=n,
-            r2_min=r2_min,
-        )
-    )
 
 
 def build_restriction_mask(

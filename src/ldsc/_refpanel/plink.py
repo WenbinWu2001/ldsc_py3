@@ -93,10 +93,6 @@ class __GenotypeArrayInMemory__(object):
         """Apply backend-specific sample filtering to the genotype matrix."""
         raise NotImplementedError
 
-    def __filter_maf_(geno, m, n, maf):
-        """Apply backend-specific SNP and MAF filtering to the genotype matrix."""
-        raise NotImplementedError
-
 
 if ba is not None:
     class PlinkBEDFile(__GenotypeArrayInMemory__):

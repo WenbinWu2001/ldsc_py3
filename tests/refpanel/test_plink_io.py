@@ -224,41 +224,6 @@ class IndexParquetRuntimeTest(unittest.TestCase):
             self.assertIn("hg19", str(ctx.exception))
             self.assertIn("hg38", str(ctx.exception))
 
-    def test_index_init_warns_on_coarse_row_groups(self):
-        import pyarrow.parquet as pq
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            panel = self._panel_meta(["rs1", "rs2"], [100, 120])
-            r2 = self._write_index_panel(tmpdir, panel, [{"i": 0, "j": 1, "R2": 0.5, "sign": "+"}], row_group_size=50000)
-            real_pf_cls = pq.ParquetFile
-
-            class FakeMeta:
-                num_rows = 600_000
-                num_row_groups = 1
-
-                def row_group(self, index):
-                    return real_pf_cls(str(r2)).metadata.row_group(index)
-
-            class FakePF:
-                def __init__(self, parquet_path):
-                    self._real = real_pf_cls(parquet_path)
-                    self.metadata = FakeMeta()
-                    self.schema_arrow = self._real.schema_arrow
-
-                def read_row_group(self, *args, **kwargs):
-                    return self._real.read_row_group(*args, **kwargs)
-
-            with mock.patch("pyarrow.parquet.ParquetFile", FakePF):
-                with self.assertLogs("LDSC.ref_panel", level="WARNING") as log_ctx:
-                    self._reader(r2, self._reader_meta(["rs1", "rs2"], [100, 120]))
-            message = "\n".join(log_ctx.output)
-            self.assertIn(str(r2), message)
-            self.assertIn("600000", message)
-            self.assertIn("SNP-pair rows", message)
-            self.assertIn("slower", message)
-            self.assertIn("memory", message)
-            self.assertIn("ldsc build-r2-matrix", message)
-
     def test_index_init_hard_fails_on_multiple_paths(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             panel = self._panel_meta(["rs1", "rs2"], [100, 120])

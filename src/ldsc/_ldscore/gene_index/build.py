@@ -38,7 +38,7 @@ from scipy import sparse
 
 from ..._runtime.worker_runtime import initialize_worker, native_thread_state
 from ..._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP
-from ..._runtime.workflow_logging import LOG_LEVEL_HELP
+from ..._runtime.workflow_logging import args_output_scope, FAILURE_MARKER, LOG_LEVEL_HELP
 from ..._runtime.parallelism import (
     WORKERS_HELP, chromosome_pool, parse_workers, resolve_worker_count, run_chromosome_tasks,
 )
@@ -473,11 +473,7 @@ def _build_embedded_gene_catalog(
 
 
 @materializing_overwrite_guard(
-    lambda args: (
-        (getattr(args, "output_dir"), getattr(args, "overwrite", False), "RUN_FAILED.txt")
-        if getattr(args, "output_dir", None)
-        else None
-    ),
+    args_output_scope,
     command="run_build_gene_ldscore_index_from_args(...)",
 )
 def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
@@ -1113,7 +1109,7 @@ def _recover_gene_index_publication(
     backup = valid_backups[0]
     if destination.exists():
         if _is_failure_marker_only_gene_index(destination):
-            failure_marker = destination / "RUN_FAILED.txt"
+            failure_marker = destination / FAILURE_MARKER
             if failure_marker.is_file():
                 # Recovery is not completion of the current build; retain its marker.
                 os.replace(failure_marker, backup / failure_marker.name)
@@ -1230,7 +1226,7 @@ def _is_failure_marker_only_gene_index(path: Path) -> bool:
     """
     if not path.is_dir():
         return False
-    marker = path / "RUN_FAILED.txt"
+    marker = path / FAILURE_MARKER
     return list(path.iterdir()) == [marker] and marker.is_file() and not marker.is_symlink()
 
 

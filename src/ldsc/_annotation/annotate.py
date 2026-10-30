@@ -64,7 +64,7 @@ def _gate_a_error(batch, naming_error=None):
     return LDSCInputError(' '.join(parts))
 
 
-@materializing_overwrite_guard(lambda *args, **kwargs: (kwargs.get('output_dir'), kwargs.get('overwrite', False), 'RUN_FAILED.txt') if kwargs.get('output_dir') else None, command='run_annotate(...)')
+@materializing_overwrite_guard(lambda *args, **kwargs: (kwargs.get('output_dir'), kwargs.get('overwrite', False)) if kwargs.get('output_dir') else None, command='run_annotate(...)')
 def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=None,
                  query_annot_bed_sources=None, query_annot_gene_list_sources=None,
                  gene_coordinate_file=None, padding_bp=None, gene_list_resolution_policy=None, gene_exclude_regions=None,

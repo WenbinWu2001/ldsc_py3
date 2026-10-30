@@ -68,7 +68,7 @@ import pandas as pd
 
 from .._runtime.serial_calculation import serial_calculation
 from .._runtime.cli_help import CLIHelpFormatter, SCALAR_PATH_HELP
-from .._runtime.workflow_logging import LOG_LEVEL_HELP
+from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
 from .._core.coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from ..config import (
     GlobalConfig,
@@ -2916,11 +2916,7 @@ def add_rg_arguments(parser) -> None:
 
 
 @materializing_overwrite_guard(
-    lambda args: (
-        (getattr(args, "output_dir"), getattr(args, "overwrite", False), "RUN_FAILED.txt")
-        if getattr(args, "output_dir", None)
-        else None
-    ),
+    args_output_scope,
     command="run_h2_from_args(...)",
 )
 def run_h2_from_args(args):
@@ -2987,11 +2983,7 @@ def run_h2_from_args(args):
 
 
 @materializing_overwrite_guard(
-    lambda args: (
-        (getattr(args, "output_dir"), getattr(args, "overwrite", False), "RUN_FAILED.txt")
-        if getattr(args, "output_dir", None)
-        else None
-    ),
+    args_output_scope,
     command="run_partitioned_h2_from_args(...)",
 )
 def run_partitioned_h2_from_args(args):
@@ -3084,11 +3076,7 @@ def run_partitioned_h2_from_args(args):
 
 
 @materializing_overwrite_guard(
-    lambda args: (
-        (getattr(args, "output_dir"), getattr(args, "overwrite", False), "RUN_FAILED.txt")
-        if getattr(args, "output_dir", None)
-        else None
-    ),
+    args_output_scope,
     command="run_rg_from_args(...)",
 )
 def run_rg_from_args(args):

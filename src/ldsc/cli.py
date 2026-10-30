@@ -19,7 +19,6 @@ from __future__ import annotations
 import argparse
 import logging
 from pathlib import Path
-import re
 import shlex
 import sys
 from typing import Sequence
@@ -30,11 +29,12 @@ from ._ldscore.gene_index import build as gene_ldscore_index
 from ._ldscore import calculator as ldscore_calculator
 from ._refpanel import query as r2_matrix_query, builder as r2_matrix_builder
 from ._runtime.workflow_logging import (
+    FAILURE_MARKER,
     install_cli_console_handler,
     last_workflow_log_path,
+    overwrite_failure_marker,
     remove_cli_console_handler,
     reset_workflow_log_path,
-    overwrite_failure_marker,
 )
 from .errors import LDSCError, LDSCUserError
 
@@ -267,22 +267,19 @@ def _cli_failure_marker_scope(argv: Sequence[str]) -> tuple[Path, str] | None:
     if command == "munge-sumstats" and "--infer-only" in argv:
         return None
     if command == "plot":
+        from ._plotting.dispatch import default_plot_dir
         source = _raw_option_value(argv, "--result-dir")
-        return (Path(source) / "plots", "RUN_FAILED.txt") if source is not None else None
+        return (default_plot_dir(source), FAILURE_MARKER) if source is not None else None
     if command == "convert-h2-scale":
+        from ._regression.h2_scale import default_liability_scale_dir
         source = _raw_option_value(argv, "--h2-result-dir")
-        if source is None:
-            return None
-        return Path(source) / "postprocessing" / "liability-scale", "RUN_FAILED.txt"
+        return (default_liability_scale_dir(source), FAILURE_MARKER) if source is not None else None
     output_dir = _raw_option_value(argv, "--output-dir")
     if output_dir is None:
         return None
     if command == "build-r2-matrix":
-        prefix = _raw_option_value(argv, "--plink-prefix")
-        chromosome = _chromosome_from_concrete_prefix(prefix)
-        if chromosome is not None:
-            return Path(output_dir), f"RUN_FAILED.chr{chromosome}.txt"
-    return Path(output_dir), "RUN_FAILED.txt"
+        return Path(output_dir), r2_matrix_builder.failure_marker_name(_raw_option_value(argv, "--plink-prefix"))
+    return Path(output_dir), FAILURE_MARKER
 
 
 def _raw_option_value(argv: Sequence[str], option: str) -> str | None:
@@ -295,19 +292,6 @@ def _raw_option_value(argv: Sequence[str], option: str) -> str | None:
         if token.startswith(prefix):
             value = token[len(prefix) :]
     return value
-
-
-def _chromosome_from_concrete_prefix(prefix: str | None) -> str | None:
-    """Infer an explicit chromosome token without resolving or reading inputs."""
-    if not prefix or "@" in prefix:
-        return None
-    matches = re.findall(
-        r"(?:^|[._-])(?:chr)?(1[0-9]|2[0-2]|[1-9]|X|Y)(?=$|[._-])",
-        Path(prefix).name,
-        flags=re.IGNORECASE,
-    )
-    normalized = {match.upper() for match in matches}
-    return next(iter(normalized)) if len(normalized) == 1 else None
 
 
 def _log_internal_error(exc: BaseException, *, workflow_advice: bool = True) -> None:

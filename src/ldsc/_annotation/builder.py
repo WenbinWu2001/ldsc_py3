@@ -12,7 +12,7 @@ import argparse
 from typing import Sequence
 
 from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP
-from .._runtime.workflow_logging import LOG_LEVEL_HELP
+from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
 from .bundle import AnnotationBundle
 from .loading import build_annotation_shards
 from .storage import AnnotationWorkspace
@@ -254,11 +254,7 @@ def parse_annotate_args(argv: Sequence[str] | None = None) -> argparse.Namespace
 
 
 @materializing_overwrite_guard(
-    lambda args: (
-        (getattr(args, "output_dir"), getattr(args, "overwrite", False), "RUN_FAILED.txt")
-        if getattr(args, "output_dir", None)
-        else None
-    ),
+    args_output_scope,
     command="run_annotate_from_args(...)",
 )
 def run_annotate_from_args(args: argparse.Namespace) -> AnnotationBundle:

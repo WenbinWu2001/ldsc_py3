@@ -165,6 +165,16 @@ def workflow_logging(
     return _WorkflowLoggingContext(workflow_name, log_path, log_level=log_level)
 
 
+# Failure marker left in an output directory by a failed authorized overwrite.
+FAILURE_MARKER = "RUN_FAILED.txt"
+
+
+def args_output_scope(args):
+    """Return the overwrite scope of parsed arguments with ``output_dir`` and ``overwrite``, or None without one."""
+    output_dir = getattr(args, "output_dir", None)
+    return (output_dir, getattr(args, "overwrite", False)) if output_dir else None
+
+
 @contextmanager
 def overwrite_failure_marker(
     output_dir: str | PathLike[str],
@@ -172,7 +182,7 @@ def overwrite_failure_marker(
     overwrite: bool,
     command: str,
     log_path: str | PathLike[str] | None = None,
-    marker_name: str = "RUN_FAILED.txt",
+    marker_name: str = FAILURE_MARKER,
 ):
     """Record a failed authorized overwrite without changing workflow order.
 
@@ -257,15 +267,17 @@ def _atomic_write_failure_marker(
 
 
 def materializing_overwrite_guard(
-    scope_resolver: Callable[..., tuple[str | PathLike[str], bool, str] | None],
+    scope_resolver: Callable[..., tuple | None],
     *,
     command: str,
 ):
     """Decorate a high-level Python workflow with the shared marker policy.
 
     ``scope_resolver`` performs only argument inspection and returns
-    ``(output_directory, overwrite_authorized, marker_name)``. Returning
-    ``None`` identifies a non-materializing call such as munging inference.
+    ``(output_directory, overwrite_authorized)``, or
+    ``(output_directory, overwrite_authorized, marker_name)`` for a marker other
+    than :data:`FAILURE_MARKER`. Returning ``None`` identifies a
+    non-materializing call such as munging inference.
     The decorator does not catch or transform workflow exceptions.
     """
 
@@ -275,7 +287,8 @@ def materializing_overwrite_guard(
             scope = scope_resolver(*args, **kwargs)
             if scope is None:
                 return function(*args, **kwargs)
-            output_dir, overwrite, marker_name = scope
+            output_dir, overwrite, *marker = scope
+            marker_name = marker[0] if marker else FAILURE_MARKER
             reset_workflow_log_path()
             with overwrite_failure_marker(
                 output_dir,

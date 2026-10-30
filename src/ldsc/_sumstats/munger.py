@@ -396,7 +396,6 @@ class SumstatsMunger:
             (
                 (raw_sumstats_config if munge_config is None or isinstance(munge_config, GlobalConfig) else munge_config).output_dir,
                 (raw_sumstats_config if munge_config is None or isinstance(munge_config, GlobalConfig) else munge_config).overwrite,
-                "RUN_FAILED.txt",
             )
             if (raw_sumstats_config if munge_config is None or isinstance(munge_config, GlobalConfig) else munge_config).output_dir
             else None

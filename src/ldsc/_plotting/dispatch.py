@@ -72,12 +72,16 @@ class _PlotContract:
     uncertainty: str
 
 
+def default_plot_dir(result_dir) -> Path:
+    """Return the default ``plot`` destination: ``plots/`` inside the result directory."""
+    return Path(normalize_path_token(result_dir)) / "plots"
+
+
 @materializing_overwrite_guard(
     lambda result_dir, **kwargs: (
         (
-            kwargs.get("output_dir") or Path(normalize_path_token(result_dir)) / "plots",
+            kwargs.get("output_dir") or default_plot_dir(result_dir),
             kwargs.get("overwrite", False),
-            "RUN_FAILED.txt",
         )
     ),
     command="plot_result(...)",
@@ -170,7 +174,7 @@ def plot_result(
                 "Supply a tab-separated table with one field per declared column."
             )
     builders = _load_builders()
-    destination = Path(normalize_path_token(output_dir)) if output_dir is not None else source_dir / "plots"
+    destination = Path(normalize_path_token(output_dir)) if output_dir is not None else default_plot_dir(source_dir)
     paths = {
         "plot": destination / contract.filename,
         "metadata": destination / "diagnostics" / "metadata.json",

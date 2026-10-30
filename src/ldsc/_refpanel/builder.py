@@ -46,7 +46,7 @@ import pandas as pd
 from .._runtime.artifacts import atomic_write_json
 from .._runtime.serial_calculation import serial_calculation
 from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
-from .._runtime.workflow_logging import LOG_LEVEL_HELP
+from .._runtime.workflow_logging import FAILURE_MARKER, LOG_LEVEL_HELP
 from .._core.columns import (
     normalize_genome_build,
 )
@@ -1651,8 +1651,18 @@ def _reference_panel_failure_marker_scope(
     output_dir = getattr(args, "output_dir", None)
     if output_dir is None:
         return None
-    prefix = str(getattr(args, "plink_prefix", "") or "")
-    marker_name = "RUN_FAILED.txt"
+    return output_dir, bool(getattr(args, "overwrite", False)), failure_marker_name(getattr(args, "plink_prefix", None))
+
+
+def failure_marker_name(plink_prefix: str | None) -> str:
+    """Return the failure marker of a build-r2-matrix run on ``plink_prefix``.
+
+    A prefix whose file name names exactly one chromosome (``panel.chr22``)
+    builds that chromosome alone, so its failed overwrite leaves
+    ``RUN_FAILED.chr<chrom>.txt``; any other prefix, including a ``@`` suite,
+    leaves ``RUN_FAILED.txt``. Inputs are not resolved or read.
+    """
+    prefix = str(plink_prefix or "")
     if "@" not in prefix:
         matches = re.findall(
             r"(?:^|[._-])(?:chr)?(1[0-9]|2[0-2]|[1-9]|X|Y)(?=$|[._-])",
@@ -1661,8 +1671,8 @@ def _reference_panel_failure_marker_scope(
         )
         chromosomes = {match.upper() for match in matches}
         if len(chromosomes) == 1:
-            marker_name = f"RUN_FAILED.chr{next(iter(chromosomes))}.txt"
-    return output_dir, bool(getattr(args, "overwrite", False)), marker_name
+            return f"RUN_FAILED.chr{next(iter(chromosomes))}.txt"
+    return FAILURE_MARKER
 
 
 @materializing_overwrite_guard(

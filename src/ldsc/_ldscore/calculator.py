@@ -52,7 +52,7 @@ from .direct_batches import DirectChromosomeFragment, stage_direct_chromosome
 from .fragments import StagedLDScoreBatch
 from .._core.chromosomes import chrom_sort_key
 from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
-from .._runtime.workflow_logging import LOG_LEVEL_HELP
+from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
 from .._runtime.parallelism import (
     WORKERS_HELP, chromosome_pool, parse_workers, resolve_worker_count, validate_workers,
 )
@@ -1324,11 +1324,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 @materializing_overwrite_guard(
-    lambda args: (
-        (getattr(args, "output_dir"), getattr(args, "overwrite", False), "RUN_FAILED.txt")
-        if getattr(args, "output_dir", None)
-        else None
-    ),
+    args_output_scope,
     command="run_ldscore_from_args(...)",
 )
 def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":

@@ -82,13 +82,16 @@ class H2ScaleConversionArtifact:
     plot_path: Path | None
 
 
+def default_liability_scale_dir(h2_result_dir) -> Path:
+    """Return the default ``convert-h2-scale`` destination inside an h2 result directory."""
+    return Path(normalize_path_token(h2_result_dir)) / "postprocessing" / "liability-scale"
+
+
 @materializing_overwrite_guard(
     lambda h2_result_dir, **kwargs: (
         (
-            kwargs.get("output_dir")
-            or Path(normalize_path_token(h2_result_dir)) / "postprocessing" / "liability-scale",
+            kwargs.get("output_dir") or default_liability_scale_dir(h2_result_dir),
             kwargs.get("overwrite", False),
-            "RUN_FAILED.txt",
         )
     ),
     command="convert_h2_scale(...)",
@@ -173,7 +176,7 @@ def convert_h2_scale(
     destination = (
         Path(normalize_path_token(output_dir))
         if output_dir is not None
-        else source_dir / "postprocessing" / "liability-scale"
+        else default_liability_scale_dir(source_dir)
     )
     paths = {
         "table": destination / _TABLE_NAME,

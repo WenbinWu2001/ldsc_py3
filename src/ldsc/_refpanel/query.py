@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 from .._runtime.cli_help import CLIHelpFormatter
-from .._runtime.workflow_logging import LOG_LEVEL_HELP
+from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
 from .._core.identifiers import build_snp_id_series
 from .r2_format import R2MatrixChromosome, lookup_pairs_in_parquet, r2_matrix_chromosomes, resolve_r2_build_dir
 from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
@@ -585,11 +585,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 @materializing_overwrite_guard(
-    lambda args: (
-        (getattr(args, "output_dir"), getattr(args, "overwrite", False), "RUN_FAILED.txt")
-        if getattr(args, "output_dir", None)
-        else None
-    ),
+    args_output_scope,
     command="run_query_r2_matrix_from_args(...)",
 )
 def run_query_r2_matrix_from_args(args: argparse.Namespace) -> pd.DataFrame:

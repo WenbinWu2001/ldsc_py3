@@ -172,7 +172,7 @@ class LegacyLDScoreConverter:
     @serial_calculation
     @materializing_overwrite_guard(
         lambda self, **kwargs: (
-            (kwargs["output_dir"], kwargs.get("overwrite", False), "RUN_FAILED.txt")
+            (kwargs["output_dir"], kwargs.get("overwrite", False))
             if kwargs.get("output_dir")
             else None
         ),

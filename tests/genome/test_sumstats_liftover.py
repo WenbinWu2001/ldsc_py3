@@ -11,7 +11,6 @@ import pandas as pd
 
 
 from ldsc._genome.liftover import (
-    Hm3DualBuildLifter,
     LiftOverMappingResult,
     SumstatsLiftoverRequest,
     apply_sumstats_liftover,
@@ -107,7 +106,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
             self.assertEqual(report["n_unmapped"], 1)
             self.assertEqual(drop_frame["reason"].tolist(), ["unmapped_liftover"])
 
-    def test_hm3_dual_build_lifter_supports_reverse_and_identity(self):
+    def test_hm3_quick_liftover_maps_hg38_to_hg19(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = self.write_hm3_map(
                 Path(tmpdir),
@@ -115,17 +114,22 @@ class SumstatsLiftoverTest(unittest.TestCase):
                 "1\t100\t1000\trs1\n"
                 "1\t200\t2000\trs2\n",
             )
-            frame = pd.DataFrame({"CHR": ["1", "1"], "POS": [1000, 9999], "SNP": ["raw_a", "raw_missing"]})
+            frame = pd.DataFrame(
+                {"CHR": ["1", "1"], "POS": [1000, 9999], "SNP": ["raw_a", "raw_missing"], "Z": [1.0, 2.0], "N": [100.0, 100.0]}
+            )
+            request = SumstatsLiftoverRequest(target_build="hg19", use_hm3_quick_liftover=True, hm3_map_file=path)
 
-            lifted, unmapped = Hm3DualBuildLifter("hg38", "hg19", path).lift(frame)
+            lifted, report, drop_frame = apply_sumstats_liftover(
+                frame,
+                request,
+                source_build="hg38",
+                snp_identifier="chr_pos",
+            )
 
             self.assertEqual(lifted["SNP"].tolist(), ["raw_a"])
             self.assertEqual(lifted["POS"].tolist(), [100])
-            self.assertEqual(unmapped.tolist(), [1])
-
-            identity, identity_unmapped = Hm3DualBuildLifter("hg38", "hg38", path).lift(frame)
-            pd.testing.assert_frame_equal(identity, frame)
-            self.assertEqual(identity_unmapped.tolist(), [])
+            self.assertEqual(report["n_unmapped"], 1)
+            self.assertEqual(drop_frame["reason"].tolist(), ["unmapped_liftover"])
 
     def test_chain_liftover_counts_cross_chromosome_drops(self):
         frame = pd.DataFrame(

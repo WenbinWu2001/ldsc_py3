@@ -883,7 +883,7 @@ def test_open_text_reads_utf8_and_any_case_gzip_suffix(tmp_path):
 
 def _bad_config_cases():
     from ldsc.config import GlobalConfig, MungeConfig, R2MatrixBuildConfig
-    from ldsc._genome.liftover import Hm3DualBuildLifter, SumstatsLiftoverRequest
+    from ldsc._genome.liftover import SumstatsLiftoverRequest
 
     return [
         (lambda: GlobalConfig(snp_identifier="rsidd"),
@@ -898,12 +898,10 @@ def _bad_config_cases():
          "Could not construct MungeConfig: output_genome_build='hg99' is invalid."),
         (lambda: SumstatsLiftoverRequest(target_build="hg99"),
          "Could not configure summary-statistics liftover: output_genome_build='hg99' is invalid."),
-        (lambda: Hm3DualBuildLifter(source_build="hg99", target_build="hg38", map_path="map.tsv"),
-         "Could not configure HM3 quick liftover: source or target genome build is invalid."),
     ]
 
 
-@pytest.mark.parametrize("case", range(7))
+@pytest.mark.parametrize("case", range(len(_bad_config_cases())))
 def test_invalid_build_or_mode_reports_the_configs_own_message(case):
     make, message = _bad_config_cases()[case]
     with pytest.raises(LDSCConfigError) as raised:

@@ -156,20 +156,6 @@ class LiftOverTranslator:
             cross_chrom_mask=cross_chrom_mask,
         )
 
-    def translate_positions(self, chrom: str, positions: Sequence[int] | np.ndarray) -> np.ndarray:
-        """Translate 1-based positions and require complete same-chromosome mapping."""
-        result = self.map_positions(chrom, positions)
-        if not result.keep_mask.all():
-            failed = np.asarray(positions, dtype=np.int64)[~result.keep_mask]
-            preview = ", ".join(str(int(value)) for value in failed[:5])
-            raise LDSCInputError(
-                f"Could not liftover {len(failed)} positions on chromosome {chrom} "
-                f"from {self.source_build} to {self.target_build}: {preview}. "
-                "Most likely those positions are absent from the chain mapping or map off chromosome. "
-                "Check the source genome build and use the correct chain file."
-            )
-        return result.translated_positions
-
 
 @dataclass(frozen=True)
 class SumstatsLiftoverRequest:
@@ -233,49 +219,6 @@ class SumstatsLiftoverRequest:
     def requested(self) -> bool:
         """Return whether any target or method flag was supplied."""
         return self.target_build is not None or self.method is not None
-
-
-@dataclass(frozen=True)
-class Hm3DualBuildLifter:
-    """Coordinate-only lifter backed by the curated dual-build HM3 map."""
-
-    source_build: str
-    target_build: str
-    map_path: str | PathLike[str]
-
-    def __post_init__(self) -> None:
-        """Normalize build labels and validate the supported HM3 pair."""
-        try:
-            source = normalize_genome_build(self.source_build)
-            target = normalize_genome_build(self.target_build)
-        except LDSCConfigError as exc:
-            raise LDSCConfigError(
-                "Could not configure HM3 quick liftover: source or target genome build is invalid. "
-                "Most likely the build label is misspelled. Use hg19 or hg38."
-            ) from exc
-        if source not in SUPPORTED_LIFTOVER_BUILDS or target not in SUPPORTED_LIFTOVER_BUILDS:
-            raise LDSCUsageError(
-                f"Could not configure HM3 quick liftover from {source!r} to {target!r}: only hg19 and hg38 are supported. "
-                "Most likely a build outside the curated HM3 map was requested. "
-                "Use hg19/hg38 or choose chain-file liftover for other builds."
-            )
-        object.__setattr__(self, "source_build", source)
-        object.__setattr__(self, "target_build", target)
-        object.__setattr__(self, "map_path", str(self.map_path))
-
-    def lift(self, frame: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray]:
-        """Return a lifted frame and the original indices that failed to map."""
-        if self.source_build == self.target_build:
-            return frame.copy(), np.asarray([], dtype=np.int64)
-        work, _report = _normalized_coordinate_frame(frame)
-        request = SumstatsLiftoverRequest(
-            target_build=self.target_build,
-            use_hm3_quick_liftover=True,
-            hm3_map_file=self.map_path,
-        )
-        lifted, _unmapped_count, _drop_frame = _apply_hm3_liftover(work, request, source_build=self.source_build)
-        unmapped_indices = np.asarray(frame.index[~frame.index.isin(lifted.index)], dtype=np.int64)
-        return lifted, unmapped_indices
 
 
 def default_liftover_metadata(*, source_build: str | None, snp_identifier: str) -> dict[str, Any]:

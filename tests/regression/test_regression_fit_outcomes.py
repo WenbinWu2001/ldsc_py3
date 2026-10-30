@@ -61,7 +61,7 @@ def _intercept_fit(command, config):
         "ref_ld_columns", "retained_ld_columns", "dropped_zero_variance_ld_columns", "weight_column",
         "reference_snp_count_totals", "count_key_used_for_regression", "chromosomes_aggregated", "config_snapshot",
     )}
-    rg_dataset = workflow.RGRegressionDataset(merged=merged, trait_names=["one", "two"], **fields)
+    rg_dataset = workflow.RegressionDataset(merged=merged, trait_names=["one", "two"], **fields)
     return runner._fit_rg_dataset(rg_dataset).estimator
 
 
@@ -151,7 +151,7 @@ def test_rg_outcome_uses_explicit_product_filter_not_h2_cap():
         'ref_ld_columns', 'retained_ld_columns', 'dropped_zero_variance_ld_columns', 'weight_column',
         'reference_snp_count_totals', 'count_key_used_for_regression', 'chromosomes_aggregated', 'config_snapshot',
     )}
-    dataset = workflow.RGRegressionDataset(merged=merged, trait_names=['one', 'two'], **fields)
+    dataset = workflow.RegressionDataset(merged=merged, trait_names=['one', 'two'], **fields)
     runner = workflow.RegressionRunner(GlobalConfig(snp_identifier='rsid'), RegressionConfig(chisq_max=10, num_blocks=5, use_intercept=False))
     outcome = runner._fit_rg_dataset(dataset)
     assert isinstance(outcome.estimator, workflow.reg.RG)

@@ -171,7 +171,12 @@ def _log_phase_timing(phase: str, *, level=logging.INFO):
 
 @dataclass(frozen=True)
 class RegressionDataset:
-    """Merged regression-ready dataset built from summary statistics and LD-score tables."""
+    """Merged regression-ready dataset built from summary statistics and LD-score tables.
+
+    One trait name marks an h2 dataset with ``Z`` and ``N``; two mark an rg
+    pair with ``Z1``, ``N1``, ``Z2`` and ``N2``, trait 2 already harmonized to
+    trait 1. ``ldscore_overlap`` lets either fit apply the collinearity check.
+    """
     merged: pd.DataFrame
     ref_ld_columns: list[str]
     weight_column: str
@@ -187,12 +192,12 @@ class RegressionDataset:
     ldscore_overlap: "LDScoreOverlap | None" = None
 
     def validate(self) -> None:
-        """Validate that the merged table contains the required LDSC columns."""
-        required = {"SNP", self.weight_column, "Z", "N"}
-        missing = required - set(self.merged.columns)
+        """Validate that the merged table contains the columns its estimator reads."""
+        command, statistics = ("h2", ["Z", "N"]) if len(self.trait_names) == 1 else ("rg", ["Z1", "N1", "Z2", "N2"])
+        missing = {"SNP", self.weight_column, *statistics} - set(self.merged.columns)
         if missing:
             raise LDSCInternalError(
-                f"h2 regression dataset validation failed: merged table is missing columns {sorted(missing)}. "
+                f"{command} regression dataset validation failed: merged table is missing columns {sorted(missing)}. "
                 "Most likely regression preprocessing dropped required summary-statistics or LD-score columns. "
                 "Re-run with `--log-level DEBUG` and report the traceback."
             )
@@ -223,38 +228,6 @@ class _PartitionedModelInputs:
 
 
 @dataclass(frozen=True)
-class RGRegressionDataset:
-    """Merged genetic-correlation dataset built from two traits and LD scores.
-
-    ``ldscore_overlap`` lets the pair fit apply the same collinearity check as h2.
-    """
-    merged: pd.DataFrame
-    ref_ld_columns: list[str]
-    weight_column: str
-    reference_snp_count_totals: dict[str, np.ndarray]
-    count_key_used_for_regression: str
-    retained_ld_columns: list[str]
-    dropped_zero_variance_ld_columns: list[str]
-    trait_names: list[str]
-    chromosomes_aggregated: list[str]
-    config_snapshot: GlobalConfig | None = None
-    effective_snp_identifier: str = "chr_pos_allele_aware"
-    identity_downgrade_applied: bool = False
-    ldscore_overlap: "LDScoreOverlap | None" = None
-
-    def validate(self) -> None:
-        """Validate that the merged table contains the required RG columns."""
-        required = {"SNP", self.weight_column, "Z1", "N1", "Z2", "N2"}
-        missing = required - set(self.merged.columns)
-        if missing:
-            raise LDSCInternalError(
-                f"rg regression dataset validation failed: merged table is missing columns {sorted(missing)}. "
-                "Most likely regression preprocessing dropped required trait or LD-score columns. "
-                "Re-run with `--log-level DEBUG` and report the traceback."
-            )
-
-
-@dataclass(frozen=True)
 class _FitOutcome:
     """Estimator and the realized population supplied to its final fit.
 
@@ -265,7 +238,7 @@ class _FitOutcome:
     """
 
     estimator: reg.Hsq | reg.RG
-    dataset: RegressionDataset | RGRegressionDataset
+    dataset: RegressionDataset
     n_blocks: int
     effective_chisq_max: float | None
     diagnostic_bins: pd.DataFrame | None = None
@@ -585,7 +558,7 @@ class RegressionRunner:
         sumstats_table_2: SumstatsTable,
         ldscore_result: LDScoreSource | LDScoreResult,
         config: RegressionConfig | None = None,
-    ) -> RGRegressionDataset:
+    ) -> RegressionDataset:
         """Build the complete genetic-correlation preprocessing dataset.
 
         This helper merges trait 1, trait 2, and baseline LD scores on the
@@ -610,7 +583,7 @@ class RegressionRunner:
         config: RegressionConfig,
         *,
         build_checked: bool = False,
-    ) -> RGRegressionDataset:
+    ) -> RegressionDataset:
         """Build one pair's dataset from prepared traits; see ``build_rg_dataset``.
 
         ``build_checked`` skips the genome-build check when the caller already
@@ -687,7 +660,7 @@ class RegressionRunner:
             )
 
         # Model columns are chosen on the final pair SNP set, after allele harmonization.
-        dataset = RGRegressionDataset(
+        dataset = RegressionDataset(
             ref_ld_columns=ref_ld_columns,
             weight_column=weight_column,
             **_select_model_columns(merged.reset_index(drop=True), ref_ld_columns, ldscore_result.count_records,
@@ -1137,7 +1110,7 @@ class RegressionRunner:
     @serial_calculation
     def _fit_rg_dataset(
         self,
-        dataset: RGRegressionDataset,
+        dataset: RegressionDataset,
         config: RegressionConfig | None = None,
     ) -> _FitOutcome:
         """Fit genetic correlation and retain the population selected by its explicit product cap."""
@@ -2193,7 +2166,7 @@ def _iter_rg_pairs(n_traits: int, anchor_index: int | None) -> list[tuple[int, i
 
 def _summarize_rg_pair(
     rg_result,
-    dataset: RGRegressionDataset,
+    dataset: RegressionDataset,
     *,
     trait_1: str,
     trait_2: str,
@@ -2718,7 +2691,7 @@ def _add_jackknife_model_context(error, merged, columns, intercept):
             ]
 
 
-def _raise_on_model_collinearity(dataset: RegressionDataset | RGRegressionDataset, x: np.ndarray) -> None:
+def _raise_on_model_collinearity(dataset: RegressionDataset, x: np.ndarray) -> None:
     """Abort the fit when the LD-score design matrix is near-collinear.
 
     Matches legacy LDSC's hard stop on an ill-conditioned design matrix: rather

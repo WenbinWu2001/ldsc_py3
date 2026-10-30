@@ -220,11 +220,16 @@ class H2DirectoryWriter:
     """Write the unpartitioned h2 summary, exact fitted-bin diagnostic, and metadata."""
 
     @staticmethod
-    def artifact_family(output_dir) -> ArtifactFamily:
-        """Declare h2 outputs and derived roots invalidated by a successful rewrite."""
+    def artifact_family(output_dir, *, regression_bins: bool = True) -> ArtifactFamily:
+        """Declare h2 outputs and derived roots invalidated by a successful rewrite.
+
+        ``regression_bins=False`` (a fit with several LD-score columns) keeps
+        the bin diagnostic owned but not produced, so a replacement removes
+        a stale one.
+        """
         return declare_artifacts(output_dir, {
             "summary": ("h2.tsv", True),
-            "ld_score_regression_bins": ("diagnostics/ld_score_regression_bins.tsv", True),
+            "ld_score_regression_bins": ("diagnostics/ld_score_regression_bins.tsv", regression_bins),
             "metadata": ("diagnostics/metadata.json", True),
             "plots": ("plots", False),
             "postprocessing": ("postprocessing", False),
@@ -236,7 +241,7 @@ class H2DirectoryWriter:
         output_config: H2OutputConfig,
         *,
         metadata: dict[str, object],
-        diagnostic_bins: pd.DataFrame,
+        diagnostic_bins: pd.DataFrame | None,
     ) -> dict[str, str]:
         """Write the h2 summary, regression bins, and metadata.
 
@@ -248,14 +253,16 @@ class H2DirectoryWriter:
             Output directory and overwrite policy.
         metadata : dict
             Scientific and source provenance for the result.
-        diagnostic_bins : pandas.DataFrame
+        diagnostic_bins : pandas.DataFrame or None
             Exact post-filter LD score regression-bin summary in
-            :data:`H2_REGRESSION_BIN_COLUMNS` order.
+            :data:`H2_REGRESSION_BIN_COLUMNS` order. ``None`` for a fit with
+            several LD-score columns, which has no single LD score to bin;
+            the bin diagnostic is then not written.
 
         Returns
         -------
         dict of str to str
-            Written summary, bin-diagnostic, and metadata paths.
+            Written summary, bin-diagnostic (when written), and metadata paths.
 
         Raises
         ------
@@ -272,20 +279,20 @@ class H2DirectoryWriter:
         roots derived from the superseded h2 result.
         """
         output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
-        family = self.artifact_family(output_dir)
+        family = self.artifact_family(output_dir, regression_bins=diagnostic_bins is not None)
         paths = family.paths
         summary_path = paths["summary"]
         metadata_path = paths["metadata"]
-        bins_path = paths["ld_score_regression_bins"]
         diagnostics_dir = metadata_path.parent
         stale = family.preflight(overwrite=output_config.overwrite)
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
         atomic_write_dataframe(summary, summary_path, na_rep="NaN")
-        atomic_write_dataframe(
-            _select_columns(diagnostic_bins, H2_REGRESSION_BIN_COLUMNS, label="h2 regression-bin diagnostic"),
-            bins_path,
-            na_rep="NaN",
-        )
+        if diagnostic_bins is not None:
+            atomic_write_dataframe(
+                _select_columns(diagnostic_bins, H2_REGRESSION_BIN_COLUMNS, label="h2 regression-bin diagnostic"),
+                paths["ld_score_regression_bins"],
+                na_rep="NaN",
+            )
         atomic_write_json(
             result_metadata(
                 metadata,

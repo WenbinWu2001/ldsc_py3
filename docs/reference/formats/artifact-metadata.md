@@ -310,12 +310,13 @@ h2/
 
 `diagnostics/metadata.json` is provenance plus the plotting navigation contract.
 `--output-dir` is required. The bin table contains the exact final-fit
-rank-bin summaries used by `ldsc plot`; it is a required current `h2` artifact.
+rank-bin summaries used by `ldsc plot`; it is a required current `h2` artifact
+for a fit on a single LD-score column and absent for a fit on several columns.
 
 | Field | Explanation | Downstream usage |
 | --- | --- | --- |
 | `artifact_type` | Must be `h2_result`. | Selects `h2` plotting and conversion contracts. |
-| `files` | Relative map with `summary: "h2.tsv"` and `ld_score_regression_bins: "diagnostics/ld_score_regression_bins.tsv"`. | Conversion follows `summary`; plotting follows `ld_score_regression_bins`. |
+| `files` | Relative map with `summary: "h2.tsv"` and, for a fit on a single LD-score column, `ld_score_regression_bins: "diagnostics/ld_score_regression_bins.tsv"`. | Conversion follows `summary`; plotting follows `ld_score_regression_bins`. |
 | `trait_name` | Trait label resolved from CLI input or summary-statistics metadata. | None. |
 | `sumstats_file` | Source summary-statistics path. | None. |
 | `ldscore_dir` | Source LD-score directory. | None. |

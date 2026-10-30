@@ -1,6 +1,6 @@
 # Input Path Specification
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-30
 
 Examples below use the munged file names written without a trait label (`sumstats.parquet`, `sumstats.gz`); naming rules are in [artifact metadata](formats/artifact-metadata.md).
 
@@ -147,8 +147,9 @@ independent optional files:
 - `partitioned-h2`: `partitioned_h2.tsv`,
   `diagnostics/metadata.json`, optional `diagnostics/query_annotations/`, and
   `diagnostics/partitioned-h2.log` for CLI/workflow runs
-- `h2`: `h2.tsv`, `diagnostics/ld_score_regression_bins.tsv`,
-  `diagnostics/metadata.json`, and `diagnostics/h2.log` for CLI/workflow runs;
+- `h2`: `h2.tsv`, `diagnostics/ld_score_regression_bins.tsv` (single-column
+  LD-score directories only), `diagnostics/metadata.json`, and
+  `diagnostics/h2.log` for CLI/workflow runs;
   the default `plots/` and `postprocessing/` roots are owned derived outputs
 - `annotate`: root-level `query.<chrom>.annot.gz` shards, plus diagnostic
   metadata, dropped-SNP audit, and `annotate.log` under `diagnostics/`
@@ -574,7 +575,8 @@ Output:
 - Packaged HM3 is the default SNP restriction. `--sumstats-snps-file FILE` replaces it; `--no-snp-restriction` disables it. These overrides are mutually exclusive. For different source/output builds, packaged HM3 uses automatic quick liftover, while custom-list or unrestricted runs require a chain file. An explicit chain overrides automatic mapping; matching builds need no liftover.
 - `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` require `output_dir` and write
   fixed result families. For `h2`, the written family is `h2.tsv`,
-  `diagnostics/ld_score_regression_bins.tsv`, `diagnostics/metadata.json`, and
+  `diagnostics/ld_score_regression_bins.tsv` (single-column LD-score
+  directories only; an overwrite removes a stale one), `diagnostics/metadata.json`, and
   workflow-owned `diagnostics/h2.log`. Its default `plots/` and
   `postprocessing/` roots are owned stale derivatives. For `rg`, that family is
   `rg.tsv`, `rg_full.tsv`,

@@ -1,6 +1,6 @@
 # Estimate SNP heritability
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-30
 
 `ldsc h2` estimates the SNP heritability of one trait with LD score regression (LDSC; Bulik-Sullivan et al. 2015): it regresses the trait's $\chi^2$ statistics on LD scores and turns the slope into SNP heritability.
 It writes the estimate with its block-jackknife standard error, the regression intercept, and the binned data behind a diagnostic plot.
@@ -77,6 +77,7 @@ results/trait_h2/
 SNP heritability refers to the SNPs counted in the denominator: common-SNP counts by default (see [options](#options-you-may-change)).
 
 `diagnostics/ld_score_regression_bins.tsv` summarizes the exact SNPs of the final fit in LD-score bins.
+It is written only when the LD-score directory has a single LD-score column; a fit on several columns has no single LD score per SNP to bin, so its result has no bin table.
 `ldsc plot --result-dir results/trait_h2` draws it as `plots/ld_score_regression.png`, a binned LD score regression diagnostic, without refitting; see [plotting](plotting.md).
 `diagnostics/metadata.json` records provenance such as the SNP identifier mode used, the count vector (`count_key_used_for_regression`), the $\chi^2$ cap applied and the number of block-jackknife blocks used; its fields are listed in [artifact metadata](../../reference/formats/artifact-metadata.md#h2).
 
@@ -122,6 +123,6 @@ What each setting does to the estimator is explained in [regression options](../
 
 - Summary statistics and LD scores built on different genome builds or SNP identifier modes are rejected before fitting; rebuild the mismatched input rather than forcing a match.
 - If no SNPs remain after the two inputs are merged, the SNP identifier mode, genome build or alleles usually differ; see [troubleshooting](../troubleshooting.md#regression-no-snps-remain-after-merging-regression-inputs).
-- The diagnostic plot needs `diagnostics/ld_score_regression_bins.tsv`; older results without it must be refitted.
+- The diagnostic plot needs `diagnostics/ld_score_regression_bins.tsv`; older results without it must be refitted, and fits on several LD-score columns never have it.
 
 For the Python API, see [Python usage](../python-usage.md#snp-heritability).

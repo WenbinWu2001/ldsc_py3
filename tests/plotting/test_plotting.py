@@ -87,6 +87,23 @@ def test_old_h2_result_without_bins_hard_fails_with_rerun_guidance(tmp_path):
         plot_result(result_dir)
 
 
+def test_h2_result_with_several_ld_score_columns_explains_why_it_has_no_bins(tmp_path):
+    from ldsc.errors import LDSCInputError
+    from ldsc._plotting.dispatch import plot_result
+
+    result_dir = tmp_path / "several-h2"
+    (result_dir / "diagnostics").mkdir(parents=True)
+    (result_dir / "diagnostics" / "metadata.json").write_text(
+        json.dumps({"artifact_type": "h2_result", "files": {"summary": "h2.tsv"},
+                    "retained_ld_columns": ["base", "second"]}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LDSCInputError, match="2 LD-score columns") as caught:
+        plot_result(result_dir)
+    assert "rerun" not in str(caught.value)
+
+
 @pytest.mark.parametrize(
     ("pair_kind", "filename", "kind"),
     [

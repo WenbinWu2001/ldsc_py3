@@ -323,6 +323,13 @@ def _select_contract(metadata: dict[str, Any]) -> _PlotContract:
     if artifact_type == "h2_result":
         files = metadata.get("files")
         if not isinstance(files, dict) or not files.get("ld_score_regression_bins"):
+            fitted = metadata.get("retained_ld_columns")
+            if isinstance(fitted, list) and len(fitted) > 1:
+                raise LDSCInputError(
+                    f"This h2 result was fitted on {len(fitted)} LD-score columns, so it has no "
+                    "diagnostics/ld_score_regression_bins.tsv: the binned regression plot needs a single "
+                    "LD score per SNP. Plot an h2 result fitted on a one-column LD-score directory instead."
+                )
             raise LDSCInputError(
                 "This h2 result does not contain diagnostics/ld_score_regression_bins.tsv. "
                 "The binned regression plot cannot be reconstructed faithfully; rerun the current `ldsc h2` command."

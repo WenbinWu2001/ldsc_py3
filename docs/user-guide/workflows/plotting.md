@@ -1,6 +1,6 @@
 # Plotting LDSC3 Results
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-30
 
 The plotting command turns a completed LDSC3 result directory into one concise exploratory figure.
 It chooses the plot from the result metadata, so you provide the result root rather than a table or plot type.
@@ -63,7 +63,8 @@ Darker point colors indicate greater relative regression weight.
 
 Use this figure to inspect whether the binned observed pattern broadly follows the fitted LD score regression relationship and whether deviations concentrate in particular LD score ranges.
 It is a diagnostic, not an additional SNP heritability estimate.
-Current `h2` runs always save the exact bin table needed by the plot.
+Current `h2` runs on a single-column LD-score directory always save the exact bin table needed by the plot.
+A fit on several LD-score columns has no bin table, and the plot command says so.
 Older runs without `diagnostics/ld_score_regression_bins.tsv` must be rerun; the plot command will not reconstruct or approximate the bins.
 
 ### Functional heritability enrichment

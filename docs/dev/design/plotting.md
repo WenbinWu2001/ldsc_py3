@@ -1,6 +1,6 @@
 # Plotting and Heritability-Scale Post-processing
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-30
 
 This document is the developer-facing contract for the plotting layer and the post-fit observed-to-liability-scale conversion workflow. For scientist-facing commands and interpretation, see [the plotting results manual](../../user-guide/workflows/plotting.md).
 
@@ -113,7 +113,8 @@ The plot log also records the heritability source, availability, and scale.
 
 ## Exact `h2` regression-bin diagnostic
 
-Every new unpartitioned `h2` run writes `diagnostics/ld_score_regression_bins.tsv`, independent of Matplotlib.
+Every new `h2` run on a single-column LD-score directory writes `diagnostics/ld_score_regression_bins.tsv`, independent of Matplotlib.
+A fit on several LD-score columns writes no bin table, because no single LD score per SNP defines the bins; its metadata lists the fitted `retained_ld_columns`, which the plot error reports.
 The table is computed from the exact SNP population entering the final slope fit after the active chi-square filter.
 In two-step estimation, it therefore uses the second-step slope population rather than only the first-step intercept subset.
 

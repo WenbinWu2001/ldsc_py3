@@ -287,6 +287,59 @@ def _run_h2_cli(tmp_path, *, z_scale, options):
     return summary, written
 
 
+def two_baseline_inputs(tmp_path):
+    """Write an LD-score directory whose baseline has two LD-score columns."""
+    frame = h2_dataset().merged
+    baseline = frame[["SNP", "base"]].assign(
+        second=2 + np.cos(frame.base), CHR=["1"] * 30 + ["2"] * 30, POS=np.tile(np.arange(1, 31), 2),
+        regression_ld_scores=1.,
+    )
+    counts = [{"group": "baseline", "column": column, "all_reference_snp_count": 1000.,
+               "common_reference_snp_count": 1000.} for column in ("base", "second")]
+    source = LDScoreResult(baseline, None, counts, ["base", "second"], [], frozenset(), frozenset(baseline.SNP), [],
+                           config_snapshot=workflow.GlobalConfig(snp_identifier="rsid"))
+    LDScoreDirectoryWriter().write(source, LDScoreOutputConfig(output_dir=tmp_path))
+
+
+def _h2_trait(tmp_path):
+    path = tmp_path / "trait.parquet"
+    fixtures.RegressionWorkflowTest().write_footer_sumstats_parquet(
+        path, frame=h2_dataset().merged[["SNP", "Z", "N"]], trait_name="MDD")
+    return path
+
+
+def _h2(ldscore_dir, trait, output_dir, *options):
+    return cli.main(["h2", "--ldscore-dir", str(ldscore_dir), "--sumstats-file", str(trait),
+                     "--output-dir", str(output_dir), "--num-blocks", "6", *options])
+
+
+def test_h2_with_several_ld_score_columns_writes_no_regression_bins(tmp_path):
+    two_baseline_inputs(tmp_path / "ld")
+    summary = _h2(tmp_path / "ld", _h2_trait(tmp_path), tmp_path / "out")
+
+    metadata = json.loads((tmp_path / "out" / "diagnostics" / "metadata.json").read_text())
+    assert metadata["retained_ld_columns"] == ["base", "second"]
+    assert metadata["files"] == {"summary": "h2.tsv"}
+    assert not (tmp_path / "out" / "diagnostics" / "ld_score_regression_bins.tsv").exists()
+    written = pd.read_csv(tmp_path / "out" / "h2.tsv", sep="\t")
+    assert len(written) == 1 and written.loc[0, "n_snps"] == summary.loc[0, "n_snps"]
+
+
+def test_h2_overwrite_with_several_ld_score_columns_removes_stale_regression_bins(tmp_path):
+    trait = _h2_trait(tmp_path)
+    batch_inputs(tmp_path / "single")
+    two_baseline_inputs(tmp_path / "several")
+    bins = tmp_path / "out" / "diagnostics" / "ld_score_regression_bins.tsv"
+    _h2(tmp_path / "single", trait, tmp_path / "out")
+    assert bins.is_file()
+
+    _h2(tmp_path / "several", trait, tmp_path / "out", "--overwrite")
+
+    assert not bins.exists()
+    metadata = json.loads((tmp_path / "out" / "diagnostics" / "metadata.json").read_text())
+    assert metadata["files"] == {"summary": "h2.tsv"}
+
+
 @pytest.mark.parametrize(("case", "z_scale", "options", "fields"), [
     ("mean chi-square <= 1", 0.01, (), ["ratio", "ratio_se"]),
     ("fixed intercept", 1.0, ("--intercept-h2", "1"), ["intercept_se"]),

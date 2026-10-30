@@ -1114,6 +1114,7 @@ Ties are intentionally kept in the lower-valued quantile for legacy compatibilit
 | 2 | The result predates a required current artifact | For `h2`, check for `diagnostics/ld_score_regression_bins.tsv`; rerun `ldsc h2` with the current package. |
 | 3 | Metadata and result tables came from different runs | Inspect `diagnostics/metadata.json` and verify every relevant `files` entry exists relative to the same root. |
 | 4 | The artifact type or scientific regime has no approved plot | Compare the input with the supported table in [the plotting manual](workflows/plotting.md#which-result-directory-produces-which-plot). |
+| 5 | The `h2` result was fitted on several LD-score columns, which have no regression bins | Check `retained_ld_columns` in `diagnostics/metadata.json`; the binned plot needs an `h2` fit on a single-column LD-score directory. |
 
 The plot command does not infer from loose TSV files or reconstruct missing
 diagnostics. Matplotlib is a required package dependency. If an existing

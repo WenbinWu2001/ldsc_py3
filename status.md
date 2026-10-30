@@ -5,6 +5,33 @@ Last updated on: 2026-10-29
 Branch `restructure`; checked on 2026-10-29.
 Nothing below is in progress; each open item needs the user's go-ahead.
 
+## Completed: dead-code and redundant-test cleanup (2026-10-29)
+
+The user confirmed the cleanup inventory from the architecture review and the public-name decisions on 2026-10-29 and authorized the work; the inventory, with evidence per item, stayed outside the repository.
+
+- `ab01daf`: tests import private names and pyarrow directly, so a rename or a broken install fails at collection instead of silently skipping up to 331 tests.
+- Unused production code, one commit per domain: `a181036` (`_runtime`, including the never-read `suffixes` parameter of the path resolvers), `0c3a5f9` (`_core`), `1046ade` (`_genome`), `33549f4` (`_annotation`), `aa09540` (`_refpanel`, including the warning for R² row groups that only older LDSC3 versions wrote), `63a9ac5` (`_sumstats`) and `29a895b` (`_regression`).
+  Two of these reject files from older LDSC3 versions instead of reading them leniently: a munged Parquet footer without `ldsc:snp_identifier` or `ldsc:genome_build` now raises the curated "re-run munge-sumstats" error, and `quantile-h2` requires `retained_ld_columns` in the fitted-model metadata.
+- `66e57e3`: the six `try/except ImportError` guards around pyarrow and Matplotlib, both required dependencies, are gone; Matplotlib stays lazily imported.
+- `f0211a2`: the three `_ldscore` leftovers.
+  The gene-index destination check accepts only a directory holding just `RUN_FAILED.txt`, not the diagnostics layout of failed builds before `e93f403`; `_wrap_legacy_chrom_result` became `_wrap_chrom_result` without its unused parameters; `_normalize_run_args` no longer sets four attributes nothing reads.
+  The `config_snapshot is None` checks in `_ldscore/source.py` and `_ldscore/outputs.py` stay: they raise `LDSCInternalError` when the public LD-score writer receives a result built without a snapshot.
+- Two fixes, each reproduced before the change: `7527841` (`convert-legacy-ldscores` accepted abbreviated flags) and `d9817f7` (`RefPanelConfig.backend` is now required, `plink` or `r2_matrix`; with the old `"auto"` default a PLINK panel dropped its genetic map with a log line about R² matrices, and `LDScoreCalculator.run` then failed with a raw `TypeError`).
+- Public names removed, all breaking: `RegressionDataset.legacy_sumstats_drops` and `RGRegressionDataset.legacy_sumstats_drops` (`02a7b72`; the `h2` audit file test now covers the drop reasons), the positional `SumstatsMunger.run(config, GlobalConfig)` form (`6a4e1c3`), `RefPanelLoader`'s `ref_panel_config` (`d9817f7`), and `cli.build_parser()` with `_copy_actions` (`8d305cf`).
+  `cli._command_parser()` now returns the parser each subcommand uses; `cli.main` and the tests (`tests/cli_parsing.py`) share it.
+- Tests: `34485e5` (55 tests that only checked a removed name), `4a4bfb8` (39 duplicates), `18ccede` (15 mocked tests that real runs cover), `f646fba` (tests for files from older LDSC3 versions, two rewritten to keep unrelated-file coverage) and `0b615cf` (skips for committed fixtures become failures, three parser tests that passed for the wrong reason fixed, six unused fixture files and the dead helpers removed).
+- Verification: the full pytest suite and `python -m unittest discover -s tests -p 'test*.py'` ran on an exported copy of each tested commit, with its own temporary directory, one run at a time; every run passed.
+  Final tree (`8d305cf`): pytest 2,289 passed with no skips, unittest 875 OK; before the work (`b2176a7`), pytest collected 2,428 with one skip and unittest ran 989.
+  Thirteen commits had full runs; at the user's request the full runs for `a181036`, `66e57e3`, `7527841`, `02a7b72`, `4a4bfb8`, `f646fba` and `0b615cf` were stopped, and `AGENTS.md` now asks for full runs only on the last commit of each group.
+
+### Kept or left open
+
+- `RefPanel.prepare_chromosome(genetic_map=)` stays, contrary to the inventory: `build-gene-ldscore-index` passes its preloaded map (`_ldscore/gene_index/build.py:1677`).
+- Not done: importing the six `munge_input` aliases directly in `_sumstats/munger.py` (cosmetic), and the R² sidecar reader rewrite, which belongs to architecture candidate 2.
+- Tracked elsewhere: `_allow_partial_for_tests` and `publish_gene_ldscore_index`, one LD-score publication path, and index construction through `compute_chromosome()` (below).
+- Kept by decision: one rejection test per legacy LDSC flag; the `plot` rejection of an h2 result without regression bins; the converter's lack of `--common-maf-min`; the BED `empty_input` test; unused parameters that mirror legacy LDSC signatures in `_regression/estimators.py`, `_refpanel/plink.py` and `p_to_z`.
+- `AGENTS.md` names pytest as the only test runner (`4f71e9f`); this work also ran unittest discovery because its brief asked for it.
+
 ## Completed: one batch execution path for direct and indexed LD scores (2026-10-29)
 
 The user confirmed the design in a grilling session on 2026-10-29 (architecture review candidate 1) and authorized its implementation the same day.

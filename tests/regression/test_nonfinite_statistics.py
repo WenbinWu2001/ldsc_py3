@@ -53,11 +53,12 @@ def test_h2_drops_nonfinite_rows_of_a_python_table():
     runner = workflow.RegressionRunner(regression_config=RegressionConfig(num_blocks=10))
 
     dataset = runner.build_dataset(table, panel())
-    hsq = runner.estimate_h2(dataset)
+    fit = runner.estimate_h2(dataset)
 
     assert len(dataset.merged) == N_SNPS - 3
     assert not {"rs0", "rs5", "rs9"} & set(dataset.merged["SNP"])
-    assert np.isfinite(hsq.tot).all()
+    assert fit.n_snps == N_SNPS - 3
+    assert np.isfinite(fit.estimator.tot).all()
 
 
 def functional_panel():

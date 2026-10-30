@@ -841,8 +841,9 @@ sumstats = load_sumstats("results/trait_sumstats/trait.parquet", trait_name="tra
 ldscore_result = load_ldscore_from_dir("results/unpartitioned_ldscores")
 runner = RegressionRunner(regression_config=RegressionConfig())
 dataset = runner.build_dataset(sumstats, ldscore_result)
-h2 = runner.estimate_h2(dataset)
-print(float(h2.tot), float(h2.tot_se), float(h2.intercept))
+fit = runner.estimate_h2(dataset)
+h2 = fit.estimator
+print(float(h2.tot), float(h2.tot_se), float(h2.intercept), fit.n_snps)
 ```
 
 `RegressionConfig` holds the regression options: `num_blocks`, `use_common_counts` (the CLI's `--count-kind`), `intercept_h2`, `two_step_cutoff`, `chisq_max`, `samp_prev`, `pop_prev` and `allow_identity_downgrade`.
@@ -860,7 +861,8 @@ A legacy `.sumstats.gz` file has no stored settings and is matched to the LD sco
 The LD-score table includes a `regression_ld_scores` column (legacy LDSC's `w_ld`); the final regression weights are computed from it during fitting.
 
 **Saved results.**
-`estimate_h2()` returns the kernel estimator and writes nothing.
+`estimate_h2()` returns a `RegressionFit` and writes nothing.
+Its `estimator` holds the estimates; `dataset`, `n_snps`, `n_blocks`, `effective_chisq_max` and `diagnostic_bins` describe the rows of the final fit, the same values `ldsc h2` records.
 `plot_result()` and `convert_h2_scale()` need a result directory written by `run_h2` or `ldsc h2`.
 
 ## Genetic correlation
@@ -930,4 +932,4 @@ Exporting the tables with `to_csv()` does not create a plotting input; `plot_res
 Tables made by the munger, and Parquet files read by `load_sumstats()`, carry the `GlobalConfig` used to make them; their settings are checked against the LD scores before fitting.
 A legacy `.sumstats.gz` file is matched to the LD scores by rsID; a Parquet file without the footer is rejected.
 
-`RegressionRunner.estimate_rg()` fits one pair and returns the low-level estimator object; prefer `estimate_rg_pairs()` or `run_rg`, which return the same tables as the command.
+`RegressionRunner.estimate_rg()` fits one pair and returns a `RegressionFit` whose `estimator` is the low-level `RG` object; prefer `estimate_rg_pairs()` or `run_rg`, which return the same tables as the command.

@@ -1,6 +1,6 @@
 # Documentation Vocabulary
 
-Last updated on: 2026-10-29
+Last updated on: 2026-10-30
 
 This is the glossary of the LDSC3 documentation.
 Each term below has one meaning and one wording across the user guide, the reference, the developer guide, the README, docstrings, command help and messages.
@@ -169,3 +169,5 @@ Add a row when a concept appears under several names: the concept, the proposed 
 
 | Concept | Proposed term | Variants and locations |
 | --- | --- | --- |
+| The object `estimate_h2` and `estimate_rg` return: the fitted estimator plus the SNP rows, block count, chi-square cap and diagnostic bins of its final fit. | `RegressionFit` (API name); "regression fit" in prose | "fit outcome" (`docs/reference/regression-options.md`, section 2); `_FitOutcome` in `src/ldsc/_regression/runner.py` before 2026-10-30 |
+| One trait's summary statistics after legacy projection, the non-finite filter and keying per SNP identifier mode, shared by every model of one regression run. | prepared trait summary statistics (identifier `_PreparedTraitSumstats`) | "prepares each trait once" (`docs/dev/design/memory-and-cpu.md`, multi-trait `estimate_rg_pairs()` paragraph) |

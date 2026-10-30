@@ -52,7 +52,7 @@ def _intercept_fit(command, config):
             reference_snp_count_totals={"common_reference_snp_counts": np.array([1000., 100.])},
         )
     if command != "rg":
-        return runner.estimate_h2(dataset)
+        return runner.estimate_h2(dataset).estimator
     merged = dataset.merged.rename(columns={"Z": "Z1", "N": "N1"}).copy()
     merged["Z1"] = np.sqrt(1.2 + .01 * merged.base + .02 * np.sin(merged.base))
     merged["Z2"] = np.sqrt(1.1 + .015 * merged.base + .03 * np.cos(merged.base))
@@ -109,7 +109,8 @@ def test_h2_fit_outcome_and_written_bins_use_exact_final_population(tmp_path, in
     dataset = h2_dataset()
     config = RegressionConfig(chisq_max=100, num_blocks=6, intercept_h2=intercept)
     runner = workflow.RegressionRunner(GlobalConfig(snp_identifier='rsid'), config)
-    outcome = runner._fit_h2_dataset(dataset)
+    outcome = runner.estimate_h2(dataset)
+    assert isinstance(outcome, workflow.RegressionFit)
     assert isinstance(outcome.estimator, workflow.reg.Hsq)
     assert outcome.dataset.merged.SNP.tolist() == [f'rs{i}' for i in range(1, 60)]
     assert len(dataset.merged) == 60
@@ -133,9 +134,6 @@ def test_h2_fit_outcome_and_written_bins_use_exact_final_population(tmp_path, in
     assert saved['effective_chisq_max'] == 100
     assert pd.read_csv(tmp_path / 'h2.tsv', sep='\t').n_snps.tolist() == [59]
     assert pd.read_csv(tmp_path / 'diagnostics/ld_score_regression_bins.tsv', sep='\t').n_snps.sum() == 59
-    public = runner.estimate_h2(dataset)
-    assert isinstance(public, workflow.reg.Hsq)
-    np.testing.assert_allclose(public.coef, outcome.estimator.coef)
 
 
 def test_rg_outcome_uses_explicit_product_filter_not_h2_cap():
@@ -178,7 +176,7 @@ def test_partitioned_default_cap_uses_prefilter_sample_size_and_retains_annotati
         reference_snp_count_totals={'common_reference_snp_counts': np.array([1000., 100.])},
     )
     runner = workflow.RegressionRunner(GlobalConfig(snp_identifier='rsid'), RegressionConfig(num_blocks=6))
-    outcome = runner._fit_h2_dataset(dataset)
+    outcome = runner.estimate_h2(dataset)
     assert outcome.effective_chisq_max == 400
     assert outcome.dataset.merged.SNP.tolist() == [f'rs{i}' for i in range(1, 60)]
     assert outcome.dataset.retained_ld_columns == ['base', 'query']

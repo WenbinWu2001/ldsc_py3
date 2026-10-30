@@ -190,7 +190,7 @@ def test_batch_fits_match_separate_models_and_release_details(tmp_path, monkeypa
     expected = {}
     for query in source.query_columns:
         dataset = runner.build_dataset(table, source, query_columns=[query])
-        outcome = runner._fit_h2_dataset(dataset)
+        outcome = runner.estimate_h2(dataset)
         expected[query] = (
             workflow.summarize_partitioned_h2(outcome.estimator, outcome.dataset, [query]),
             workflow.summarize_partitioned_h2(outcome.estimator, outcome.dataset, outcome.dataset.retained_ld_columns),

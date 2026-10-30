@@ -1104,7 +1104,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         ) as summarize_bins, mock.patch.object(
             regression_runner.reg, "Hsq", return_value=fitted_hsq
         ) as patched:
-            result = runner._fit_h2_dataset(dataset)
+            result = runner.estimate_h2(dataset)
         chisq_arg = patched.call_args.args[0]
         self.assertEqual(chisq_arg.shape[0], 3)
         summarize_bins.assert_called_once()
@@ -1534,7 +1534,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         with mock.patch.object(regression_runner.reg, "RG", return_value=mock.sentinel.rg_result) as patched:
             result = runner.estimate_rg(sumstats_1, sumstats_2, self.make_ldscore_result())
 
-        self.assertIs(result, mock.sentinel.rg_result)
+        self.assertIs(result.estimator, mock.sentinel.rg_result)
         np.testing.assert_allclose(patched.call_args.args[0], [[2.0], [1.0], [0.5]])
         np.testing.assert_allclose(patched.call_args.args[1], [[1.0], [1.5], [0.25]])
         np.testing.assert_allclose(patched.call_args.args[2], [[1.0], [2.0], [3.0]])

@@ -228,13 +228,36 @@ class _PartitionedModelInputs:
 
 
 @dataclass(frozen=True)
-class _FitOutcome:
-    """Estimator and the realized population supplied to its final fit.
+class RegressionFit:
+    """One fitted regression: the estimator and the SNP rows of its final fit.
 
-    The fitted dataset preserves SNP order, annotation order, reference counts
-    and identity provenance. It reflects the workflow's chi-square filter;
-    the two-step estimator's first-stage subset is not the final population.
-    Reporting consumes these facts instead of reconstructing selection rules.
+    Returned by :meth:`RegressionRunner.estimate_h2` and
+    :meth:`RegressionRunner.estimate_rg`; the command workflows report from
+    the same object, so Python callers see what the result files record.
+
+    Attributes
+    ----------
+    estimator : Hsq or RG
+        The fitted kernel estimator (``Hsq`` for h2, ``RG`` for rg), with
+        estimates such as ``tot``, ``tot_se`` and ``intercept``, or
+        ``rg_ratio`` and ``rg_se``.
+    dataset : RegressionDataset
+        The exact rows supplied to the final fit, in SNP order, after the
+        chi-square filter, with annotation order, count vectors and SNP
+        identifier provenance.
+    n_blocks : int
+        Jackknife block count actually used.
+    effective_chisq_max : float or None
+        Chi-square cap actually applied; ``None`` when the fit was uncapped.
+    diagnostic_bins : pandas.DataFrame or None
+        LD score regression bins of a single-annotation h2 fit, over the same
+        rows; ``None`` for rg and partitioned models.
+
+    Notes
+    -----
+    ``n_snps`` counts the rows of ``dataset``. The two-step estimator fits
+    its first stage on a subset of these rows; that subset is not the final
+    population.
     """
 
     estimator: reg.Hsq | reg.RG
@@ -329,7 +352,7 @@ class RgResultFamily:
 
 @dataclass(frozen=True)
 class _PreparedTraitSumstats:
-    """One trait's summary statistics, prepared once for every model that uses it.
+    """Prepared trait summary statistics: one trait, prepared once for every model that uses it.
 
     For a legacy ``.sumstats(.gz)`` input, ``table`` is its projection onto the
     LD-score panel and ``legacy_drops`` records the rows that projection dropped;
@@ -437,7 +460,7 @@ class RegressionRunner:
         *,
         build_checked: bool = False,
     ) -> PreparedRegressionInputs:
-        """Merge one prepared trait with the baseline LD scores; see ``prepare_inputs``.
+        """Merge prepared trait summary statistics with the baseline LD scores; see ``prepare_inputs``.
 
         ``build_checked`` skips the genome-build check when the caller already
         checked this trait and LD-score directory together.
@@ -584,7 +607,7 @@ class RegressionRunner:
         *,
         build_checked: bool = False,
     ) -> RegressionDataset:
-        """Build one pair's dataset from prepared traits; see ``build_rg_dataset``.
+        """Build one pair's dataset from prepared trait summary statistics; see ``build_rg_dataset``.
 
         ``build_checked`` skips the genome-build check when the caller already
         checked both traits and the LD-score directory together.
@@ -679,7 +702,7 @@ class RegressionRunner:
         self,
         dataset: RegressionDataset,
         config: RegressionConfig | None = None,
-    ):
+    ) -> RegressionFit:
         """Estimate single-trait heritability from a prepared dataset.
 
         Partitioned (multi-annotation) datasets apply the legacy default
@@ -687,8 +710,14 @@ class RegressionRunner:
         down-weighting outlier SNPs. Single-annotation datasets stay uncapped and
         default the two-step cutoff to ``30`` instead. See
         :func:`_resolve_default_chisq_max`.
+
+        Returns
+        -------
+        RegressionFit
+            The ``Hsq`` estimator as ``estimator``, with the SNP rows, block
+            count, chi-square cap and diagnostic bins of the fit.
         """
-        return self._fit_h2_dataset(dataset, config=config).estimator
+        return self._fit_h2_dataset(dataset, config=config)
 
     @serial_calculation
     def _fit_h2_dataset(
@@ -696,7 +725,7 @@ class RegressionRunner:
         dataset: RegressionDataset,
         config: RegressionConfig | None = None,
         *, log_level=logging.INFO,
-    ) -> _FitOutcome:
+    ) -> RegressionFit:
         """Fit SNP heritability once and retain its exact SNP population and diagnostic bins.
 
         The aligned frame can borrow read-only worker maps. Slice it only when
@@ -769,7 +798,7 @@ class RegressionRunner:
                 regression_ld_score=np.asarray(merged[[dataset.weight_column]]),
                 reference_snp_count=float(reference_snp_counts[0, 0]),
             )
-        return _FitOutcome(
+        return RegressionFit(
             estimator=hsq, dataset=replace(dataset, merged=merged), n_blocks=n_blocks,
             effective_chisq_max=chisq_max, diagnostic_bins=diagnostic_bins,
         )
@@ -811,9 +840,10 @@ class RegressionRunner:
         """
         selected_queries = _validate_partitioned_query_columns(ldscore_result, [query_column])
         dataset = self.build_dataset(sumstats_table, ldscore_result, config=config, query_columns=selected_queries)
-        hsq = self.estimate_h2(dataset, config=config)
+        fit = self.estimate_h2(dataset, config=config)
         samp_prev, pop_prev = _config_prevalence(config or self.regression_config)
-        return summarize_partitioned_h2(hsq, dataset, selected_queries, samp_prev=samp_prev, pop_prev=pop_prev)
+        return summarize_partitioned_h2(fit.estimator, fit.dataset, selected_queries, samp_prev=samp_prev,
+                                        pop_prev=pop_prev)
 
     @serial_calculation
     def _fit_functional_model(self, dataset, *, config):
@@ -1095,24 +1125,29 @@ class RegressionRunner:
         sumstats_table_2: SumstatsTable,
         ldscore_result: LDScoreSource | LDScoreResult,
         config: RegressionConfig | None = None,
-    ):
+    ) -> RegressionFit:
         """Estimate genetic correlation between two munged summary-stat tables.
 
         RG preprocessing is delegated to :meth:`build_rg_dataset`, which keeps
         the final trait1/trait2/LD-score SNP set explicit before arrays are
-        passed to the kernel. Allele harmonization exists, but it is skipped if
-        allele columns are absent.
+        passed to the kernel. Both tables need ``A1``/``A2``.
+
+        Returns
+        -------
+        RegressionFit
+            The ``RG`` estimator as ``estimator``, with the pair's SNP rows,
+            block count and the chi-square cap applied.
         """
         config = config or self.regression_config
         dataset = self.build_rg_dataset(sumstats_table_1, sumstats_table_2, ldscore_result, config=config)
-        return self._fit_rg_dataset(dataset, config=config).estimator
+        return self._fit_rg_dataset(dataset, config=config)
 
     @serial_calculation
     def _fit_rg_dataset(
         self,
         dataset: RegressionDataset,
         config: RegressionConfig | None = None,
-    ) -> _FitOutcome:
+    ) -> RegressionFit:
         """Fit genetic correlation and retain the population selected by its explicit product cap."""
         config = config or self.regression_config
         merged = dataset.merged
@@ -1152,7 +1187,7 @@ class RegressionRunner:
             twostep=two_step,
         )
 
-        return _FitOutcome(
+        return RegressionFit(
             estimator=fitted, dataset=replace(dataset, merged=merged), n_blocks=n_blocks,
             effective_chisq_max=config.chisq_max,
         )
@@ -2290,7 +2325,7 @@ def _absolute_ldscore_dir(value) -> str | None:
 def _h2_metadata(
     args,
     sumstats_table: SumstatsTable,
-    outcome: _FitOutcome,
+    outcome: RegressionFit,
     samp_prev: float | None = None,
     pop_prev: float | None = None,
     dropped_nonfinite_statistic_rows: int = 0,
@@ -2331,7 +2366,7 @@ def _rg_prevalence_metadata(full_row: dict[str, object]) -> dict[str, object]:
 def _rg_pair_metadata(
     table_1: SumstatsTable,
     table_2: SumstatsTable,
-    outcome: _FitOutcome,
+    outcome: RegressionFit,
     full_row: dict[str, object],
     config: RegressionConfig,
     pair_kind: str,

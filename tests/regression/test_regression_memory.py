@@ -35,7 +35,7 @@ def _check_shared_models(tmp_path, chisq_max):
                 actual = dataset.merged[column].to_numpy(copy=False)
                 assert np.shares_memory(actual, shared[column].to_numpy(copy=False))
                 assert not actual.flags.writeable
-            outcome = runner._fit_h2_dataset(dataset)
+            outcome = runner.estimate_h2(dataset)
             keep = before.Z.to_numpy() ** 2 <= chisq_max
             assert outcome.dataset.merged.SNP.tolist() == before.loc[keep, "SNP"].tolist()
             assert outcome.n_blocks == 6

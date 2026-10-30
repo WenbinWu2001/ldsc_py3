@@ -1,6 +1,6 @@
 # Python API reference
 
-Last updated on: 2026-10-29
+Last updated on: 2026-10-30
 
 The supported Python interface is the set of names exported by the `ldsc` package (`ldsc.__all__`, 84 names on 2026-10-27).
 Modules whose names start with an underscore, including the domain packages such as `ldsc._ldscore`, are private even when a name defined there is re-exported.
@@ -94,6 +94,7 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | `RefPanelLoader` | Instantiate the backend requested by a `RefPanelConfig`. |
 | `R2MatrixBuildResult` | Summary of files produced by one reference-panel build run. |
 | `RegressionDataset` | Merged regression-ready dataset built from summary statistics and LD-score tables. |
+| `RegressionFit` | One fitted regression: the estimator and the SNP rows of its final fit. |
 | `RgResultFamily` | Result family returned by multi-trait genetic-correlation workflows. |
 | `SumstatsTable` | In-memory LDSC-ready summary-statistics table. |
 

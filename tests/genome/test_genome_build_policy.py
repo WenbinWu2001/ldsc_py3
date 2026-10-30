@@ -207,7 +207,8 @@ def test_regression_reports_all_traits_and_panel_without_override():
     from ldsc._regression.runner import _regression_genome_build
     panel = Namespace(config_snapshot=GlobalConfig(snp_identifier='chr_pos', genome_build='hg19'), output_paths={})
     tables = [Namespace(config_snapshot=GlobalConfig(snp_identifier='chr_pos', genome_build=build),
-                        source_path=label, trait_name=label) for label, build in [('first', 'hg38'), ('second', 'hg19')]]
+                        source_path=label, trait_name=label, provenance={})
+              for label, build in [('first', 'hg38'), ('second', 'hg19')]]
     with pytest.raises(LDSCInputError) as caught:
         _regression_genome_build(tables, panel, 'chr_pos', context='rg')
     message = str(caught.value)

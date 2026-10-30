@@ -1021,7 +1021,7 @@ def _preflight_gene_index_output(
         raise FileExistsError(f"Gene LD-score index output is not a directory: {index_path}")
     if not index_path.exists():
         return
-    if not any(index_path.iterdir()) or _is_diagnostics_only_gene_index(index_path):
+    if not any(index_path.iterdir()) or _is_failure_marker_only_gene_index(index_path):
         return
     try:
         _load_gene_ldscore_index(
@@ -1112,7 +1112,7 @@ def _recover_gene_index_publication(
         )
     backup = valid_backups[0]
     if destination.exists():
-        if _is_diagnostics_only_gene_index(destination):
+        if _is_failure_marker_only_gene_index(destination):
             failure_marker = destination / "RUN_FAILED.txt"
             if failure_marker.is_file():
                 # Recovery is not completion of the current build; retain its marker.
@@ -1222,34 +1222,16 @@ def _finalize_gene_index_log(live_log_path: Path, published_path: Path) -> Path:
     return final_log_path
 
 
-def _is_diagnostics_only_gene_index(path: Path) -> bool:
-    """Recognize a failed build containing only owned markers or diagnostics."""
-    if not path.is_dir() or (path / "metadata.json").exists():
-        return False
-    if any(entry.name not in {"RUN_FAILED.txt", "diagnostics"} for entry in path.iterdir()):
+def _is_failure_marker_only_gene_index(path: Path) -> bool:
+    """Recognize a failed build's destination: only the regular root ``RUN_FAILED.txt`` file.
+
+    Builds keep their live logs in hidden sibling build state, so a failed
+    build leaves at most the marker in the destination.
+    """
+    if not path.is_dir():
         return False
     marker = path / "RUN_FAILED.txt"
-    if marker.is_symlink() or (marker.exists() and not marker.is_file()):
-        return False
-    entries = list(path.rglob("*"))
-    if any(entry.is_symlink() for entry in entries):
-        return False
-    files = [entry for entry in entries if entry.is_file()]
-    if not files:
-        return False
-    if not all(
-        file == marker or (
-            file.relative_to(path).parts[0] == "diagnostics"
-            and file.name.startswith("build-gene-ldscore-index")
-        )
-        for file in files
-    ):
-        return False
-    # Empty unrelated directories and special files are still user contents.
-    owned_directories = {path / "diagnostics"}
-    for file in files:
-        owned_directories.update(file.parents)
-    return all(entry.is_file() or (entry.is_dir() and entry in owned_directories) for entry in entries)
+    return list(path.iterdir()) == [marker] and marker.is_file() and not marker.is_symlink()
 
 
 def _log_gene_index_summary(payload: dict) -> None:
@@ -1501,7 +1483,7 @@ def publish_gene_ldscore_index(
     overwrite : bool
         Replace an existing valid complete index when true. Unrecognized
         nonempty destinations are never replaced. A directory containing only
-        the owned failure marker or recognized legacy diagnostics may be reused.
+        the owned failure marker may be reused.
     diagnostic_payload : dict, optional
         Successful-build diagnostic record. When supplied, payload-byte fields
         are added in place before the record is written.
@@ -1524,9 +1506,8 @@ def publish_gene_ldscore_index(
     -----
     Existing valid indexes require ``overwrite=True`` and are kept loadable
     until their complete replacement has passed staged reload validation.
-    Nonempty directories that are neither valid indexes nor recognized
-    failed builds containing only ``RUN_FAILED.txt`` or owned legacy diagnostics
-    are rejected even with overwrite. The failure marker remains in place
+    Nonempty directories that are neither valid indexes nor failed builds
+    containing only ``RUN_FAILED.txt`` are rejected even with overwrite. The failure marker remains in place
     until publication replaces the destination; it does not authorize removal
     of unrelated contents.
     Mutable live logs are stored in hidden sibling build state and never enter

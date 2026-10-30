@@ -546,7 +546,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(chrom_result.baseline_table["regression_ld_scores"].tolist(), [3.0])
         self.assertEqual(chrom_result.query_table["query"].tolist(), [2.0])
 
-    def test_wrap_legacy_chrom_result_carries_overlap(self):
+    def test_wrap_chrom_result_carries_overlap(self):
         from ldsc._annotation.overlap import OverlapContribution
 
         contribution = OverlapContribution(np.array([[2.0]]), None, np.array([]), None, 2, None)
@@ -564,7 +564,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             query_columns=[],
             overlap=contribution,
         )
-        result = ldscore_workflow.LDScoreCalculator()._wrap_legacy_chrom_result(
+        result = ldscore_workflow.LDScoreCalculator()._wrap_chrom_result(
             legacy_result, global_config=GlobalConfig(snp_identifier="rsid")
         )
         self.assertIs(result.overlap, contribution)
@@ -661,7 +661,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             query_columns=[],
         )
 
-        result = ldscore_workflow.LDScoreCalculator()._wrap_legacy_chrom_result(
+        result = ldscore_workflow.LDScoreCalculator()._wrap_chrom_result(
             legacy_result,
             global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware"),
         )
@@ -2942,12 +2942,7 @@ def test_regression_region_mask_leaves_reference_counts_and_ld_contributors_inta
         reference_snp_count=3, regression_selected_snp_count=3,
         regression_region_removed_snp_count=1,
     )
-    wrapped = ldscore_workflow.LDScoreCalculator()._wrap_legacy_chrom_result(
-        legacy,
-        GlobalConfig(snp_identifier="rsid"),
-        {"near_mhc", "in_mhc", "outside"},
-        intervals,
-    )
+    wrapped = ldscore_workflow.LDScoreCalculator()._wrap_chrom_result(legacy, GlobalConfig(snp_identifier="rsid"))
     assert wrapped.baseline_table["SNP"].tolist() == ["near_mhc", "outside"]
     np.testing.assert_allclose(wrapped.baseline_table["regression_ld_scores"], [1.0, 1.0])
     assert wrapped.count_records[0]["all_reference_snp_count"] == 2.0

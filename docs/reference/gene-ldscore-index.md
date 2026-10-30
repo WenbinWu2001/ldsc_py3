@@ -1,6 +1,6 @@
 # Exact gene LD-score indexes
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-29
 
 `--workers` sets the number of workers (default one, each with one BLAS thread); CPU budgets, limits and failure handling are in [parallel execution](parallel-execution.md).
 
@@ -237,8 +237,12 @@ Online assembly and direct gene-list workflows share `_annotation.query_outcomes
   empty, until successful publication.
 - A valid existing index requires `--overwrite`, even if its `index_id` would
   be unchanged.
-- A directory containing only the regular root `RUN_FAILED.txt` marker, optionally alongside recognized legacy build diagnostics, is reusable. Preflight leaves the marker in place; successful publication replaces the directory and clears it. Marker presence does not authorize replacing unrelated files, directories, or incomplete scientific artifacts.
-- Diagnostic recognition checks all entries, including empty subdirectories and symlinks. Interrupted-publication recovery also accepts an owned marker-only destination when exactly one validated matching backup exists, and carries the marker into the recovered index until the current build succeeds. Recovery still refuses unrelated destination contents.
+- A directory containing only the regular root `RUN_FAILED.txt` marker is reusable.
+  Preflight leaves the marker in place; successful publication replaces the directory and clears it.
+  Marker presence does not authorize replacing unrelated files, directories, or incomplete scientific artifacts.
+- Marker-only recognition checks every entry: any other file, directory or symlink, and a marker that is a directory or symlink, make the directory unrecognized.
+  Interrupted-publication recovery also accepts an owned marker-only destination when exactly one validated matching backup exists, and carries the marker into the recovered index until the current build succeeds.
+  Recovery still refuses unrelated destination contents.
 - Other nonempty invalid directories fail before chromosome computation, including with `--overwrite`.
 - A failed build never publishes a partial scientific index. An authorized overwrite failure may leave a marker-only public directory. Graceful failure removes its marked private transaction best-effort; an interrupted transaction is never reused scientifically on retry.
 - Two builders cannot target the same absolute directory concurrently.

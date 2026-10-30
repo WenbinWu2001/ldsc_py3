@@ -554,13 +554,13 @@ class LDScoreCalculator:
         existing calculation worker reuse that process.
         """
         backend = getattr(getattr(ref_panel, "spec", None), "backend", None)
-        legacy_bundle = _chromosome_annotations(annotation_bundle,chrom)
-        LOGGER.info(f"Computing chromosome {chrom} LD scores with backend '{backend or 'unknown'}' and {len(legacy_bundle.metadata)} annotation rows.")
-        with ref_panel.prepare_chromosome(chrom, legacy_bundle, ldscore_config) as prepared:
+        chrom_annotations = _chromosome_annotations(annotation_bundle,chrom)
+        LOGGER.info(f"Computing chromosome {chrom} LD scores with backend '{backend or 'unknown'}' and {len(chrom_annotations.metadata)} annotation rows.")
+        with ref_panel.prepare_chromosome(chrom, chrom_annotations, ldscore_config) as prepared:
             funnel = prepared.reference_snp_funnel
             if funnel is not None:
                 LOGGER.info("Chromosome %s reference-SNP funnel: %s.", chrom, funnel_summary(funnel))
-            legacy_result = kernel_ldscore.compute_chromosome(
+            chrom_result = kernel_ldscore.compute_chromosome(
                 chrom, prepared, snp_identifier=global_config.snp_identifier,
                 snp_batch_size=ldscore_config.snp_batch_size,
                 common_maf_min=ldscore_config.common_maf_min,
@@ -569,79 +569,68 @@ class LDScoreCalculator:
             )
             if export_dir is not None:
                 _write_one_ref_metadata_sidecar(prepared.metadata, chrom, export_dir)
-        drops = _stage_chromosome_drops(annotation_bundle, chrom, legacy_result.identity_drops)
-        result = self._wrap_legacy_chrom_result(
-            legacy_result,
+        drops = _stage_chromosome_drops(annotation_bundle, chrom, chrom_result.identity_drops)
+        result = self._wrap_chrom_result(
+            chrom_result,
             global_config=global_config,
-            regression_snps=regression_snps,
-            regression_regions=regression_regions,
-            annotation_types=legacy_result.annotation_types,
+            annotation_types=chrom_result.annotation_types,
             identity_drops=drops,
         )
         LOGGER.info(f"Finished chromosome {chrom} with {len(result.baseline_table)} retained SNP rows.")
         return dataclass_replace(result, reference_snp_funnel=funnel)
 
-    def _wrap_legacy_chrom_result(
+    def _wrap_chrom_result(
         self,
-        legacy_result: kernel_ldscore.ChromComputationResult,
+        chrom_result: kernel_ldscore.ChromComputationResult,
         global_config: GlobalConfig,
-        regression_snps: set[str] | RestrictionIdentityKeys | None = None,
-        regression_regions: kernel_regions.RegionIntervals | None = None,
         annotation_types: dict[str, str] | None = None,
         identity_drops: TsvDiagnostics | None = None,
     ) -> ChromLDScoreResult:
         """Convert one kernel chromosome result into the typed public result."""
-        reference_metadata = legacy_result.metadata.reset_index(drop=True).copy()
-        ld_scores = pd.DataFrame(legacy_result.ld_scores, columns=list(legacy_result.ldscore_columns))
-        regression_keep = pd.Series(True, index=reference_metadata.index)
-        ld_regression_snps = frozenset(
-            build_snp_id_series(
-                reference_metadata.loc[regression_keep],
-                global_config.snp_identifier,
-            )
-        )
-        pos_column = "POS" if "POS" in reference_metadata.columns else "BP"
-        metadata_columns = ["CHR", "SNP", pos_column, *[column for column in ("A1", "A2") if column in reference_metadata.columns]]
-        regression_weights = np.asarray(legacy_result.w_ld, dtype=np.float32).reshape(-1)
+        reference_metadata = chrom_result.metadata.reset_index(drop=True).copy()
+        ld_scores = pd.DataFrame(chrom_result.ld_scores, columns=list(chrom_result.ldscore_columns))
+        ld_regression_snps = frozenset(build_snp_id_series(reference_metadata, global_config.snp_identifier))
+        metadata_columns = ["CHR", "SNP", "POS", *[column for column in ("A1", "A2") if column in reference_metadata.columns]]
+        regression_weights = np.asarray(chrom_result.w_ld, dtype=np.float32).reshape(-1)
         ldscore_table = pd.concat(
             [
-                reference_metadata.loc[regression_keep, metadata_columns].rename(columns={pos_column: "POS"}).reset_index(drop=True),
-                ld_scores.loc[regression_keep].reset_index(drop=True),
-                pd.DataFrame({REGRESSION_LD_SCORE_COLUMN: regression_weights[regression_keep.to_numpy()]}).reset_index(drop=True),
+                reference_metadata.loc[:, metadata_columns],
+                ld_scores,
+                pd.DataFrame({REGRESSION_LD_SCORE_COLUMN: regression_weights}),
             ],
             axis=1,
         )
         ldscore_table = sort_frame_by_genomic_position(ldscore_table)
         count_map = {
-            "all_reference_snp_counts": np.asarray(legacy_result.M, dtype=np.float64),
-            "common_reference_snp_counts": np.asarray(legacy_result.M_5_50, dtype=np.float64),
+            "all_reference_snp_counts": np.asarray(chrom_result.M, dtype=np.float64),
+            "common_reference_snp_counts": np.asarray(chrom_result.M_5_50, dtype=np.float64),
         }
         baseline_table, query_table = _split_ldscore_table(
             ldscore_table,
-            baseline_columns=list(legacy_result.baseline_columns),
-            query_columns=list(legacy_result.query_columns),
+            baseline_columns=list(chrom_result.baseline_columns),
+            query_columns=list(chrom_result.query_columns),
             snp_identifier=global_config.snp_identifier,
         )
         result = ChromLDScoreResult(
-            chrom=str(legacy_result.chrom),
+            chrom=str(chrom_result.chrom),
             baseline_table=baseline_table,
             query_table=query_table,
             count_records=_count_records_from_totals(
-                baseline_columns=list(legacy_result.baseline_columns),
-                query_columns=list(legacy_result.query_columns),
+                baseline_columns=list(chrom_result.baseline_columns),
+                query_columns=list(chrom_result.query_columns),
                 count_totals=count_map,
             ),
-            baseline_columns=list(legacy_result.baseline_columns),
-            query_columns=list(legacy_result.query_columns),
+            baseline_columns=list(chrom_result.baseline_columns),
+            query_columns=list(chrom_result.query_columns),
             ld_reference_snps=frozenset(),
             ld_regression_snps=ld_regression_snps,
             snp_count_totals=count_map,
             count_config={},
             config_snapshot=global_config,
-            overlap=getattr(legacy_result, "overlap", None),
-            reference_snp_count=legacy_result.reference_snp_count,
-            regression_selected_snp_count=legacy_result.regression_selected_snp_count,
-            regression_region_removed_snp_count=legacy_result.regression_region_removed_snp_count,
+            overlap=getattr(chrom_result, "overlap", None),
+            reference_snp_count=chrom_result.reference_snp_count,
+            regression_selected_snp_count=chrom_result.regression_selected_snp_count,
+            regression_region_removed_snp_count=chrom_result.regression_region_removed_snp_count,
             identity_drops=identity_drops,
             annotation_types=dict(annotation_types or {}),
         )
@@ -1722,9 +1711,9 @@ def _apply_direct_gene_gate_b(annotation_bundle, ref_panel, ldscore_config, glob
     for chrom in _chromosomes_from_bundle(annotation_bundle):
         genes = interval_frame[interval_frame["chrom"].astype(str).eq(str(chrom))]
         chrom_bundle = _slice_annotation_bundle(annotation_bundle, chrom)
-        legacy_bundle = _chromosome_annotations(chrom_bundle,chrom)
+        chrom_annotations = _chromosome_annotations(chrom_bundle,chrom)
         try:
-            with ref_panel.prepare_chromosome(chrom, legacy_bundle, ldscore_config) as prepared:
+            with ref_panel.prepare_chromosome(chrom, chrom_annotations, ldscore_config) as prepared:
                 positions0 = np.sort(prepared.metadata["POS"].to_numpy(dtype=np.int64) - 1)
         except EmptyReferenceSNPs as exc:
             funnel = getattr(exc, "reference_snp_funnel", None)
@@ -2003,11 +1992,7 @@ def _normalize_run_args(
     normalized_args.regr_snps_file = normalize_optional_path_token(getattr(args, "regr_snps_file", None))
     normalized_args.regr_snps_exclude_regions = getattr(args, "regr_snps_exclude_regions", None)
     # The numerical kernel still consumes the historical namespace shape.
-    normalized_args.query_annot = normalized_args.query_annot_sources
-    normalized_args.baseline_annot = normalized_args.baseline_annot_sources
     normalized_args.bfile = normalized_args.plink_prefix
-    normalized_args.r2_table = None
-    normalized_args.frqfile = None
     normalized_args.keep = normalized_args.keep_indivs_file
     has_gene_lists = _has_cli_tokens(normalized_args.query_annot_gene_list_sources)
     normalized_args.gene_catalog_build = None

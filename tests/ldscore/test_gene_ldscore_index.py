@@ -628,11 +628,7 @@ def test_direct_plink_projects_annotations_and_regression_weights_in_one_travers
     np.testing.assert_array_equal(
         result.overlap.query_diagonal_common, expected_overlap.query_diagonal_common
     )
-    public = LDScoreCalculator()._wrap_legacy_chrom_result(
-        result,
-        GlobalConfig(snp_identifier="rsid"),
-        regression_keys,
-    )
+    public = LDScoreCalculator()._wrap_chrom_result(result, GlobalConfig(snp_identifier="rsid"))
     assert public.baseline_table.columns.tolist() == [
         "CHR", "SNP", "POS", "A1", "A2", "regression_ld_scores", "base", "baseline_aux"
     ]
@@ -2133,8 +2129,6 @@ def test_index_preflight_ignores_failure_marker_without_removing_it(tmp_path, ov
 
 @pytest.mark.parametrize("extra", [
     "user-file.txt", "user-directory", "metadata.json", "marker-directory", "marker-symlink",
-    "diagnostics-file", "diagnostics-empty-subdirectory", "diagnostics-dangling-symlink",
-    "diagnostics-symlink",
 ])
 def test_failure_marker_does_not_authorize_replacing_unrecognized_contents(tmp_path, extra):
     output = tmp_path / "index"
@@ -2148,19 +2142,6 @@ def test_failure_marker_does_not_authorize_replacing_unrecognized_contents(tmp_p
         marker.write_text("old failure\n")
         if extra == "user-directory":
             (output / extra).mkdir()
-        elif extra == "diagnostics-file":
-            (output / "diagnostics").write_text("user data")
-        elif extra == "diagnostics-symlink":
-            target = tmp_path / "user-diagnostics"
-            target.mkdir()
-            (output / "diagnostics").symlink_to(target, target_is_directory=True)
-        elif extra.startswith("diagnostics-"):
-            diagnostics = output / "diagnostics"
-            diagnostics.mkdir()
-            if extra == "diagnostics-empty-subdirectory":
-                (diagnostics / "user-data").mkdir()
-            else:
-                (diagnostics / "build-gene-ldscore-index.log").symlink_to(tmp_path / "missing-log")
         else:
             (output / extra).write_text("unrecognized contents\n")
     before = sorted(path.name for path in output.iterdir())
@@ -2169,16 +2150,12 @@ def test_failure_marker_does_not_authorize_replacing_unrecognized_contents(tmp_p
     assert sorted(path.name for path in output.iterdir()) == before
 
 
-@pytest.mark.parametrize("legacy_diagnostics", [False, True])
-def test_index_publisher_accepts_failure_marker_only_destination(tmp_path, legacy_diagnostics):
+def test_index_publisher_accepts_failure_marker_only_destination(tmp_path):
     chromosome, catalog, identity = _artifact_payload()
     output = tmp_path / "index"
     output.mkdir()
     marker = output / "RUN_FAILED.txt"
     marker.write_text("old failure\n")
-    if legacy_diagnostics:
-        (output / "diagnostics").mkdir()
-        (output / "diagnostics/build-gene-ldscore-index.log").write_text("old build log\n")
     published = publish_gene_ldscore_index(
         output, index_identity=identity, gene_catalog=catalog,
         chromosomes={"22": chromosome}, overwrite=True,

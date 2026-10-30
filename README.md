@@ -9,6 +9,8 @@ Legacy LDSC, the original Python 2 software, is described with its differences i
 
 ## Install
 
+**TODO: Finalize the package name. update installation guide. check for conflicting names with `ldsc`.**
+
 ```bash
 git clone https://github.com/WenbinWu2001/ldsc_py3.git ldsc3
 cd ldsc3

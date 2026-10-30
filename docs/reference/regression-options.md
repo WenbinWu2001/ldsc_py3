@@ -179,7 +179,7 @@ annotations equals the number of retained baseline LD-score columns
 | Jackknife | `num_blocks = 200`. |
 
 Reported diagnostics (`diagnostics/metadata.json`) include the **post-filter** SNP count (`n_snps`), the `effective_chisq_max` actually applied (`null` when uncapped), and `n_blocks_used`.
-These values come from the fit outcome, `RegressionFit`, which retains the ordered final SNP population and annotation columns.
+These values come from the regression fit, `RegressionFit`, which retains the ordered final SNP population and annotation columns.
 Single-annotation diagnostic bins use this same population, including SNPs outside the two-step estimator’s first-stage subset.
 `partitioned-h2` model metadata and `rg` pair metadata likewise consume their actual fit outcomes; reporting never reapplies a filter.
 Public `estimate_h2` and `estimate_rg` return that `RegressionFit`; its `estimator` is the kernel estimator.

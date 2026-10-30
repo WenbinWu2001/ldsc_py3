@@ -94,6 +94,7 @@ On each page that names S-LDSC, the first mention gives the full name and citati
 | raw summary statistics | The GWAS table given to `munge-sumstats`. | "raw sumstats", "input GWAS" | `--raw-sumstats-file` | |
 | munged summary statistics | The output of `munge-sumstats`: Parquet with an identity footer, optionally also `.sumstats.gz`. | "curated summary statistics", "cleaned summary statistics" | `--sumstats-file`; `--sumstats-sources` | |
 | sample size | The number of individuals behind each SNP's statistic. | | column `N`; `--N`; `--N-col`; `--N-min` | $N$ |
+| prepared trait summary statistics | One trait's summary statistics after legacy projection, the missing-or-infinite `Z`/`N` drop and keying per SNP identifier mode, shared by every model of one regression run. | "prepared trait", "prepared sumstats" | `_PreparedTraitSumstats` (private) | |
 
 ### Regression quantities
 
@@ -112,6 +113,7 @@ On each page that names S-LDSC, the first mention gives the full name and citati
 | proportion of SNPs | The annotation's share of the SNP count. | "SNP fraction" | `prop_snps` | |
 | enrichment | Proportion of heritability divided by proportion of SNPs (`src/ldsc/_regression/estimators.py`). | "fold enrichment", "enrichment ratio" | `enrichment` | |
 | block jackknife | Standard-error estimation by deleting contiguous blocks of SNPs, 200 by default. | "jackknife blocks" for the method | `--num-blocks`; `RegressionConfig.num_blocks` | |
+| regression fit | One fitted regression: the kernel estimator plus the SNP rows, block count, chi-square cap and diagnostic bins of its final fit; what `estimate_h2` and `estimate_rg` return. | "fit outcome" | `RegressionFit` | |
 
 ### Inputs, outputs and execution
 
@@ -169,5 +171,3 @@ Add a row when a concept appears under several names: the concept, the proposed 
 
 | Concept | Proposed term | Variants and locations |
 | --- | --- | --- |
-| The object `estimate_h2` and `estimate_rg` return: the fitted estimator plus the SNP rows, block count, chi-square cap and diagnostic bins of its final fit. | `RegressionFit` (API name); "regression fit" in prose | "fit outcome" (`docs/reference/regression-options.md`, section 2); `_FitOutcome` in `src/ldsc/_regression/runner.py` before 2026-10-30 |
-| One trait's summary statistics after legacy projection, the non-finite filter and keying per SNP identifier mode, shared by every model of one regression run. | prepared trait summary statistics (identifier `_PreparedTraitSumstats`) | "prepares each trait once" (`docs/dev/design/memory-and-cpu.md`, multi-trait `estimate_rg_pairs()` paragraph) |

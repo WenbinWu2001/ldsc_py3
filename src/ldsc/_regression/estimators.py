@@ -1,6 +1,7 @@
 # Derived from legacy LDSC ldscore/regressions.py and ldscore/sumstats.py.
 # GPLv3 (LICENSE). Modified 2024 for Python 3; 2026 for package layering,
-# allele helpers, regression outputs, and liability-scale calculations.
+# allele helpers, regression outputs, liability-scale calculations, and naming the
+# failed rg component.
 # See NOTICE for attribution and dated modifications.
 
 '''
@@ -12,6 +13,7 @@ Shape convention is (n_snp, n_annot) for all classes.
 Last column = intercept.
 
 '''
+from contextlib import contextmanager
 import itertools as it
 import numpy as np
 import pandas as pd
@@ -743,6 +745,17 @@ class Gencov(LD_Score_Regression):
         return w
 
 
+@contextmanager
+def _failing_component(name):
+    """Name the rg fit, ``trait_1_h2``, ``trait_2_h2`` or ``genetic_covariance``, in its jackknife failures."""
+    try:
+        yield
+    except jk.JackknifeIdentifiabilityError as error:
+        for failure in error.failures:
+            failure["component"] = name
+        raise
+
+
 class RG(object):
     """Combine two heritability fits and one covariance fit into ``r_g``."""
 
@@ -752,13 +765,16 @@ class RG(object):
         self.intercept_gencov = intercept_gencov
         self._negative_hsq = None
         n_snp, n_annot = x.shape
-        hsq1 = Hsq(np.square(z1), x, w, N1, M, n_blocks=n_blocks, intercept=intercept_hsq1,
-                   slow=slow, twostep=twostep)
-        hsq2 = Hsq(np.square(z2), x, w, N2, M, n_blocks=n_blocks, intercept=intercept_hsq2,
-                   slow=slow, twostep=twostep)
-        gencov = Gencov(z1, z2, x, w, N1, N2, M, hsq1.tot, hsq2.tot, hsq1.intercept,
-                        hsq2.intercept, n_blocks, intercept_gencov=intercept_gencov, slow=slow,
-                        twostep=twostep)
+        with _failing_component("trait_1_h2"):
+            hsq1 = Hsq(np.square(z1), x, w, N1, M, n_blocks=n_blocks, intercept=intercept_hsq1,
+                       slow=slow, twostep=twostep)
+        with _failing_component("trait_2_h2"):
+            hsq2 = Hsq(np.square(z2), x, w, N2, M, n_blocks=n_blocks, intercept=intercept_hsq2,
+                       slow=slow, twostep=twostep)
+        with _failing_component("genetic_covariance"):
+            gencov = Gencov(z1, z2, x, w, N1, N2, M, hsq1.tot, hsq2.tot, hsq1.intercept,
+                            hsq2.intercept, n_blocks, intercept_gencov=intercept_gencov, slow=slow,
+                            twostep=twostep)
         gencov.N1 = None  # save memory
         gencov.N2 = None
         self.hsq1, self.hsq2, self.gencov = hsq1, hsq2, gencov

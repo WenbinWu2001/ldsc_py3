@@ -1,6 +1,6 @@
 # Logging Design
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-30
 
 This page holds the rules for writing log, warning and error messages, and the logging API boundary.
 The runtime behavior users see (log files, console routing, output preflight and failure markers) is in [logs and outputs](../../reference/logs-and-outputs.md).
@@ -190,6 +190,7 @@ Standalone annotate publishes query shards incrementally and detaches its return
 Batch `partitioned-h2` stages complete per-fit details privately and publishes them after final summary sorting, preserving overwrite and failure-marker contracts.
 Explicit `--continue-on-query-error` permits publication of successful query fits after recording failures in `diagnostics/query_status.tsv`.
 Each query exception is logged with its name, stage, and traceback; singular jackknife errors also log block indices, retained-row intervals, available panel genomic spans, normal-matrix ranks, and before/after-deletion support counts.
+`rg` logs the same diagnostics, with the failed component, for a pair it marks unestimable, and the exception message itself summarizes the first three failed blocks for `h2`, `partitioned-h2` and `rg`.
 A final warning summarizes successful and failed counts.
 Strict scans publish diagnostics alone when any query fails.
 See [query failure handling](../../reference/results/partitioned-h2.md#query-failures-and-continuation) and [the memory design](memory-and-cpu.md).

@@ -925,13 +925,34 @@ with decisive evidence is rejected. See
 
 **Developer reference:** `_regression.runner.RegressionRunner.build_dataset()` and `_regression.runner.RegressionRunner.build_rg_dataset()` · **Exception:** `LDSCInputError`
 
+### regression: a block jackknife deletion is unestimable
+
+**Symptom:** `Jackknife regression is unestimable: Singular matrix after deleting block ...` from `h2` or `partitioned-h2`, or an `rg` pair with `status` `unestimable` and that message in the `error` column of `rg_full.tsv`.
+
+Standard errors come from deleting one block of SNPs at a time and refitting.
+If a deletion leaves too little information to estimate every coefficient, the fit is unidentifiable even though the full-data fit succeeds.
+Without the two-step estimator, the message names the failed block, its genomic span from the LD-score panel, and the annotations left without support; for `rg` it also names the failed fit: trait 1 heritability, trait 2 heritability, or genetic covariance.
+Single-annotation fits with a free intercept use the two-step estimator by default, so their message names the block only.
+The log repeats these details as JSON, with support counts before and after the deletion.
+
+| Cause | Interpretation and action |
+| --- | --- |
+| An annotation's SNPs fall in one jackknife block | Deleting that block removes the annotation's information. Drop or merge the annotation, or use an annotation with wider genomic support; do not change the block count to hide it. |
+| Remaining columns become dependent | Deleting the block makes some LD-score columns linear combinations of others, although each stays nonzero. Inspect the named block and remove the redundant annotation. |
+| `rg`: the pair's shared SNPs confine an annotation | Each trait alone supports the annotation in several blocks, but the SNPs both traits share do not; the other pairs and each trait's own heritability still fit. Use summary statistics that cover the annotation's SNPs in both traits, or treat the pair as unestimable. |
+
+`rg` keeps fitting the other pairs and records the pair as `unestimable`; `h2` stops with exit code 1; `partitioned-h2` follows the query-error policy in [a query regression fails](#partitioned-h2-a-query-regression-fails).
+Do not substitute a pseudoinverse or fabricate uncertainty.
+
+**Developer reference:** `JackknifeIdentifiabilityError` in `_regression/jackknife.py`; `RegressionRunner._fit_h2_dataset()` and `RegressionRunner.estimate_rg()` add the context · **Exception:** `JackknifeIdentifiabilityError`
+
 ### `partitioned-h2`: a query regression fails
 
 **Symptom:** one or more query models could not be fitted or summarized, or their jackknife uncertainty could not be estimated.
 
 Inspect `diagnostics/query_status.tsv` for attempted-query outcomes when it was written, and the saved `diagnostics/partitioned-h2.log` for the affected query and failed stage.
 For a failed jackknife calculation, removing one SNP block can leave too little information to estimate all coefficients even when the full-data model can be fitted.
-The log retains the failed block, SNP support counts, numerical ranks, and traceback for deeper investigation.
+The error message names the failed block, its genomic span and the annotations left without support; the log retains SNP support counts, numerical ranks, and traceback for deeper investigation.
 
 | Cause | Interpretation and action |
 | --- | --- |

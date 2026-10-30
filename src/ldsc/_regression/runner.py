@@ -141,6 +141,10 @@ PARTITIONED_H2_REQUIRES_OVERLAP_MESSAGE = (
     "Other causes & fixes: docs/user-guide/troubleshooting.md#partitioned-h2-missing-overlap-matrix"
 )
 FAILED_RG_NOTE = "Failed; see the rg_full.tsv error column and diagnostics/rg.log."
+UNESTIMABLE_RG_NOTE = (
+    "Unestimable: a jackknife block deletion left the fit unidentifiable; "
+    "see the rg_full.tsv error column and diagnostics/rg.log."
+)
 REGRESSION_IDENTITY_KEY_COLUMN = "_ldsc_regression_identity_key"
 LEGACY_SUMSTATS_DROP_COLUMNS = [
     "trait_name",
@@ -317,7 +321,8 @@ class RgResultFamily:
     rg_full : pandas.DataFrame
         Comprehensive diagnostic table with one row per attempted pair. Failed
         pairs keep their row, set numeric fields to NaN, and store
-        ``status='failed'`` plus an ``error`` message.
+        ``status='failed'``, or ``status='unestimable'`` when a jackknife block
+        deletion left the fit unidentifiable, plus an ``error`` message.
     h2_per_trait : pandas.DataFrame
         One total-heritability summary per input trait, computed once per trait
         on the trait's single-trait LDSC regression dataset.
@@ -496,15 +501,7 @@ class RegressionRunner:
                 f"for same-family allele-aware/base mixes. Other causes & fixes: {_REGRESSION_NO_OVERLAP_DOC}"
             )
 
-        source_rows = merged.pop("_ldsc_source_row").to_numpy(dtype=np.int64)
-        # Keep panel coordinates for delete-block diagnostics even when rsID
-        # summary statistics omit coordinates or contain missing placeholders.
-        try:
-            coordinate_columns = infer_chr_pos_columns(ldscore_result.baseline_table.columns, context="LD-score diagnostics")
-        except LDSCInputError:
-            coordinate_columns = ()
-        for coordinate, source_column in zip(("CHR", "POS"), coordinate_columns):
-            merged[f"_ldsc_panel_{coordinate}"] = ldscore_result.baseline_table[source_column].iloc[source_rows].to_numpy()
+        source_rows = _add_panel_coordinates(merged, ldscore_result)
         dataset = RegressionDataset(
             merged=merged.reset_index(drop=True),
             ref_ld_columns=ref_ld_columns,
@@ -634,13 +631,14 @@ class RegressionRunner:
         # LD-score leads the first merge so the result (and the final merge below)
         # inherits its genomic order for valid jackknife block SEs. See build_dataset.
         left_with_ld = pd.merge(
-            ldscore_keyed.loc[:, [key, *ref_ld_columns, weight_column]].reset_index(drop=True),
+            ldscore_keyed.loc[:, [key, *ref_ld_columns, weight_column, "_ldsc_source_row"]].reset_index(drop=True),
             left,
             how="inner",
             on=key,
             sort=False,
         )
         merged = pd.merge(left_with_ld, right.loc[:, [key, *right_payload]], how="inner", on=key, sort=False)
+        _add_panel_coordinates(merged, ldscore_result)
         required_numeric = ["Z1", "N1", "Z2", "N2", weight_column, *ref_ld_columns]
         merged = merged.dropna(subset=[column for column in required_numeric if column in merged.columns]).reset_index(
             drop=True
@@ -778,7 +776,7 @@ class RegressionRunner:
             # Two-step jackknives may use a different row population. The
             # partitioned model uses these exact post-filter rows throughout.
             if two_step is None:
-                _add_jackknife_model_context(error, merged, dataset.retained_ld_columns, intercept)
+                _add_jackknife_model_context(error, merged, dataset.retained_ld_columns)
             raise
         diagnostic_bins = None
         if len(dataset.retained_ld_columns) == 1:
@@ -1131,6 +1129,18 @@ class RegressionRunner:
         RegressionFit
             The ``RG`` estimator as ``estimator``, with the pair's SNP rows
             after the chi-square filter, block count and the cap applied.
+
+        Raises
+        ------
+        JackknifeIdentifiabilityError
+            If deleting a jackknife block leaves a component fit (trait 1 or
+            trait 2 heritability, or the genetic covariance) unidentifiable.
+            Each failure names its ``component``; without the two-step
+            estimator it also names the unsupported columns and the deleted
+            block's genomic span from the LD-score panel.
+
+        Any error raised by the fit carries ``fit_summary``: the pair's SNP and
+        block counts, the cap and the dataset settings.
         """
         config = config or self.regression_config
         merged = dataset.merged
@@ -1154,21 +1164,37 @@ class RegressionRunner:
         if two_step is None and intercept_hsq is None and len(dataset.retained_ld_columns) == 1:
             two_step = 30
         x = np.asarray(merged[dataset.retained_ld_columns])
-        _raise_on_model_collinearity(dataset, x)
-        fitted = reg.RG(
-            np.asarray(merged[["Z1"]]),
-            np.asarray(merged[["Z2"]]),
-            x,
-            np.asarray(merged[[dataset.weight_column]]),
-            np.asarray(merged[["N1"]]),
-            np.asarray(merged[["N2"]]),
-            np.asarray(dataset.reference_snp_count_totals[dataset.count_key_used_for_regression]).reshape((1, -1)),
-            intercept_hsq1=intercept_hsq,
-            intercept_hsq2=intercept_hsq,
-            intercept_gencov=intercept_gencov,
-            n_blocks=n_blocks,
-            twostep=two_step,
-        )
+        try:
+            _raise_on_model_collinearity(dataset, x)
+            fitted = reg.RG(
+                np.asarray(merged[["Z1"]]),
+                np.asarray(merged[["Z2"]]),
+                x,
+                np.asarray(merged[[dataset.weight_column]]),
+                np.asarray(merged[["N1"]]),
+                np.asarray(merged[["N2"]]),
+                np.asarray(dataset.reference_snp_count_totals[dataset.count_key_used_for_regression]).reshape((1, -1)),
+                intercept_hsq1=intercept_hsq,
+                intercept_hsq2=intercept_hsq,
+                intercept_gencov=intercept_gencov,
+                n_blocks=n_blocks,
+                twostep=two_step,
+            )
+        except Exception as error:
+            # As for h2, a two-step first stage fits a subset of these rows, so
+            # spans and support counts are added only without it.
+            if isinstance(error, JackknifeIdentifiabilityError) and two_step is None:
+                _add_jackknife_model_context(error, merged, dataset.retained_ld_columns)
+            # The pair's rows and settings, for failed-pair reporting.
+            error.fit_summary = {
+                "n_snps": n_snp, "n_blocks": n_blocks, "effective_chisq_max": config.chisq_max,
+                "count_key_used_for_regression": dataset.count_key_used_for_regression,
+                "retained_ld_columns": list(dataset.retained_ld_columns),
+                "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
+                "effective_snp_identifier": dataset.effective_snp_identifier,
+                "identity_downgrade_applied": dataset.identity_downgrade_applied,
+            }
+            raise
 
         return RegressionFit(
             estimator=fitted, dataset=replace(dataset, merged=merged), n_blocks=n_blocks,
@@ -1190,7 +1216,8 @@ class RegressionRunner:
         With no anchor, all unordered pairs are fit in input order. With an
         anchor, only anchor-vs-rest pairs are fit, preserving the original input
         order of non-anchor traits. Pair-level failures are recorded as NaN rows
-        with ``status='failed'`` and do not stop later pairs.
+        with ``status='failed'``, or ``status='unestimable'`` for a singular
+        jackknife deletion, and do not stop later pairs.
 
         Parameters
         ----------
@@ -1292,9 +1319,14 @@ class RegressionRunner:
                     metadata = _rg_pair_metadata(tables[i], tables[j], outcome, full_row, config, pair_kind)
                 except Exception as exc:
                     error = _format_exception(exc)
-                    LOGGER.warning(f"Failed rg for pair '{trait_1}' vs '{trait_2}': {error}", exc_info=True)
-                    full_row = _failed_rg_full_row(trait_1=trait_1, trait_2=trait_2, pair_kind=pair_kind, error=error)
-                    metadata = _failed_rg_pair_metadata(tables[i], tables[j], full_row, config, pair_kind)
+                    status = "unestimable" if isinstance(exc, JackknifeIdentifiabilityError) else "failed"
+                    LOGGER.warning(f"rg for pair '{trait_1}' vs '{trait_2}' marked {status}: {error}", exc_info=True)
+                    if status == "unestimable":
+                        LOGGER.error("Pair %r vs %r jackknife diagnostics: %s", trait_1, trait_2, json.dumps(exc.failures))
+                    fit_summary = getattr(exc, "fit_summary", None)
+                    full_row = _failed_rg_full_row(trait_1=trait_1, trait_2=trait_2, pair_kind=pair_kind, error=error,
+                                                   status=status, n_snps_used=fit_summary["n_snps"] if fit_summary else 0)
+                    metadata = _failed_rg_pair_metadata(tables[i], tables[j], full_row, config, pair_kind, fit_summary)
                 rg_full_rows.append(full_row)
                 rg_rows.append(_concise_rg_row(full_row))
                 per_pair_metadata.append(metadata)
@@ -2266,16 +2298,21 @@ def _summarize_rg_pair(
     }
 
 
-def _failed_rg_full_row(*, trait_1: str, trait_2: str, pair_kind: str, error: str) -> dict[str, object]:
-    """Build a full rg row for a failed pair."""
+def _failed_rg_full_row(
+    *, trait_1: str, trait_2: str, pair_kind: str, error: str, status: str = "failed", n_snps_used: int = 0,
+) -> dict[str, object]:
+    """Build a full rg row for a failed or unestimable pair.
+
+    ``n_snps_used`` is the pair's SNP count when its dataset was built, else 0.
+    """
     row = {column: math.nan for column in RG_FULL_COLUMNS}
     row.update(
         {
             "trait_1": trait_1,
             "trait_2": trait_2,
-            "n_snps_used": 0,
+            "n_snps_used": n_snps_used,
             "pair_kind": pair_kind,
-            "status": "failed",
+            "status": status,
             "error": error,
         }
     )
@@ -2292,7 +2329,7 @@ def _concise_rg_row(full_row: dict[str, object]) -> dict[str, object]:
         "rg": full_row["rg"],
         "rg_se": full_row["rg_se"],
         "p": full_row["p"],
-        "note": "" if status == "ok" else FAILED_RG_NOTE,
+        "note": {"ok": "", "unestimable": UNESTIMABLE_RG_NOTE}.get(status, FAILED_RG_NOTE),
     }
 
 
@@ -2388,15 +2425,21 @@ def _failed_rg_pair_metadata(
     full_row: dict[str, object],
     config: RegressionConfig,
     pair_kind: str,
+    fit_summary: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    """Build per-pair metadata when a pair failed before a dataset was available."""
-    return {
+    """Build per-pair metadata for a failed or unestimable pair.
+
+    ``fit_summary``, carried by an error raised from ``estimate_rg``, supplies
+    the pair's real counts and dataset settings; without it the pair failed
+    before its dataset was fitted and the counts are 0.
+    """
+    metadata = {
         "trait_1": full_row["trait_1"],
         "trait_2": full_row["trait_2"],
         "source_1": table_1.source_path,
         "source_2": table_2.source_path,
         "pair_kind": pair_kind,
-        "status": "failed",
+        "status": full_row["status"],
         "error": full_row["error"],
         "n_snps_used": 0,
         "n_blocks_used": 0,
@@ -2409,6 +2452,12 @@ def _failed_rg_pair_metadata(
             default_when_disabled=0,
         ),
     }
+    if fit_summary is not None:
+        metadata.update(
+            n_snps_used=fit_summary["n_snps"], n_blocks_used=fit_summary["n_blocks"],
+            **{key: value for key, value in fit_summary.items() if key not in {"n_snps", "n_blocks"}},
+        )
+    return metadata
 
 
 def _intercept_policy(value: float | None, use_intercept: bool, default_when_disabled: float) -> str:
@@ -2686,11 +2735,17 @@ def _log_effective_regression_identity(
     )
 
 
-def _add_jackknife_model_context(error, merged, columns, intercept):
-    """Attach filtered-row support and genomic spans to failed deletions."""
-    names = [*columns, *(["intercept"] if intercept is None else [])]
+def _add_jackknife_model_context(error, merged, columns):
+    """Attach filtered-row support and genomic spans to failed deletions.
+
+    A failure with one more parameter than ``columns`` had a free intercept,
+    whose column follows the LD-score columns. An rg pair's three fits can
+    differ here: the genetic covariance intercept may be fixed while the
+    heritability intercepts are free.
+    """
     support = np.count_nonzero(merged[columns].to_numpy(), axis=0)
     for failure in error.failures:
+        names = [*columns, *(["intercept"] if failure["n_parameters"] == len(columns) + 1 else [])]
         start, end = failure["row_start"], failure["row_end"]
         deleted = merged.iloc[start:end]
         remaining = support - np.count_nonzero(deleted[columns].to_numpy(), axis=0)
@@ -2707,6 +2762,23 @@ def _add_jackknife_model_context(error, merged, columns, intercept):
                 {"CHR": str(chrom), "POS_start": int(rows[pos_column].min()), "POS_end": int(rows[pos_column].max())}
                 for chrom, rows in deleted.dropna(subset=[pos_column]).groupby(chr_column, sort=False)
             ]
+
+
+def _add_panel_coordinates(merged: pd.DataFrame, ldscore_result: LDScoreSource | LDScoreResult) -> np.ndarray:
+    """Replace ``_ldsc_source_row`` with the LD-score panel's coordinates and return the source rows.
+
+    Delete-block diagnostics report genomic spans from ``_ldsc_panel_CHR`` and
+    ``_ldsc_panel_POS`` even when summary statistics omit coordinates (rsID
+    inputs) or carry missing placeholders. These columns never reach outputs.
+    """
+    source_rows = merged.pop("_ldsc_source_row").to_numpy(dtype=np.int64)
+    try:
+        coordinate_columns = infer_chr_pos_columns(ldscore_result.baseline_table.columns, context="LD-score diagnostics")
+    except LDSCInputError:
+        coordinate_columns = ()
+    for coordinate, source_column in zip(("CHR", "POS"), coordinate_columns):
+        merged[f"_ldsc_panel_{coordinate}"] = ldscore_result.baseline_table[source_column].iloc[source_rows].to_numpy()
+    return source_rows
 
 
 def _raise_on_model_collinearity(dataset: RegressionDataset, x: np.ndarray) -> None:
@@ -3341,7 +3413,8 @@ def run_rg(**kwargs) -> RgResultFamily:
 
     Notes
     -----
-    A pair whose fit fails keeps its row with ``status="failed"``; the other
+    A pair whose fit fails keeps its row with ``status="failed"``, or
+    ``status="unestimable"`` for a singular jackknife deletion; the other
     pairs are still fitted. Existing outputs stop the run unless
     ``overwrite=True``; a failed authorized overwrite leaves
     ``RUN_FAILED.txt`` naming this call.

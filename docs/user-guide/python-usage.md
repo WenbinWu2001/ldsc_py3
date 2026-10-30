@@ -895,7 +895,7 @@ if __name__ == "__main__":
 
 `run_rg` accepts the `rg` option names without the leading `--`; `sumstats_sources` takes a list of paths or quoted `*` patterns.
 The result has four parts: `result.rg`, `result.rg_full` and `result.h2_per_trait` match `rg.tsv`, `rg_full.tsv` and `h2_per_trait.tsv`, and `result.per_pair_metadata` holds one record per pair.
-A pair whose fit fails is recorded with `NaN` estimates and `status="failed"`, and the other pairs are still fitted.
+A pair whose fit fails is recorded with `NaN` estimates and `status="failed"`, or `status="unestimable"` when deleting a jackknife block left the fit unidentifiable, and the other pairs are still fitted.
 Every trait needs `A1` and `A2`; inputs without them stop the call before any fit.
 Inputs that share a trait label are relabeled `label@<suffix>` from their paths, as in [inputs that share a trait label](workflows/genetic-correlation.md#inputs-that-share-a-trait-label).
 The `h2_per_trait` columns `total_h2_obs` and `total_h2_obs_se` are the values the plot shows on the heatmap diagonal or beside the anchor plot.

@@ -1,5 +1,5 @@
 # Derived from legacy LDSC ldscore/jackknife.py; GPLv3 (LICENSE).
-# Modified 2024 for Python 3; 2026 for package imports and validation errors.
+# Modified 2024 for Python 3; 2026 for package imports, validation errors and failure descriptions.
 # See NOTICE for attribution and dated modifications.
 
 '''
@@ -22,40 +22,71 @@ from scipy.optimize import nnls
 from ..errors import LDSCInternalError
 
 
+# Failed deletions spelled out in the message; the rest are counted.
+_SHOWN_FAILURES = 3
+_COMPONENT_LABELS = {
+    "trait_1_h2": "trait 1 heritability",
+    "trait_2_h2": "trait 2 heritability",
+    "genetic_covariance": "genetic covariance",
+}
+
+
 class JackknifeIdentifiabilityError(np.linalg.LinAlgError):
     """A delete-block normal equation could not be solved uniquely.
 
     ``failures`` contains primitive diagnostics for every failed deletion,
     including the zero-based block index and normal-matrix rank. Row intervals
     are zero-based, half-open and refer to the rows supplied to the jackknife.
-    No replacement coefficients or uncertainty estimates are computed.
+    Callers may add model context to each failure: ``component`` (which fit
+    of an rg pair failed), ``zero_columns`` and ``genomic_spans``. The message
+    is built from the current failures, so added context appears in it, also
+    after the error crosses a process boundary. No replacement coefficients
+    or uncertainty estimates are computed.
     """
 
     def __init__(self, failures, n_blocks, separators=None):
         self.failures = failures
         self.n_blocks = n_blocks
         self.separators = separators
-        details = []
-        for failure in failures:
-            index = failure["block_index"]
-            interval = ""
-            if separators is not None:
+        if separators is not None:
+            for failure in failures:
+                index = failure["block_index"]
                 start, end = map(int, separators[index:index + 2])
                 failure.update(row_start=start, row_end=end)
-                interval = f", rows [{start}, {end})"
-            details.append(
-                f"block {index + 1}/{n_blocks} (zero-based index {index}{interval}): "
-                f"normal-matrix rank {failure['rank']}/{failure['n_parameters']}"
-            )
-        super().__init__(
+        super().__init__(str(self))
+
+    def __str__(self):
+        """Describe the first failed deletions with any model context, and count the rest."""
+        shown = [_describe_failed_deletion(failure, self.n_blocks) for failure in self.failures[:_SHOWN_FAILURES]]
+        hidden = len(self.failures) - len(shown)
+        return (
             "Jackknife regression is unestimable: Singular matrix after deleting "
-            + "; ".join(details) + ". Inspect annotation support and dependence outside these blocks. "
-            "A pseudoinverse does not recover valid jackknife uncertainty."
+            + "; ".join(shown) + (f"; and {hidden} more failed blocks" if hidden else "")
+            + ". Inspect annotation support and dependence outside these blocks. "
+            "A pseudoinverse does not recover valid jackknife uncertainty. "
+            "Other causes & fixes: docs/user-guide/troubleshooting.md#regression-a-block-jackknife-deletion-is-unestimable"
         )
 
     def __reduce__(self):
         """Preserve structured diagnostics and notes across workers."""
         return type(self), (self.failures, self.n_blocks, self.separators), self.__dict__
+
+
+def _describe_failed_deletion(failure, n_blocks):
+    """Describe one failed deletion: block, rows, fit, rank, unsupported columns and genomic span."""
+    index = failure["block_index"]
+    rows = f", rows [{failure['row_start']}, {failure['row_end']})" if "row_start" in failure else ""
+    text = f"block {index + 1}/{n_blocks} (zero-based index {index}{rows})"
+    if "component" in failure:
+        text += f" of the {_COMPONENT_LABELS.get(failure['component'], failure['component'])} fit"
+    text += f": normal-matrix rank {failure['rank']}/{failure['n_parameters']}"
+    if failure.get("zero_columns"):
+        text += ", no remaining support in " + ", ".join(failure["zero_columns"])
+    if failure.get("genomic_spans"):
+        text += ", genomic span " + ", ".join(
+            f"{span['CHR']}:{span['POS_start']}-{span['POS_end']}" for span in failure["genomic_spans"]
+        )
+    return text
 
 
 def _check_shape(x, y):

@@ -34,7 +34,7 @@ The user answered two rounds of design questions on 2026-10-30, confirmed the de
 ### Left open from candidate 3
 
 - The user approved "regression fit" (`RegressionFit`) and "prepared trait summary statistics" on 2026-10-30 (`0c78a59`), and the older "fit outcome" wordings were reworded.
-- `rg` pair datasets keep no panel coordinates and `_fit_rg_dataset()` adds no block-jackknife context, unlike `h2`; on 2026-10-30 the user decided not to pursue this.
+- `rg` still stops the whole run when one trait's own heritability fit fails in its per-trait `h2` phase (`RegressionRunner.estimate_rg_pairs()` in `src/ldsc/_regression/runner.py`), even for an unestimable jackknife; only pair-level errors are recorded per pair.
 - Missing or infinite LD scores and regression weights are not covered by the new drop.
   `docs/dev/validation/legacy-issues-audit/bugs.md` (#174) still describes the earlier state.
 - `tests/regression/test_regression_streaming.py::test_public_directory_reader_does_not_import_regression` hung once at interpreter exit inside Arrow's thread-pool shutdown; it passed when rerun.

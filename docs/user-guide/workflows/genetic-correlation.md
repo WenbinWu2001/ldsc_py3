@@ -1,6 +1,6 @@
 # Estimate genetic correlation
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-30
 
 `ldsc rg` estimates the genetic correlation between traits with cross-trait LD score regression (LDSC; Bulik-Sullivan et al. 2015).
 It fits every pair of the traits you supply, or each trait against one anchor trait, and also fits each trait's SNP heritability on its own.
@@ -86,6 +86,8 @@ results/panel_rg/
 `rg.tsv` has one row per fitted pair: `trait_1`, `trait_2`, `n_snps_used`, `rg` (the genetic correlation), `rg_se` (its block-jackknife standard error), `p` and `note`.
 The p-values are nominal two-sided values; apply any multiple-testing correction yourself.
 A pair whose fit fails gets `NaN` estimates and a note, and the remaining pairs are still fitted; the reason is in the `error` column of `rg_full.tsv` and in `diagnostics/rg.log`.
+Its `status` in `rg_full.tsv` is `unestimable` when deleting one jackknife block left the trait 1 heritability, trait 2 heritability or genetic covariance fit unidentifiable, and `failed` otherwise.
+An unestimable pair's error names that fit, the block, its genomic span and the annotations left without support; see [a block jackknife deletion is unestimable](../troubleshooting.md#regression-a-block-jackknife-deletion-is-unestimable).
 
 `rg_full.tsv` adds, for each pair, `z`, the two traits' SNP heritability (`h2_1_obs`, `h2_2_obs`) and genetic covariance (`gencov_obs`) with standard errors, their liability-scale versions, the prevalences used, the intercepts, `ratio_1`, `ratio_2`, `lambda_gc_*`, `mean_chisq_*`, `pair_kind` (`all_pairs` or `anchor`) and `status`.
 The heritabilities in `rg_full.tsv` come from each pair's shared SNPs.

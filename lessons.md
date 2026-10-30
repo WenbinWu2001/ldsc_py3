@@ -305,3 +305,9 @@ Last updated on: 2026-10-30
 
 - Summary/root cause/correction: A full pytest run on a `git archive` export outside the workspace reported five `build-r2-matrix` tests as skipped ("resources directory is not available from this workspace"), because `_find_resources_root()` in `tests/refpanel/test_r2_matrix_builder.py` searches the test file's parent directories for `resources/`, which lives in the workspace, not in the repository.
   Before running an exported copy, link the workspace `resources/` into a parent of the export, check the run's `SKIPPED` lines, and do not report a run with these skips as the full suite.
+
+## A NaN row passes or fails a filter by accident, not by rule
+
+- Summary/root cause/correction: A summary-statistics row with a missing `Z` reached the `h2` fit, because only `rg` dropped missing values after its merge.
+  The outcome then depended on an unrelated setting: a single-annotation `h2` fit raised "SVD did not converge"; under a chi-square cap, `chisq <= cap` is `False` for NaN, so the cap removed the row silently and logged it as an outlier; `rg` aborted in its per-trait `h2` loop.
+  Decide missing and infinite values explicitly where the input is prepared (`_prepare_trait_sumstats` in `src/ldsc/_regression/runner.py`), record what was dropped, and test each downstream path that used to absorb them; see `tests/regression/test_nonfinite_statistics.py`.

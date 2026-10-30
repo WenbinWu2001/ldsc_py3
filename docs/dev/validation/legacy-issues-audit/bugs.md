@@ -1,6 +1,6 @@
 # Correctness and numerical bugs
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-30
 
 [Audit overview](README.md) · [Workflow counts and membership](workflow-index.md) · [Verification](verification.md)
 
@@ -44,7 +44,6 @@ A matched comparison must control SNPs, counts, intercepts, weights, LD window a
 | High | [#66](#issue-66) | Empty munging result has several causes | Partial coverage | Source inspection |
 | High | [#144](#issue-144) | Extremely small P values underflow or parse as text | Partial coverage | Source inspection |
 | High | [#165](#issue-165) | Negative computed total variance after a modified baseline | Partial coverage | Source inspection |
-| High | [#174](#issue-174) | Nonfinite values reach regression weights | Partial coverage | Source + input-boundary probe |
 | High | [#181](#issue-181) | Munging stalls at large chunk size | Partial coverage | Source inspection |
 | High | [#207](#issue-207) | Multi-annotation heritability differs inside genetic correlation | Partial coverage | Source inspection |
 | High | [#228](#issue-228) | Invalid arithmetic in heritability weight update | Partial coverage | Source + input-boundary probe |
@@ -79,6 +78,7 @@ A matched comparison must control SNPs, counts, intercepts, weights, LD window a
 | High | [#139](#issue-139) | Repeated incompatible-allele lookup report | Apparently prevented | Source inspection |
 | High | [#140](#issue-140) | Allele filter applied to data but not allele vector | Apparently prevented | Source inspection |
 | High | [#158](#issue-158) | Singular models from duplicate bases, empty queries or collinearity | Apparently prevented | Source inspection |
+| High | [#174](#issue-174) | Nonfinite values reach regression weights | Apparently prevented | Source + input-boundary probe; regression tests |
 | High | [#186](#issue-186) | cM window produces identical scores | Apparently prevented | Source inspection |
 | High | [#214](#issue-214) | Globbing chromosome-prefix regression | Apparently prevented | Source inspection |
 | High | [#223](#issue-223) | Empty concatenation after glob update | Apparently prevented | Source inspection |
@@ -383,9 +383,11 @@ Missing annotation values or nonfinite summary statistics can produce a late opa
 
 **Legacy disposition.** Commenters found missing annotation cells or NaN/inf Z values; other reporters remained unresolved and no code fix is identified.
 
-**LDSC3 assessment — Partial coverage.** LDSC3 rejects missing/non-numeric annotation cells, classifies fitted annotations as finite, and drops missing pairwise numeric fields.
-Imported legacy summary statistics remain a gap: a real-loader/synthetic200-row LD-score fixture retained Z=inf and N=inf and fitting failed late with SVD did not converge.
-This is a related input-boundary reproduction, not the unavailable original pair.
+**LDSC3 assessment — Apparently prevented (reassessed 2026-10-30).** LDSC3 rejects missing/non-numeric annotation cells and classifies fitted annotations as finite.
+Regression drops summary-statistics rows whose `Z` or `N` is missing or infinite before any merge and records the count as `dropped_nonfinite_statistic_rows`, with reason `nonfinite_statistic` in the audit of a legacy input.
+A missing or infinite baseline LD score or regression weight stops the run before any fit, and a damaged query column fails only that query; `rg` no longer drops missing values after its merge.
+The earlier input-boundary reproduction, a real-loader/synthetic 200-row LD-score fixture whose legacy summary statistics kept `Z=inf` and `N=inf` and failed late with "SVD did not converge", is now covered by `tests/regression/test_nonfinite_statistics.py` and `tests/regression/test_nonfinite_ldscores.py`.
+This remains a related reproduction, not the unavailable original pair.
 
 **Recommended prevention.** Require finite Z,N,LD scores and weights before fitting, with offending rows/columns; retain distinct low-overlap guidance.
 

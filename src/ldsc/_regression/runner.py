@@ -141,6 +141,7 @@ PARTITIONED_H2_REQUIRES_OVERLAP_MESSAGE = (
     "Other causes & fixes: docs/user-guide/troubleshooting.md#partitioned-h2-missing-overlap-matrix"
 )
 FAILED_RG_NOTE = "Failed; see the rg_full.tsv error column and diagnostics/rg.log."
+_NONFINITE_LD_DOC = "docs/user-guide/troubleshooting.md#regression-ld-scores-or-regression-weights-are-missing-or-infinite"
 UNESTIMABLE_RG_NOTE = (
     "Unestimable: a jackknife block deletion left the fit unidentifiable; "
     "see the rg_full.tsv error column and diagnostics/rg.log."
@@ -399,6 +400,26 @@ class _PreparedLDScores:
     source: LDScoreSource | LDScoreResult
     _keyed: dict[tuple[str, bool], tuple[pd.DataFrame, int]] = field(default_factory=dict, repr=False, compare=False)
 
+    def __post_init__(self):
+        """Stop before any fit if a baseline LD score or regression weight is missing or infinite.
+
+        The whole table is checked once per run: every row is a regression
+        SNP, so a bad value means the directory itself is damaged, even where
+        no trait matches that SNP.
+        """
+        table = self.source.baseline_table
+        problems = _nonfinite_columns(table, [*self.source.baseline_columns, REGRESSION_LD_SCORE_COLUMN], table["SNP"])
+        if problems:
+            metadata = self.source.output_paths.get("metadata")
+            where = f"LD-score directory '{Path(metadata).parent}'" if metadata else "the supplied LD scores"
+            raise LDSCInputError(
+                f"Regression cannot use {where}: missing or infinite values in {'; '.join(problems)}. "
+                "Every LD score and regression weight must be finite; dropping these SNPs would change the "
+                "regression without notice. Most likely the directory was edited or only partly written after it "
+                "was created. Regenerate it with `ldsc ldscore` or `ldsc convert-legacy-ldscores`, or restore the "
+                f"original files; do not replace missing values with zero. Other causes & fixes: {_NONFINITE_LD_DOC}"
+            )
+
     def keyed_rows(self, mode: str, *, cleaned: bool) -> tuple[pd.DataFrame, int]:
         """Return baseline rows keyed for a ``mode`` merge and the rows a downgrade cleanup dropped."""
         if (mode, cleaned) not in self._keyed:
@@ -553,6 +574,15 @@ class RegressionRunner:
         config = config or self.regression_config
         ref_ld_columns = list(prepared.dataset.ref_ld_columns) + list(selected)
         merged = prepared.dataset.merged
+        # A query's damage fails only its own model, inside the query's error handling.
+        problems = _nonfinite_columns(query_values, selected, merged["SNP"]) if selected else []
+        if problems:
+            raise LDSCInputError(
+                f"Regression cannot use query annotation {'; '.join(problems)}: its LD scores are missing or "
+                "infinite on regression SNPs, and every LD score must be finite. Most likely the LD-score directory "
+                "was edited or only partly written after it was created. Regenerate it with `ldsc ldscore`, or "
+                f"restore the original query files. Other causes & fixes: {_NONFINITE_LD_DOC}"
+            )
         if selected:
             weight_position = merged.columns.get_loc(prepared.dataset.weight_column)
             order = [*merged.columns[:weight_position], *selected, *merged.columns[weight_position:]]
@@ -639,10 +669,8 @@ class RegressionRunner:
         )
         merged = pd.merge(left_with_ld, right.loc[:, [key, *right_payload]], how="inner", on=key, sort=False)
         _add_panel_coordinates(merged, ldscore_result)
-        required_numeric = ["Z1", "N1", "Z2", "N2", weight_column, *ref_ld_columns]
-        merged = merged.dropna(subset=[column for column in required_numeric if column in merged.columns]).reset_index(
-            drop=True
-        )
+        # Z and N are finite after trait preparation, and LD scores and weights
+        # after _PreparedLDScores, so no row needs dropping here.
         if merged.empty:
             raise LDSCInputError(
                 f"rg regression retained no overlapping {identifier_mode} SNPs after merging both summary-statistics "
@@ -1807,6 +1835,18 @@ def _with_chr_pos_key(frame: pd.DataFrame, *, context: str) -> pd.DataFrame:
         logger=LOGGER,
     )
     return keyed
+
+
+def _nonfinite_columns(frame: pd.DataFrame, columns: Sequence[str], snps: pd.Series) -> list[str]:
+    """Describe each column with missing or infinite values: its name, row count and up to five example SNPs."""
+    problems = []
+    for column in columns:
+        bad = ~np.isfinite(frame[column].to_numpy(dtype=np.float64))
+        if bad.any():
+            count = int(bad.sum())
+            examples = ", ".join(snps.astype(str).to_numpy()[bad][:5])
+            problems.append(f"'{column}' ({count} row{'' if count == 1 else 's'}; for example {examples})")
+    return problems
 
 
 def _select_model_columns(

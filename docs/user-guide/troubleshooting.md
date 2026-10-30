@@ -925,6 +925,25 @@ with decisive evidence is rejected. See
 
 **Developer reference:** `_regression.runner.RegressionRunner.build_dataset()` and `_regression.runner.RegressionRunner.build_rg_dataset()` · **Exception:** `LDSCInputError`
 
+### regression: LD scores or regression weights are missing or infinite
+
+**Symptom:** `Regression cannot use LD-score directory '...': missing or infinite values in 'base' (3 rows; for example rs123)` before any fit, or a `partitioned-h2` query recorded as `failed` with `Regression cannot use query annotation '...'`.
+
+Every LD score and every regression weight (`regression_ld_scores`) must be finite.
+`h2`, `partitioned-h2` and `rg` check the whole baseline table once per run, including SNPs that no trait matches, and name every affected column with its row count and example SNPs.
+These rows are not dropped: a bad value means the LD-score directory is damaged, and dropping SNPs would change the regression without notice.
+A query column is checked on the regression SNPs of its own model, so under `--continue-on-query-error` only that query fails.
+
+| Cause | Action |
+| --- | --- |
+| The Parquet files were edited, filtered or merged by hand | Restore the files `ldsc ldscore` wrote, from the same run as `metadata.json`. |
+| The directory was copied or written only in part | Regenerate it with `ldsc ldscore`, or `ldsc convert-legacy-ldscores` for legacy LD scores. |
+| An `LDScoreResult` built in Python carries missing values | Fill it from finite LD scores; do not replace missing values with zero. |
+
+Missing or infinite `Z` or `N` values in summary statistics are dropped and counted instead; see [missing or infinite statistics](../reference/regression-options.md#16-missing-or-infinite-statistics).
+
+**Developer reference:** `_PreparedLDScores` and `RegressionRunner._dataset_from_query_values()` in `_regression/runner.py` · **Exception:** `LDSCInputError`
+
 ### regression: a block jackknife deletion is unestimable
 
 **Symptom:** `Jackknife regression is unestimable: Singular matrix after deleting block ...` from `h2` or `partitioned-h2`, or an `rg` pair with `status` `unestimable` and that message in the `error` column of `rg_full.tsv`.

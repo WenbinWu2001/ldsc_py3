@@ -320,6 +320,7 @@ Selected-value validation and alignment to a regression model remain with `Regre
 
 `RegressionRunner` accepts saved sources or prepared `LDScoreResult` values and prepares each trait's summary statistics once per run (`_PreparedTraitSumstats`, built by `_prepare_trait_sumstats()`).
 That preparation projects legacy summary statistics by rsID onto the regression SNPs in the LD-score directory with allele validation, orientation, and a stable drop audit, and drops rows whose `Z` or `N` is missing or infinite with a warning and a recorded count (see [missing or infinite statistics](../reference/regression-options.md#16-missing-or-infinite-statistics)).
+A missing or infinite baseline LD score or regression weight stops the run when `_PreparedLDScores` is built, once per run; a damaged query column fails only its model in `_dataset_from_query_values()`.
 Each command then applies its own SNP alignment: `h2` and `partitioned-h2` orient `Z` to the LD-score alleles, and `rg` harmonizes trait 2 to trait 1 and drops strand-ambiguous pairs.
 The shared `_select_model_columns()` then drops zero-variance LD-score columns and selects the count vectors on the final rows.
 The runner requires `output_dir` for writing workflows, writes per-command logs under `diagnostics/`, and dispatches to the regression kernel for SNP heritability, partitioned heritability, and genetic correlation.

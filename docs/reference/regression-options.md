@@ -158,9 +158,9 @@ For a legacy `.sumstats(.gz)` input the dropped rows also appear in `diagnostics
 
 This is a recorded exception to the rule that filtering a user did not request must fail when it can change the analysis.
 A row without a finite statistic carries nothing the model can use, and dropping it matches legacy LDSC.
-Missing or infinite LD scores and regression weights are outside this rule; `rg` still drops missing values in those columns after merging, as before.
+Missing or infinite LD scores and regression weights are not dropped: they mean the LD-score directory is damaged, so the run stops before any fit, and a damaged query column fails only that query; see [LD scores or regression weights are missing or infinite](../user-guide/troubleshooting.md#regression-ld-scores-or-regression-weights-are-missing-or-infinite).
 
-*Mechanism:* `_prepare_trait_sumstats` and `_project_legacy_sumstats_to_panel` in `_regression/runner.py`.
+*Mechanism:* `_prepare_trait_sumstats`, `_project_legacy_sumstats_to_panel` and `_PreparedLDScores` in `_regression/runner.py`.
 
 ## 2. `h2` — single-trait heritability
 

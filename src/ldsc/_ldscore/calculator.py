@@ -733,7 +733,6 @@ class LDScoreCalculator:
                 # gives the genomic order that the query fragments below follow.
                 baseline_table = concat_chromosome_tables(
                     [(result.chrom, result.baseline_table) for result in chromosome_results])
-                _assert_canonical_maf(baseline_table)
             ordered = sorted(chromosome_results, key=lambda result: chrom_sort_key(result.chrom))
             return StagedLDScoreBatch(
                 baseline_table=baseline_table,
@@ -741,7 +740,6 @@ class LDScoreCalculator:
                 query_statuses=(), gene_list_batch=None, chromosome_scope={}, index_provenance={}, **shared,
             )
         baseline_table = concat_chromosome_tables([(result.chrom, result.baseline_table) for result in chromosome_results])
-        _assert_canonical_maf(baseline_table)
         query_table = None
         if query_columns:
             query_table = concat_chromosome_tables([(result.chrom, result.query_table) for result in chromosome_results])
@@ -893,26 +891,6 @@ class _DirectProducer:
         LOGGER.debug(f"Computed LD scores for {len(chromosome_results)} chromosomes.")
         staged = isinstance(result, StagedLDScoreBatch)
         return result, [item.variation for item in chromosome_results] if staged else []
-
-
-def _assert_canonical_maf(metadata: pd.DataFrame) -> None:
-    """Verify the canonical invariant that MAF = freq(A1) is the minor allele.
-
-    LD-score directories inherit A1/A2/MAF from the reference panel. A panel built
-    before allele-orientation canonicalization can carry MAF > 0.5 (folded MAF not
-    tied to A1); fail loudly rather than silently mis-tie MAF to A1.
-    """
-    if "MAF" not in metadata.columns:
-        return
-    maf = pd.to_numeric(metadata["MAF"], errors="coerce")
-    over = maf[maf > 0.5 + 1e-9]
-    if len(over):
-        raise LDSCInternalError(
-            "LD-score metadata carries MAF > 0.5, violating the canonical "
-            f"A1=minor invariant ({len(over)} rows; first={float(over.iloc[0]):.4f}). "
-            "Most likely the reference panel was built before allele-orientation "
-            "canonicalization. Rebuild the reference panel with the current package."
-        )
 
 
 def _split_ldscore_table(

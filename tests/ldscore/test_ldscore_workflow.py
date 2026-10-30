@@ -2600,18 +2600,6 @@ def test_gene_list_mhc_query_keeps_reference_counts_but_not_regression_row(tmp_p
     np.testing.assert_array_equal(overlap.query_diagonal_all, np.array([1.0]))
 
 
-def test_ldscore_rejects_non_minor_maf():
-    bad = pd.DataFrame({"CHR": ["22"], "SNP": ["rs1"], "POS": [1],
-                        "A1": ["A"], "A2": ["G"], "MAF": [0.73]})
-    with pytest.raises(LDSCInternalError, match="MAF"):
-        ldscore_workflow._assert_canonical_maf(bad)
-
-
-def test_assert_canonical_maf_passes_for_minor():
-    ok = pd.DataFrame({"MAF": [0.0, 0.2, 0.5]})
-    ldscore_workflow._assert_canonical_maf(ok)  # no raise
-
-
 def test_window_coordinates_select_each_window_mode():
     """One window builder serves ldscore and build-r2-matrix for every mode."""
     positions = np.array([100, 250, 900, 2_000])

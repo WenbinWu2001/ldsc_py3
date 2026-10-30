@@ -282,6 +282,19 @@ def _clean_allele_series(column: pd.Series) -> pd.Series:
     return cleaned.where(cleaned != "", other=pd.NA)
 
 
+def _allele_codes(column: pd.Series) -> tuple[np.ndarray, np.ndarray]:
+    """Return per-row missing flags and base codes for one allele column.
+
+    Each distinct token is cleaned once with :func:`_clean_allele_series` and
+    mapped back to its rows, which gives the per-row result of cleaning every row.
+    """
+    codes, uniques = pd.factorize(column, use_na_sentinel=True)
+    cleaned = _clean_allele_series(pd.Series(uniques, dtype=object))
+    unique_missing = np.append(cleaned.isna().to_numpy(), True)  # code -1 (NA) reads the final entry
+    unique_codes = np.append(_base_codes(cleaned), -1)
+    return unique_missing[codes], unique_codes[codes]
+
+
 def _base_codes(cleaned: pd.Series) -> np.ndarray:
     """Map cleaned allele tokens to base codes ``A,C,G,T -> 0..3`` (``-1`` otherwise)."""
     tokens = cleaned.fillna("").to_numpy()
@@ -304,12 +317,10 @@ def _allele_set_series_vectorized(frame: pd.DataFrame, *, context: str) -> tuple
     _require_columns(frame, ("A1", "A2"), context=context)
     index = frame.index
 
-    left = _clean_allele_series(frame["A1"])
-    right = _clean_allele_series(frame["A2"])
-    code_left = _base_codes(left)
-    code_right = _base_codes(right)
+    missing_left, code_left = _allele_codes(frame["A1"])
+    missing_right, code_right = _allele_codes(frame["A2"])
 
-    missing = (left.isna() | right.isna()).to_numpy()
+    missing = missing_left | missing_right
     valid_base = (code_left >= 0) & (code_right >= 0)
     pair = np.where(valid_base, code_left * 4 + code_right, 0)
 
@@ -347,7 +358,7 @@ def base_key_series(frame: pd.DataFrame, mode: str, *, context: str) -> pd.Serie
     _require_columns(frame, ("CHR", "POS"), context=context)
     result = pd.Series(pd.NA, index=frame.index, dtype=object)
     keyed, _report = build_chr_pos_key_frame(
-        frame.loc[:, ["CHR", "POS"]].copy(),
+        frame.loc[:, ["CHR", "POS"]],
         context=context,
         drop_missing=True,
     )
@@ -484,41 +495,72 @@ def clean_identity_artifact_table(
     stage: str,
     logger: logging.Logger | None = None,
 ) -> IdentityCleanupResult:
-    """Drop rows that cannot provide a unique effective SNP identity."""
+    """Drop rows that cannot provide a unique effective SNP identity.
+
+    Keys are built as separate arrays and rows are tracked by position, so the
+    table itself is copied once, by the rows it keeps.
+    """
     mode = normalize_snp_identifier_mode(mode)
-    work = frame.copy()
-    work["_ldsc_base_key"] = base_key_series(work, mode, context=context)
-    drop_frames: list[pd.DataFrame] = []
-
+    internal = [column for column in _INTERNAL_COLUMNS if column in frame.columns]
+    data = frame.drop(columns=internal) if internal else frame
+    filtered = _IdentityFilter(data, base_key_series(data, mode, context=context), stage=stage)
     if is_allele_aware_mode(mode):
-        allele_set, reasons = allele_set_series(work, context=context)
-        work["_ldsc_allele_set"] = allele_set
-        invalid_mask = reasons.notna()
-        for reason in IDENTITY_DROP_REASONS[:3]:
-            reason_mask = reasons == reason
-            if bool(reason_mask.any()):
-                drop_frames.append(identity_drop_rows(work.loc[reason_mask], reason=reason, stage=stage))
-        work = work.loc[~invalid_mask].copy()
+        filtered.drop_invalid_alleles(context=context)
+    duplicate = np.zeros(len(data), dtype=bool)
+    kept = np.flatnonzero(filtered.keep)
+    duplicate[kept] = _duplicate_identity_mask(pd.Series(filtered.identity_key[kept], dtype=object)).to_numpy()
+    filtered.drop(duplicate, "duplicate_identity", with_identity=True)
 
-        multi_mask = _multi_allelic_base_key_mask(work)
-        if bool(multi_mask.any()):
-            drop_frames.append(identity_drop_rows(work.loc[multi_mask], reason="multi_allelic_base_key", stage=stage))
-            work = work.loc[~multi_mask].copy()
-
-        work["_ldsc_identity_key"] = _combine_base_and_allele_keys(work["_ldsc_base_key"], work["_ldsc_allele_set"])
-    else:
-        work["_ldsc_allele_set"] = pd.NA
-        work["_ldsc_identity_key"] = work["_ldsc_base_key"]
-
-    duplicate_mask = _duplicate_identity_mask(work["_ldsc_identity_key"])
-    if bool(duplicate_mask.any()):
-        drop_frames.append(identity_drop_rows(work.loc[duplicate_mask], reason="duplicate_identity", stage=stage))
-        work = work.loc[~duplicate_mask].copy()
-
-    cleaned = work.drop(columns=[column for column in _INTERNAL_COLUMNS if column in work.columns]).reset_index(drop=True)
-    dropped = _combine_drop_frames(drop_frames)
+    cleaned = data.take(np.flatnonzero(filtered.keep))
+    cleaned.index = pd.RangeIndex(len(cleaned))
+    dropped = _combine_drop_frames(filtered.drop_frames)
     _log_identity_drops(dropped, context=context, logger=logger)
     return IdentityCleanupResult(cleaned=cleaned, dropped=dropped)
+
+
+class _IdentityFilter:
+    """Positional keep mask, keys and drop-report rows of one identity cleanup.
+
+    ``base`` holds the base keys of ``data``. Rows are tracked by position so
+    no intermediate copy of ``data`` is made; drop-report rows are taken from
+    ``data`` with the internal key columns added.
+    """
+
+    def __init__(self, data: pd.DataFrame, base: pd.Series, *, stage: str):
+        self.data, self.stage = data, stage
+        self.base = base.to_numpy(dtype=object)
+        self.allele_set = np.full(len(data), pd.NA, dtype=object)
+        self.identity_key = self.base
+        self.keep = np.ones(len(data), dtype=bool)
+        self.drop_frames: list[pd.DataFrame] = []
+
+    def drop(self, mask: np.ndarray, reason: str, *, with_identity: bool = False) -> None:
+        """Record the rows of ``mask`` as dropped for ``reason``."""
+        if not mask.any():
+            return
+        rows = self.data.iloc[np.flatnonzero(mask)].assign(
+            _ldsc_base_key=self.base[mask], _ldsc_allele_set=self.allele_set[mask])
+        if with_identity:
+            rows = rows.assign(_ldsc_identity_key=self.identity_key[mask])
+        self.drop_frames.append(identity_drop_rows(rows, reason=reason, stage=self.stage))
+        self.keep &= ~mask
+
+    def drop_invalid_alleles(self, *, context: str) -> None:
+        """Drop invalid allele pairs and multi-allelic base keys, then form identity keys."""
+        allele_set, reasons = allele_set_series(self.data, context=context)
+        self.allele_set = allele_set.to_numpy(dtype=object)
+        for reason in IDENTITY_DROP_REASONS[:3]:
+            self.drop((reasons == reason).to_numpy(dtype=bool), reason)
+        self.keep &= ~reasons.notna().to_numpy()
+        kept = np.flatnonzero(self.keep)
+        multi = np.zeros(len(self.keep), dtype=bool)
+        multi[kept] = _multi_allelic_base_key_mask(pd.DataFrame(
+            {"_ldsc_base_key": self.base[kept], "_ldsc_allele_set": self.allele_set[kept]})).to_numpy()
+        self.drop(multi, "multi_allelic_base_key")
+        kept = np.flatnonzero(self.keep)
+        self.identity_key = np.full(len(self.keep), pd.NA, dtype=object)
+        self.identity_key[kept] = _combine_base_and_allele_keys(
+            pd.Series(self.base[kept], dtype=object), pd.Series(self.allele_set[kept], dtype=object)).to_numpy()
 
 
 def collapse_restriction_identity_keys(
@@ -553,27 +595,10 @@ def collapse_restriction_identity_keys(
             n_retained_keys=len(keys),
         )
 
-    work = frame.copy()
-    work["_ldsc_base_key"] = base
-    allele_set, reasons = allele_set_series(work, context=context)
-    work["_ldsc_allele_set"] = allele_set
-    drop_frames: list[pd.DataFrame] = []
-
-    invalid_mask = reasons.notna()
-    for reason in IDENTITY_DROP_REASONS[:3]:
-        reason_mask = reasons == reason
-        if bool(reason_mask.any()):
-            drop_frames.append(identity_drop_rows(work.loc[reason_mask], reason=reason, stage="restriction"))
-    work = work.loc[~invalid_mask].copy()
-
-    multi_mask = _multi_allelic_base_key_mask(work)
-    if bool(multi_mask.any()):
-        drop_frames.append(identity_drop_rows(work.loc[multi_mask], reason="multi_allelic_base_key", stage="restriction"))
-        work = work.loc[~multi_mask].copy()
-
-    work["_ldsc_identity_key"] = _combine_base_and_allele_keys(work["_ldsc_base_key"], work["_ldsc_allele_set"])
-    keys = {str(value) for value in work["_ldsc_identity_key"].dropna().tolist()}
-    dropped = _combine_drop_frames(drop_frames)
+    filtered = _IdentityFilter(frame, base, stage="restriction")
+    filtered.drop_invalid_alleles(context=context)
+    keys = {str(value) for value in pd.Series(filtered.identity_key[filtered.keep], dtype=object).dropna().tolist()}
+    dropped = _combine_drop_frames(filtered.drop_frames)
     _log_identity_drops(dropped, context=context, logger=logger)
     return RestrictionIdentityKeys(
         keys=keys,

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import logging
 from typing import Literal, Sequence
 
+import numpy as np
 import pandas as pd
 
 from .chromosomes import normalize_chromosome, normalize_chromosome_series
@@ -35,6 +36,9 @@ class CoordinateDropReport:
 
 def coordinate_missing_mask(values: pd.Series) -> pd.Series:
     """Return rows whose coordinate token is missing or package NA-like."""
+    if values.dtype.kind in "iuf":
+        # A NumPy number cannot spell an NA-like token; only NaN is missing.
+        return values.isna()
     tokens = values.astype("string")
     return tokens.isna() | tokens.str.strip().str.lower().isin(NA_COORDINATE_TOKENS)
 
@@ -57,13 +61,12 @@ def _integer_position_series(
     min_position: int,
 ) -> pd.Series:
     """Convert non-missing POS values to int64 positions with a lower bound."""
-    tokens = values.astype("string")
     missing = coordinate_missing_mask(values)
     numeric = pd.to_numeric(values, errors="coerce")
 
     invalid = (~missing) & numeric.isna()
     if bool(invalid.any()):
-        bad_value = tokens.loc[invalid].iloc[0]
+        bad_value = values.loc[invalid].astype("string").iloc[0]
         raise LDSCInputError(
             f"{label} values in {context} must be numeric; got {bad_value!r}. "
             "Most likely the position column contains a header, delimiter artifact, or non-coordinate token. "
@@ -120,12 +123,11 @@ def normalize_chr_pos_frame(
     warning report. Pass ``coordinate_policy="raise"`` where a strict file
     contract requires complete, valid coordinates.
     """
-    work = frame.copy()
     policy = _resolve_coordinate_policy(coordinate_policy=coordinate_policy, drop_missing=drop_missing, context=context)
-    masks = _coordinate_quality_masks(work, chr_col=chr_col, pos_col=pos_col, context=context, min_position=min_position)
+    masks = _coordinate_quality_masks(frame, chr_col=chr_col, pos_col=pos_col, context=context, min_position=min_position)
     droppable = masks["droppable"]
     report = _drop_report(
-        work,
+        frame,
         droppable,
         context=context,
         chr_col=chr_col,
@@ -138,14 +140,17 @@ def normalize_chr_pos_frame(
     )
     if report.n_dropped:
         if policy == STRICT_COORDINATE_POLICY:
-            _raise_coordinate_policy_error(work, masks, context=context, chr_col=chr_col, pos_col=pos_col, min_position=min_position)
+            _raise_coordinate_policy_error(frame, masks, context=context, chr_col=chr_col, pos_col=pos_col, min_position=min_position)
         _log_drop_report(report, logger=logger, level=log_level)
-        work = work.loc[~droppable].copy()
+        work = frame.take(np.flatnonzero(~droppable.to_numpy()))
+    else:
+        # The two normalized columns are replaced below; the others are shared with ``frame``.
+        work = frame.copy(deep=False)
 
     if work.empty:
         return work, report
 
-    work[chr_col] = normalize_chromosome_series(work[chr_col], context=context).astype(object)
+    work[chr_col] = normalize_chromosome_series(work[chr_col], context=context).astype(object, copy=False)
     work[pos_col] = _integer_position_series(work[pos_col], context=context, label=pos_col, min_position=min_position)
     return work, report
 

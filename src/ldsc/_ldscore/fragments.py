@@ -10,11 +10,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from .._core.row_alignment import first_identity_mismatch
 from ..errors import LDSCInputError, LDSCInternalError
 from .outputs import _cast_parquet_floats
 
@@ -88,17 +88,14 @@ def write_query_fragments(result: StagedLDScoreBatch, baseline_table: pd.DataFra
 
 def _require_baseline_rows(baseline: pd.DataFrame, frame: pd.DataFrame, identity: list[str], offset: int) -> None:
     """Raise unless a query fragment repeats the baseline rows' identity columns exactly, in order."""
-    for column in identity:
-        expected, actual = baseline[column].to_numpy(), frame[column].to_numpy()
-        same = np.zeros(len(actual), dtype=bool) if len(expected) != len(actual) else (
-            (expected == actual) | (pd.isna(expected) & pd.isna(actual)))
-        if not same.all():
-            row = int(np.flatnonzero(~same)[0]) if len(same) else 0
-            found = actual[row] if row < len(actual) else "no row"
-            wanted = expected[row] if row < len(expected) else "no row"
-            raise LDSCInputError(
-                f"LD-score query batch rows must equal the baseline rows: SNP row mismatch at row {offset + row} "
-                f"in {column} (baseline {wanted!r}, query batch {found!r}). Most likely an input file "
-                "(reference panel, annotations or SNP restriction) changed while the run was in progress, so a "
-                "later query batch selected different SNPs. Rerun with unchanged inputs."
-            )
+    mismatch = first_identity_mismatch(baseline, frame, identity)
+    if mismatch is not None:
+        row, column = mismatch
+        wanted = baseline[column].iloc[row] if row < len(baseline) else "no row"
+        found = frame[column].iloc[row] if row < len(frame) else "no row"
+        raise LDSCInputError(
+            f"LD-score query batch rows must equal the baseline rows: SNP row mismatch at row {offset + row} "
+            f"in {column} (baseline {wanted!r}, query batch {found!r}). Most likely an input file "
+            "(reference panel, annotations or SNP restriction) changed while the run was in progress, so a "
+            "later query batch selected different SNPs. Rerun with unchanged inputs."
+        )

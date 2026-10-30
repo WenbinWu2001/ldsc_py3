@@ -40,6 +40,7 @@ Design Notes
 from __future__ import annotations
 
 import csv
+import itertools
 import gzip
 import logging
 import re
@@ -383,20 +384,6 @@ def _detect_delimiter(sample_line: str) -> str | None:
     return None
 
 
-def _non_comment_lines(path: Path) -> list[str]:
-    """Read non-empty, non-comment lines from a restriction file."""
-    with open_text(path) as handle:
-        lines: list[str] = []
-        for line in handle:
-            stripped = line.lstrip()
-            if not stripped.strip():
-                continue
-            if stripped.startswith("#") and not stripped.upper().startswith("#CHROM"):
-                continue
-            lines.append(line.rstrip("\n"))
-        return lines
-
-
 def _iter_non_comment_lines(path: Path):
     """Yield non-empty, non-comment lines from a restriction file."""
     with open_text(path) as handle:
@@ -441,18 +428,23 @@ def _read_restriction_header(path: Path) -> list[str]:
 
 
 def _parse_restriction_rows(path: Path) -> tuple[list[str], list[list[str]], str | None]:
-    """Parse one restriction file into a header row plus raw data rows."""
-    lines = _non_comment_lines(path)
-    if not lines:
+    """Parse one restriction file into a header row plus raw data rows.
+
+    Lines are parsed as they are read, so the file's lines are never held as a
+    list beside the parsed rows.
+    """
+    lines = _iter_non_comment_lines(path)
+    first = next(lines, None)
+    if first is None:
         return [], [], None
-    delimiter = _detect_delimiter(lines[0])
+    delimiter = _detect_delimiter(first)
     if delimiter is None:
-        header = re.split(r"\s+", lines[0].strip())
-        rows = [re.split(r"\s+", line.strip()) for line in lines[1:]]
+        header = re.split(r"\s+", first.strip())
+        rows = [re.split(r"\s+", line.strip()) for line in lines]
         return header, rows, None
-    reader = csv.reader(lines, delimiter=delimiter)
-    parsed = list(reader)
-    return parsed[0], parsed[1:], delimiter
+    reader = csv.reader(itertools.chain([first], lines), delimiter=delimiter)
+    header = next(reader)
+    return header, list(reader), delimiter
 
 
 def _read_snp_restriction_table(path: Path) -> pd.DataFrame:
@@ -505,7 +497,7 @@ def _canonicalize_snp_restriction_table(
             assert a1_col is not None and a2_col is not None
             data["A1"] = raw_frame[a1_col]
             data["A2"] = raw_frame[a2_col]
-    return pd.DataFrame(data), has_allele_columns
+    return pd.DataFrame(data, copy=False), has_allele_columns
 
 
 def _read_rsid_restriction(path: Path) -> set[str]:

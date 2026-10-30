@@ -14,7 +14,7 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 
-from .chromosomes import normalize_chromosome
+from .chromosomes import normalize_chromosome, normalize_chromosome_series
 from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 
 # Active CLI presets: ``mhc`` (broad chr6:25-35Mb window) and ``centromeres``
@@ -254,7 +254,7 @@ def region_exclusion_keep_mask(
     keep = np.ones(n, dtype=bool)
     if not intervals.intervals or n == 0:
         return keep
-    chrom_tokens = metadata[chr_col].astype(str).map(normalize_chromosome).to_numpy()
+    chrom_tokens = normalize_chromosome_series(metadata[chr_col].astype(str)).to_numpy()
     pos = pd.to_numeric(metadata[pos_col], errors="raise").to_numpy()
     for chrom, bounds in intervals.intervals.items():
         sel = chrom_tokens == chrom

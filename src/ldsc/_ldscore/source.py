@@ -21,7 +21,7 @@ from .._annotation.semantics import require_unique_annotation_names
 from ..config import ConfigMismatchError, GlobalConfig
 from .._core.snp_identity import normalize_snp_identifier_mode
 from ..errors import LDSCInputError, LDSCInternalError
-from .._core.row_alignment import assert_same_snp_rows
+from .._core.row_alignment import assert_same_snp_rows, first_identity_mismatch
 from .._core.identifiers import build_snp_id_series
 from .._core.snp_identity import (
     effective_merge_key_series,
@@ -336,18 +336,6 @@ class LDScoreSource:
         return pd.concat([metadata, *(values[name] for name in columns)], axis=1)
 
 
-def _same_identity_rows(identities: pd.DataFrame, baseline: pd.DataFrame) -> bool:
-    """Return whether the identity columns are the baseline's, each equal to it exactly, row by row."""
-    expected = [name for name in ("CHR", "SNP", "POS", "A1", "A2") if name in baseline.columns]
-    if len(identities) != len(baseline) or list(identities.columns) != expected:
-        return False
-    for column in identities.columns:
-        left, right = baseline[column].to_numpy(), identities[column].to_numpy()
-        if not ((left == right) | (pd.isna(left) & pd.isna(right))).all():
-            return False
-    return True
-
-
 def load_ldscore_from_dir(
     ldscore_dir: str,
     snp_identifier: str | None = None,
@@ -450,11 +438,15 @@ def load_ldscore_from_dir(
         snp_identifier=effective_identifier,
     )
     query_table = None
+    identity_columns = ("CHR", "SNP", "POS", "A1", "A2")
+    baseline_identity = [name for name in identity_columns if name in baseline_table.columns]
     for entry in query_batches:
         identities = pd.read_parquet(entry["path"], columns=[
-            name for name in ("CHR", "SNP", "POS", "A1", "A2") if name in entry["schema"]])
-        # Rows identical to the validated baseline rows need no second allele check.
-        if not _same_identity_rows(identities, baseline_table):
+            name for name in identity_columns if name in entry["schema"]])
+        # Rows identical to the validated baseline rows, with the same identity
+        # columns, need no second allele check.
+        if (list(identities.columns) != baseline_identity
+                or first_identity_mismatch(baseline_table, identities, baseline_identity) is not None):
             validate_ldscore_allele_columns(
                 identities,
                 table_name="query_table",

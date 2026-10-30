@@ -81,8 +81,9 @@ def _row_key_frame(
     snp_identifier: str,
     extra_columns: list[str],
 ) -> pd.DataFrame:
+    positional = isinstance(frame.index, pd.RangeIndex) and frame.index.start == 0 and frame.index.step == 1
     key = effective_merge_key_series(
-        frame.reset_index(drop=True),
+        frame if positional else frame.reset_index(drop=True),
         snp_identifier,
         context=f"{context}: {side}",
     ).reset_index(drop=True)
@@ -130,17 +131,44 @@ def _assert_close_numeric_metadata(
 
 
 def sort_frame_by_genomic_position(df: pd.DataFrame) -> pd.DataFrame:
-    """Sort by chromosome/position and use a present SNP label as a stable tie-breaker."""
+    """Sort by chromosome/position and use a present SNP label as a stable tie-breaker.
+
+    Only the sort keys are sorted; the rows are then taken once by the
+    resulting order. Already-ordered input is returned as a shallow copy with a
+    fresh RangeIndex, so callers must not modify its values in place.
+    """
     pos_col = resolve_optional_column(df.columns, POS_COLUMN_SPEC)
     if pos_col is None:
         raise KeyError("No POS-like column available for genomic sorting.")
-    sort_df = df.copy()
-    sort_df["_chrom_key"] = sort_df["CHR"].map(chrom_sort_key)
-    sort_columns = ["_chrom_key", pos_col]
-    if "SNP" in sort_df.columns:
-        sort_columns.append("SNP")
-    sort_df = sort_df.sort_values(by=sort_columns, kind="mergesort")
-    return sort_df.drop(columns="_chrom_key").reset_index(drop=True)
+    labels = df["CHR"].to_numpy()
+    keys = {"_chrom_key": pd.Series(labels).map({label: chrom_sort_key(label) for label in pd.unique(labels)}),
+            pos_col: df[pos_col].to_numpy()}
+    if "SNP" in df.columns:
+        keys["SNP"] = df["SNP"].to_numpy()
+    order = pd.DataFrame(keys).sort_values(by=list(keys), kind="mergesort").index.to_numpy()
+    if np.array_equal(order, np.arange(len(order))):
+        ordered = df.copy(deep=False)
+    else:
+        ordered = df.take(order)
+    ordered.index = pd.RangeIndex(len(ordered))
+    return ordered
+
+
+def first_identity_mismatch(left: pd.DataFrame, right: pd.DataFrame, columns) -> tuple[int, str] | None:
+    """Return the first ``(row, column)`` where two tables' identity columns differ, else ``None``.
+
+    Values are compared exactly and in row order (missing equals missing); a
+    row-count difference is reported at the end of the shorter table. This is
+    stricter than :func:`assert_same_snp_rows`, which compares identifier-mode keys.
+    """
+    for column in columns:
+        expected, actual = left[column].to_numpy(), right[column].to_numpy()
+        if len(expected) != len(actual):
+            return min(len(expected), len(actual)), column
+        same = (expected == actual) | (pd.isna(expected) & pd.isna(actual))
+        if not same.all():
+            return int(np.flatnonzero(~same)[0]), column
+    return None
 
 
 def concat_chromosome_tables(pieces) -> pd.DataFrame:

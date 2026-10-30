@@ -519,13 +519,13 @@ def test_rg_pair_fit_stops_on_a_collinear_design_when_overlap_is_stored(tmp_path
     (first, second), source = _near_collinear_rg_inputs(tmp_path, with_overlap=True)
     runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(num_blocks=6))
     with pytest.raises(workflow.LDSCInputError, match="design matrix is collinear"):
-        runner.estimate_rg(first, second, source)
+        runner.estimate_rg(runner.build_rg_dataset(first, second, source))
 
 
 def test_rg_pair_fit_skips_the_collinearity_check_without_stored_overlap(tmp_path):
     (first, second), source = _near_collinear_rg_inputs(tmp_path, with_overlap=False)
     runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(num_blocks=6))
-    assert runner.estimate_rg(first, second, source) is not None
+    assert isinstance(runner.estimate_rg(runner.build_rg_dataset(first, second, source)), workflow.RegressionFit)
 
 
 def test_rg_pairs_record_a_pair_collinear_only_on_shared_snps_as_failed(tmp_path, caplog):

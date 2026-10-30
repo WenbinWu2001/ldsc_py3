@@ -1118,7 +1118,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         sumstats_1 = self.make_sumstats_table()
         sumstats_2 = replace(self.make_sumstats_table(), trait_name="trait2")
         with mock.patch.object(regression_runner.reg, "RG", return_value=mock.sentinel.rg) as patched:
-            runner.estimate_rg(sumstats_1, sumstats_2, self.make_ldscore_result())
+            runner.estimate_rg(runner.build_rg_dataset(sumstats_1, sumstats_2, self.make_ldscore_result()))
         self.assertEqual(patched.call_args.kwargs["twostep"], 30)
 
     def _high_chisq_sumstats(self):
@@ -1532,7 +1532,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         )
 
         with mock.patch.object(regression_runner.reg, "RG", return_value=mock.sentinel.rg_result) as patched:
-            result = runner.estimate_rg(sumstats_1, sumstats_2, self.make_ldscore_result())
+            result = runner.estimate_rg(runner.build_rg_dataset(sumstats_1, sumstats_2, self.make_ldscore_result()))
 
         self.assertIs(result.estimator, mock.sentinel.rg_result)
         np.testing.assert_allclose(patched.call_args.args[0], [[2.0], [1.0], [0.5]])

@@ -12,7 +12,7 @@ For the plain argument list (paths, output flags) see
 the *statistical* configuration and what each knob does to the estimator.
 
 Source of truth in code: `RegressionConfig` in `src/ldsc/config.py`,
-`_runner_from_args` / `estimate_h2` / `_fit_rg_dataset` /
+`_runner_from_args` / `estimate_h2` / `estimate_rg` /
 `estimate_partitioned_h2_batch` in `src/ldsc/_regression/runner.py`, and the
 kernel in `src/ldsc/_regression/estimators.py`.
 
@@ -138,7 +138,7 @@ Explicit `--two-step-cutoff` also remains incompatible with fixed intercepts and
 
 The public Python `RegressionConfig.use_intercept=False` option remains supported.
 It selects a heritability intercept of 1 and a covariance intercept of 0; the CLI now uses only `intercept_h2` and `intercept_gencov` for fixed values.
-Sources: `RegressionRunner._fit_h2_dataset`, `_fit_rg_dataset`, and `_runner_from_args` in [`_regression/runner.py`](../../src/ldsc/_regression/runner.py).
+Sources: `RegressionRunner._fit_h2_dataset`, `estimate_rg`, and `_runner_from_args` in [`_regression/runner.py`](../../src/ldsc/_regression/runner.py).
 
 > **Boundary convention.** Every `χ²` threshold in this module is **inclusive**
 > (`χ² ≤ cutoff` / `χ² ≤ cap` / `Z₁²·Z₂² ≤ chisq_max²`), a deliberate deviation
@@ -206,7 +206,7 @@ Per-pair metadata reports the post-filter `n_snps_used` / `n_blocks_used` and an
 `effective_chisq_max` field. Because `rg` has no default cap, that field simply
 **echoes** `config.chisq_max` (or `null`); there is no hidden default to reveal.
 
-*Mechanism:* `RegressionRunner._fit_rg_dataset` and `estimate_rg_pairs` in
+*Mechanism:* `RegressionRunner.estimate_rg` and `estimate_rg_pairs` in
 `_regression/runner.py`.
 
 ---
@@ -294,7 +294,7 @@ estimator state.
 
 | Constant | Value | Where | Role |
 |---|---|---|---|
-| Default two-step cutoff | `30` | `estimate_h2`, `_fit_rg_dataset` | Step-1 `χ²` ceiling when two-step is enabled and `--two-step-cutoff` is unset. |
+| Default two-step cutoff | `30` | `estimate_h2`, `estimate_rg` | Step-1 `χ²` ceiling when two-step is enabled and `--two-step-cutoff` is unset. |
 | Default partitioned cap | `max(0.001 · N.max(), 80)` | `_resolve_default_chisq_max` | Outlier cap for multi-annotation `h2` when `--chisq-max` is unset. |
 | Constrained heritability intercept | `1` | `Hsq.__null_intercept__` | Standard fixed heritability intercept, requested with `--intercept-h2 1`. |
 | Constrained genetic-covariance intercept | `0` | `RG`/`Gencov.__null_intercept__` | Standard fixed covariance intercept, requested with `--intercept-gencov 0`. |

@@ -932,4 +932,4 @@ Exporting the tables with `to_csv()` does not create a plotting input; `plot_res
 Tables made by the munger, and Parquet files read by `load_sumstats()`, carry the `GlobalConfig` used to make them; their settings are checked against the LD scores before fitting.
 A legacy `.sumstats.gz` file is matched to the LD scores by rsID; a Parquet file without the footer is rejected.
 
-`RegressionRunner.estimate_rg()` fits one pair and returns a `RegressionFit` whose `estimator` is the low-level `RG` object; prefer `estimate_rg_pairs()` or `run_rg`, which return the same tables as the command.
+`RegressionRunner.build_rg_dataset()` builds one pair's dataset and `RegressionRunner.estimate_rg(dataset)` fits it, returning a `RegressionFit` whose `estimator` is the low-level `RG` object; prefer `estimate_rg_pairs()` or `run_rg`, which return the same tables as the command.

@@ -62,7 +62,7 @@ def _intercept_fit(command, config):
         "reference_snp_count_totals", "count_key_used_for_regression", "chromosomes_aggregated", "config_snapshot",
     )}
     rg_dataset = workflow.RegressionDataset(merged=merged, trait_names=["one", "two"], **fields)
-    return runner._fit_rg_dataset(rg_dataset).estimator
+    return runner.estimate_rg(rg_dataset).estimator
 
 
 @pytest.mark.parametrize("command", ["h2", "partitioned-h2", "rg"])
@@ -151,14 +151,15 @@ def test_rg_outcome_uses_explicit_product_filter_not_h2_cap():
     )}
     dataset = workflow.RegressionDataset(merged=merged, trait_names=['one', 'two'], **fields)
     runner = workflow.RegressionRunner(GlobalConfig(snp_identifier='rsid'), RegressionConfig(chisq_max=10, num_blocks=5, use_intercept=False))
-    outcome = runner._fit_rg_dataset(dataset)
+    outcome = runner.estimate_rg(dataset)
+    assert isinstance(outcome, workflow.RegressionFit)
     assert isinstance(outcome.estimator, workflow.reg.RG)
     assert outcome.dataset.merged.SNP.tolist() == ['rs0'] + [f'rs{i}' for i in range(2, 60)]
     assert outcome.n_snps == 59
     assert outcome.n_blocks == 5
     assert outcome.effective_chisq_max == 10
     assert len(dataset.merged) == 60
-    uncapped = runner._fit_rg_dataset(dataset, RegressionConfig(num_blocks=5, use_intercept=False))
+    uncapped = runner.estimate_rg(dataset, RegressionConfig(num_blocks=5, use_intercept=False))
     assert uncapped.n_snps == 60
     assert uncapped.effective_chisq_max is None
 

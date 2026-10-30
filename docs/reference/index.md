@@ -1,6 +1,6 @@
 # Reference
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-30
 
 This section is the exact reference for LDSC3: commands, the Python API, file formats, result columns and methods.
 Task guides are in the [user guide](../user-guide/index.md), and the package internals are in the [developer guide](../dev/index.md).
@@ -20,7 +20,7 @@ Task guides are in the [user guide](../user-guide/index.md), and the package int
 | Estimate SNP heritability | `ldsc h2` | `run_h2()`, `RegressionRunner.estimate_h2()` | Munged summary statistics and an LD-score directory | `h2.tsv` ([regression options](regression-options.md)) |
 | Estimate partitioned heritability | `ldsc partitioned-h2` | `run_partitioned_h2()`, `RegressionRunner.estimate_partitioned_h2()`, `RegressionRunner.estimate_partitioned_h2_batch()` | Munged summary statistics and an LD-score directory with its overlap file | `partitioned_h2.tsv` and `partitioned_h2_full.tsv` ([result columns](results/partitioned-h2.md)) |
 | Summarize heritability across annotation quantiles | `ldsc quantile-h2` | `run_quantile_h2()`, `compute_quantile_h2()`, `compute_standardized_coefficients()`, `load_fitted_partitioned_model()` | A fitted `partitioned-h2` result, its annotation sources and a target annotation | `quantile_h2.tsv` and `standardized_coefficients.tsv` ([`quantile-h2`](results/quantile-h2.md)) |
-| Estimate genetic correlation | `ldsc rg` | `run_rg()`, `RegressionRunner.estimate_rg()`, `RegressionRunner.estimate_rg_pairs()` | Two or more munged summary statistics files and an LD-score directory | `rg.tsv`, `rg_full.tsv` and `h2_per_trait.tsv` ([artifact metadata](formats/artifact-metadata.md#rg)) |
+| Estimate genetic correlation | `ldsc rg` | `run_rg()`, `RegressionRunner.build_rg_dataset()` with `RegressionRunner.estimate_rg()`, `RegressionRunner.estimate_rg_pairs()` | Two or more munged summary statistics files and an LD-score directory | `rg.tsv`, `rg_full.tsv` and `h2_per_trait.tsv` ([artifact metadata](formats/artifact-metadata.md#rg)) |
 | Plot a result | `ldsc plot` | `plot_result()` | A result directory from `h2`, `partitioned-h2`, `quantile-h2` or `rg` | One PNG under `<result-dir>/plots/` |
 | Convert to the liability scale | `ldsc convert-h2-scale` | `convert_h2_scale()` | An `h2` result directory and prevalences | A table under `<h2-result-dir>/postprocessing/liability-scale/`, optionally a prevalence-sensitivity PNG |
 

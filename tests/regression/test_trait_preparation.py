@@ -90,13 +90,13 @@ def test_mixed_mode_rg_keys_each_trait_at_most_twice_and_matches_separate_pairs(
     config = RegressionConfig(num_blocks=10, allow_identity_downgrade=True)
     runner = workflow.RegressionRunner(regression_config=config)
     fitted = []
-    original_fit = runner._fit_rg_dataset
+    original_fit = runner.estimate_rg
 
     def record(dataset, config=None):
         fitted.append(dataset)
         return original_fit(dataset, config=config)
 
-    monkeypatch.setattr(runner, "_fit_rg_dataset", record)
+    monkeypatch.setattr(runner, "estimate_rg", record)
     keyings = counting(monkeypatch, "_key_regression_rows")
 
     with calculation_body():

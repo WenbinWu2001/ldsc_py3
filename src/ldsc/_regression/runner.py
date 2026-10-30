@@ -1111,36 +1111,27 @@ class RegressionRunner:
             return PartitionedH2BatchResult(summary, paths, published_query_artifacts(output_dir, summary), query_status,
                                             legacy_drops)
 
-    def estimate_rg(
-        self,
-        sumstats_table_1: SumstatsTable,
-        sumstats_table_2: SumstatsTable,
-        ldscore_result: LDScoreSource | LDScoreResult,
-        config: RegressionConfig | None = None,
-    ) -> RegressionFit:
-        """Estimate genetic correlation between two munged summary-stat tables.
-
-        RG preprocessing is delegated to :meth:`build_rg_dataset`, which keeps
-        the final trait1/trait2/LD-score SNP set explicit before arrays are
-        passed to the kernel. Both tables need ``A1``/``A2``.
-
-        Returns
-        -------
-        RegressionFit
-            The ``RG`` estimator as ``estimator``, with the pair's SNP rows,
-            block count and the chi-square cap applied.
-        """
-        config = config or self.regression_config
-        dataset = self.build_rg_dataset(sumstats_table_1, sumstats_table_2, ldscore_result, config=config)
-        return self._fit_rg_dataset(dataset, config=config)
-
     @serial_calculation
-    def _fit_rg_dataset(
+    def estimate_rg(
         self,
         dataset: RegressionDataset,
         config: RegressionConfig | None = None,
     ) -> RegressionFit:
-        """Fit genetic correlation and retain the population selected by its explicit product cap."""
+        """Estimate genetic correlation from a prepared pair dataset.
+
+        Build the dataset with :meth:`build_rg_dataset`, which keeps the final
+        trait 1/trait 2/LD-score SNP set explicit and harmonizes trait 2's
+        alleles to trait 1. Pass ``chisq_max`` to drop SNPs whose
+        ``Z1^2 * Z2^2`` exceeds ``chisq_max^2``; there is no default cap. A
+        single-annotation fit with a free heritability intercept defaults the
+        two-step cutoff to ``30``, as legacy LDSC does.
+
+        Returns
+        -------
+        RegressionFit
+            The ``RG`` estimator as ``estimator``, with the pair's SNP rows
+            after the chi-square filter, block count and the cap applied.
+        """
         config = config or self.regression_config
         merged = dataset.merged
         n_snp = len(merged)
@@ -1289,7 +1280,7 @@ class RegressionRunner:
                 try:
                     # Pair-specific keyed rows are built here, so an error fails only this pair.
                     dataset = self._rg_dataset(traits[i], traits[j], ldscores, config, build_checked=True)
-                    outcome = self._fit_rg_dataset(dataset, config=config)
+                    outcome = self.estimate_rg(dataset, config=config)
                     fitted, dataset = outcome.estimator, outcome.dataset
                     n_snps_used = outcome.n_snps
                     full_row = _summarize_rg_pair(

@@ -5,6 +5,25 @@ Last updated on: 2026-10-30
 Branch `restructure`; checked on 2026-10-30.
 Nothing below is in progress; each open item needs the user's go-ahead.
 
+## Completed: gene-index fixtures through the build writer (2026-10-30)
+
+Architecture review candidate 4.
+The user accepted the updated round-1 recommendations on 2026-10-30, after re-checking the evidence against their own commits through `57de7dd`; the question record and evidence are outside the repository.
+
+- `3d41db6`: `AUTOSOMES` in `src/ldsc/_core/chromosomes.py` names the labels 1 to 22 once, replacing the separate copies in `_ldscore/preflight.py` and `_annotation/preflight.py`; `STANDARD_CHROMOSOMES` derives from it.
+  `legacy_converter._CHROMS` stays, because it compares integer shard numbers parsed from file names.
+- `6ea4824`: `publish_gene_ldscore_index` and `_write_index_artifact`, which no production code called, are gone, and with them the second copy of the payload-size diagnostics.
+  `write_gene_ldscore_index` in `tests/gene_index_helpers.py` publishes fixture chromosome records through the build's own transaction, chromosome staging, finalization and commit.
+  The tests of overwrite refusal and replacement, post-commit cleanup warnings, rollback and failure-marker reuse now run `run_build_gene_ldscore_index_from_args`; the rollback test fails the install of the replacement index, so the backup restore inside the commit step is now tested.
+  The recovery test still calls `_recover_gene_index_publication` on a hand-built interrupted transaction.
+- `53c866a`: `INDEX_CHROMOSOMES` in `src/ldsc/_ldscore/gene_index/artifact.py`, defined as `AUTOSOMES`, replaces `_allow_partial_for_tests` in nine functions and the hidden `args._test_chromosomes`.
+  The build's chromosome list and the loader's completeness check read it through the module when they run; tests narrow it with `narrow_index_chromosomes`.
+  `load_gene_ldscore_index` and its forwarding twin `_load_gene_ldscore_index` are now one function with the same public signature.
+- `b3c6089`: `docs/dev/code-structure.md` describes the helpers, and the gene-list diagnostics reference cites the loader where it lives.
+- Evidence: an exact before/after comparison of `57de7dd` and `53c866a` over seven index builds matched in `index_id`, every loaded array and table, the root, component and build-diagnostic metadata (without timings), and every indexed `ldscore` output (gzip files compared decompressed).
+  The builds covered the four SNP identifier modes and a non-default `--common-maf-min` on the 8-SNP chromosome 1 fixture, a two-chromosome panel, and the 32-SNP 1KG chromosome 22 subset with SNP and kb LD windows.
+- Full pytest on an exported copy of `b3c6089`: 2,349 passed, none skipped; every other commit ran its focused tests (478 for `3d41db6`, 367 for `6ea4824`, 402 for `53c866a`).
+
 ## Completed: regression trait preparation (2026-10-30)
 
 Architecture review candidate 3.
@@ -61,7 +80,6 @@ The user accepted the round-1 recommendations for architecture review candidate 
 
 ### Left open from the naming audit
 
-- The gene-index build writes `diagnostics/build-gene-ldscore-index.json` with its own copy of the `payload_bytes` logic in `artifact.py`; this belongs to the index-publication candidate.
 - `diagnostics/input_issues.tsv` is declared only by the LD-score and annotation directory writers; the regression, `query-r2-matrix`, `build-r2-matrix` and munging writers pass it to `InputGate` without declaring it.
 - Lower-tier readers that spell higher-tier names (`_genome` and `_runtime` reading LD-score, regression, gene-index and munged file names or `files` keys) stay as they are, as for the R² names.
 

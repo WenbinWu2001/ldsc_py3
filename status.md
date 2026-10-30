@@ -5,6 +5,41 @@ Last updated on: 2026-10-30
 Branch `restructure`; checked on 2026-10-30.
 Nothing below is in progress; each open item needs the user's go-ahead.
 
+## Completed: regression trait preparation (2026-10-30)
+
+Architecture review candidate 3.
+The user answered two rounds of design questions on 2026-10-30, confirmed the design, and authorized implementation; the question record and evidence are outside the repository.
+
+- `daede5d`: `_regression/outputs.py` names the fitted-model files and `"../../metadata.json"` once.
+  `fitted_model_files()` serves `quantile-h2`, which now also checks `artifact_type`, and `published_query_artifacts()` replaces the batch path's re-spelling.
+  The file format is unchanged.
+- `1717d74`: `_PreparedTraitSumstats` projects a legacy table once per run and keeps its drops.
+  Keyed rows are cached per SNP identifier mode and downgrade cleanup, at most two per trait, and `_PreparedLDScores` caches the baseline LD scores the same way.
+  `estimate_rg_pairs()` prepares traits once, checks genome builds once, and keys a downgraded pair's rows inside that pair's error handling.
+  The CLI no longer projects; `PartitionedH2BatchResult` and `RgResultFamily` gained `legacy_sumstats_drops`, and the `legacy_projection` provenance entry is gone.
+- `a75dec9`: rows whose `Z` or `N` is missing or infinite are dropped per trait with a warning and `dropped_nonfinite_statistic_rows` in result metadata, with reason `nonfinite_statistic` in the legacy audit.
+  This is the second recorded exception in `AGENTS.md`; see `docs/reference/regression-options.md` section 1.6.
+  It replaced a raw `LinAlgError` in single-annotation `h2`, a silent drop logged as a chi-square outlier under a cap, and an `rg` abort.
+- `d4a6119` shares `_select_model_columns()` between `h2` and `rg` after their own alignment, `706610b` merges `RGRegressionDataset` into `RegressionDataset`, `854bd38` returns the public `RegressionFit` from `estimate_h2` and `estimate_rg`, and `e0f4f9a` makes `prepare_inputs`, `dataset_from_prepared` and `PreparedRegressionInputs` private.
+  Documentation followed in `374cfce` and `3e33290`.
+- Order deviation chosen during implementation: the prepared-trait refactor landed before the non-finite fix, so the fix has one home.
+- Evidence: an eight-case harness gave byte-identical outputs for every refactor commit against its predecessor; the fix commit added only the new metadata field.
+  The cases covered `h2`, `partitioned-h2` and `rg`, a legacy trait, and a mixed-mode `rg` run whose downgrade cleanup drops multi-allelic panel rows.
+  A 330,000-SNP, ten-trait `rg` benchmark ran 165.4 s before and 49.0 s after, with peak RSS 1,447 and 1,608 MiB; see `docs/dev/validation/performance.md`.
+  Each revision ran once on a heavily swapping laptop, and HapMap3-sized memory was not measured.
+- Full pytest at `a5afc19`: 2,301 passed, none skipped (2,291 at `1c472df`; ten new tests).
+  The first full run, at `ea6277c`, failed one genome-build test whose stand-in tables lacked `provenance`; `a5afc19` fixed the stand-in.
+  Every other commit ran its focused tests.
+
+### Left open from candidate 3
+
+- Glossary proposals awaiting approval in `docs/dev/DOCS_VOCABULARY.md`: `RegressionFit` and "prepared trait summary statistics".
+- `rg` pair datasets keep no panel coordinates and `_fit_rg_dataset()` adds no block-jackknife context, unlike `h2`; this was agreed as a separate follow-up.
+- There is no public dataset-level `rg` fit, so `rg` tests that fit a dataset they built still call `_fit_rg_dataset()`.
+- Missing or infinite LD scores and regression weights are not covered by the new drop.
+  `docs/dev/validation/legacy-issues-audit/bugs.md` (#174) still describes the earlier state.
+- `tests/regression/test_regression_streaming.py::test_public_directory_reader_does_not_import_regression` hung once at interpreter exit inside Arrow's thread-pool shutdown; it passed when rerun.
+
 ## Completed: one R² matrix chromosome handle (2026-10-30)
 
 The user accepted the round-1 recommendations for architecture review candidate 2 on 2026-10-30 and authorized the implementation, together with a check for other repeated file-name contracts.
@@ -26,7 +61,6 @@ The user accepted the round-1 recommendations for architecture review candidate 
 
 ### Left open from the naming audit
 
-- Partitioned-heritability fitted-model tree: `quantile-h2` and the Python batch path re-spell the per-query file names (`partitioned_h2_full.tsv`, `coefficient_delete_values.parquet`, `metadata.json`), compare `global_metadata` with the literal `"../../metadata.json"`, and assume the `diagnostics/query_annotations/<folder>` depth, instead of reading the per-query `files` map (`src/ldsc/_regression/quantile_h2.py`, `runner.py`).
 - The gene-index build writes `diagnostics/build-gene-ldscore-index.json` with its own copy of the `payload_bytes` logic in `artifact.py`; this belongs to the index-publication candidate.
 - `diagnostics/input_issues.tsv` is declared only by the LD-score and annotation directory writers; the regression, `query-r2-matrix`, `build-r2-matrix` and munging writers pass it to `InputGate` without declaring it.
 - Lower-tier readers that spell higher-tier names (`_genome` and `_runtime` reading LD-score, regression, gene-index and munged file names or `files` keys) stay as they are, as for the R² names.

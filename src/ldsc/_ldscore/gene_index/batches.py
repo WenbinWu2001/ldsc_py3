@@ -23,7 +23,7 @@ from ..._runtime.worker_runtime import initialize_worker
 from ..batch_execution import run_query_batches
 from ..diagnostics import chromosome_log
 from ..query_variation import ScoreVariation, summarize_variation
-from .atoms import assemble_indexed_ld_scores, assemble_selected_atom_statistics
+from .atoms import assemble_atom_selector, assemble_indexed_ld_scores, assemble_selected_atom_statistics
 
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
 
@@ -61,24 +61,30 @@ def _write_baseline(record, control_selector, directory):
     return counts, blocks, totals
 
 
-def _write_chromosome(index, chrom, batch, declarations, control_resolution, ordinal, total_batches, root, log_path=None):
-    """Load, compute, and release one chromosome for the active query batch."""
-    from .scoring import _selector_for_resolution
+_SCORE_ROW_BLOCK = 65536
 
+
+def _write_chromosome(loader, chrom, query_names, query_rows, control_rows, ordinal, total_batches, root,
+                      log_path=None):
+    """Load, compute, and release one chromosome for the active query batch.
+
+    ``query_rows`` and ``control_rows`` are this chromosome's included gene
+    rows of each query and of the control, resolved by the parent; a task
+    carries neither the index catalog nor the gene-list batch.
+    """
     with chromosome_log(log_path, chrom, f"indexed batch {ordinal + 1}/{total_batches}"):
         directory = Path(root) / f"chr{chrom}"
         directory.mkdir()
-        record = index.load_chromosome(chrom)
-        control_selector = (None if control_resolution is None else _selector_for_resolution(
-            index.gene_catalog, record.atom_model, chrom, control_resolution))
+        record = loader.load(chrom)
+        gene_to_atom = record.atom_model.gene_to_atom
+        control_selector = None if control_rows is None else assemble_atom_selector(gene_to_atom, control_rows)
         baseline_statistics = _write_baseline(record, control_selector, directory) if ordinal == 0 else None
-        supplied = len(index.baseline_columns)
+        supplied = loader.n_baseline_columns
         n_baseline = supplied + int(control_selector is not None)
-        selectors = [_selector_for_resolution(
-            index.gene_catalog, record.atom_model, chrom,
-            batch.selection(item["input_role"], item["source_ordinal"])) for item in declarations]
-        query_counts = np.empty((2, len(declarations)), dtype=np.float64)
-        query_blocks = np.empty((2, n_baseline, len(declarations)), dtype=np.float64)
+        selectors = [assemble_atom_selector(gene_to_atom, rows) for rows in query_rows]
+        del gene_to_atom
+        query_counts = np.empty((2, len(query_names)), dtype=np.float64)
+        query_blocks = np.empty((2, n_baseline, len(query_names)), dtype=np.float64)
         for offset, selector in enumerate(selectors):
             selected = assemble_selected_atom_statistics(
                 record.atom_statistics, selector, control_selector=control_selector)
@@ -86,15 +92,23 @@ def _write_chromosome(index, chrom, batch, declarations, control_resolution, ord
             query_blocks[:, :supplied, offset] = [selected.baseline_overlap_all, selected.baseline_overlap_common]
             if control_selector is not None:
                 query_blocks[:, supplied, offset] = [selected.control_overlap_all, selected.control_overlap_common]
-        scores = assemble_indexed_ld_scores(record.operator, np.column_stack(selectors))
+        # Column-major scores, filled by row blocks of the same product (each
+        # row's arithmetic is unchanged), give Arrow contiguous columns to
+        # share instead of copying.
+        selector_matrix = np.column_stack(selectors)
         del selectors, selector, selected
+        scores = np.empty((record.operator.shape[0], selector_matrix.shape[1]), dtype=np.float64, order="F")
+        for start in range(0, len(scores), _SCORE_ROW_BLOCK):
+            stop = start + _SCORE_ROW_BLOCK
+            scores[start:stop] = assemble_indexed_ld_scores(record.operator[start:stop], selector_matrix)
+        del selector_matrix
         variation = summarize_variation(scores.T)
         metadata = [name for name in ("CHR", "SNP", "POS", "A1", "A2") if name in record.baseline_rows]
         identity = pa.Table.from_pandas(record.baseline_rows.loc[:, metadata], preserve_index=False)
         table = pa.Table.from_arrays([*identity.columns, *[pa.array(column) for column in scores.T]],
-                                    names=[*metadata, *[item["query"] for item in declarations]])
-        # Arrow owns the columns now; compression does not need the operator
-        # or the original row-major score matrix alongside its column buffers.
+                                    names=[*metadata, *query_names])
+        # Arrow shares the score columns now; compression does not need the
+        # operator alongside them.
         del scores, identity, record, control_selector
         pq.write_table(table, directory / "query.parquet", compression="zstd", use_dictionary=False)
         return _ChromosomeBatchSummary(query_counts, query_blocks, variation, baseline_statistics)
@@ -112,10 +126,15 @@ class _IndexedProducer:
     batch_name, phase, task = "indexed batch", "indexed LD-score assembly", "indexed LD-score computation"
 
     def __init__(self, index, gene_batch, declarations, control, width, scope, log_paths):
+        from .scoring import _gene_rows_by_chromosome
+
         self.index = index
+        self.loader = index.chromosome_loader()
         self.gene_batch = gene_batch
         self.declarations = declarations
         self.control = control
+        self.control_rows = (None if control is None else
+                             _gene_rows_by_chromosome(index.gene_catalog, control, index.chromosomes))
         self.scope = scope
         self.log_paths = log_paths or {}
         self.logger = LOGGER
@@ -126,14 +145,27 @@ class _IndexedProducer:
 
     @contextmanager
     def open_batch(self, ordinal, query_columns, statuses, scratch):
-        """Select the batch's gene-list declarations; workers write into ``scratch``."""
+        """Select the batch's gene-list declarations and resolve their gene rows per chromosome.
+
+        Workers write into ``scratch``.
+        """
+        from .scoring import _gene_rows_by_chromosome
+
         selected = set(query_columns)
-        yield SimpleNamespace(ordinal=ordinal, root=scratch,
-                              declarations=[item for item in self.declarations if item["query"] in selected])
+        declarations = [item for item in self.declarations if item["query"] in selected]
+        rows = {chrom: [] for chrom in self.chromosomes}
+        for item in declarations:
+            by_chromosome = _gene_rows_by_chromosome(
+                self.index.gene_catalog, self.gene_batch.selection(item["input_role"], item["source_ordinal"]),
+                self.chromosomes)
+            for chrom in self.chromosomes:
+                rows[chrom].append(by_chromosome[chrom])
+        yield SimpleNamespace(ordinal=ordinal, root=scratch, declarations=declarations, rows=rows)
 
     def submit(self, pool, chrom, batch, label):
         """Submit one chromosome's projection for the batch's declarations."""
-        return pool.submit(_write_chromosome, self.index, chrom, self.gene_batch, batch.declarations, self.control,
+        return pool.submit(_write_chromosome, self.loader, chrom, [item["query"] for item in batch.declarations],
+                           batch.rows[chrom], None if self.control_rows is None else self.control_rows[chrom],
                            batch.ordinal, self.total_batches, batch.root, self.log_paths.get(chrom))
 
     def reduce(self, results, batch):

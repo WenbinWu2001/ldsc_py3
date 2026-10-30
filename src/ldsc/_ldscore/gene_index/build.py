@@ -56,6 +56,7 @@ from .atoms import (
     map_snps_to_atoms,
     validate_ldscore_operator,
 )
+from ..._core.chromosomes import normalize_chromosome
 from ..._core.regions import RegionIntervals
 from ..._core.identifiers import read_snp_restriction_keys
 from ..._core.plink_files import PlinkFAMFile
@@ -638,6 +639,8 @@ def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, c
             baseline_columns=list(baseline_columns),
             query_columns=[],
         )
+        # Only the intersection is needed from here on.
+        grid_rows, metadata, baseline = len(metadata), None, None
         intervals = np.column_stack(
             [
                 chrom_catalog["start"].to_numpy(dtype=np.int64) - 1,
@@ -675,7 +678,7 @@ def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, c
     genotype_qc_removed = int(record.genotype_qc_removed)
     maf_removed = int(record.maf_removed)
     # Reference preparation saw only the baseline/PLINK intersection; the grid is every baseline row.
-    record = replace(record, reference_snp_funnel=with_grid_rows(record.reference_snp_funnel, len(metadata)))
+    record = replace(record, reference_snp_funnel=with_grid_rows(record.reference_snp_funnel, grid_rows))
     evidence = {
         **intersection.diagnostics,
         "baseline_content_sha256": _retained_baseline_content_sha256(
@@ -815,8 +818,11 @@ def _run_gene_ldscore_index_build(
         def task_arguments(chrom):
             chrom_catalog = embedded_catalog.loc[embedded_catalog["chrom"].astype(str) == chrom].sort_values(
                 "chromosome_gene_row", kind="mergesort")
+            # A task interpolates only its own chromosome's map rows.
+            chrom_map = (None if genetic_map is None
+                         else genetic_map.loc[genetic_map["CHR"] == normalize_chromosome(chrom)])
             return (chrom, sources.shards[chrom], sources.baseline_columns, baseline_drops[chrom],
-                    chrom_catalog, config, chromosome_prefixes, genetic_map, regression_keys,
+                    chrom_catalog, config, chromosome_prefixes, chrom_map, regression_keys,
                     regression_regions, staged_index)
 
 
@@ -1746,6 +1752,7 @@ def build_plink_index_chromosome(
             if operator_blocks
             else sparse.csr_matrix((int(persisted.sum()), 0), dtype=np.float64)
         )
+        operator_blocks = block_scores = None  # the assembled operator owns these values
         operator.sort_indices()
         validate_ldscore_operator(operator, n_rows=int(persisted.sum()), n_atoms=atom_model.n_atoms)
 
@@ -1765,7 +1772,7 @@ def build_plink_index_chromosome(
             atom_model=atom_model,
             operator=operator,
             atom_statistics=atom_statistics,
-            reference_metadata=metadata.copy(),
+            reference_metadata=metadata,
             reference_rows_before_genotype_qc=prepared.reference_rows_before_genotype_qc,
             genotype_qc_removed=prepared.genotype_qc_removed,
             maf_removed=prepared.maf_removed,
@@ -1901,7 +1908,8 @@ def intersect_baseline_plink_by_identifier(
                 "PLINK SNP labels are authoritative and will be published."
             )
     annotation_rows = matched_baseline["_source_row"].to_numpy(dtype=np.int64)
-    aligned_annotations = baseline_annotations.iloc[annotation_rows].reset_index(drop=True)
+    aligned_annotations = baseline_annotations.take(annotation_rows)
+    aligned_annotations.index = pd.RangeIndex(len(aligned_annotations))
     diagnostics = {
         "baseline_rows": int(len(baseline_rows)),
         "plink_rows": int(len(plink_rows)),

@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 
-from ..._core.snp_identity import clean_identity_artifact_table, identity_mode_family
+from ..._core.snp_identity import identity_cleanup_keys, identity_mode_family
 from ..._refpanel.funnel import FUNNEL_COLUMNS, funnel_from_records, funnel_records
 from .atoms import AtomStatistics, ChromosomeAtomModel, validate_ldscore_operator
 from ...config import GlobalConfig
@@ -106,29 +106,66 @@ def _scientific_payload_bytes(index_path: Path) -> int:
     return total
 
 
+_HASH_CHUNK_ROWS = 65536
+
+
 def _canonical_frame_sha256(
     frame: pd.DataFrame,
     *,
     sort_by: Sequence[str] = (),
 ) -> str:
-    """Hash a normalized table without path, compression, or text-layout effects."""
-    normalized = frame.copy()
+    """Hash a normalized table without path, compression, or text-layout effects.
+
+    The digest is the SHA-256 of the table as tab-separated text, header
+    included, with one canonical token per cell: ``.17g`` for floats,
+    ``true``/``false`` for Booleans, ``str`` otherwise and ``<NA>`` for missing
+    values. NumPy-typed columns are tokenized and hashed in bounded row
+    chunks, so their complete text is never held at once. Extension-typed
+    columns are tokenized whole, because pandas may convert their elements
+    by the whole column (a nullable integer column with missing values
+    formats as floats).
+    """
+    columns = [str(column) for column in frame.columns]
+    order = None
     if sort_by:
-        normalized = normalized.sort_values(list(sort_by), kind="mergesort").reset_index(drop=True)
-    normalized.columns = [str(column) for column in normalized.columns]
-    for column in normalized.columns:
-        if pd.api.types.is_float_dtype(normalized[column]):
-            normalized[column] = normalized[column].map(
-                lambda value: "<NA>" if pd.isna(value) else format(float(value), ".17g")
-            )
-        elif pd.api.types.is_bool_dtype(normalized[column]):
-            normalized[column] = normalized[column].astype(bool).map({True: "true", False: "false"})
-        else:
-            normalized[column] = normalized[column].map(
-                lambda value: "<NA>" if pd.isna(value) else str(value)
-            )
-    payload = normalized.to_csv(index=False, sep="\t", lineterminator="\n")
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        keys = frame.loc[:, list(sort_by)]
+        keys.index = pd.RangeIndex(len(keys))
+        order = keys.sort_values(list(sort_by), kind="mergesort").index.to_numpy()
+    whole = {}
+    for position in range(len(columns)):
+        if not isinstance(frame.dtypes.iloc[position], np.dtype):
+            values = frame.iloc[:, position]
+            whole[position] = _canonical_tokens(values if order is None else values.take(order))
+    digest = hashlib.sha256()
+    digest.update(pd.DataFrame(columns=columns).to_csv(index=False, sep="\t", lineterminator="\n").encode("utf-8"))
+    for start in range(0, len(frame), _HASH_CHUNK_ROWS):
+        rows = slice(start, start + _HASH_CHUNK_ROWS)
+        chunk = frame.iloc[rows] if order is None else frame.take(order[rows])
+        tokens = pd.DataFrame({position: whole[position][rows] if position in whole
+                               else _canonical_tokens(chunk.iloc[:, position])
+                               for position in range(len(columns))}, index=pd.RangeIndex(len(chunk)))
+        text = tokens.to_csv(index=False, header=False, sep="\t", lineterminator="\n")
+        digest.update(text.encode("utf-8"))
+    return digest.hexdigest()
+
+
+def _canonical_tokens(values: pd.Series) -> np.ndarray:
+    """Return the canonical hash token of each value of one column, as an object array."""
+    if pd.api.types.is_float_dtype(values):
+        array = values.to_numpy()
+        if isinstance(values.dtype, np.dtype) and array.dtype.itemsize in (2, 4, 8):
+            # Format each distinct bit pattern once: equal patterns are equal
+            # tokens, while 0.0 and -0.0 keep their own.
+            codes, patterns = pd.factorize(array.view(f"i{array.dtype.itemsize}"))
+            formatted = np.array([*("<NA>" if np.isnan(value) else format(float(value), ".17g")
+                                    for value in patterns.view(array.dtype))], dtype=object)
+            return formatted[codes] if len(codes) else np.array([], dtype=object)
+        tokens = values.map(lambda value: "<NA>" if pd.isna(value) else format(float(value), ".17g"))
+    elif pd.api.types.is_bool_dtype(values):
+        tokens = values.astype(bool).map({True: "true", False: "false"})
+    else:
+        tokens = values.map(lambda value: "<NA>" if pd.isna(value) else str(value))
+    return tokens.to_numpy(dtype=object)
 
 
 def _catalog_identity_records(frame: pd.DataFrame) -> list[dict[str, object]]:
@@ -320,7 +357,7 @@ def _write_index_chromosome_payload(
     atoms.to_parquet(chrom_path / "atoms.parquet", index=False)
     gene_to_atom = record.atom_model.gene_to_atom.astype(bool).tocsr()
     gene_to_atom.sort_indices()
-    operator = record.operator.astype(np.float64).tocsr()
+    operator = record.operator.astype(np.float64, copy=False).tocsr()
     operator.sort_indices()
     sparse.save_npz(chrom_path / "gene_to_atom.npz", gene_to_atom, compressed=True)
     sparse.save_npz(chrom_path / "ldscore_operator.npz", operator, compressed=True)
@@ -524,6 +561,27 @@ def _validate_chromosome_metadata(component_meta, *, chrom, index_id, snp_identi
         )
 
 
+def _in_position_snp_order(frame: pd.DataFrame) -> bool:
+    """Return whether rows are sorted by POS, then SNP, so a stable sort would not move them.
+
+    Missing SNP labels sort last among equal positions, as in ``sort_values``.
+    """
+    step = np.diff(frame["POS"].to_numpy())
+    if (step < 0).any():
+        return False
+    left = np.flatnonzero(step == 0)
+    if not len(left):
+        return True
+    right = left + 1
+    labels = frame["SNP"]
+    missing = labels.isna().to_numpy()
+    values = labels.to_numpy()
+    ordered = missing[right].copy()
+    both = ~missing[left] & ~missing[right]
+    ordered[both] = values[left[both]] <= values[right[both]]
+    return bool(ordered.all())
+
+
 def _load_index_chromosome(
     index_path: Path,
     chrom: str,
@@ -579,16 +637,15 @@ def _load_index_chromosome(
             " Restore this chromosome component together with its matching root index; do not mix or hand-edit "
             "index components. Rebuild the complete index if the original valid files are unavailable."
         )
-    cleanup = clean_identity_artifact_table(baseline_rows, snp_identifier, context=f"index chromosome {chrom}",
-                                             stage="index_validation")
-    if not cleanup.dropped.empty:
+    _, identity_drops = identity_cleanup_keys(baseline_rows, snp_identifier, context=f"index chromosome {chrom}",
+                                              stage="index_validation")
+    if not identity_drops.empty:
         raise LDSCInputError(
             "Gene LD-score index baseline rows contain duplicate effective identities or invalid/ambiguous allele groups."
             " Restore this chromosome component together with its matching root index; do not mix or hand-edit "
             "index components. Rebuild the complete index if the original valid files are unavailable."
         )
-    canonical_rows = baseline_rows.sort_values(["POS", "SNP"], kind="mergesort").reset_index(drop=True)
-    if not baseline_rows.reset_index(drop=True).equals(canonical_rows):
+    if not _in_position_snp_order(baseline_rows):
         raise LDSCInputError(
             "Gene LD-score index baseline rows are not in canonical genomic order."
             " Restore this chromosome component together with its matching root index; do not mix or hand-edit "

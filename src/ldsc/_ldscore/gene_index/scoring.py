@@ -31,7 +31,6 @@ from .artifact import (
     index_global_config,
     inspect_index_paths,
 )
-from .atoms import ChromosomeAtomModel, assemble_atom_selector
 from ..._runtime.parallelism import validate_workers
 from ..._runtime.paths import normalize_path_token
 from ..._refpanel.funnel import concat_funnels
@@ -91,18 +90,38 @@ class LoadedGeneLDScoreIndex:
         """Common-SNP count metadata for the ``common_maf_min`` the index used."""
         return common_count_config(self.index_identity["common_maf_min"])
 
-    def load_chromosome(self, chrom: str) -> IndexChromosomeData:
+    def chromosome_loader(self) -> "_ChromosomeLoader":
+        """Return the small descriptor that chromosome tasks reload components from."""
+        labels = self.gene_catalog.chrom.astype(str)
+        return _ChromosomeLoader(
+            self.index_id, self.snp_identifier, self.genome_build, len(self.baseline_columns),
+            {str(chrom): path.parent.parent for chrom, path in self.chromosome_paths.items()},
+            {str(chrom): int(labels.eq(str(chrom)).sum()) for chrom in self.chromosome_paths},
+        )
+
+
+@dataclass(frozen=True)
+class _ChromosomeLoader:
+    """Reloads chromosome components without the index catalog, so tasks stay small."""
+
+    index_id: str
+    snp_identifier: str
+    genome_build: str
+    n_baseline_columns: int
+    index_paths: dict[str, Path]
+    expected_gene_rows: dict[str, int]
+
+    def load(self, chrom: str) -> IndexChromosomeData:
         """Load one owned chromosome payload; callers release it after use.
 
         The immutable component is checked again when opened. Indexed scoring
         reloads it for each active query batch and releases it before the next
         chromosome task; operators are not cached between tasks.
         """
-        path = self.chromosome_paths[str(chrom)]
         return _load_index_chromosome(
-            path.parent.parent, str(chrom), index_id=self.index_id,
+            self.index_paths[str(chrom)], str(chrom), index_id=self.index_id,
             snp_identifier=self.snp_identifier, genome_build=self.genome_build,
-            expected_gene_rows=int(self.gene_catalog.chrom.astype(str).eq(str(chrom)).sum()),
+            expected_gene_rows=self.expected_gene_rows[str(chrom)],
         )
 
 
@@ -568,18 +587,20 @@ def _baseline_columns_from_rows(frame: pd.DataFrame) -> list[str]:
     return [column for column in frame.columns if column not in reserved]
 
 
-def _selector_for_resolution(
+def _gene_rows_by_chromosome(
     embedded_catalog: pd.DataFrame,
-    atom_model: ChromosomeAtomModel,
-    chrom: str,
     resolution: GeneSourceSelection,
-) -> np.ndarray:
-    """Translate global embedded-catalog indices into one chromosome atom selector."""
+    chromosomes: Sequence[str],
+) -> dict[str, np.ndarray]:
+    """Translate global embedded-catalog indices into each chromosome's included gene rows, in catalog order.
+
+    A chromosome task turns its rows into its atom selector.
+    """
     selected = np.asarray(resolution.catalog_indices, dtype=np.int64)
-    rows = embedded_catalog.loc[
-        embedded_catalog["gene_index"].isin(selected)
-        & (embedded_catalog["chrom"].astype(str) == str(chrom))
-        & embedded_catalog["included"].astype(bool),
-        "chromosome_gene_row",
-    ].astype(int)
-    return assemble_atom_selector(atom_model.gene_to_atom, rows.to_numpy(dtype=np.int64))
+    genes = embedded_catalog.loc[
+        embedded_catalog["gene_index"].isin(selected) & embedded_catalog["included"].astype(bool),
+        ["chrom", "chromosome_gene_row"],
+    ]
+    labels = genes["chrom"].astype(str)
+    return {str(chrom): genes.loc[labels == str(chrom), "chromosome_gene_row"].astype(int).to_numpy(dtype=np.int64)
+            for chrom in chromosomes}

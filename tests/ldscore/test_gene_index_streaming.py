@@ -126,6 +126,18 @@ def test_index_assembly_reloads_and_releases_each_operator_per_batch(tmp_path, m
     assert result.gene_list_batch.audit_path.is_file()
 
 
+def test_row_block_score_fill_matches_one_product(tmp_path, monkeypatch):
+    from ldsc._ldscore.gene_index import batches
+
+    path = two_chromosome_index(tmp_path)
+    query = tmp_path / "union.txt"
+    query.write_text("G1\nG2\nG3\nG4\n")
+    whole = run_indexed_ldscore(path, query_gene_list_sources=[query], output_dir=tmp_path / "whole")
+    monkeypatch.setattr(batches, "_SCORE_ROW_BLOCK", 1)
+    blocks = run_indexed_ldscore(path, query_gene_list_sources=[query], output_dir=tmp_path / "blocks")
+    pd.testing.assert_frame_equal(blocks.read_queries(["union"]), whole.read_queries(["union"]), check_exact=True)
+
+
 @pytest.mark.parametrize("workers", [1, 2, -1, -2, 10])
 def test_parallel_index_batches_preserve_union_scores_and_counts(tmp_path, workers, monkeypatch):
     monkeypatch.setattr("joblib.cpu_count", lambda: 16)

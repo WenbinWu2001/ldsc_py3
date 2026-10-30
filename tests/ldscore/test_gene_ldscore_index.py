@@ -6,6 +6,7 @@ from tests.runtime.test_path_resolution import _write_plink_trio
 from argparse import Namespace
 from dataclasses import replace
 import gc
+import hashlib
 import inspect
 import json
 from pathlib import Path
@@ -1381,6 +1382,74 @@ def test_explicit_genetic_map_identity_is_content_bound(tmp_path):
     assert len(explicit["content_sha256"]) == 64
 
 
+def _whole_text_canonical_sha256(frame, sort_by=()):
+    """The digest of the complete normalized table text, which chunked hashing must reproduce."""
+    normalized = frame.copy()
+    if sort_by:
+        normalized = normalized.sort_values(list(sort_by), kind="mergesort").reset_index(drop=True)
+    normalized.columns = [str(column) for column in normalized.columns]
+    for column in normalized.columns:
+        if pd.api.types.is_float_dtype(normalized[column]):
+            normalized[column] = normalized[column].map(
+                lambda value: "<NA>" if pd.isna(value) else format(float(value), ".17g"))
+        elif pd.api.types.is_bool_dtype(normalized[column]):
+            normalized[column] = normalized[column].astype(bool).map({True: "true", False: "false"})
+        else:
+            normalized[column] = normalized[column].map(lambda value: "<NA>" if pd.isna(value) else str(value))
+    payload = normalized.to_csv(index=False, sep="\t", lineterminator="\n")
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+@pytest.mark.parametrize("sort_by", [(), ("CHR", "POS")])
+def test_chunked_canonical_digest_equals_the_whole_table_digest(monkeypatch, sort_by):
+    from ldsc._ldscore.gene_index import artifact
+
+    monkeypatch.setattr(artifact, "_HASH_CHUNK_ROWS", 3)
+    frame = pd.DataFrame({
+        "CHR": ["2", "1", "1", "2", "1", "1", "2"],
+        "POS": [5, 3, 3, 1, 2, 9, 4],
+        "float": [0.0, -0.0, np.nan, np.inf, 1 / 3, 1e-310, 2.5],
+        "float32": np.array([1.5, -0.0, np.nan, 3, 3, 3, 0.1], dtype=np.float32),
+        "flag": [True, False, True, True, False, False, True],
+        "text": ["a", "b\tc", 'q"x', "", None, "a", "z"],
+        # One missing value makes pandas format this whole nullable column as floats.
+        "count": pd.array([1, 2, 3, 4, 5, 6, None], dtype="Int64"),
+    })
+    assert _canonical_frame_sha256(frame, sort_by=sort_by) == _whole_text_canonical_sha256(frame, sort_by)
+
+
+@pytest.mark.parametrize("pos, snp, ordered", [
+    ([1, 2, 2, 3], ["c", "a", "b", "a"], True),
+    ([1, 2, 2], ["a", "b", "a"], False),
+    ([2, 1], ["a", "b"], False),
+    ([1, 1, 1], ["a", None, None], True),
+    ([1, 1], [None, "a"], False),
+    ([], [], True),
+])
+def test_genomic_order_check_agrees_with_a_stable_sort(pos, snp, ordered):
+    from ldsc._ldscore.gene_index.artifact import _in_position_snp_order
+
+    frame = pd.DataFrame({"POS": np.array(pos, dtype=np.int64), "SNP": pd.Series(snp, dtype=object)})
+    stable = frame.sort_values(["POS", "SNP"], kind="mergesort").reset_index(drop=True)
+    assert frame.equals(stable) is ordered
+    assert _in_position_snp_order(frame) is ordered
+
+
+def test_common_atom_overlap_equals_the_common_row_product():
+    from ldsc._ldscore.gene_index.atoms import compute_atom_statistics
+
+    rng = np.random.default_rng(8)
+    mapped = rng.integers(-1, 6, 400)
+    baseline = rng.normal(size=(400, 3))
+    common = rng.random(400) < .6
+    statistics = compute_atom_statistics(mapped, 6, baseline, common)
+    assigned = mapped >= 0
+    membership = sparse.csr_matrix((np.ones(int(assigned.sum())), (np.flatnonzero(assigned), mapped[assigned])),
+                                   shape=(400, 6))
+    np.testing.assert_array_equal(statistics.baseline_atom_overlap_all, baseline.T @ membership)
+    np.testing.assert_array_equal(statistics.baseline_atom_overlap_common, baseline[common].T @ membership[common])
+
+
 def test_canonical_table_identity_ignores_row_order_when_key_sort_is_declared():
     frame = pd.DataFrame(
         {"CHR": ["22", "22"], "POS": [2, 1], "SNP": ["rs2", "rs1"], "base": [0.0, 1.0]}
@@ -1419,7 +1488,7 @@ def test_index_artifact_round_trip_uses_approved_tree_and_payloads(tmp_path, snp
     assert loaded.snp_identifier == snp_identifier
     assert loaded.genome_build == "hg19"
     assert loaded.chromosomes == ("22",)
-    np.testing.assert_array_equal(loaded.load_chromosome("22").operator.toarray(), chromosome.operator.toarray())
+    np.testing.assert_array_equal(loaded.chromosome_loader().load("22").operator.toarray(), chromosome.operator.toarray())
     root_metadata = (index_dir / "metadata.json").read_text(encoding="utf-8")
     assert "schema_version" not in root_metadata
     assert "software_version" not in root_metadata
@@ -1469,7 +1538,7 @@ def test_chr_pos_index_round_trip_uses_coordinate_identity_and_publishes_plink_l
     loaded = load_gene_ldscore_index(index_dir)
     assert loaded.snp_identifier == "chr_pos"
     assert loaded.genome_build == "hg19"
-    assert loaded.load_chromosome("22").baseline_rows["SNP"].tolist() == ["rs1", "rs2"]
+    assert loaded.chromosome_loader().load("22").baseline_rows["SNP"].tolist() == ["rs1", "rs2"]
 
     genes = tmp_path / "focal.txt"
     genes.write_text("G1\n", encoding="utf-8")

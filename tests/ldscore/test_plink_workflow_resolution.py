@@ -62,7 +62,7 @@ def test_gene_index_and_ldscore_share_plink_resolution_and_scores(tmp_path, form
     assert index.chromosomes == ("21", "22")
     np.testing.assert_array_equal(index.gene_support, [4, 4])
     for chrom in index.chromosomes:
-        record = index.load_chromosome(chrom)
+        record = index.chromosome_loader().load(chrom)
         np.testing.assert_allclose(record.baseline_rows["base"], 1, atol=1e-7)
         np.testing.assert_allclose(record.operator.toarray(), np.ones((4, 1)), atol=1e-7)
 

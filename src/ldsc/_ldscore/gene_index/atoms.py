@@ -205,17 +205,23 @@ def compute_atom_statistics(
     atom_all = np.bincount(mapped[assigned], minlength=n_atoms).astype(np.int64)
     assigned_common = assigned & common
     atom_common = np.bincount(mapped[assigned_common], minlength=n_atoms).astype(np.int64)
-    membership = sparse.csr_matrix(
+    overlap_all = np.asarray(baseline.T @ _atom_membership(mapped, assigned, n_atoms), dtype=np.float64)
+    # Common SNPs keep their own rows instead of a copied common-row baseline:
+    # the product adds the same rows in the same order.
+    overlap_common = np.asarray(baseline.T @ _atom_membership(mapped, assigned_common, n_atoms), dtype=np.float64)
+    return AtomStatistics(atom_all, atom_common, overlap_all, overlap_common)
+
+
+def _atom_membership(mapped: np.ndarray, rows: np.ndarray, n_atoms: int) -> sparse.csr_matrix:
+    """Return the SNP-by-atom indicator matrix of the SNP rows marked in ``rows``."""
+    return sparse.csr_matrix(
         (
-            np.ones(int(assigned.sum()), dtype=np.float64),
-            (np.flatnonzero(assigned).astype(np.int32), mapped[assigned]),
+            np.ones(int(rows.sum()), dtype=np.float64),
+            (np.flatnonzero(rows).astype(np.int32), mapped[rows]),
         ),
         shape=(len(mapped), n_atoms),
         dtype=np.float64,
     )
-    overlap_all = np.asarray(baseline.T @ membership, dtype=np.float64)
-    overlap_common = np.asarray(baseline[common].T @ membership[common], dtype=np.float64)
-    return AtomStatistics(atom_all, atom_common, overlap_all, overlap_common)
 
 
 def validate_ldscore_operator(

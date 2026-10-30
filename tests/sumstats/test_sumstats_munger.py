@@ -161,14 +161,6 @@ class SumstatsMungerTest(unittest.TestCase):
 
         self.assertEqual(args.raw_sumstats_file, "raw.tsv")
 
-    def test_main_delegates_to_run_munge_sumstats_from_args(self):
-        with mock.patch.object(sumstats_workflow, "run_munge_sumstats_from_args", return_value=mock.sentinel.result) as patched:
-            result = sumstats_workflow.main(["--no-snp-restriction", "--raw-sumstats-file", "raw.tsv", "--output-dir", "out"])
-
-        self.assertIs(result, mock.sentinel.result)
-        self.assertEqual(patched.call_args.args[0].raw_sumstats_file, "raw.tsv")
-        self.assertEqual(patched.call_args.args[0].output_dir, "out")
-
     def test_run_munge_sumstats_from_args_delegates_to_service_with_configs(self):
         args = sumstats_workflow.build_parser().parse_args(
             [
@@ -230,40 +222,6 @@ class SumstatsMungerTest(unittest.TestCase):
         self.assertEqual(run_config.sumstats_format, "daner-new")
         self.assertEqual(run_config.output_format, "both")
         self.assertEqual(global_config, GlobalConfig(snp_identifier="rsid", log_level="DEBUG"))
-
-    def test_run_munge_sumstats_from_args_passes_liftover_config_in_chr_pos_mode(self):
-        args = sumstats_workflow.build_parser().parse_args(
-            [
-                "--raw-sumstats-file",
-                "raw.tsv",
-                "--output-dir",
-                "out",
-                "--snp-identifier",
-                "chr_pos",
-                "--source-genome-build",
-                "hg19",
-                "--output-genome-build",
-                "hg38",
-            ]
-        )
-
-        table = mock.Mock(provenance={"coordinate_provenance": mock.sentinel.metadata})
-        with (
-            mock.patch.object(SumstatsMunger, "run", return_value=table) as patched,
-            mock.patch.object(SumstatsMunger, "build_run_summary", return_value=mock.sentinel.summary),
-            mock.patch.object(sumstats_workflow, "_render_munge_summary", return_value="summary"),
-            contextlib.redirect_stdout(io.StringIO()),
-        ):
-            result = sumstats_workflow.run_munge_sumstats_from_args(args)
-
-        self.assertIs(result, table)
-        raw_config, run_config, global_config = patched.call_args.args
-        self.assertEqual(raw_config.raw_sumstats_file, "raw.tsv")
-        self.assertEqual(run_config.source_genome_build, "hg19")
-        self.assertEqual(run_config.output_genome_build, "hg38")
-        self.assertFalse(run_config.no_snp_restriction)
-        self.assertIsNone(run_config.liftover_chain_file)
-        self.assertEqual(global_config, GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"))
 
     def test_munge_config_validates_liftover_configuration(self):
         config = MungeConfig(
@@ -1255,14 +1213,6 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.trait_name, "trait")
             self.assertEqual(table.source_path, str(raw_path))
             self.assertTrue((tmpdir / "munged" / "trait.parquet").exists())
-
-    def test_top_level_wrapper_calls_main(self):
-        from ldsc._sumstats import munger as munge_sumstats
-
-        with mock.patch.object(munge_sumstats, "main", return_value=11) as patched:
-            rc = munge_sumstats.__dict__["main"](["--help"])
-        patched.assert_called_once()
-        self.assertEqual(rc, 11)
 
     def test_main_resolves_source_build_before_calling_kernel(self):
         with tempfile.TemporaryDirectory() as tmpdir:

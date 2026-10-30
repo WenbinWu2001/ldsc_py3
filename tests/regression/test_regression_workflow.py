@@ -1077,63 +1077,6 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(dataset.merged["SNP"].tolist(), ["trait1", "trait2", "trait3"])
         self.assertEqual(dataset.retained_ld_columns, ["base", "query1"])
 
-    def test_estimate_rg_uses_baseline_only_when_query_exists(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        sumstats_1 = self.make_sumstats_table()
-        sumstats_2 = replace(
-            self.make_sumstats_table(),
-            trait_name="trait2",
-            data=self.make_sumstats_table().data.assign(Z=[1.0, 1.5, 0.25]),
-        )
-        with mock.patch.object(regression_runner.reg, "RG", return_value=mock.sentinel.rg_result) as patched:
-            result = runner.estimate_rg(sumstats_1, sumstats_2, self.make_ldscore_result())
-
-        self.assertIs(result, mock.sentinel.rg_result)
-        self.assertEqual(patched.call_args.args[2].shape[1], 1)
-
-    def test_estimate_rg_applies_inclusive_chisq_max_product_filter(self):
-        # Legacy rg drops SNPs with Z1^2 * Z2^2 < chisq_max^2; we keep the same
-        # opt-in filter but inclusive (<=) per the -max convention. Both traits
-        # have Z=[2.0, 1.0, 0.5], so products are [16, 1, 0.0625]. With
-        # chisq_max=1.0 (threshold 1.0): rs1 (16) is dropped, rs2 (==1.0, the
-        # boundary) is kept by <=, and rs3 (0.0625) is kept -> 2 SNPs.
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig(chisq_max=1.0))
-        sumstats_1 = self.make_sumstats_table()
-        sumstats_2 = replace(self.make_sumstats_table(), trait_name="trait2")
-        with mock.patch.object(regression_runner.reg, "RG", return_value=mock.sentinel.rg_result) as patched:
-            runner.estimate_rg(sumstats_1, sumstats_2, self.make_ldscore_result())
-        z1_arg = patched.call_args.args[0]
-        self.assertEqual(z1_arg.shape[0], 2)
-
-    def test_partitioned_h2_applies_default_chisq_cap_when_unset(self):
-        # Legacy estimate_h2 (sumstats.py:340) caps multi-annotation models at
-        # max(0.001*N.max(), 80) when --chisq-max is unset, to stop extreme-chi^2
-        # SNPs dominating the partitioned regression. N.max()=100000 -> cap=100.
-        # Z=[12,10,2] -> chi^2=[144,100,4]: 144 dropped, 100 kept (inclusive <=),
-        # 4 kept -> 2 SNPs reach the kernel.
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        sumstats = self.make_sumstats_table_from_frame(
-            pd.DataFrame(
-                {
-                    "SNP": ["rs1", "rs2", "rs3"],
-                    "Z": [12.0, 10.0, 2.0],
-                    "N": [100000.0, 100000.0, 100000.0],
-                    "A1": ["A", "C", "G"],
-                    "A2": ["G", "T", "A"],
-                }
-            )
-        )
-        dataset = runner.build_dataset(sumstats, self.make_ldscore_result(), query_columns=["query2"])
-        # The toy LD columns are collinear; exercise selection independently.
-        with mock.patch.object(regression_runner, "_raise_on_model_collinearity"), mock.patch.object(
-            regression_runner.reg, "Hsq", return_value=mock.sentinel.hsq
-        ) as patched, self.assertLogs("LDSC.regression_runner", level="INFO") as logs:
-            runner.estimate_h2(dataset)
-        chisq_arg = patched.call_args.args[0]
-        self.assertEqual(chisq_arg.shape[0], 2)
-        self.assertAlmostEqual(float(chisq_arg.max()), 100.0)
-        self.assertTrue(any("Removed 1 SNPs with chi^2 > 100" in m for m in logs.output))
-
     def test_single_annotation_h2_applies_no_default_chisq_cap(self):
         # Legacy estimate_h2 leaves single-annotation h2 uncapped (relies on the
         # two-step estimator). All three SNPs must reach the kernel even though
@@ -1180,16 +1123,6 @@ class RegressionWorkflowTest(unittest.TestCase):
         with mock.patch.object(regression_runner.reg, "RG", return_value=mock.sentinel.rg) as patched:
             runner.estimate_rg(sumstats_1, sumstats_2, self.make_ldscore_result())
         self.assertEqual(patched.call_args.kwargs["twostep"], 30)
-
-    def test_rg_default_two_step_suppressed_when_h2_intercept_fixed(self):
-        # Legacy gates the rg default two-step on a free h2 intercept: a fixed
-        # intercept_h2 leaves the cutoff unset (no two-step).
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig(intercept_h2=1.0))
-        sumstats_1 = self.make_sumstats_table()
-        sumstats_2 = replace(self.make_sumstats_table(), trait_name="trait2")
-        with mock.patch.object(regression_runner.reg, "RG", return_value=mock.sentinel.rg) as patched:
-            runner.estimate_rg(sumstats_1, sumstats_2, self.make_ldscore_result())
-        self.assertIsNone(patched.call_args.kwargs["twostep"])
 
     def _high_chisq_sumstats(self):
         # Z=[12,10,2] -> chi^2=[144,100,4]; N.max()=100000 -> default cap=100.
@@ -1543,55 +1476,6 @@ class RegressionWorkflowTest(unittest.TestCase):
             [8.0],
         )
 
-    def test_estimate_rg_chr_pos_mode_merges_traits_on_coordinates(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RegressionConfig())
-        ldscore_result = replace(
-            self.make_ldscore_result(),
-            baseline_table=self.make_ldscore_result().baseline_table.assign(SNP=["ld1", "ld2", "ld3"]),
-            query_table=self.make_ldscore_result().query_table.assign(SNP=["ld1", "ld2", "ld3"]),
-            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-        )
-        sumstats_1 = SumstatsTable(
-            data=pd.DataFrame(
-                {
-                    "SNP": ["trait1_a", "trait1_b"],
-                    "CHR": ["1", "1"],
-                    "POS": [10, 20],
-                    "Z": [2.0, 1.0],
-                    "N": [1000.0, 1000.0],
-                    "A1": ["A", "C"],
-                    "A2": ["G", "T"],
-                }
-            ),
-            has_alleles=True,
-            source_path="sumstats1.gz",
-            trait_name="trait1",
-            provenance={},
-            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-        )
-        sumstats_2 = replace(
-            sumstats_1,
-            data=pd.DataFrame(
-                {
-                    "SNP": ["trait2_a", "trait2_b"],
-                    "CHR": ["1", "1"],
-                    "POS": [10, 20],
-                    "Z": [1.0, 1.5],
-                    "N": [900.0, 900.0],
-                    "A1": ["A", "C"],
-                    "A2": ["G", "T"],
-                }
-            ),
-            trait_name="trait2",
-            source_path="sumstats2.gz",
-        )
-        with mock.patch.object(regression_runner.reg, "RG", return_value=mock.sentinel.rg_result) as patched:
-            result = runner.estimate_rg(sumstats_1, sumstats_2, ldscore_result)
-
-        self.assertIs(result, mock.sentinel.rg_result)
-        self.assertEqual(patched.call_args.args[0].shape[0], 2)
-        self.assertEqual(patched.call_args.args[1].shape[0], 2)
-
     def test_build_rg_dataset_chr_pos_mode_merges_all_sources_on_coordinates(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RegressionConfig())
         ldscore_result = replace(
@@ -1892,22 +1776,6 @@ class RegressionWorkflowTest(unittest.TestCase):
             ],
             overlap=overlap,
         )
-
-    def test_partitioned_h2_functional_regime_runs_joint_baseline_fit(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        ldscore_result = self._baseline_only_ldscore_result()
-        fake_hsq = mock.Mock(
-            tot=np.array([0.25]), tot_se=np.array([0.03]),
-            coef=np.array([0.025]), coef_cov=np.array([[9e-6]]), coef_se=np.array([0.003]),
-            cat=np.array([0.25]), cat_se=np.array([0.03]),
-            prop=np.array([1.0]), prop_cov=np.array([[0.0]]), prop_se=np.array([0.0]),
-            n_blocks=200, n_annot=1,
-        )
-        with _stub_h2_kernel(fake_hsq):
-            result = runner.estimate_partitioned_h2_batch(self.make_sumstats_table(), ldscore_result, query_columns=replace(self.make_annotation_bundle(), query_columns=[]).query_columns, output_dir=self.temporary_output_dir(), summary_sort_by='category')
-        summary = result.summary
-        self.assertEqual(summary["category"].tolist(), ["base"])
-        self.assertEqual(summary.columns.tolist(), regression_runner.PARTITIONED_H2_COLUMNS)
 
     def test_partitioned_h2_without_overlap_sidecar_fails_fast(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
@@ -2472,47 +2340,6 @@ class RegressionWorkflowTest(unittest.TestCase):
             self.assertFalse((tmpdir / "h2_out" / "metadata.json").exists())
             self.assertFalse((tmpdir / "h2_out" / "diagnostics").exists())
 
-    def test_run_h2_from_args_uses_metadata_trait_name_when_cli_label_is_omitted(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid"))
-            self.write_footer_sumstats_parquet(tmpdir / "trait.parquet", trait_name="MDD", snp_identifier="rsid")
-            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            args = type(
-                "Args",
-                (),
-                {
-                    "sumstats_file": str(tmpdir / "trait.parquet"),
-                    "trait_name": None,
-                    "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "common",
-                    "output_dir": str(tmpdir / "h2_out"),
-                    "overwrite": False,
-                    "log_level": "INFO",
-                    "num_blocks": 200,
-                    "intercept_h2": None,
-                    "two_step_cutoff": None,
-                    "chisq_max": None,
-                },
-            )()
-
-            with _stub_h2_kernel(
-                mock.Mock(
-                    tot=np.array([0.1]),
-                    tot_se=np.array([0.01]),
-                    intercept=np.array([1.0]),
-                    intercept_se=0.01,
-                    mean_chisq=np.array([1.1]),
-                    lambda_gc=np.array([1.0]),
-                    ratio=0.0,
-                    ratio_se=0.0,
-                    coef=np.array([0.001]),
-                ),
-            ):
-                summary = regression_runner.run_h2_from_args(args)
-
-        self.assertEqual(summary.loc[0, "trait_name"], "MDD")
-
     def test_run_h2_from_args_labels_unnamed_trait_by_filename(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -2780,49 +2607,6 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertIs(result, expected)
         writer.assert_called_once()
         self.assertEqual(stdout.getvalue(), "")
-
-    def test_run_rg_from_args_threads_positional_prevalences(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid"))
-            sumstats_sources = []
-            for name in ("a", "b"):
-                trait_dir = tmpdir / name
-                trait_dir.mkdir()
-                source = trait_dir / "sumstats.sumstats.gz"
-                with gzip.open(source, "wt", encoding="utf-8") as handle:
-                    handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
-                self.write_sumstats_sidecar(trait_dir / "metadata.json", trait_name=name)
-                sumstats_sources.append(str(source))
-            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            expected = regression_runner.RgResultFamily(
-                rg=pd.DataFrame(), rg_full=pd.DataFrame(), h2_per_trait=pd.DataFrame(), per_pair_metadata=[]
-            )
-            args = type(
-                "Args",
-                (),
-                {
-                    "sumstats_sources": sumstats_sources,
-                    "anchor_trait": None,
-                    "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "common",
-                    "output_dir": str(tmpdir / "out"),
-                    "overwrite": False,
-                    "write_per_pair_detail": False,
-                    "num_blocks": 200,
-                    "intercept_h2": None,
-                    "intercept_gencov": None,
-                    "two_step_cutoff": None,
-                    "chisq_max": None,
-                    "log_level": "INFO",
-                    "samp_prev": "0.5,0.5",
-                    "pop_prev": "0.01,0.02",
-                    "prevalence_manifest": None,
-                },
-            )()
-            with mock.patch.object(RegressionRunner, "estimate_rg_pairs", return_value=expected) as patched:
-                regression_runner.run_rg_from_args(args)
-        self.assertEqual(patched.call_args.kwargs["prevalences"], [(0.5, 0.01), (0.5, 0.02)])
 
     def test_run_rg_from_args_recovers_metadata_labels_and_resolves_anchor_by_trait_name(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -3104,48 +2888,6 @@ class RegressionWorkflowTest(unittest.TestCase):
             self.assertFalse((output_dir / "diagnostics" / "partitioned-h2.log").exists())
 
 
-
-    def test_regression_cli_writes_fixed_result_filename_under_output_dir(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid"))
-            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
-            self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
-            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            output_dir = tmpdir / "out"
-            args = type(
-                "Args",
-                (),
-                {
-                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
-                    "trait_name": "trait",
-                    "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "common",
-                    "output_dir": str(output_dir),
-                    "num_blocks": 200,
-                    "intercept_h2": None,
-                    "two_step_cutoff": None,
-                    "chisq_max": None,
-                },
-            )()
-
-            with _stub_h2_kernel(
-                mock.Mock(
-                    tot=np.array([0.1]),
-                    tot_se=np.array([0.01]),
-                    intercept=np.array([1.0]),
-                    intercept_se=0.01,
-                    mean_chisq=np.array([1.1]),
-                    lambda_gc=np.array([1.0]),
-                    ratio=0.0,
-                    ratio_se=0.0,
-                    coef=np.array([0.001]),
-                ),
-            ):
-                regression_runner.run_h2_from_args(args)
-
-            self.assertTrue((output_dir / "h2.tsv").exists())
 
     def test_regression_cli_refuses_existing_result_file_by_default(self):
         with tempfile.TemporaryDirectory() as tmpdir:

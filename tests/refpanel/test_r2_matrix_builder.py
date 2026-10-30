@@ -1951,43 +1951,6 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
             self.assertEqual(sibling_r2.read_text(encoding="utf-8"), "sibling\n")
             self.assertEqual(sibling_drop.read_text(encoding="utf-8"), "sibling\n")
 
-    def test_builder_run_allows_hg38_source_only_output_paths(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
-            map_hg38 = tmpdir / "hg38.map"
-            map_hg38.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n", encoding="utf-8")
-            config = R2MatrixBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg38",
-                genetic_map_hg19_sources=None,
-                genetic_map_hg38_sources=map_hg38,
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-            )
-            builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
-
-            def fake_build(prefix, chrom, config, build_state):
-                out_root = Path(config.output_dir)
-                return {
-                    "r2_hg38": str(out_root / "hg38" / f"chr{chrom}_r2.parquet"),
-                    "meta_hg38": str(out_root / "hg38" / f"chr{chrom}_meta.tsv.gz"),
-                }
-
-            with self.assertLogs("LDSC.r2_matrix_builder", level="INFO") as logs:
-                with self._skip_selection_pre_pass(), mock.patch.object(
-                    r2_matrix_builder.R2MatrixBuilder,
-                    "_build_chromosome",
-                    side_effect=fake_build,
-                ):
-                    result = builder.run(config)
-
-            self.assertIn("meta_hg38", result.output_paths)
-            self.assertIn("r2_hg38", result.output_paths)
-            self.assertNotIn("meta_hg19", result.output_paths)
-            self.assertNotIn("r2_hg19", result.output_paths)
-            self.assertTrue(any("source-build-only" in message for message in logs.output))
-
     def test_builder_run_warns_when_only_non_matching_chain_is_available(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

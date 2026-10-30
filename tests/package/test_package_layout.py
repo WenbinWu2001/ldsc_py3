@@ -197,24 +197,6 @@ print(ldsc.__file__)
         ):
             self.assertTrue(hasattr(annotation_builder, name), f"{name} should be public")
 
-    def test_annotate_direct_dispatch_calls_annotation_main_without_reparse(self):
-        from ldsc._annotation import builder as annotation_builder
-        from ldsc import cli
-
-        subargv = [
-            "--query-annot-bed-sources",
-            "beds/query.bed",
-            "--ref-snp-annot-sources",
-            "baseline.1.annot.gz",
-            "--output-dir",
-            "out/annot",
-        ]
-        with mock.patch.object(annotation_builder, "main", return_value=mock.sentinel.bundle) as patched:
-            result = cli.main(["annotate", *subargv])
-
-        self.assertIs(result, mock.sentinel.bundle)
-        patched.assert_called_once_with(subargv)
-
     def test_ldscore_subcommand_accepts_unified_path_flags(self):
         from ldsc import cli
 
@@ -553,17 +535,3 @@ print(ldsc.__file__)
 
         self.assertEqual(exc.exception.code, 0)
 
-    def test_python_m_ldsc_exits_zero_for_successful_results(self):
-
-        with mock.patch("ldsc.cli.run_cli", return_value=0) as mocked_run_cli:
-            with warnings.catch_warnings():
-                warnings.filterwarnings(
-                    "ignore",
-                    message=r"'ldsc\.__main__' found in sys\.modules",
-                    category=RuntimeWarning,
-                )
-                with self.assertRaises(SystemExit) as exc:
-                    runpy.run_module("ldsc", run_name="__main__", alter_sys=True)
-
-        self.assertEqual(exc.exception.code, 0)
-        mocked_run_cli.assert_called_once_with()

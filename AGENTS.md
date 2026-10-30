@@ -40,6 +40,7 @@ pytest
 - Packaging uses setuptools in `setup.py` and `MANIFEST.in`; no dedicated build command, CI workflow, linter, formatter, type checker, or documentation builder is configured.
   Do not invent mandatory commands or imply unrun checks passed.
   Before claiming completion, run relevant focused tests, broader tests when warranted, CLI/artifact/notebook checks, or documentation validation and report actual results and omissions.
+  When work lands as a series of commits, run focused tests for each commit and the full test suite only on the last commit of each logical group, not after every commit.
 
 ## Package boundaries and current interfaces
 

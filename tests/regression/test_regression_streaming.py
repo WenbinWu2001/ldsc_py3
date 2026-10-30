@@ -103,9 +103,10 @@ def test_shared_preparation_preserves_order_and_model_specific_column_filtering(
     table = workflow.replace(table, data=table.data.iloc[[2, 0, 1]].reset_index(drop=True))
     result.query_table["query2"] = 1.0
     runner = workflow.RegressionRunner()
-    prepared = runner.prepare_inputs(table, result)
-    first = runner.dataset_from_prepared(prepared, query_columns=["query1"])
-    second = runner.dataset_from_prepared(prepared, query_columns=["query2"])
+    prepared = runner._prepare_h2_inputs(workflow._prepare_trait_sumstats(table, result),
+                                         workflow._PreparedLDScores(result), runner.regression_config)
+    first = runner._dataset_from_prepared(prepared, query_columns=["query1"])
+    second = runner._dataset_from_prepared(prepared, query_columns=["query2"])
     assert first.merged.SNP.tolist() == ["rs1", "rs2", "rs3"]
     np.testing.assert_array_equal(first.merged.Z, [2., 1., .5])
     np.testing.assert_array_equal(first.merged.query1, [1., 2., 3.])
@@ -163,7 +164,7 @@ def test_partitioned_batch_rejects_missing_requested_common_counts_before_fittin
 ):
     table, source = _without_common_count(tmp_path, column)
     runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(num_blocks=6))
-    monkeypatch.setattr(runner, "prepare_inputs",
+    monkeypatch.setattr(runner, "_prepare_h2_inputs",
                         lambda *args, **kwargs: pytest.fail("regression inputs were prepared before count validation"))
 
     with pytest.raises(workflow.LDSCInputError, match=r"common-SNP count(.|\n)*--count-kind all"):

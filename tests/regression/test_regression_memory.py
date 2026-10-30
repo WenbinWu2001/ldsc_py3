@@ -17,7 +17,8 @@ from tests.regression.test_regression_streaming import batch_inputs
 def _check_shared_models(tmp_path, chisq_max):
     table, source = batch_inputs(tmp_path / "ld")
     runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(num_blocks=6, chisq_max=chisq_max))
-    prepared = runner.prepare_inputs(table, source)
+    prepared = runner._prepare_h2_inputs(workflow._prepare_trait_sumstats(table, source),
+                                         workflow._PreparedLDScores(source), runner.regression_config)
     snapshot = _stage_frame(prepared.dataset.merged, tmp_path / "shared")
     with snapshot.open() as shared:
         prepared = replace(prepared, dataset=replace(prepared.dataset, merged=shared))

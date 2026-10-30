@@ -204,7 +204,7 @@ class RegressionDataset:
 
 
 @dataclass(frozen=True)
-class PreparedRegressionInputs:
+class _PreparedRegressionInputs:
     """Shared trait alignment before model-dependent column/count filtering.
 
     ``dataset`` carries baseline LD values and aligned traits in genomic order.
@@ -419,21 +419,7 @@ class RegressionRunner:
         self.regression_config = regression_config or RegressionConfig()
 
     def build_dataset(self, sumstats_table, ldscore_result, config=None, query_columns=None) -> RegressionDataset:
-        """Align inputs and apply the selected model's count and variance rules.
-
-        Use ``prepare_inputs`` and ``dataset_from_prepared`` to share alignment
-        across separate pathway models. This convenience method forms one fit.
-        """
-        prepared = self.prepare_inputs(sumstats_table, ldscore_result, config=config)
-        return self.dataset_from_prepared(prepared, query_columns=query_columns, config=config)
-
-    def prepare_inputs(
-        self,
-        sumstats_table: SumstatsTable,
-        ldscore_result: LDScoreSource | LDScoreResult,
-        config: RegressionConfig | None = None,
-    ) -> PreparedRegressionInputs:
-        """Align traits and shared baseline LD scores once for a model batch.
+        """Align one trait with the baseline LD scores and select one model's columns and counts.
 
         If both inputs carry known ``GlobalConfig`` snapshots, their critical
         settings are checked before merging. Unknown-provenance inputs, such as
@@ -445,12 +431,15 @@ class RegressionRunner:
         identity. ``RegressionConfig.allow_identity_downgrade`` permits
         same-family allele-aware/base mixes to run under the base mode.
 
-        This preparation preserves every baseline column. Model-dependent
-        variance and count selection occur in ``dataset_from_prepared``;
-        chi-square filtering, weights, and jackknife work occur inside each fit.
+        ``query_columns`` adds query LD scores to the baseline model.
+        Zero-variance columns and count vectors are selected for that model;
+        chi-square filtering, weights, and jackknife work occur inside the fit.
+        ``estimate_partitioned_h2_batch`` shares one alignment across query models.
         """
-        trait = _prepare_trait_sumstats(sumstats_table, ldscore_result)
-        return self._prepare_h2_inputs(trait, _PreparedLDScores(ldscore_result), config or self.regression_config)
+        config = config or self.regression_config
+        prepared = self._prepare_h2_inputs(_prepare_trait_sumstats(sumstats_table, ldscore_result),
+                                           _PreparedLDScores(ldscore_result), config)
+        return self._dataset_from_prepared(prepared, query_columns=query_columns, config=config)
 
     def _prepare_h2_inputs(
         self,
@@ -459,9 +448,11 @@ class RegressionRunner:
         config: RegressionConfig,
         *,
         build_checked: bool = False,
-    ) -> PreparedRegressionInputs:
-        """Merge prepared trait summary statistics with the baseline LD scores; see ``prepare_inputs``.
+    ) -> _PreparedRegressionInputs:
+        """Merge prepared trait summary statistics with the baseline LD scores.
 
+        This alignment keeps every baseline column, so several models can share
+        it; ``_dataset_from_prepared`` selects each model's columns and counts.
         ``build_checked`` skips the genome-build check when the caller already
         checked this trait and LD-score directory together.
         """
@@ -529,10 +520,10 @@ class RegressionRunner:
             ldscore_overlap=ldscore_result.overlap,
         )
         dataset.validate()
-        return PreparedRegressionInputs(dataset, source_rows, ldscore_result, ldscore_mode,
+        return _PreparedRegressionInputs(dataset, source_rows, ldscore_result, ldscore_mode,
                                         {str(record["column"]): record for record in ldscore_result.count_records})
 
-    def dataset_from_prepared(self, prepared, *, query_columns=None, config=None) -> RegressionDataset:
+    def _dataset_from_prepared(self, prepared, *, query_columns=None, config=None) -> RegressionDataset:
         """Select one complete genome-wide model and apply its count/variance rules.
 
         Query identities are validated when this fit selects query columns.
@@ -1037,7 +1028,7 @@ class RegressionRunner:
                 # Fits need only the aligned rows; release the trait's keyed copy.
                 legacy_drops, trait = trait.legacy_drops, None
             if not queries:
-                dataset = self.dataset_from_prepared(prepared, config=config)
+                dataset = self._dataset_from_prepared(prepared, config=config)
                 if len(dataset.retained_ld_columns) == 1:
                     LOGGER.warning(
                         "partitioned-h2 functional regime retained a single annotation (%s); the fit is "
@@ -1270,7 +1261,7 @@ class RegressionRunner:
         from .._runtime.progress import PhaseProgress
         with suppress_global_config_banner(), PhaseProgress(LOGGER, "computation", "per-trait h2", len(tables)) as progress:
             for trait, (samp_prev, pop_prev) in zip(traits, prev):
-                h2_dataset = self.dataset_from_prepared(
+                h2_dataset = self._dataset_from_prepared(
                     self._prepare_h2_inputs(trait, ldscores, config, build_checked=True), config=config,
                 )
                 outcome = self._fit_h2_dataset(h2_dataset, config=config, log_level=logging.DEBUG)
@@ -2970,7 +2961,7 @@ def run_h2_from_args(args):
         _log_effective_regression_identity([sumstats_table], ldscore_result, runner.global_config, config)
         trait = _prepare_trait_sumstats(sumstats_table, ldscore_result)
         with suppress_global_config_banner():
-            dataset = runner.dataset_from_prepared(
+            dataset = runner._dataset_from_prepared(
                 runner._prepare_h2_inputs(trait, _PreparedLDScores(ldscore_result), config), config=config,
             )
         # The fit needs only the aligned rows; release the trait's keyed copy.

@@ -2,7 +2,6 @@
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from ldsc._ldscore.calculator import LDScoreResult
 from ldsc._regression import runner as workflow
@@ -141,15 +140,13 @@ def test_base_mode_keying_error_fails_only_its_downgraded_pair(monkeypatch):
     assert "injected base-mode keying failure" in result.rg_full.loc[1, "error"]
 
 
-@pytest.mark.parametrize("public", ["build_dataset", "prepare_inputs"])
-def test_public_h2_builders_project_a_legacy_table_once(monkeypatch, public):
+def test_build_dataset_projects_a_legacy_table_once(monkeypatch):
     projections = counting(monkeypatch, "_project_legacy_sumstats_to_panel")
     table = legacy("L1", 10, extra_row={"SNP": "rs_absent", "A1": "A", "A2": "C", "Z": 0.1, "N": 10_000.0})
     runner = workflow.RegressionRunner(regression_config=RegressionConfig(num_blocks=10))
 
     with calculation_body():
-        prepared = getattr(runner, public)(table, panel())
+        dataset = runner.build_dataset(table, panel())
 
     assert projections == ["L1"]
-    dataset = prepared if public == "build_dataset" else prepared.dataset
     assert len(dataset.merged) == N_SNPS

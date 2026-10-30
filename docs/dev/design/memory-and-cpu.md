@@ -479,7 +479,7 @@ Writing workflows return `LDScoreSource` directly; `read_queries(columns)` may s
 `LDScoreResult` remains the explicitly materialized result, including small prepared no-output calculations; writing workflows use private fragment descriptors instead.
 Downstream `h2`, `rg`, and partitioned workflows consume only the columns they need.
 
-[`PreparedRegressionInputs`](../../../src/ldsc/_regression/runner.py) shares trait alignment, baseline LD scores, row mappings, and count lookup across a batch.
+The private [`_PreparedRegressionInputs`](../../../src/ldsc/_regression/runner.py) shares trait alignment, baseline LD scores, row mappings, and count lookup across a batch.
 Each query batch is loaded/aligned once.
 Each model still fits its complete retained genome-wide SNP set; variance filtering, outlier filtering, counts, regression weights, and jackknife work remain model-specific.
 No chromosome-wise regression estimates are substituted for the genome-wide model.

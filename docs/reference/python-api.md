@@ -2,7 +2,7 @@
 
 Last updated on: 2026-10-30
 
-The supported Python interface is the set of names exported by the `ldsc` package (`ldsc.__all__`, 84 names on 2026-10-27).
+The supported Python interface is the set of names exported by the `ldsc` package (`ldsc.__all__`, 82 names on 2026-10-30).
 Modules whose names start with an underscore, including the domain packages such as `ldsc._ldscore`, are private even when a name defined there is re-exported.
 This page lists every exported name with the first paragraph of its docstring, taken from the installed package; `help(ldsc.<name>)` shows the full docstring, and a future documentation build will generate this page.
 Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and the command-line equivalents in the [command-line reference](cli.md).
@@ -88,7 +88,6 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | `MungeRunSummary` | Compact summary of one munging run. |
 | `PartitionedH2BatchResult` | Compact batch summary and valid persistent artifacts for every fitted model. |
 | `PlotArtifact` | One saved LDSC3 figure and its live Matplotlib objects. |
-| `PreparedRegressionInputs` | Shared trait alignment before model-dependent column/count filtering. |
 | `QuantileH2Result` | Compact result family returned by `run_quantile_h2()`. |
 | `RawSumstatsInference` | Header-level inference report for one raw summary-statistics file. |
 | `RefPanelLoader` | Instantiate the backend requested by a `RefPanelConfig`. |

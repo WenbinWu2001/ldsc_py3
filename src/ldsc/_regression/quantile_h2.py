@@ -28,9 +28,11 @@ from .quantile_inputs import prepare_quantile_statistics
 from .quantile_storage import AlignmentDiagnostics
 from .outputs import (
     QUANTILE_H2_COLUMNS,
+    QUERY_GLOBAL_METADATA,
     STANDARDIZED_COEFFICIENT_COLUMNS,
     QuantileH2DirectoryWriter,
     QuantileH2OutputConfig,
+    fitted_model_files,
 )
 from .._runtime.paths import (
     ensure_output_directory,
@@ -279,31 +281,28 @@ def load_fitted_partitioned_model(result_dir: str | Path) -> FittedPartitionedMo
         fitted annotation order.
     """
     root = Path(result_dir)
-    per_query_metadata = root / "metadata.json"
-    root_metadata = root / "diagnostics" / "metadata.json"
-    if per_query_metadata.is_file():
-        metadata_path = per_query_metadata
-        model_type = "baseline_plus_query"
-        summary_path = root / "partitioned_h2_full.tsv"
-        delete_path = root / "coefficient_delete_values.parquet"
-    elif root_metadata.is_file():
-        metadata_path = root_metadata
-        model_type = "baseline_only"
-        summary_path = root / "partitioned_h2.tsv"
-        delete_path = root / "diagnostics" / "coefficient_delete_values.parquet"
-    else:
+    artifact_type, files = fitted_model_files(root)
+    metadata_path, summary_path, delete_path = files.metadata, files.full, files.delete_values
+    model_type = "baseline_plus_query" if artifact_type == "partitioned_h2_query_result" else "baseline_only"
+    if not metadata_path.is_file():
         raise LDSCInputError(
             f"quantile-h2 could not load fitted model directory '{root}': no LDSC3 partitioned-h2 metadata was found. "
             "Pass a baseline-only partitioned-h2 output root or one diagnostics/query_annotations/<query> directory. "
             "Raw legacy regression prefixes are not accepted."
         )
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if metadata.get("artifact_type") != artifact_type:
+        raise LDSCInputError(
+            f"quantile-h2 expected a partitioned-h2 fitted model in '{root}', but '{metadata_path}' records "
+            f"artifact_type {metadata.get('artifact_type')!r}. Pass a baseline-only partitioned-h2 output root or "
+            "one diagnostics/query_annotations/<query> directory."
+        )
     if "global_metadata" in metadata:
-        if metadata["global_metadata"] != "../../metadata.json":
+        if metadata["global_metadata"] != QUERY_GLOBAL_METADATA:
             raise LDSCInputError(
                 f"quantile-h2 found an invalid global_metadata reference in '{metadata_path}'. "
                 "Restore the query metadata and enclosing diagnostics/metadata.json from the same fit; "
-                "the shared reference must be '../../metadata.json'."
+                f"the shared reference must be '{QUERY_GLOBAL_METADATA}'."
             )
         shared_path = metadata_path.parent / metadata["global_metadata"]
         if not shared_path.is_file():

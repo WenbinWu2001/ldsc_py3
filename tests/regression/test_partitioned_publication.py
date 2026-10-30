@@ -109,3 +109,15 @@ def test_shared_metadata_cannot_be_silently_lost(tmp_path, fitted_query, damage)
         path.write_text(json.dumps(payload))
     with pytest.raises(LDSCInputError, match="metadata"):
         load_fitted_partitioned_model(query)
+
+
+@pytest.mark.parametrize(
+    ("relative_metadata", "artifact_type"),
+    [("metadata.json", "rg_pair_result"), ("diagnostics/metadata.json", "h2_result")],
+)
+def test_fitted_model_loader_names_a_result_of_another_type(tmp_path, relative_metadata, artifact_type):
+    metadata_path = tmp_path / "result" / relative_metadata
+    metadata_path.parent.mkdir(parents=True)
+    metadata_path.write_text(json.dumps({"artifact_type": artifact_type}))
+    with pytest.raises(LDSCInputError, match=artifact_type):
+        load_fitted_partitioned_model(tmp_path / "result")

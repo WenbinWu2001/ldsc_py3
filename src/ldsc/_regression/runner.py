@@ -103,6 +103,7 @@ from .outputs import (
     PartitionedH2DirectoryWriter,
     PartitionedH2OutputConfig,
     PartitionedH2FitArtifacts,
+    published_query_artifacts,
     stage_partitioned_h2_fit,
     RG_CONCISE_COLUMNS,
     RG_FULL_COLUMNS,
@@ -1198,15 +1199,7 @@ class RegressionRunner:
                 paths = writer.write(summary, PartitionedH2OutputConfig(output_dir=output_dir, overwrite=overwrite,
                                                                        write_per_query_results=True),
                                      per_query_artifacts=private_artifacts, metadata=metadata, query_status=query_status)
-            root = Path(paths["per_query_root"])
-            artifacts = {
-                str(record["query_annotation"]): PartitionedH2FitArtifacts(
-                    root / str(record["folder"]) / "partitioned_h2_full.tsv",
-                    root / str(record["folder"]) / "coefficient_delete_values.parquet",
-                    root / str(record["folder"]) / "metadata.json",
-                ) for record in writer._query_records(summary)
-            }
-            return PartitionedH2BatchResult(summary, paths, artifacts, query_status)
+            return PartitionedH2BatchResult(summary, paths, published_query_artifacts(output_dir, summary), query_status)
 
     def estimate_rg(
         self,

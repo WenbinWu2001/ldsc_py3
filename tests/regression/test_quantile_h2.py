@@ -123,7 +123,8 @@ class QuantileH2NumericsTest(unittest.TestCase):
             model_dir = root / "query"
             model_dir.mkdir()
             (model_dir / "metadata.json").write_text(
-                json.dumps({"ldscore_dir": str(ldscore_dir), "retained_ld_columns": ["base", "query"]}),
+                json.dumps({"artifact_type": "partitioned_h2_query_result", "ldscore_dir": str(ldscore_dir),
+                            "retained_ld_columns": ["base", "query"]}),
                 encoding="utf-8",
             )
             pd.DataFrame(
@@ -148,7 +149,7 @@ class QuantileH2NumericsTest(unittest.TestCase):
             root = Path(tmpdir)
             (root / "diagnostics").mkdir()
             (root / "diagnostics" / "metadata.json").write_text(
-                json.dumps({"analysis_type": "cell_type_specific"}),
+                json.dumps({"artifact_type": "partitioned_h2_result", "analysis_type": "cell_type_specific"}),
                 encoding="utf-8",
             )
 
@@ -445,7 +446,8 @@ def test_loader_rejects_a_relative_ldscore_directory(tmp_path, monkeypatch):
     (model_dir.parent / "ldscores").mkdir(parents=True)
     model_dir.mkdir()
     (model_dir / "metadata.json").write_text(
-        json.dumps({"ldscore_dir": "ldscores", "retained_ld_columns": ["base", "query"]}), encoding="utf-8")
+        json.dumps({"artifact_type": "partitioned_h2_query_result", "ldscore_dir": "ldscores",
+                    "retained_ld_columns": ["base", "query"]}), encoding="utf-8")
     pd.DataFrame({"category": ["base", "query"], "coefficient": [0.1, 0.2], "coefficient_se": [0.01, 0.02]}
                  ).to_csv(model_dir / "partitioned_h2_full.tsv", sep="\t", index=False)
     pd.DataFrame({"delete_block": [0, 1], "base": [0.09, 0.11], "query": [0.19, 0.21]}
@@ -459,7 +461,8 @@ def test_loader_requires_retained_ld_columns(tmp_path):
     # partitioned-h2 records the coefficient order whenever it writes the delete table.
     model_dir = tmp_path / "fit" / "query"
     model_dir.mkdir(parents=True)
-    (model_dir / "metadata.json").write_text(json.dumps({"ldscore_dir": str(tmp_path)}), encoding="utf-8")
+    (model_dir / "metadata.json").write_text(
+        json.dumps({"artifact_type": "partitioned_h2_query_result", "ldscore_dir": str(tmp_path)}), encoding="utf-8")
     pd.DataFrame({"category": ["base", "query"], "coefficient": [0.1, 0.2], "coefficient_se": [0.01, 0.02]}
                  ).to_csv(model_dir / "partitioned_h2_full.tsv", sep="\t", index=False)
     pd.DataFrame({"delete_block": [0, 1], "base": [0.09, 0.11], "query": [0.19, 0.21]}

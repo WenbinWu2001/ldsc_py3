@@ -1,6 +1,6 @@
 # Continuous-Annotation Quantile Heritability: Technical Contract
 
-Last updated on: 2026-10-29
+Last updated on: 2026-10-30
 
 Quantile calculation runs in one worker with **1 BLAS thread**, including input overlap products and post-fit projection.
 See [parallel execution](../parallel-execution.md) for native-limit verification and Python process startup.
@@ -38,6 +38,7 @@ If the fitted-model total is nonpositive, only `tau_star` fields are `NaN`.
 - one `diagnostics/query_annotations/<query>/` directory containing a baseline-plus-one-query fit.
 
 An aggregate cell-type root is rejected because its rows came from separate regressions. Raw legacy prefixes are not accepted. Current `partitioned-h2` writes float64 delete-one-block coefficients to `diagnostics/coefficient_delete_values.parquet` for a baseline-only model and to `coefficient_delete_values.parquet` inside each per-query directory.
+The loader checks the recorded `artifact_type` (`partitioned_h2_result` for a root, `partitioned_h2_query_result` for a query directory), so an `h2` result or an `rg` pair directory fails with a message naming its type.
 
 Per-query metadata uses `global_metadata: "../../metadata.json"` to reference the enclosing result's shared provenance.
 The fitted-model loader combines it with model-specific metadata before reconstructing annotations and counts; model-specific fields take precedence.

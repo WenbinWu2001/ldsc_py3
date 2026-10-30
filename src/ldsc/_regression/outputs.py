@@ -79,6 +79,17 @@ from .._runtime.paths import (
 )
 
 
+# Fitted-model files of a partitioned-h2 result that other modules locate.
+PARTITIONED_H2_SUMMARY_FILE = "partitioned_h2.tsv"
+PARTITIONED_H2_FULL_FILE = "partitioned_h2_full.tsv"
+COEFFICIENT_DELETE_VALUES_FILE = "coefficient_delete_values.parquet"
+RESULT_METADATA_FILE = "diagnostics/metadata.json"
+QUERY_RESULT_ROOT = "diagnostics/query_annotations"
+QUERY_METADATA_FILE = "metadata.json"
+# A query folder's link to the run metadata, relative to that folder: the
+# folder sits two levels below RESULT_METADATA_FILE's directory.
+QUERY_GLOBAL_METADATA = "../../metadata.json"
+
 H2_REGRESSION_BIN_COLUMNS = [
     "bin",
     "n_snps",
@@ -447,15 +458,68 @@ def stage_partitioned_h2_fit(directory, category_table, delete_values, metadata)
     """
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=False)
-    artifacts = PartitionedH2FitArtifacts(directory / "partitioned_h2_full.tsv",
-                                         directory / "coefficient_delete_values.parquet",
-                                         directory / "metadata.json", owned=True)
+    artifacts = _query_fit_files(directory, owned=True)
     atomic_write_dataframe(_select_columns(category_table, PARTITIONED_H2_COLUMNS, label="full partitioned-h2 summary"),
                             artifacts.full, na_rep="NaN")
     delete_values.to_parquet(artifacts.delete_values, index=False)
     atomic_write_json({**metadata, "coefficient_delete_block_count": int(len(delete_values)),
                        "retained_ld_columns": [c for c in delete_values if c != "delete_block"]}, artifacts.metadata)
     return artifacts
+
+
+def _query_records(summary: pd.DataFrame) -> list[dict[str, object]]:
+    """Return ordered query records with deterministic safe folder names."""
+    records: list[dict[str, object]] = []
+    width = max(4, len(str(len(summary))))
+    for idx, query_name in enumerate(summary["category"].astype(str).tolist(), start=1):
+        slug = _slugify_query_name(query_name)
+        records.append({"ordinal": idx, "query_annotation": query_name, "slug": slug, "folder": f"{idx:0{width}d}_{slug}"})
+    return records
+
+
+def _query_fit_files(folder: Path, *, owned: bool = False) -> PartitionedH2FitArtifacts:
+    """Name one fitted model's files inside a staged or published query folder."""
+    return PartitionedH2FitArtifacts(folder / PARTITIONED_H2_FULL_FILE, folder / COEFFICIENT_DELETE_VALUES_FILE,
+                                     folder / QUERY_METADATA_FILE, owned=owned)
+
+
+def fitted_model_files(result_dir) -> tuple[str, PartitionedH2FitArtifacts]:
+    """Locate one fitted model inside a partitioned-h2 result.
+
+    Parameters
+    ----------
+    result_dir : str or os.PathLike[str]
+        A baseline-only result root or one query folder under
+        ``diagnostics/query_annotations``. A directory holding its own
+        ``metadata.json`` is read as a query folder.
+
+    Returns
+    -------
+    tuple of (str, PartitionedH2FitArtifacts)
+        The ``artifact_type`` this writer records for that layout, and the
+        model's full table, coefficient delete values and metadata. A
+        baseline-only root's ``partitioned_h2.tsv`` is its full table. Files
+        are named, not checked for existence.
+    """
+    root = Path(result_dir)
+    if (root / QUERY_METADATA_FILE).is_file():
+        return "partitioned_h2_query_result", _query_fit_files(root)
+    return "partitioned_h2_result", PartitionedH2FitArtifacts(
+        root / PARTITIONED_H2_SUMMARY_FILE, root / "diagnostics" / COEFFICIENT_DELETE_VALUES_FILE,
+        root / RESULT_METADATA_FILE,
+    )
+
+
+def published_query_artifacts(output_dir, summary: pd.DataFrame) -> dict[str, PartitionedH2FitArtifacts]:
+    """Return each query's published fitted-model files, keyed by query name.
+
+    ``summary`` must be the table passed to ``PartitionedH2DirectoryWriter.write``,
+    whose row order assigned the query folders. The returned descriptors have
+    ``owned=False``, so republishing them copies the files.
+    """
+    query_root = Path(output_dir) / QUERY_RESULT_ROOT
+    return {str(record["query_annotation"]): _query_fit_files(query_root / str(record["folder"]))
+            for record in _query_records(summary)}
 
 
 class PartitionedH2DirectoryWriter:
@@ -483,10 +547,10 @@ class PartitionedH2DirectoryWriter:
                         query_status=False) -> ArtifactFamily:
         """Declare summaries, model artifacts, and an optional attempted-query ledger."""
         return declare_artifacts(output_dir, {
-            "summary": ("partitioned_h2.tsv", True),
-            "metadata": ("diagnostics/metadata.json", True),
-            "coefficient_delete_values": ("diagnostics/coefficient_delete_values.parquet", coefficient_delete_values),
-            "query_annotations": ("diagnostics/query_annotations", write_per_query_results),
+            "summary": (PARTITIONED_H2_SUMMARY_FILE, True),
+            "metadata": (RESULT_METADATA_FILE, True),
+            "coefficient_delete_values": (f"diagnostics/{COEFFICIENT_DELETE_VALUES_FILE}", coefficient_delete_values),
+            "query_annotations": (QUERY_RESULT_ROOT, write_per_query_results),
             "query_status": ("diagnostics/query_status.tsv", query_status),
             "plots": ("plots", False),
         }, label="partitioned-h2 output artifact")
@@ -615,10 +679,8 @@ class PartitionedH2DirectoryWriter:
             remove_output_artifacts(stale_paths)
             return paths
 
-        query_records = self._query_records(summary)
-        root_summary["query_result_dir"] = [
-            f"diagnostics/query_annotations/{record['folder']}" for record in query_records
-        ]
+        query_records = _query_records(summary)
+        root_summary["query_result_dir"] = [f"{QUERY_RESULT_ROOT}/{record['folder']}" for record in query_records]
         staging_dir = Path(tempfile.mkdtemp(prefix=".query_annotations.tmp.", dir=str(diagnostics_dir)))
         backup_dir: Path | None = None
         try:
@@ -667,23 +729,6 @@ class PartitionedH2DirectoryWriter:
                 "the wrong schema. Re-run with DEBUG logging and report the traceback."
             )
 
-    def _query_records(self, summary: pd.DataFrame) -> list[dict[str, object]]:
-        """Return ordered query records with deterministic safe folder names."""
-        records: list[dict[str, object]] = []
-        width = max(4, len(str(len(summary))))
-        for idx, query_name in enumerate(summary["category"].astype(str).tolist(), start=1):
-            slug = _slugify_query_name(query_name)
-            folder = f"{idx:0{width}d}_{slug}"
-            records.append(
-                {
-                    "ordinal": idx,
-                    "query_annotation": query_name,
-                    "slug": slug,
-                    "folder": folder,
-                }
-            )
-        return records
-
     def _write_staged_query_tree(
         self,
         staging_dir: Path,
@@ -699,13 +744,13 @@ class PartitionedH2DirectoryWriter:
             query_dir = staging_dir / folder
             query_dir.mkdir(parents=True, exist_ok=False)
             query_summary = summary.loc[summary["category"].astype(str) == query_name].reset_index(drop=True)
-            summary_rel = f"diagnostics/query_annotations/{folder}/partitioned_h2.tsv"
-            full_rel = f"diagnostics/query_annotations/{folder}/partitioned_h2_full.tsv"
-            metadata_rel = f"diagnostics/query_annotations/{folder}/metadata.json"
-            delete_rel = f"diagnostics/query_annotations/{folder}/coefficient_delete_values.parquet"
+            summary_rel = f"{QUERY_RESULT_ROOT}/{folder}/{PARTITIONED_H2_SUMMARY_FILE}"
+            full_rel = f"{QUERY_RESULT_ROOT}/{folder}/{PARTITIONED_H2_FULL_FILE}"
+            metadata_rel = f"{QUERY_RESULT_ROOT}/{folder}/{QUERY_METADATA_FILE}"
+            delete_rel = f"{QUERY_RESULT_ROOT}/{folder}/{COEFFICIENT_DELETE_VALUES_FILE}"
             atomic_write_dataframe(
                 _select_columns(query_summary, PARTITIONED_H2_COLUMNS, label="query summary"),
-                query_dir / "partitioned_h2.tsv",
+                query_dir / PARTITIONED_H2_SUMMARY_FILE,
                 na_rep="NaN",
             )
             artifacts = per_query_artifacts.get(query_name)
@@ -715,12 +760,12 @@ class PartitionedH2DirectoryWriter:
                     "Most likely the fitted result family was assembled incompletely."
                 )
             transfer = os.replace if artifacts.owned else shutil.copyfile
-            transfer(artifacts.delete_values, query_dir / "coefficient_delete_values.parquet")
-            transfer(artifacts.full, query_dir / "partitioned_h2_full.tsv")
+            transfer(artifacts.delete_values, query_dir / COEFFICIENT_DELETE_VALUES_FILE)
+            transfer(artifacts.full, query_dir / PARTITIONED_H2_FULL_FILE)
             fit_metadata = json.loads(artifacts.metadata.read_text(encoding="utf-8"))
             payload = {
                 **fit_metadata,
-                "global_metadata": "../../metadata.json",
+                "global_metadata": QUERY_GLOBAL_METADATA,
                 "artifact_type": "partitioned_h2_query_result",
                 "files": {"summary": summary_rel, "full": full_rel, "coefficient_delete_values": delete_rel},
                 "ordinal": record["ordinal"],
@@ -728,7 +773,7 @@ class PartitionedH2DirectoryWriter:
                 "slug": record["slug"],
                 "folder": folder,
             }
-            atomic_write_json(payload, query_dir / "metadata.json")
+            atomic_write_json(payload, query_dir / QUERY_METADATA_FILE)
             manifest_rows.append(
                 {
                     "ordinal": record["ordinal"],

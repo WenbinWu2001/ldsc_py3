@@ -1678,14 +1678,18 @@ def run_build_r2_matrix_from_args(args: argparse.Namespace) -> R2MatrixBuildResu
     output has been replaced, and a marker name chosen then could not be the
     one a successful retry removes.
     """
+    return _build_from_args(args, command="run_build_r2_matrix_from_args(...)")
 
+
+def _build_from_args(args: argparse.Namespace, *, command: str) -> R2MatrixBuildResult:
+    """Run the parsed workflow; ``command`` names the entry point in a failure marker."""
     build_config, global_config = config_from_args(args)
     builder = R2MatrixBuilder(global_config=global_config)
     output_dir, chrom_sources, resolved_prefixes = builder._inspect_inputs(build_config)
     with overwrite_failure_marker(
         output_dir,
         overwrite=build_config.overwrite,
-        command="Python API: run_build_r2_matrix_from_args(...)",
+        command=f"Python API: {command}",
         marker_name=_failure_marker_name(build_config, chrom_sources),
     ):
         return builder._run(
@@ -1722,7 +1726,7 @@ def run_build_r2_matrix(**kwargs: Any) -> R2MatrixBuildResult:
     args = namespace_from_kwargs(
         "run_build_r2_matrix", build_parser(), kwargs, rejected=rejected, log_level=get_global_config().log_level,
     )
-    return run_build_r2_matrix_from_args(args)
+    return _build_from_args(args, command="run_build_r2_matrix(...)")
 
 
 def main(argv: Sequence[str] | None = None) -> R2MatrixBuildResult:

@@ -76,6 +76,7 @@ from ..._runtime.workflow_logging import (
     log_inputs,
     log_outputs,
     materializing_overwrite_guard,
+    overwrite_failure_marker,
     set_workflow_log_path,
     workflow_logging,
 )
@@ -399,33 +400,37 @@ def build_gene_ldscore_index(
     """
     if not isinstance(config, GeneLDScoreIndexBuildConfig):
         raise TypeError("build_gene_ldscore_index requires GeneLDScoreIndexBuildConfig.")
-    return run_build_gene_ldscore_index_from_args(
-        argparse.Namespace(
-            baseline_annot_sources=",".join(config.baseline_annot_sources),
-            plink_prefix=config.plink_prefix,
-            output_dir=config.output_dir,
-            gene_coordinate_file=config.gene_coordinate_file,
-            genome_build=config.genome_build,
-            snp_identifier=config.snp_identifier,
-            padding_bp=config.padding_bp,
-            gene_exclude_regions=config.gene_exclude_regions,
-            ld_wind_cm=config.ld_wind_cm,
-            ld_wind_kb=config.ld_wind_kb,
-            ld_wind_snps=config.ld_wind_snps,
-            maf_min=config.maf_min,
-            common_maf_min=config.common_maf_min,
-            keep_indivs_file=config.keep_indivs_file,
-            regr_snps_file=config.regr_snps_file,
-            regr_snps_exclude_regions=config.regr_snps_exclude_regions,
-            genetic_map_hg19_sources=genetic_map_hg19_sources,
-            genetic_map_hg38_sources=genetic_map_hg38_sources,
-            snp_batch_size=config.snp_batch_size,
-            atom_batch_size=config.atom_batch_size,
-            workers=config.workers,
-            overwrite=overwrite,
-            log_level=get_global_config().log_level if log_level is None else log_level,
+    # The outer marker scope makes a failed overwrite name this function, not the parsed-argument workflow.
+    with overwrite_failure_marker(
+        config.output_dir, overwrite=overwrite, command="Python API: build_gene_ldscore_index(...)",
+    ):
+        return run_build_gene_ldscore_index_from_args(
+            argparse.Namespace(
+                baseline_annot_sources=",".join(config.baseline_annot_sources),
+                plink_prefix=config.plink_prefix,
+                output_dir=config.output_dir,
+                gene_coordinate_file=config.gene_coordinate_file,
+                genome_build=config.genome_build,
+                snp_identifier=config.snp_identifier,
+                padding_bp=config.padding_bp,
+                gene_exclude_regions=config.gene_exclude_regions,
+                ld_wind_cm=config.ld_wind_cm,
+                ld_wind_kb=config.ld_wind_kb,
+                ld_wind_snps=config.ld_wind_snps,
+                maf_min=config.maf_min,
+                common_maf_min=config.common_maf_min,
+                keep_indivs_file=config.keep_indivs_file,
+                regr_snps_file=config.regr_snps_file,
+                regr_snps_exclude_regions=config.regr_snps_exclude_regions,
+                genetic_map_hg19_sources=genetic_map_hg19_sources,
+                genetic_map_hg38_sources=genetic_map_hg38_sources,
+                snp_batch_size=config.snp_batch_size,
+                atom_batch_size=config.atom_batch_size,
+                workers=config.workers,
+                overwrite=overwrite,
+                log_level=get_global_config().log_level if log_level is None else log_level,
+            )
         )
-    )
 
 
 def _build_embedded_gene_catalog(

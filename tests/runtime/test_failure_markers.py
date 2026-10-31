@@ -12,7 +12,7 @@ from ldsc import cli
 from ldsc._runtime import workflow_logging
 from ldsc._runtime.workflow_logging import materializing_overwrite_guard, overwrite_failure_marker
 from ldsc._sumstats import munger as sumstats_munger
-from ldsc.errors import LDSCInputError, LDSCUsageError
+from ldsc.errors import LDSCInputError, LDSCUsageError, LDSCUserError
 
 PLINK_FIXTURE = Path(__file__).parents[1] / "fixtures/minimal_external_resources/plink/hm3_chr22_subset"
 
@@ -110,18 +110,36 @@ def test_cli_failure_leaves_one_marker_naming_the_command(tmp_path, monkeypatch,
     assert f"Command: {shlex.join(['ldsc', *argv])}\n" in (root / marker_name).read_text(encoding="utf-8")
 
 
-def test_python_failure_leaves_one_marker_naming_the_public_call(tmp_path, monkeypatch):
+# Python entry points that call a parsed-argument workflow, each failing inside it.
+FAILING_PYTHON_CALLS = {
+    "run_h2": lambda root: ldsc.run_h2(
+        sumstats_file="nope.parquet", ldscore_dir="nope", output_dir=str(root), overwrite=True,
+    ),
+    "run_ldscore": lambda root: ldsc.run_ldscore(output_dir=str(root), overwrite=True),
+    "run_build_r2_matrix": lambda root: ldsc.run_build_r2_matrix(
+        plink_prefix=str(PLINK_FIXTURE), output_dir=str(root), source_genome_build="hg19", ld_wind_kb=1000,
+        maf_min=0.5, overwrite=True,
+    ),
+    "build_gene_ldscore_index": lambda root: ldsc.build_gene_ldscore_index(
+        ldsc.GeneLDScoreIndexBuildConfig(
+            baseline_annot_sources=("nope.@.annot.gz",), plink_prefix="nope.@", output_dir=str(root),
+            gene_coordinate_file="nope.tsv", genome_build="hg19", snp_identifier="chr_pos", ld_wind_kb=100,
+        ),
+        overwrite=True,
+    ),
+}
+
+
+@pytest.mark.parametrize("function", FAILING_PYTHON_CALLS)
+def test_python_failure_leaves_one_marker_naming_the_public_call(tmp_path, monkeypatch, function):
+    monkeypatch.chdir(tmp_path)
     writes = _record_marker_writes(monkeypatch)
-    output_dir = tmp_path / "out"
 
-    with pytest.raises(LDSCInputError):
-        ldsc.run_h2(
-            sumstats_file=str(tmp_path / "nope.parquet"), ldscore_dir=str(tmp_path / "nope"),
-            output_dir=str(output_dir), overwrite=True,
-        )
+    with pytest.raises(LDSCUserError):
+        FAILING_PYTHON_CALLS[function](tmp_path / "out")
 
-    assert writes == [output_dir / "RUN_FAILED.txt"]
-    assert "Command: Python API: run_h2(...)\n" in (output_dir / "RUN_FAILED.txt").read_text(encoding="utf-8")
+    assert len(writes) == 1
+    assert f"Command: Python API: {function}(...)\n" in writes[0].read_text(encoding="utf-8")
 
 
 def test_nested_marker_scopes_write_once_with_the_outermost_label(tmp_path, monkeypatch):

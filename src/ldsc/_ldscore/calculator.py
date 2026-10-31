@@ -89,7 +89,9 @@ from .._runtime.paths import (
     resolve_scalar_path,
     split_cli_path_tokens,
 )
-from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
+from .._runtime.workflow_logging import (
+    log_inputs, log_outputs, materializing_overwrite_guard, overwrite_failure_marker, workflow_logging,
+)
 from . import compute as kernel_ldscore
 from .._refpanel.funnel import (
     REFERENCE_PANEL,
@@ -1883,7 +1885,9 @@ def run_ldscore(**kwargs) -> "LDScoreSource":
         "--" + key.replace("_", "-") for key in kwargs
     )
     args._emit_query_console_notices = False
-    return run_ldscore_from_args(args)
+    # The outer marker scope makes a failed overwrite name this function, not run_ldscore_from_args.
+    with overwrite_failure_marker(args.output_dir, overwrite=args.overwrite, command="Python API: run_ldscore(...)"):
+        return run_ldscore_from_args(args)
 
 
 def main(argv: Sequence[str] | None = None) -> LDScoreSource:

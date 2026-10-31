@@ -456,7 +456,23 @@ class LDScoreCalculator:
     @report_phase(LOGGER, "computation", "LD-score calculation")
     def _run(self, annotation_bundle, ref_panel, ldscore_config, global_config, output_config=None,
              regression_snps=None, regression_regions=None, *, check_parquet_reference=False):
-        """Implement :meth:`run`; the CLI calls this after its own reference preflight."""
+        """Implement :meth:`run`; the CLI calls this after its own reference preflight.
+
+        A saved ``run_annotate`` result is prepared in a workspace inside this
+        run's output directory, so the annotate output directory, an input
+        here, is never written; the workspace is removed when the run ends.
+        """
+        arguments = (ref_panel, ldscore_config, global_config, output_config, regression_snps, regression_regions)
+        if output_config is None or getattr(annotation_bundle, "_source_loader", None) is None:
+            return self._run_prepared(annotation_bundle, *arguments, check_parquet_reference=check_parquet_reference)
+        from .._annotation.storage import AnnotationWorkspace
+        with AnnotationWorkspace(output_config.output_dir) as workspace:
+            return self._run_prepared(annotation_bundle.prepared_in(workspace), *arguments,
+                                      check_parquet_reference=check_parquet_reference)
+
+    def _run_prepared(self, annotation_bundle, ref_panel, ldscore_config, global_config, output_config,
+                      regression_snps, regression_regions, *, check_parquet_reference):
+        """Run the LD-score calculation for an annotation bundle that needs no further preparation."""
         if ldscore_config.export_ref_metadata and output_config is None:
             raise LDSCUsageError(
                 "LDScoreCalculator.run() requires output_config when export_ref_metadata=True. "

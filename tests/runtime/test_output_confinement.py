@@ -221,3 +221,41 @@ def test_a_failure_during_publication_leaves_an_index_no_reader_accepts(tmp_path
     monkeypatch.undo()
     with pytest.raises(LDSCInputError):
         load_gene_ldscore_index(index)
+
+
+@pytest.mark.parametrize("mode", ["chr_pos", "rsid"])
+def test_ldscore_from_a_saved_annotation_prepares_inside_its_own_output_directory(tmp_path, mode):
+    import numpy as np
+    import pandas as pd
+
+    from ldsc import GlobalConfig, LDScoreCalculator, LDScoreConfig, RefPanelConfig, run_annotate
+    from ldsc._ldscore.outputs import LDScoreOutputConfig
+    from ldsc._refpanel.adapters import R2MatrixRefPanel
+    from tests.ldscore.test_ldscore_parallelism import _PANEL_CHROMS, _write_index_panel
+
+    config = GlobalConfig(snp_identifier=mode, genome_build="hg19" if mode == "chr_pos" else None)
+    _write_index_panel(tmp_path / "panel", _PANEL_CHROMS, snp_identifier=mode)
+    panel = R2MatrixRefPanel(config, RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(tmp_path / "panel")))
+    numerical = LDScoreConfig(ld_wind_kb=1, whole_chromosome_ok=True)
+    metadata = pd.concat([pair[0] for pair in _PANEL_CHROMS.values()], ignore_index=True)
+    baseline = tmp_path / "baseline.annot"
+    metadata.loc[:, ["CHR", "POS", "SNP", "A1", "A2"]].assign(base=1).to_csv(baseline, sep="\t", index=False)
+    bed = tmp_path / "query.bed"
+    bed.write_text("chr1\t150\t350\nchr2\t50\t250\n")
+    annotated = tmp_path / "annotated"
+    saved = run_annotate(ref_snp_annot_sources=[str(baseline)], query_annot_bed_sources=[str(bed)],
+                         genome_build="hg19", global_config=config, output_dir=annotated)
+    annotated_before = _tree(annotated)
+
+    result = LDScoreCalculator().run(saved, panel, numerical, config, LDScoreOutputConfig(tmp_path / "ldscores"))
+
+    # The annotate output is this run's input: nothing appears or changes there.
+    assert _tree(annotated) == annotated_before
+    assert not list((tmp_path / "ldscores").glob(".ldsc-annotation-*"))
+    # Preparing in the reading run's own workspace leaves the LD scores unchanged.
+    with saved:
+        saved.read("1")
+        expected = LDScoreCalculator().run(saved, panel, numerical, config, LDScoreOutputConfig(tmp_path / "ldscores2"))
+    np.testing.assert_array_equal(result.baseline_table.to_numpy(), expected.baseline_table.to_numpy())
+    np.testing.assert_array_equal(result.read_queries(result.query_columns).to_numpy(),
+                                  expected.read_queries(expected.query_columns).to_numpy())

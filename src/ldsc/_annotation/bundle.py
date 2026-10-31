@@ -1,6 +1,6 @@
 """Resource-owning annotation dataset with explicit chromosome/column access."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import numpy as np
 from .storage import AnnotationShard, AnnotationWorkspace, FrameSpool, TsvDiagnostics
 from .semantics import require_unique_annotation_names
@@ -117,6 +117,22 @@ class AnnotationBundle:
         self._require_open()
         self._prepare_sources()
         return self.shards[normalize_chromosome(chrom)]
+
+    def prepared_in(self, workspace):
+        """Return this bundle with a saved annotation result prepared in ``workspace``.
+
+        The bundle ``run_annotate`` returns reads its saved files through
+        private stores, created in the annotate output directory unless a
+        workflow that reads it lends a workspace in its own output directory.
+        The returned bundle borrows ``workspace`` and must not be closed; this
+        bundle is unchanged. A bundle that is already prepared is returned as is.
+        """
+        if self._closed:
+            raise ValueError("Annotation bundle is closed.")
+        if self._source_loader is None:
+            return self
+        shards = self._source_loader.prepare(workspace, self.config_snapshot.snp_identifier)
+        return replace(self, shards=shards, workspace=workspace, _source_loader=None)
 
     def _prepare_sources(self):
         if self._source_loader is not None:

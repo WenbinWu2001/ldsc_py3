@@ -16,7 +16,7 @@ from ldsc import cli
 from ldsc._annotation.storage import AnnotationWorkspace
 from ldsc._runtime.paths import ensure_output_directory
 from ldsc._runtime.workflow_logging import overwrite_failure_marker
-from ldsc.errors import LDSCConfigError
+from ldsc.errors import LDSCConfigError, LDSCInputError
 from tests.runtime.test_failure_markers import FAILING_CLI_RUNS
 
 PLINK_FIXTURE = Path(__file__).parents[1] / "fixtures/minimal_external_resources/plink/hm3_chr22_subset"
@@ -117,3 +117,107 @@ def test_derived_commands_create_nothing_for_a_missing_result_directory(empty_cw
     assert cli.run_cli([command, option, "resutls_typo", *extra, *(["--overwrite"] if overwrite else [])]) == 1
 
     assert list(empty_cwd.iterdir()) == []
+
+
+def _tree(root: Path) -> set[str]:
+    return {path.relative_to(root).as_posix() for path in root.rglob("*")}
+
+
+@pytest.fixture
+def index_inputs(tmp_path):
+    from tests.ldscore.test_plink_workflow_resolution import write_inputs
+
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    write_inputs(inputs)
+    return inputs
+
+
+def _build_index(inputs, index, monkeypatch, *, prefix="1000G.EUR.QC.", overwrite=False):
+    from ldsc._ldscore.gene_index import build as gene_index_build
+    from tests.ldscore.test_plink_workflow_resolution import index_args
+
+    args = index_args(inputs, str(inputs / prefix), index, monkeypatch)
+    args.overwrite = overwrite
+    return gene_index_build.run_build_gene_ldscore_index_from_args(args)
+
+
+def test_gene_index_build_writes_only_inside_its_output_directory(tmp_path, index_inputs, empty_cwd, monkeypatch):
+    from ldsc._ldscore.gene_index.scoring import load_gene_ldscore_index
+
+    index = tmp_path / "parent" / "index"
+    inputs_before = _tree(index_inputs)
+
+    _build_index(index_inputs, index, monkeypatch)
+    _build_index(index_inputs, index, monkeypatch, overwrite=True)
+
+    assert [path.name for path in index.parent.iterdir()] == ["index"]
+    assert not (index / ".build").exists()
+    assert (index / "diagnostics" / "build-gene-ldscore-index.log").is_file()
+    assert _tree(index_inputs) == inputs_before
+    assert list(empty_cwd.iterdir()) == []
+    load_gene_ldscore_index(index)
+
+
+@pytest.mark.parametrize("overwrite", [False, True])
+def test_failed_gene_index_build_keeps_its_state_inside_and_retries(tmp_path, index_inputs, monkeypatch, overwrite):
+    index = tmp_path / "parent" / "index"
+
+    with pytest.raises(LDSCInputError):
+        _build_index(index_inputs, index, monkeypatch, prefix="missing-panel", overwrite=overwrite)
+
+    assert [path.name for path in index.parent.iterdir()] == ["index"]
+    assert {"build-gene-ldscore-index.log", "plink_input_issues.tsv"} <= {
+        path.name for path in (index / ".build").iterdir()}
+    assert (index / "RUN_FAILED.txt").is_file() == overwrite
+
+    _build_index(index_inputs, index, monkeypatch)
+
+    assert [path.name for path in index.parent.iterdir()] == ["index"]
+    assert not (index / ".build").exists()
+    assert not (index / "RUN_FAILED.txt").exists()
+
+
+def test_an_incomplete_gene_index_is_never_read_and_needs_overwrite(tmp_path, index_inputs, monkeypatch):
+    from ldsc._ldscore.gene_index.scoring import load_gene_ldscore_index
+
+    index = tmp_path / "parent" / "index"
+    _build_index(index_inputs, index, monkeypatch)
+    # An interrupted publication leaves owned components without the root metadata written last,
+    # beside the build directory that only a successful build removes.
+    (index / "metadata.json").unlink()
+    (index / ".build").mkdir()
+
+    with pytest.raises(LDSCInputError):
+        load_gene_ldscore_index(index)
+    with pytest.raises(FileExistsError, match="incomplete gene LD-score index"):
+        _build_index(index_inputs, index, monkeypatch)
+    _build_index(index_inputs, index, monkeypatch, overwrite=True)
+    load_gene_ldscore_index(index)
+
+
+def test_a_failure_during_publication_leaves_an_index_no_reader_accepts(tmp_path, index_inputs, monkeypatch):
+    from ldsc._ldscore.gene_index import build as gene_index_build
+    from ldsc._ldscore.gene_index.scoring import load_gene_ldscore_index
+
+    index = tmp_path / "parent" / "index"
+    _build_index(index_inputs, index, monkeypatch)
+    calls = []
+
+    def fail_on_published_index(path):
+        # The first load of the destination is the overwrite preflight; the second follows publication.
+        if Path(path) == index:
+            calls.append(path)
+            if len(calls) == 2:
+                raise LDSCInputError("simulated failure after publication began")
+        return load_gene_ldscore_index(path)
+
+    monkeypatch.setattr(gene_index_build, "load_gene_ldscore_index", fail_on_published_index)
+    with pytest.raises(LDSCInputError, match="simulated"):
+        _build_index(index_inputs, index, monkeypatch, overwrite=True)
+
+    assert [path.name for path in index.parent.iterdir()] == ["index"]
+    assert (index / "RUN_FAILED.txt").is_file()
+    monkeypatch.undo()
+    with pytest.raises(LDSCInputError):
+        load_gene_ldscore_index(index)

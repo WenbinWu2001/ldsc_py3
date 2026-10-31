@@ -65,11 +65,11 @@ def index_global_config(snp_identifier: str, genome_build: str) -> GlobalConfig:
 
 
 def _remove_gene_index_transaction(path: Path, *, published: bool) -> bool:
-    """Best-effort removal for builder-owned staging and backup data.
+    """Best-effort removal of builder-owned staging and build-directory data.
 
-    Cleanup after a reload-validated destination is garbage collection and
-    cannot change the successful publication outcome. Before commit, cleanup
-    errors likewise must not replace the primary build or rollback exception.
+    Cleanup after a reload-validated publication cannot change the successful
+    outcome. Before publication, cleanup errors likewise must not replace the
+    primary build exception.
     """
     if not path.exists():
         return True
@@ -78,14 +78,14 @@ def _remove_gene_index_transaction(path: Path, *, published: bool) -> bool:
     except Exception as exc:
         if published:
             LOGGER.warning(
-                "The gene LD-score index was published and reload-validated, but transaction "
+                "The gene LD-score index was published and reload-validated, but build-directory "
                 f"cleanup failed ({type(exc).__name__}: {exc}). The published index is valid. "
                 f"Retained builder-owned cleanup path: {path}. Remove it after confirming no "
                 "build is active for this destination."
             )
         else:
             LOGGER.warning(
-                "Gene LD-score index transaction cleanup also failed after an earlier build or "
+                "Gene LD-score index staging cleanup also failed after an earlier build or "
                 f"publication error ({type(exc).__name__}: {exc}). Retained builder-owned path: "
                 f"{path}. The earlier exception remains the build failure."
             )

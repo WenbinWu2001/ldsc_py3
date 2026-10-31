@@ -24,7 +24,7 @@ from ldsc import cli
 from ldsc._ldscore.gene_index import build as gene_ldscore_index
 from ldsc._ldscore import calculator as ldscore_calculator
 from ldsc._ldscore.gene_index import scoring as _gene_index_scoring
-from ldsc._ldscore.gene_index.artifact import _canonical_frame_sha256, _catalog_identity_records, _write_json
+from ldsc._ldscore.gene_index.artifact import _canonical_frame_sha256, _catalog_identity_records
 from ldsc.config import GeneLDScoreIndexBuildConfig, GlobalConfig, reset_global_config, set_global_config
 from ldsc._core.plink_files import PlinkFAMFile
 from ldsc._ldscore import compute as kernel_ldscore
@@ -104,17 +104,17 @@ def test_builder_catalog_failure_writes_full_issues_before_atom_transaction(tmp_
     )
     monkeypatch.setattr(
         gene_ldscore_index,
-        "_create_gene_index_transaction",
-        lambda *_args, **_kwargs: pytest.fail("atom transaction started before catalog validation"),
+        "_create_gene_index_stage",
+        lambda *_args, **_kwargs: pytest.fail("staged index created before catalog validation"),
     )
 
     with pytest.raises(GeneCatalogValidationError):
         gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
 
-    issues_path = tmp_path / ".index.build-state" / "gene_coordinate_catalog_issues.tsv.gz"
+    issues_path = output / ".build" / "gene_coordinate_catalog_issues.tsv.gz"
     issues = pd.read_csv(issues_path, sep="\t")
     assert set(issues["reason"]) == {"duplicate_gene_id", "duplicate_gene_name", "end_before_start"}
-    assert not output.exists()
+    assert [path.name for path in output.iterdir()] == [".build"]
 
 
 def test_builder_rejects_conflicting_catalog_build(tmp_path, monkeypatch):
@@ -138,12 +138,12 @@ def test_builder_rejects_conflicting_catalog_build(tmp_path, monkeypatch):
             "--snp-identifier", "rsid",
         ]
     )
-    monkeypatch.setattr(gene_ldscore_index, '_create_gene_index_transaction',
-                        lambda *_a, **_k: pytest.fail('transaction started before build validation'))
+    monkeypatch.setattr(gene_ldscore_index, '_create_gene_index_stage',
+                        lambda *_a, **_k: pytest.fail('staged index created before build validation'))
     with pytest.raises(LDSCInputError, match='Conflicting genome-build evidence'):
         gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
     assert 'hg38' in catalog.read_text()
-    assert not output.exists()
+    assert [path.name for path in output.iterdir()] == [".build"]
 
 
 def _fixture_funnel(chrom, rows=2):
@@ -1051,7 +1051,6 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
     )
     index_dir = gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
 
-    build_state = tmp_path / ".suite.build-state"
     log_path = index_dir / "diagnostics" / "build-gene-ldscore-index.log"
     json_path = index_dir / "diagnostics" / "build-gene-ldscore-index.json"
     log_text = log_path.read_text(encoding="utf-8")
@@ -1077,9 +1076,7 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
     dropped_sidecar = index_dir / "diagnostics" / "dropped_snps" / "chr22_dropped.tsv.gz"
     assert dropped_sidecar.exists()
     assert pd.read_csv(dropped_sidecar, sep="\t").empty
-    assert not (build_state / "build-gene-ldscore-index.log").exists()
-    assert (build_state / "build-gene-ldscore-index.lock").exists()
-    assert not list((build_state / "history").glob("*.log"))
+    assert not (index_dir / ".build").exists()
     assert (unrelated_sibling / "build-gene-ldscore-index.log").read_text(encoding="utf-8") == "not owned by this build\n"
 
 
@@ -1114,7 +1111,7 @@ def test_completed_chromosome_is_durably_staged_before_other_workers_finish(
         return record
 
     monkeypatch.setattr(gene_ldscore_index, "build_plink_index_chromosome", fake_build)
-    live_log = tmp_path / ".index.build-state" / "build-gene-ldscore-index.log"
+    live_log = output / ".build" / "build-gene-ldscore-index.log"
     real_replace = gene_ldscore_index.os.replace
 
     def observe_shard_rename(source, destination):
@@ -1143,17 +1140,15 @@ def test_completed_chromosome_is_durably_staged_before_other_workers_finish(
         deadline = time.monotonic() + 10
         staged_shard = None
         while time.monotonic() < deadline:
-            stages = list(tmp_path.glob(".index.stage-*"))
-            if stages:
-                candidate = stages[0] / "index" / "chromosomes" / "chr2"
-                if candidate.is_dir():
-                    staged_shard = candidate
-                    break
+            candidate = output / ".build" / "stage" / "chromosomes" / "chr2"
+            if candidate.is_dir():
+                staged_shard = candidate
+                break
             time.sleep(0.01)
 
         assert staged_shard is not None
         assert (staged_shard / "ldscore_operator.npz").exists()
-        assert not output.exists()
+        assert not (output / "metadata.json").exists()
         assert durable_rename_seen.is_set()
         assert "Finished chromosome 2" in live_log.read_text(encoding="utf-8")
         gc.collect()
@@ -1227,27 +1222,26 @@ def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path,
         gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
 
     index_path = tmp_path / "suite"
-    build_state = tmp_path / ".suite.build-state"
+    build_state = index_path / ".build"
     log_path = build_state / "build-gene-ldscore-index.log"
     log_text = log_path.read_text(encoding="utf-8")
     assert "LDSC build-gene-ldscore-index Started" in log_text
     assert "Baseline/PLINK consistency validation failed" in log_text
     assert (build_state / "baseline_plink_issues.tsv").exists()
     assert "Failed " in log_text
-    assert not index_path.exists()
+    assert [path.name for path in index_path.iterdir()] == [".build"]
 
-    index_path.mkdir()
     with pytest.raises(LDSCInputError, match="identifier intersection failure"):
         gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
-    assert list(index_path.iterdir()) == []
+    assert [path.name for path in index_path.iterdir()] == [".build"]
+    assert any((build_state / "history").glob("*.log"))
 
     monkeypatch.setattr(gene_ldscore_index, "intersect_baseline_plink_by_identifier", original_intersection)
     monkeypatch.setattr(gene_ldscore_index, "build_plink_index_chromosome", lambda *args, **kwargs: chromosome)
     index_dir = gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
     assert (index_dir / "metadata.json").exists()
     assert (index_dir / "diagnostics" / "build-gene-ldscore-index.log").exists()
-    assert not log_path.exists()
-    assert any((build_state / "history").glob("*.log"))
+    assert not build_state.exists()
 
 
 def test_chromosome_failure_cleans_staged_shards_without_publication(tmp_path, monkeypatch):
@@ -1284,9 +1278,9 @@ def test_chromosome_failure_cleans_staged_shards_without_publication(tmp_path, m
         gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
 
     assert first_durable.is_set()
-    assert not output.exists()
-    assert not list(tmp_path.glob(".index.stage-*"))
-    failed_log = tmp_path / ".index.build-state" / "build-gene-ldscore-index.log"
+    assert not (output / "metadata.json").exists()
+    assert not (output / ".build" / "stage").exists()
+    failed_log = output / ".build" / "build-gene-ldscore-index.log"
     assert "Finished chromosome 1" in failed_log.read_text(encoding="utf-8")
 
 
@@ -1672,7 +1666,7 @@ def test_index_publication_requires_overwrite_and_replaces_complete_index(tmp_pa
     assert load_gene_ldscore_index(output).index_id == calculate_index_id(replacement_identity)
 
 
-def test_post_commit_cleanup_failure_warns_but_published_index_succeeds(tmp_path, monkeypatch):
+def test_post_publication_cleanup_failure_warns_but_published_index_succeeds(tmp_path, monkeypatch):
     output, args, identity = _build_fixture_index(tmp_path, monkeypatch)
     gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
     replacement_identity = {**identity, "padding_bp": 0}
@@ -1680,48 +1674,62 @@ def test_post_commit_cleanup_failure_warns_but_published_index_succeeds(tmp_path
     args.overwrite = True
     real_rmtree = shutil.rmtree
 
-    def fail_transaction_cleanup(path, *args, **kwargs):
-        candidate = Path(path)
-        if candidate.parent == tmp_path and candidate.name.startswith(".index.stage-"):
-            raise OSError(16, "injected device or resource busy", str(candidate))
+    def fail_build_directory_cleanup(path, *args, **kwargs):
+        if Path(path) == output / ".build":
+            raise OSError(16, "injected device or resource busy", str(path))
         return real_rmtree(path, *args, **kwargs)
 
     with monkeypatch.context() as patcher:
-        patcher.setattr(gene_ldscore_index.shutil, "rmtree", fail_transaction_cleanup)
-        published = gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
+        patcher.setattr(gene_ldscore_index.shutil, "rmtree", fail_build_directory_cleanup)
+        with pytest.warns(UserWarning, match="build directory could not be removed"):
+            published = gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
 
     assert published == output
     assert load_gene_ldscore_index(output).index_id == calculate_index_id(replacement_identity)
-    leftovers = list(tmp_path.glob(".index.stage-*"))
-    assert len(leftovers) == 1
-    log_text = (output / "diagnostics" / "build-gene-ldscore-index.log").read_text(encoding="utf-8")
-    assert str(leftovers[0]) in log_text
-    assert "published index is valid" in log_text
+    assert (output / ".build").is_dir()
+    assert [path.name for path in tmp_path.iterdir() if path.name.startswith(".")] == []
 
-    gene_ldscore_index._recover_gene_index_publication(output)
-    assert not leftovers[0].exists()
+    # The next build discards the leftover build directory and removes it after success.
+    gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
+    assert not (output / ".build").exists()
 
 
 def test_index_build_lock_rejects_a_second_builder_for_same_absolute_target(tmp_path):
     index_dir = tmp_path / "index"
     with gene_ldscore_index._gene_index_build_lock(index_dir):
-        assert not (tmp_path / ".index.build-gene-ldscore-index.lock").exists()
         with pytest.raises(
             LDSCInputError,
-            match=r"\.index\.build-state/build-gene-ldscore-index\.log",
+            match=r"index/\.build/build-gene-ldscore-index\.log",
         ):
             with gene_ldscore_index._gene_index_build_lock(index_dir):
                 pass
-    assert (
-        tmp_path / ".index.build-state" / "build-gene-ldscore-index.lock"
-    ).exists()
-    assert not (tmp_path / ".index.build-gene-ldscore-index.lock").exists()
+    assert (index_dir / ".build" / "build-gene-ldscore-index.lock").exists()
+    assert [path.name for path in tmp_path.iterdir()] == ["index"]
+
+
+def test_index_build_lock_retries_when_a_finishing_build_removes_the_lock_file(tmp_path, monkeypatch):
+    index_dir = tmp_path / "index"
+    lock_path = index_dir / ".build" / "build-gene-ldscore-index.lock"
+    real_flock = gene_ldscore_index.fcntl.flock
+    removed = []
+
+    def flock_after_a_finishing_build(descriptor, operation):
+        real_flock(descriptor, operation)
+        if not removed and operation & gene_ldscore_index.fcntl.LOCK_EX:
+            # A finishing build removed its build directory between this open and this lock.
+            shutil.rmtree(lock_path.parent)
+            removed.append(True)
+
+    monkeypatch.setattr(gene_ldscore_index.fcntl, "flock", flock_after_a_finishing_build)
+    with gene_ldscore_index._gene_index_build_lock(index_dir):
+        assert removed
+        assert "pid=" in lock_path.read_text(encoding="utf-8")
 
 
 def test_final_log_move_failure_warns_and_retains_hidden_log(tmp_path, monkeypatch):
     index_dir = tmp_path / "index"
     (index_dir / "diagnostics").mkdir(parents=True)
-    build_state = tmp_path / ".index.build-state"
+    build_state = index_dir / ".build"
     build_state.mkdir()
     live_log = build_state / "build-gene-ldscore-index.log"
     live_log.write_text("Finished\n", encoding="utf-8")
@@ -1744,56 +1752,16 @@ def test_final_log_move_failure_warns_and_retains_hidden_log(tmp_path, monkeypat
     assert not final_log.exists()
 
 
-@pytest.mark.parametrize("failed_destination", ["absent", "marker", "unrecognized"])
-def test_index_publication_recovery_restores_one_valid_owned_backup(tmp_path, failed_destination):
-    chromosome, catalog, index_identity = _artifact_payload()
-    index_dir = write_gene_ldscore_index(
-        tmp_path / "index", index_identity=index_identity, gene_catalog=catalog,
-        chromosomes={"22": chromosome},
-    )
-    transaction = tmp_path / ".index.stage-interrupted"
-    transaction.mkdir()
-    marker = {
-        "artifact_type": "gene_ldscore_index_publication",
-        "target": str(index_dir.resolve()),
-    }
-    _write_json(transaction / ".gene-index-publication.json", marker)
-    backup = transaction / "index.backup"
-    index_dir.rename(backup)
-    _write_json(backup / ".gene-index-publication.json", marker)
-    if failed_destination != "absent":
-        index_dir.mkdir()
-        (index_dir / "RUN_FAILED.txt").write_text("interrupted publication")
-    if failed_destination == "unrecognized":
-        notes = index_dir / "notes.txt"
-        notes.write_text("user data")
-        with pytest.raises(LDSCInputError, match="unrecognized gene-index target"):
-            gene_ldscore_index._recover_gene_index_publication(index_dir)
-        assert notes.read_text() == "user data"
-        assert backup.is_dir()
-        return
-
-    gene_ldscore_index._recover_gene_index_publication(
-        index_dir
-    )
-
-    assert load_gene_ldscore_index(index_dir).index_id == calculate_index_id(index_identity)
-    assert not transaction.exists()
-    if failed_destination == "marker":
-        assert (index_dir / "RUN_FAILED.txt").read_text() == "interrupted publication"
-
-
-def test_retry_discards_a_marked_partial_stage_instead_of_reusing_it(tmp_path):
+def test_retry_discards_a_partial_stage_instead_of_reusing_it(tmp_path):
     index_dir = tmp_path / "index"
-    transaction = gene_ldscore_index._create_gene_index_transaction(index_dir)
-    stale_shard = transaction / "index" / "chromosomes" / "chr22"
-    stale_shard.mkdir()
+    stale_shard = index_dir / ".build" / "stage" / "chromosomes" / "chr22"
+    stale_shard.mkdir(parents=True)
     (stale_shard / "stale-payload.txt").write_text("partial\n", encoding="utf-8")
 
-    gene_ldscore_index._recover_gene_index_publication(index_dir)
+    gene_ldscore_index._prepare_gene_index_log(index_dir)
 
-    assert not transaction.exists()
-    assert not index_dir.exists()
+    assert not (index_dir / ".build" / "stage").exists()
+    assert [path.name for path in tmp_path.iterdir()] == ["index"]
 
 
 def test_index_loader_rejects_embedded_catalog_policy_and_source_tampering(tmp_path):
@@ -1821,7 +1789,7 @@ def test_index_loader_rejects_embedded_catalog_policy_and_source_tampering(tmp_p
         load_gene_ldscore_index(index_dir)
 
 
-def test_failed_index_overwrite_rolls_back_without_mutating_valid_index(tmp_path, monkeypatch):
+def test_failed_index_overwrite_before_publication_keeps_the_valid_index(tmp_path, monkeypatch):
     output, args, identity = _build_fixture_index(tmp_path, monkeypatch)
     gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
     original_id = load_gene_ldscore_index(output).index_id
@@ -1829,20 +1797,17 @@ def test_failed_index_overwrite_rolls_back_without_mutating_valid_index(tmp_path
         gene_ldscore_index, "_builder_index_identity", lambda *_a, **_k: {**identity, "padding_bp": 0}
     )
     args.overwrite = True
-    real_replace = gene_ldscore_index.os.replace
 
-    def fail_installing_replacement(source, destination):
-        # The valid index has already moved to the transaction backup.
-        source = Path(source)
-        if source.name == output.name and source.parent.name.startswith(".index.stage-"):
-            raise OSError(16, "injected publication failure", str(destination))
-        return real_replace(source, destination)
+    def fail_finalizing_the_stage(*_args, **_kwargs):
+        raise OSError(16, "injected staging failure")
 
-    monkeypatch.setattr(gene_ldscore_index.os, "replace", fail_installing_replacement)
+    monkeypatch.setattr(gene_ldscore_index, "_finalize_staged_index_artifact", fail_finalizing_the_stage)
     with pytest.raises(OSError, match="injected"):
         gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
 
+    # Publication had not begun, so the earlier index is still complete and loadable.
     assert load_gene_ldscore_index(output).index_id == original_id
+    assert (output / "RUN_FAILED.txt").is_file()
 
 
 def test_indexed_gene_lists_assemble_control_queries_and_canonical_output(tmp_path, monkeypatch):

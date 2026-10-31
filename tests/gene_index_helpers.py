@@ -32,16 +32,15 @@ def write_gene_ldscore_index(index_dir, *, index_identity, gene_catalog, chromos
     """Publish in-memory chromosome records as a gene LD-score index.
 
     The steps are those of ``build-gene-ldscore-index`` after its chromosome
-    computations: open a publication transaction, stage each chromosome's
-    payload, write the coordinator metadata, then commit with reload
-    validation. ``chromosomes`` maps labels to ``IndexChromosomeData`` in index
+    computations: create the staged index in the build directory, stage each
+    chromosome's payload, write the coordinator metadata, publish with reload
+    validation, then remove the build directory. ``chromosomes`` maps labels to ``IndexChromosomeData`` in index
     order and must equal the narrowed index chromosome set. ``index_dir``
     must be absent or empty; publication-transaction behavior is tested
     through the build command itself.
     """
     destination = Path(index_dir)
-    stage_parent = gene_index_build._create_gene_index_transaction(destination)
-    staged_index = stage_parent / destination.name
+    staged_index = gene_index_build._create_gene_index_stage(destination)
     try:
         staged = {}
         for chrom, record in chromosomes.items():
@@ -60,7 +59,6 @@ def write_gene_ldscore_index(index_dir, *, index_identity, gene_catalog, chromos
             gene_catalog=gene_catalog,
             chromosomes=staged,
         )
-        return gene_index_build._commit_staged_gene_ldscore_index(stage_parent, destination)
-    except Exception:
-        _remove_gene_index_transaction(stage_parent, published=False)
-        raise
+        return gene_index_build._publish_staged_gene_ldscore_index(staged_index, destination)
+    finally:
+        _remove_gene_index_transaction(gene_index_build._gene_index_build_dir(destination), published=False)

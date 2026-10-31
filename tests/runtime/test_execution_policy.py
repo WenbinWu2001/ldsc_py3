@@ -244,9 +244,9 @@ def test_real_index_worker_failure_removes_completed_shards(tmp_path, monkeypatc
     with pytest.raises(RuntimeError, match="chromosome 21 was staged"):
         builder.run_build_gene_ldscore_index_from_args(args)
     assert not Path(event.read_text()).exists()
-    assert not (tmp_path / "index").exists()
-    assert not list(tmp_path.glob(".index.stage-*"))
-    log = (tmp_path / ".index.build-state/build-gene-ldscore-index.log").read_text()
+    assert not (tmp_path / "index/metadata.json").exists()
+    assert not (tmp_path / "index/.build/stage").exists()
+    log = (tmp_path / "index/.build/build-gene-ldscore-index.log").read_text()
     assert "Finished chromosome 21" in log and "chromosome 21 was staged" in log
 
 

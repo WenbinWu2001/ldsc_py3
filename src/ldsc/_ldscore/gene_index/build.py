@@ -101,10 +101,8 @@ from .artifact import (
     _catalog_identity_records,
     _finalize_staged_index_artifact,
     _index_chromosome_metadata,
-    _read_json,
     _remove_gene_index_transaction,
     _stage_index_chromosome,
-    _write_json,
     calculate_index_id,
     index_global_config,
 )
@@ -476,7 +474,12 @@ def _build_embedded_gene_catalog(
     command="run_build_gene_ldscore_index_from_args(...)",
 )
 def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
-    """Build one gene LD-score index through locked preflight and staged publication."""
+    """Build one gene LD-score index through locked preflight and staged publication.
+
+    Every file the build touches is inside ``args.output_dir``: the lock, live
+    log, issue tables and staged index sit in its hidden ``.build/``
+    directory, which a successful build removes.
+    """
     started = time.perf_counter()
     chromosomes = index_artifact.INDEX_CHROMOSOMES
     baseline_sources = tuple(split_cli_path_tokens(args.baseline_annot_sources))
@@ -506,7 +509,6 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
     with _gene_index_build_lock(index_path):
         live_log_path = _prepare_gene_index_log(index_path)
         with workflow_logging("build-gene-ldscore-index", live_log_path, log_level=args.log_level):
-            _recover_gene_index_publication(index_path)
             _preflight_gene_index_output(index_path, overwrite=bool(args.overwrite))
             log_inputs(
                 output_dir=str(config.output_dir),
@@ -546,8 +548,8 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                     'genetic_map_hg19_sources', 'genetic_map_hg38_sources')],
                 scalar_files=[(name, getattr(args, name, None)) for name in (
                     'gene_coordinate_file', 'keep_indivs_file', 'regr_snps_file')],
-                issues_path=_gene_index_build_state_dir(index_path)/'input_issues.tsv',
-                plink_issues_path=_gene_index_build_state_dir(index_path)/'plink_input_issues.tsv')
+                issues_path=_gene_index_build_dir(index_path)/'input_issues.tsv',
+                plink_issues_path=_gene_index_build_dir(index_path)/'plink_input_issues.tsv')
             try:
                 catalog = GeneCatalog.load(config.gene_coordinate_file, require_canonical=True)
             except GeneCatalogValidationError as exc:
@@ -565,19 +567,19 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                 check.table("baseline annotations", path)
             check.paths("regression SNPs", config.regr_snps_file, restriction_mode=config.snp_identifier)
             check.resolve()
-            stage_parent = _create_gene_index_transaction(index_path)
+            staged_index = _create_gene_index_stage(index_path)
             try:
                 published_path = _run_gene_ldscore_index_build(
                     args,
                     config,
                     chromosomes,
                     catalog=catalog,
-                    stage_parent=stage_parent,
+                    staged_index=staged_index,
                     started=started,
                     declared_inputs=declared_inputs,
                 )
             except Exception:
-                _remove_gene_index_transaction(stage_parent, published=False)
+                _remove_gene_index_transaction(staged_index, published=False)
                 raise
         _finalize_gene_index_log(live_log_path, published_path)
         return published_path
@@ -750,12 +752,11 @@ def _run_gene_ldscore_index_build(
     chromosomes: tuple[str, ...],
     *,
     catalog: GeneCatalog,
-    stage_parent: Path,
+    staged_index: Path,
     started: float,
     declared_inputs,
 ) -> Path:
-    """Build chromosome shards into one transaction and publish it atomically."""
-    staged_index = stage_parent / Path(config.output_dir).name
+    """Build chromosome shards into the staged index, then publish it with root metadata last."""
     embedded_catalog = _build_embedded_gene_catalog(
         catalog,
         genome_build=config.genome_build,
@@ -766,8 +767,8 @@ def _run_gene_ldscore_index_build(
     regression_path = Path(config.regr_snps_file or packaged_hm3_curated_map_path())
     from ..._runtime.preflight import InputGate
     from ..._runtime.progress import PhaseProgress
-    state_dir = _gene_index_build_state_dir(Path(config.output_dir))
-    gate = InputGate('Reference/control content validation', state_dir/'input_issues.tsv')
+    build_dir = _gene_index_build_dir(Path(config.output_dir))
+    gate = InputGate('Reference/control content validation', build_dir/'input_issues.tsv')
     with PhaseProgress(LOGGER, 'validation', 'PLINK, regression restriction, and genetic map content'):
         regression_keys = gate.check('regression SNPs', regression_path,
             lambda: read_snp_restriction_keys(regression_path, config.snp_identifier, genome_build=config.genome_build))
@@ -778,7 +779,7 @@ def _run_gene_ldscore_index_build(
         try:
             plink.require_valid(required_chromosomes=chromosomes)
         except LDSCInputError:
-            pd.DataFrame(plink.issues).to_csv(state_dir/'plink_input_issues.tsv', sep='\t', index=False)
+            pd.DataFrame(plink.issues).to_csv(build_dir/'plink_input_issues.tsv', sep='\t', index=False)
             gate.issues.extend(plink.issues)
         gate.finish()
     regression_presets = kernel_regions.regr_snps_exclude_regions_choice_to_presets(config.regr_snps_exclude_regions)
@@ -789,7 +790,7 @@ def _run_gene_ldscore_index_build(
     )
     chromosome_prefixes = plink.chromosome_prefixes
 
-    with AnnotationWorkspace(stage_parent) as workspace:
+    with AnnotationWorkspace(build_dir) as workspace:
         paths, declared, issues = declared_inputs.baseline, declared_inputs.declarations, []
         sources = prepare_annotation_sources(
             workspace, paths, [], mode=global_config.snp_identifier,
@@ -804,7 +805,7 @@ def _run_gene_ldscore_index_build(
                 if chrom in baseline_drops:
                     baseline_drops[chrom].append(records.assign(stage="gene_index_baseline_identity_cleanup"))
 
-        _validate_baseline_plink_inputs(sources, chromosome_prefixes, config, chromosomes, state_dir)
+        _validate_baseline_plink_inputs(sources, chromosome_prefixes, config, chromosomes, build_dir)
 
         def task_arguments(chrom):
             chrom_catalog = embedded_catalog.loc[embedded_catalog["chrom"].astype(str) == chrom].sort_values(
@@ -926,7 +927,7 @@ def _run_gene_ldscore_index_build(
         "publication": {
             "overwrite": bool(args.overwrite),
             "staging_reload_validation": "passed",
-            "atomic_publication": "completed",
+            "published_reload_validation": "passed",
             "index_path": str(index_path),
         },
         "chromosomes": evidence_by_chrom,
@@ -948,7 +949,7 @@ def _run_gene_ldscore_index_build(
             chromosomes=staged_chromosomes,
             diagnostic_payload=diagnostic_payload,
         )
-        published_path = _commit_staged_gene_ldscore_index(stage_parent, Path(config.output_dir))
+        published_path = _publish_staged_gene_ldscore_index(staged_index, index_path)
     except Exception as exc:
         LOGGER.error(
             f"Gene LD-score index build failed during staged validation/publication: "
@@ -963,29 +964,43 @@ def _run_gene_ldscore_index_build(
         index_id=index_id,
         index=str(published_path),
         summary_json=str(published_path / "diagnostics" / "build-gene-ldscore-index.json"),
-        publication="staged, reloaded, validated, and atomically replaced",
+        publication="staged, reload-validated, published with root metadata last, and reload-validated",
     )
     return published_path
 
 
 @contextmanager
 def _gene_index_build_lock(index_path: Path):
-    """Hold a nonblocking build lock for one absolute destination."""
+    """Hold a nonblocking build lock for one destination, inside its build directory.
+
+    A successful build removes its build directory while still holding the
+    lock, so a lock taken on a file that is no longer at the lock path is
+    retried on a fresh lock file.
+    """
     destination = index_path.expanduser().resolve()
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    build_state = _gene_index_build_state_dir(destination)
-    build_state.mkdir(parents=True, exist_ok=True)
-    handle = (build_state / "build-gene-ldscore-index.lock").open("a+", encoding="utf-8")
-    try:
+    lock_path = _gene_index_build_dir(destination) / "build-gene-ldscore-index.lock"
+    for _attempt in range(3):
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        handle = lock_path.open("a+", encoding="utf-8")
         try:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             handle.seek(0)
             owner = handle.read().strip() or "unknown owner"
+            handle.close()
             raise LDSCInputError(
                 f"Another build-gene-ldscore-index process is active for {destination} ({owner}). "
-                f"Monitor {build_state / 'build-gene-ldscore-index.log'}."
+                f"Monitor {lock_path.parent / 'build-gene-ldscore-index.log'}."
             ) from exc
+        if lock_path.exists() and lock_path.stat().st_ino == os.fstat(handle.fileno()).st_ino:
+            break
+        handle.close()
+    else:
+        raise LDSCInputError(
+            f"Could not hold the build lock for {destination}: another build kept replacing "
+            f"{lock_path}. Retry once no build-gene-ldscore-index process targets this directory."
+        )
+    try:
         handle.seek(0)
         handle.truncate()
         handle.write(f"pid={os.getpid()} host={socket.gethostname()} target={destination}\n")
@@ -998,21 +1013,37 @@ def _gene_index_build_lock(index_path: Path):
         handle.close()
 
 
+# Root entries a published index owns; publication replaces them, root metadata last.
+_INDEX_COMPONENTS = ("metadata.json", "gene_catalog.parquet", "chromosomes", "diagnostics")
+
+
 def _preflight_gene_index_output(
     index_path: Path,
     *,
     overwrite: bool,
 ) -> None:
-    """Validate the publication destination without creating or mutating it."""
+    """Validate the publication destination without changing published files.
+
+    The build directory and a failure marker are the builder's own; a
+    directory holding nothing else is reused. Only a successful build removes
+    the build directory, so index components beside it without a loadable
+    index are the remains of an interrupted build or publication and need
+    ``overwrite``; any other content is refused.
+    """
     if index_path.exists() and not index_path.is_dir():
         raise FileExistsError(f"Gene LD-score index output is not a directory: {index_path}")
-    if not index_path.exists():
-        return
-    if not any(index_path.iterdir()) or _is_failure_marker_only_gene_index(index_path):
+    if not index_path.exists() or _is_build_leftover_only(index_path):
         return
     try:
         load_gene_ldscore_index(index_path)
     except Exception as exc:
+        if (index_path / _BUILD_DIR).is_dir() and all(map(_is_owned_index_entry, index_path.iterdir())):
+            if overwrite:
+                return
+            raise FileExistsError(
+                f"Gene LD-score index output directory holds an incomplete gene LD-score index, "
+                f"most likely from an interrupted publication: {index_path}. Pass --overwrite to rebuild it."
+            ) from exc
         raise FileExistsError(
             f"Gene LD-score index output directory is nonempty but invalid: {index_path}. "
             "Choose an empty directory; --overwrite does not replace unrecognized contents."
@@ -1023,110 +1054,13 @@ def _preflight_gene_index_output(
         )
 
 
-def _recover_gene_index_publication(
-    index_path: Path,
-) -> None:
-    """Recover or clean recognized interrupted publication transactions."""
-    destination = index_path.expanduser().resolve()
-    candidates: list[Path] = []
-    for path in destination.parent.glob(f".{destination.name}.stage-*"):
-        marker_path = path / ".gene-index-publication.json"
-        try:
-            marker = _read_json(marker_path, "publication marker")
-        except LDSCInputError:
-            continue
-        if (
-            marker.get("artifact_type") == "gene_ldscore_index_publication"
-            and marker.get("target") == str(destination)
-        ):
-            candidates.append(path)
-    if not candidates:
-        return
-
-    target_valid = False
-    if destination.exists():
-        try:
-            load_gene_ldscore_index(destination)
-        except Exception:
-            target_valid = False
-        else:
-            target_valid = True
-    if target_valid:
-        try:
-            (destination / ".gene-index-publication.json").unlink(missing_ok=True)
-        except Exception as exc:
-            LOGGER.warning(
-                "The published gene LD-score index is valid, but its completed-publication marker "
-                f"could not be removed: {destination / '.gene-index-publication.json'} "
-                f"({type(exc).__name__}: {exc}). The marker is safe to remove after this build."
-            )
-        for candidate in candidates:
-            _remove_gene_index_transaction(candidate, published=True)
-        return
-
-    backup_paths: list[Path] = []
-    valid_backups: list[Path] = []
-    for candidate in candidates:
-        backup = candidate / f"{destination.name}.backup"
-        if not backup.is_dir():
-            continue
-        backup_paths.append(backup)
-        marker_path = backup / ".gene-index-publication.json"
-        try:
-            marker = _read_json(marker_path, "backup publication marker")
-            load_gene_ldscore_index(backup)
-        except Exception:
-            continue
-        if marker.get("target") == str(destination):
-            valid_backups.append(backup)
-    if not valid_backups and not backup_paths:
-        for candidate in candidates:
-            _remove_gene_index_transaction(candidate, published=False)
-        return
-    if len(valid_backups) != 1:
-        listed = ", ".join(str(path) for path in valid_backups) or "none"
-        raise LDSCInputError(
-            "Gene LD-score index publication recovery is ambiguous: the target is missing or invalid "
-            f"and valid matching backups are {listed}. Preserve these paths and resolve them manually."
-        )
-    backup = valid_backups[0]
-    if destination.exists():
-        if _is_failure_marker_only_gene_index(destination):
-            failure_marker = destination / FAILURE_MARKER
-            if failure_marker.is_file():
-                # Recovery is not completion of the current build; retain its marker.
-                os.replace(failure_marker, backup / failure_marker.name)
-        else:
-            target_marker = destination / ".gene-index-publication.json"
-            try:
-                marker = _read_json(target_marker, "target publication marker")
-            except LDSCInputError as exc:
-                raise LDSCInputError(
-                    f"Cannot replace invalid unrecognized gene-index target during recovery: {destination}."
-                ) from exc
-            if marker.get("target") != str(destination):
-                raise LDSCInputError(
-                    f"Cannot replace invalid unrecognized gene-index target during recovery: {destination}."
-                )
-        shutil.rmtree(destination)
-    os.replace(backup, destination)
-    try:
-        (destination / ".gene-index-publication.json").unlink(missing_ok=True)
-    except Exception as exc:
-        LOGGER.warning(
-            "The recovered gene LD-score index is valid, but its publication marker could not be "
-            f"removed: {destination / '.gene-index-publication.json'} "
-            f"({type(exc).__name__}: {exc})."
-        )
-    for candidate in candidates:
-        if candidate.exists():
-            _remove_gene_index_transaction(candidate, published=True)
+# Hidden directory inside the index for the lock, live log, issue tables and staged index.
+_BUILD_DIR = ".build"
 
 
-def _gene_index_build_state_dir(index_path: Path) -> Path:
-    """Return the stable sibling directory for mutable build diagnostics."""
-    destination = index_path.expanduser()
-    return destination.with_name(f".{destination.name}.build-state")
+def _gene_index_build_dir(index_path: Path) -> Path:
+    """Return the hidden build directory inside the index directory."""
+    return index_path.expanduser() / _BUILD_DIR
 
 
 def _archive_gene_index_log(log_path: Path, history: Path) -> Path:
@@ -1138,23 +1072,30 @@ def _archive_gene_index_log(log_path: Path, history: Path) -> Path:
 
 
 def _prepare_gene_index_log(index_path: Path) -> Path:
-    """Archive prior attempts and return the hidden stable live-log path."""
-    build_state = _gene_index_build_state_dir(index_path)
-    build_state.mkdir(parents=True, exist_ok=True)
-    log_path = build_state / "build-gene-ldscore-index.log"
+    """Archive a failed attempt's log and issue tables, discard its scratch, and return the live-log path.
+
+    Only a failed or interrupted attempt leaves a build directory; its staged
+    index and workspaces are never reused.
+    """
+    build_dir = _gene_index_build_dir(index_path)
+    build_dir.mkdir(parents=True, exist_ok=True)
+    for entry in build_dir.iterdir():
+        if entry.is_dir() and not entry.is_symlink() and entry.name != "history":
+            shutil.rmtree(entry)
+    log_path = build_dir / "build-gene-ldscore-index.log"
     if log_path.exists():
-        history = build_state / "history"
+        history = build_dir / "history"
         history.mkdir(exist_ok=True)
         _archive_gene_index_log(log_path, history)
-    plink_issues = build_state / "plink_input_issues.tsv"
+    plink_issues = build_dir / "plink_input_issues.tsv"
     if plink_issues.exists():
-        history = build_state / "history"
+        history = build_dir / "history"
         history.mkdir(exist_ok=True)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
         os.replace(plink_issues, history / f"plink_input_issues.{timestamp}.tsv")
-    issues_path = build_state / "gene_coordinate_catalog_issues.tsv.gz"
+    issues_path = build_dir / "gene_coordinate_catalog_issues.tsv.gz"
     if issues_path.exists():
-        history = build_state / "history"
+        history = build_dir / "history"
         history.mkdir(exist_ok=True)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
         os.replace(
@@ -1165,20 +1106,20 @@ def _prepare_gene_index_log(index_path: Path) -> Path:
 
 
 def _write_gene_catalog_issues(index_path: Path, issues: pd.DataFrame) -> Path:
-    """Write the complete current-attempt catalog repair audit in build state."""
-    path = _gene_index_build_state_dir(index_path) / "gene_coordinate_catalog_issues.tsv.gz"
+    """Write the complete current-attempt catalog repair audit in the build directory."""
+    path = _gene_index_build_dir(index_path) / "gene_coordinate_catalog_issues.tsv.gz"
     path.parent.mkdir(parents=True, exist_ok=True)
     issues.to_csv(path, sep="\t", index=False, na_rep="", compression="gzip")
     return path
 
 
 def _finalize_gene_index_log(live_log_path: Path, published_path: Path) -> Path:
-    """Move one closed successful log into the published index diagnostics.
+    """Move one closed successful log into the published index diagnostics and remove the build directory.
 
     Log placement occurs after the workflow context writes its ``Finished``
     footer and closes the file handler. Failure is warning-only because the
     scientific index has already been published and reload-validated; the live
-    log remains at its hidden path for inspection and later manual movement.
+    log and its build directory then remain for inspection and later manual movement.
     """
     final_log_path = published_path / "diagnostics" / live_log_path.name
     try:
@@ -1198,19 +1139,43 @@ def _finalize_gene_index_log(live_log_path: Path, published_path: Path) -> Path:
         warnings.warn(message, UserWarning, stacklevel=2)
         return live_log_path
     set_workflow_log_path(final_log_path)
+    try:
+        shutil.rmtree(live_log_path.parent)
+    except OSError as exc:
+        warnings.warn(
+            "The gene LD-score index was published and reload-validated, but its build directory "
+            f"could not be removed ({type(exc).__name__}: {exc}): {live_log_path.parent}. The published "
+            "index remains valid; the next build of this index removes the directory.",
+            UserWarning,
+            stacklevel=2,
+        )
     return final_log_path
 
 
-def _is_failure_marker_only_gene_index(path: Path) -> bool:
-    """Recognize a failed build's destination: only the regular root ``RUN_FAILED.txt`` file.
+def _is_owned_index_entry(entry: Path) -> bool:
+    """Return whether one top-level entry is the builder's: build directory, marker file, or index component."""
+    if entry.is_symlink():
+        return False
+    if entry.name == _BUILD_DIR:
+        return entry.is_dir()
+    if entry.name == FAILURE_MARKER:
+        return entry.is_file()
+    return entry.name in _INDEX_COMPONENTS
 
-    Builds keep their live logs in hidden sibling build state, so a failed
-    build leaves at most the marker in the destination.
-    """
+
+def _is_build_leftover_only(path: Path) -> bool:
+    """Recognize a failed build's destination: only the build directory and a regular ``RUN_FAILED.txt``."""
     if not path.is_dir():
         return False
-    marker = path / FAILURE_MARKER
-    return list(path.iterdir()) == [marker] and marker.is_file() and not marker.is_symlink()
+    for entry in path.iterdir():
+        if entry.is_symlink():
+            return False
+        if entry.name == _BUILD_DIR and entry.is_dir():
+            continue
+        if entry.name == FAILURE_MARKER and entry.is_file():
+            continue
+        return False
+    return True
 
 
 def _log_gene_index_summary(payload: dict) -> None:
@@ -1266,7 +1231,7 @@ def _log_gene_index_summary(payload: dict) -> None:
     LOGGER.info(
         f"Publication: index_id={payload['index_id']}, overwrite={publication['overwrite']}, "
         f"staged-reload={publication['staging_reload_validation']}, "
-        f"atomic-publication={publication['atomic_publication']}."
+        f"published-reload={publication['published_reload_validation']}."
     )
     LOGGER.info(
         f"Gene LD-score index build completed and validated: chromosomes={totals['chromosome_count']}, "
@@ -1436,68 +1401,42 @@ def _selected_individual_ids(fam, selected_indices: Sequence[int]) -> list[str]:
     return identifiers.iloc[list(selected_indices), 0].astype(str).tolist()
 
 
-def _create_gene_index_transaction(destination: Path) -> Path:
-    """Create one marked run-specific sibling stage without touching the target."""
-    destination = destination.expanduser()
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    stage_parent = Path(
-        tempfile.mkdtemp(prefix=f".{destination.name}.stage-", dir=destination.parent)
-    )
-    marker = {
-        "artifact_type": "gene_ldscore_index_publication",
-        "target": str(destination.resolve()),
-    }
-    _write_json(stage_parent / ".gene-index-publication.json", marker)
-    (stage_parent / destination.name / "chromosomes").mkdir(parents=True)
-    return stage_parent
+def _create_gene_index_stage(destination: Path) -> Path:
+    """Create the empty staged index inside the destination's build directory."""
+    staged_index = _gene_index_build_dir(destination) / "stage"
+    if staged_index.exists():
+        shutil.rmtree(staged_index)
+    (staged_index / "chromosomes").mkdir(parents=True)
+    return staged_index
 
 
-def _commit_staged_gene_ldscore_index(
-    stage_parent: Path,
-    destination: Path,
-) -> Path:
-    """Validate and install an already-written index without recopying payloads.
+def _publish_staged_gene_ldscore_index(staged_index: Path, destination: Path) -> Path:
+    """Move a reload-validated staged index into its destination, root metadata last.
 
-    The prior valid destination is held as a transaction-local backup until the
-    replacement reloads successfully. Cleanup after that commit point is
-    warning-only; pre-commit failure restores the backup and remains fatal.
+    The root ``metadata.json`` records ``index_id`` and the loader rejects a
+    directory without it. Removing the old root metadata first and writing
+    the new one last means an interrupted publication leaves an index that
+    no reader accepts, never a mixture of two builds. Each staged entry
+    replaces its counterpart, with ``diagnostics/`` merged entry by entry;
+    payloads are moved, not copied, and other files in the destination are
+    kept.
     """
-    staged_index = stage_parent / destination.name
-    marker = _read_json(stage_parent / ".gene-index-publication.json", "publication marker")
-    committed = False
-    try:
-        _write_json(staged_index / ".gene-index-publication.json", marker)
-        load_gene_ldscore_index(staged_index)
-        backup = stage_parent / f"{destination.name}.backup"
-        if destination.exists():
-            _write_json(destination / ".gene-index-publication.json", marker)
-            try:
-                os.replace(destination, backup)
-            except Exception:
-                (destination / ".gene-index-publication.json").unlink(missing_ok=True)
-                raise
-        try:
-            os.replace(staged_index, destination)
-            load_gene_ldscore_index(destination)
-        except Exception:
-            if destination.exists():
-                shutil.rmtree(destination)
-            if backup.exists():
-                os.replace(backup, destination)
-                (destination / ".gene-index-publication.json").unlink(missing_ok=True)
-            raise
-        committed = True
-        try:
-            (destination / ".gene-index-publication.json").unlink(missing_ok=True)
-        except Exception as exc:
-            LOGGER.warning(
-                "The gene LD-score index was published and reload-validated, but its publication "
-                f"marker could not be removed ({type(exc).__name__}: {exc}): "
-                f"{destination / '.gene-index-publication.json'}. The published index is valid."
-            )
-    except Exception:
-        raise
-    _remove_gene_index_transaction(stage_parent, published=committed)
+    load_gene_ldscore_index(staged_index)
+    (destination / "metadata.json").unlink(missing_ok=True)
+    (destination / "diagnostics" / "build-gene-ldscore-index.log").unlink(missing_ok=True)
+    staged = [entry for entry in staged_index.iterdir() if entry.name not in {"metadata.json", "diagnostics"}]
+    if (staged_index / "diagnostics").is_dir():
+        staged.extend((staged_index / "diagnostics").iterdir())
+    for source in staged:
+        target = destination / source.relative_to(staged_index)
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target)
+        else:
+            target.unlink(missing_ok=True)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(source, target)
+    os.replace(staged_index / "metadata.json", destination / "metadata.json")
+    load_gene_ldscore_index(destination)
     return destination
 
 
@@ -1801,7 +1740,7 @@ def intersect_baseline_plink_by_identifier(
     return BaselinePlinkIntersection(matched_plink, aligned_annotations, diagnostics, dropped)
 
 
-def _validate_baseline_plink_inputs(sources, prefixes, config, chromosomes, state_dir):
+def _validate_baseline_plink_inputs(sources, prefixes, config, chromosomes, build_dir):
     """Collect metadata conflicts across chromosomes before starting LD workers."""
     issues = []
     causes = []
@@ -1818,12 +1757,12 @@ def _validate_baseline_plink_inputs(sources, prefixes, config, chromosomes, stat
             issues.append(records.assign(baseline_sources=",".join(config.baseline_annot_sources),
                                          plink_source=str(prefixes[chrom]) + ".bim"))
     if identity_mode_family(config.snp_identifier) == "rsid":
-        cross_chromosome = _cross_chromosome_rsid_issues(sources, prefixes, config, chromosomes, state_dir)
+        cross_chromosome = _cross_chromosome_rsid_issues(sources, prefixes, config, chromosomes, build_dir)
         if not cross_chromosome.empty:
             issues.append(cross_chromosome.assign(baseline_sources=",".join(config.baseline_annot_sources),
                                                   reason="cross_chromosome_coordinate_mismatch"))
             causes.append(LDSCInputError("Shared baseline/PLINK rsIDs declare different chromosomes."))
-    path = state_dir / "baseline_plink_issues.tsv"
+    path = build_dir / "baseline_plink_issues.tsv"
     if issues:
         frame = pd.concat(issues, ignore_index=True)
         frame.to_csv(path, sep="\t", index=False)
@@ -1838,9 +1777,9 @@ def _validate_baseline_plink_inputs(sources, prefixes, config, chromosomes, stat
     path.unlink(missing_ok=True)
 
 
-def _cross_chromosome_rsid_issues(sources, prefixes, config, chromosomes, state_dir):
+def _cross_chromosome_rsid_issues(sources, prefixes, config, chromosomes, build_dir):
     """Join chromosome declarations on disk without retaining genome-wide metadata."""
-    with tempfile.TemporaryDirectory(prefix="identity-", dir=state_dir) as temporary:
+    with tempfile.TemporaryDirectory(prefix="identity-", dir=build_dir) as temporary:
         with closing(sqlite3.connect(str(Path(temporary) / "coordinates.sqlite"))) as database:
             for table in ("baseline", "plink"):
                 database.execute(f"CREATE TABLE {table} (SNP TEXT, CHR TEXT, POS INTEGER)")

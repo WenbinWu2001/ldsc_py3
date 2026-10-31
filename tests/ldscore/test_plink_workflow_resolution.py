@@ -95,12 +95,12 @@ def test_gene_index_reports_every_plink_problem_before_projection(tmp_path, monk
     args = index_args(tmp_path, str(tmp_path / "1000G.EUR.QC."), tmp_path / "index", monkeypatch)
     with pytest.raises(LDSCInputError, match="complete .bed/.bim/.fam"):
         gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
-    audit = pd.read_csv(tmp_path / ".index.build-state/plink_input_issues.tsv", sep="\t")
+    audit = pd.read_csv(tmp_path / "index/.build/plink_input_issues.tsv", sep="\t")
     missing_paths = audit.source.dropna().tolist()
     assert any(path.endswith("21.bed") for path in missing_paths)
     assert any(path.endswith("22.fam") for path in missing_paths)
-    assert not (tmp_path / "index").exists()
-    assert not list(tmp_path.glob(".index.stage-*"))
+    assert [path.name for path in (tmp_path / "index").iterdir()] == [".build"]
+    assert not (tmp_path / "index/.build/stage").exists()
 
 
 def test_r2_builder_accepts_plain_dotted_prefix(tmp_path):
@@ -160,7 +160,7 @@ def test_failed_gene_index_build_can_retry_with_its_failure_marker(tmp_path, mon
         gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
     marker = output / "RUN_FAILED.txt"
     assert marker.is_file()
-    assert list(output.iterdir()) == [marker]
+    assert sorted(path.name for path in output.iterdir()) == [".build", "RUN_FAILED.txt"]
     with pytest.raises(LDSCInputError, match="No selected PLINK input exists"):
         gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
     assert marker.is_file()
@@ -168,6 +168,7 @@ def test_failed_gene_index_build_can_retry_with_its_failure_marker(tmp_path, mon
     args.plink_prefix = str(tmp_path / "1000G.EUR.QC.")
     gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
     assert not marker.exists()
+    assert not (output / ".build").exists()
     index = load_gene_ldscore_index(output)
     assert index.chromosomes == ("21", "22")
     np.testing.assert_array_equal(index.gene_support, [4, 4])

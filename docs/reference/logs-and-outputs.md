@@ -1,6 +1,6 @@
 # Logs and Outputs
 
-Last updated on: 2026-10-30
+Last updated on: 2026-10-31
 
 This page describes what a logged workflow writes besides its scientific results: logs, console messages, output preflight and failure markers.
 The rules for writing log and error messages, and the logging API boundary, are in [logging design](../dev/design/logging.md).
@@ -12,6 +12,15 @@ It never opens a workflow log, creates an output directory, or writes a failure 
 It accepts no verbosity or logging options; errors must not suggest `--log-level DEBUG` or point to a previous workflow log.
 An unknown build is a successful inspection (exit 0), not a logged workflow failure.
 See the [inspection contract](snp-identity-and-genome-build.md#standalone-build-inspection) for the remaining exit codes.
+
+## Output confinement
+
+Every file a run creates, writes, renames or deletes is inside its output directory, or inside the `plots/` or `postprocessing/liability-scale/` root that `plot` and `convert-h2-scale` derive from a result directory.
+Logs, diagnostics, failure markers, scratch workspaces and the gene LD-score index build state are all there; nothing is written beside the output directory, in an input directory, in the working directory, or in the system temporary directory.
+An empty or blank destination (`--output-dir ""`, `output_dir=""`, or the same for a result directory) is rejected before anything is written, because it would otherwise mean the working directory: on the command line as an argument-parsing error (exit 2), and in Python as `LDSCConfigError`.
+Pass `.` to use the working directory on purpose.
+A workflow that reads a saved `run_annotate` result prepares it in its own output directory, never in the annotate output directory.
+Matplotlib's own per-user configuration and font cache, created the first time `plot` or `convert-h2-scale` imports it, are outside the package's control.
 
 ## Workflow log lifecycle
 
@@ -117,7 +126,7 @@ Input gates do not authorize scientific output replacement, remove stale science
 R² matrix builds derive their chromosome-specific output family from validated PLINK contents; their early discovery repair table can therefore precede the full output-family check, as the previous PLINK repair table did.
 
 [`_runtime.preflight.InputGate`](../../src/ldsc/_runtime/preflight.py) collects independent input errors across objects at a stage and retains `input_issues` on the exception.
-Writing workflows persist the existing six-column `input_issues.tsv` repair table under diagnostics; gene LD-score index builds use the sibling `.<index>.build-state/` directory.
+Writing workflows persist the existing six-column `input_issues.tsv` repair table under diagnostics; gene LD-score index builds use the index directory's hidden `.build/` directory.
 Existing PLINK and gene-specific audits remain available.
 The table is a diagnostic, not a new scientific artifact or resumable checkpoint.
 
@@ -211,10 +220,12 @@ A failure after a run has completed, such as the printed munging summary failing
 `diagnostics/input_issues.tsv` or `diagnostics/plink_input_issues.tsv` records those input errors.
 
 The marker helper uses `_runtime.paths.normalize_path_token`, matching output preflight and publication.
-CLI marker scope follows the last occurrence of a destination option, as argparse does, and an empty destination such as `--output-dir ""` has no marker scope.
+CLI marker scope follows the last occurrence of a destination option, as argparse does.
+An empty destination is rejected before any marker scope opens (see [Output confinement](#output-confinement)).
+`plot` and `convert-h2-scale` check that their result directory exists before the marker scope opens, so a missing or misspelled result directory creates nothing.
 Marker-only directories do not collide with writer artifact families.
-Gene LD-score index preflight, direct publication, and interrupted-publication recovery share recognition of owned diagnostics; this excludes symlinks, special files, and unrelated empty subdirectories.
-Existing recovery of a validated owned backup preserves the failure marker until the current build succeeds.
+Gene LD-score index preflight recognizes the index's own hidden `.build/` directory and a regular `RUN_FAILED.txt`; symlinks, special files and unrelated entries are not recognized.
+A failed build's marker stays until a build of the same index succeeds.
 See [`test_output_directory_retries.py`](../../tests/runtime/test_output_directory_retries.py).
 
 CLI help and `munge-sumstats --infer-only` bypass the marker lifecycle entirely.
@@ -285,7 +296,7 @@ header is written and final work before the footer is written.
 | `annotate` | `<output_dir>/diagnostics/annotate.log` |
 | `ldscore` | `<output_dir>/diagnostics/ldscore.log` |
 | `build-r2-matrix` | `<output_dir>/diagnostics/build-r2-matrix.log`, or `<output_dir>/diagnostics/build-r2-matrix.chr<chrom>.log` for concrete single-chromosome PLINK-prefix runs |
-| `build-gene-ldscore-index` | completed success: `<index_dir>/diagnostics/build-gene-ldscore-index.log`; running/failed: `<parent>/.<index-name>.build-state/build-gene-ldscore-index.log`; prior failed attempts move to hidden `history/` |
+| `build-gene-ldscore-index` | completed success: `<index_dir>/diagnostics/build-gene-ldscore-index.log`; running/failed: `<index_dir>/.build/build-gene-ldscore-index.log`; prior failed attempts move to `.build/history/` |
 | `convert-legacy-ldscores` | `<output_dir>/diagnostics/convert-legacy-ldscores.log` |
 | `h2` | `<output_dir>/diagnostics/h2.log` |
 | `partitioned-h2` | `<output_dir>/diagnostics/partitioned-h2.log` |

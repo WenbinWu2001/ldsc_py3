@@ -1,6 +1,6 @@
 # Input Path Specification
 
-Last updated on: 2026-10-30
+Last updated on: 2026-10-31
 
 Examples below use the munged file names written without a trait label (`sumstats.parquet`, `sumstats.gz`); naming rules are in [artifact metadata](formats/artifact-metadata.md).
 
@@ -72,7 +72,7 @@ PLINK is an exception to the file-token rule against bare prefixes. `ldscore`, `
 `require_valid()` raises a combined error, optionally including missing required chromosomes.
 `resolve_plink_prefix_group()` retains the path-only group interface when no chromosome is requested; per-chromosome resolution uses the shared content validation.
 The direct workflow combines these issues with its annotation diagnostics.
-Failed gene LD-score index build attempts retain `plink_input_issues.tsv` under `.<output-name>.build-state/`; a later attempt archives that audit alongside the prior log.
+Failed gene LD-score index build attempts retain `plink_input_issues.tsv` under `<index-dir>/.build/`; a later attempt archives that audit alongside the prior log.
 Failed `build-r2-matrix` validation writes `diagnostics/plink_input_issues.tsv`.
 
 ### Pattern support in command help

@@ -1,6 +1,6 @@
 # Artifact Metadata Field Inventory
 
-Last updated on: 2026-10-30
+Last updated on: 2026-10-31
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](../munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -47,8 +47,8 @@ under `diagnostics/` and then moved into final position as a unit; reruns that
 omit those optional details remove the old tree after a successful overwrite.
 Always-written audit sidecars such as workflow logs and dropped-SNP tables are
 included in the owned family for ordinary result-directory workflows.
-The gene LD-score index builder is the deliberate exception while running: its open log, history, and lock live in hidden sibling `.<index-name>.build-state/`.
-Once the handler closes, the successful log moves into the published index diagnostics.
+The gene LD-score index builder keeps its open log, history, lock and staged index in the index's hidden `.build/` directory while running.
+Once the handler closes, the successful log moves into the published index diagnostics and `.build/` is removed.
 
 ## Public Output Layouts
 

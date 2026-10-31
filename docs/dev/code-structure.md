@@ -1,6 +1,6 @@
 # Code Structure
 
-Last updated on: 2026-10-30
+Last updated on: 2026-10-31
 
 This is the authoritative contributor entry for LDSC3.
 Start here to locate a change.
@@ -225,10 +225,9 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
   `annotate`, and summary-table regression commands.
 - Treat workflow logs as diagnostic files. Do not include log paths in
   `output_paths` mappings or thin metadata sidecars that downstream code
-  interprets as scientific data artifacts. Whole-directory transactional
-  publishers must keep open workflow logs outside the replaceable tree; the
-  gene LD-score index builder uses hidden sibling `.<index-name>.build-state/` and moves
-  only the closed successful log into the published diagnostics.
+  interprets as scientific data artifacts. The gene LD-score index
+  builder keeps its open workflow log in the index's hidden `.build/` directory and moves
+  only the closed successful log into the published diagnostics; nothing is written beside the index.
 - Keep regression file-driven: it should be able to rebuild state from written artifacts without recomputing LD scores.
 - Keep plotting metadata-driven and post-fit: plot builders consume declared canonical tables and never refit. Matplotlib is required at installation but lazily imported through `ldsc._plotting.builders`.
 - Prefer extending shared helpers or the workflow-owned writer over duplicating local parsing or writing logic.

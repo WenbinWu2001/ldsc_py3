@@ -1,6 +1,6 @@
 # Memory and CPU efficiency design
 
-Last updated on: 2026-10-30
+Last updated on: 2026-10-31
 
 <a id="annotation-and-workflow-memory-design"></a>
 
@@ -112,7 +112,7 @@ Multiple query batches require an output configuration; high-level `run_ldscore(
 Handled failures remove owned scratch while preserving the command's existing failure diagnostics and overwrite markers.
 An interrupted process can leave its private directory behind.
 A new run creates fresh staging and does not automatically reuse or remove abandoned directories.
-The existing gene LD-score index construction transaction is the explicit exception to output-contained staging: sibling build-state, locks, staging, publication, and recovery remain governed by the [index contract](../../reference/gene-ldscore-index.md).
+Gene LD-score index construction also stages inside its output directory, in the index's hidden `.build/` directory; locking, staging and publication follow the [index contract](../../reference/gene-ldscore-index.md).
 
 ## Bounded source preparation
 

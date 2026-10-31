@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-10-30
+Last updated on: 2026-10-31
 
 This reference expands run-aborting `ldsc` errors with at least three distinct plausible causes, following the [current logging and error-message guide](../dev/design/logging.md#diagnostics-and-troubleshooting).
 It also retains guidance for failed-run artifacts, documented query omissions, and cleanup warnings that users need to interpret.
@@ -54,7 +54,7 @@ See the [helper contract](../reference/snp-identity-and-genome-build.md#standalo
 | Declared chromosome coverage differs from content | Use matching annotation/reference suites and a covered catalog selection. An explicit `@` requires the workflow's documented chromosome suite; a glob selects actual matches. |
 | Later alignment, identity, or support failure | These checks need scanned rows or filtered intersections. Use the existing chromosome-scope, gene-list, and SNP-drop audits; passing the earlier path gate cannot establish them. |
 
-Writing workflows retain the six fields `input_role`, `source`, `chrom`, `reason`, `details`, and `repair` in `diagnostics/input_issues.tsv`; gene-index construction uses `.<index>.build-state/input_issues.tsv`. Python exceptions also expose the repair frame as `input_issues`. Existing specialized diagnostics remain authoritative for gene rows, PLINK contents, and alignment. Correct all reported defects at the current gate before rerunning; later content gates may expose defects that could not be established from headers.
+Writing workflows retain the six fields `input_role`, `source`, `chrom`, `reason`, `details`, and `repair` in `diagnostics/input_issues.tsv`; gene-index construction uses `<index-dir>/.build/input_issues.tsv`. Python exceptions also expose the repair frame as `input_issues`. Existing specialized diagnostics remain authoritative for gene rows, PLINK contents, and alignment. Correct all reported defects at the current gate before rerunning; later content gates may expose defects that could not be established from headers.
 
 For `munge-sumstats`, a missing `--raw-sumstats-file` match is recorded as `missing_required_input` before summary-statistic reading begins.
 The message gives a path-specific repair rather than suggesting column or delimiter changes for this failure.
@@ -99,7 +99,7 @@ Markers, logs, audits, and scientific outputs use the same expanded destination.
 2. Narrow broad globs so they match exactly the intended file.
 3. For annotation chromosome suites, use an explicit `@` token such as `baseline.@.annot.gz` or a quoted glob with the full file suffix.
 
-**PLINK resolution (`ldscore`, `build-gene-ldscore-index`, `build-r2-matrix`):** A plain stem such as `1000G.EUR.QC.` is supported and preserves numeric suffixes such as `.22`. These commands share `_runtime.paths.inspect_plink_inputs()`. If `Could not resolve PLINK inputs` appears, read every listed issue: restore each missing BED/BIM/FAM member, replace malformed or truncated trios, verify BIM chromosome contents against any explicit `@` declaration, and narrow inputs when multiple trios contain the same chromosome. Renaming a file does not change its chromosome assignment. Gene-index construction requires chromosomes 1-22 even without `@`; direct query LD-score full-suite declarations also retain their coverage checks. Direct LD-score issues appear in its input diagnostics; gene-index issues are retained in `.<output-name>.build-state/plink_input_issues.tsv`; R²-builder issues appear in `diagnostics/plink_input_issues.tsv`. See the [shared resolution contract](../reference/input-paths.md#plink-prefix-resolution).
+**PLINK resolution (`ldscore`, `build-gene-ldscore-index`, `build-r2-matrix`):** A plain stem such as `1000G.EUR.QC.` is supported and preserves numeric suffixes such as `.22`. These commands share `_runtime.paths.inspect_plink_inputs()`. If `Could not resolve PLINK inputs` appears, read every listed issue: restore each missing BED/BIM/FAM member, replace malformed or truncated trios, verify BIM chromosome contents against any explicit `@` declaration, and narrow inputs when multiple trios contain the same chromosome. Renaming a file does not change its chromosome assignment. Gene-index construction requires chromosomes 1-22 even without `@`; direct query LD-score full-suite declarations also retain their coverage checks. Direct LD-score issues appear in its input diagnostics; gene-index issues are retained in `<index-dir>/.build/plink_input_issues.tsv`; R²-builder issues appear in `diagnostics/plink_input_issues.tsv`. See the [shared resolution contract](../reference/input-paths.md#plink-prefix-resolution).
 
 **Developer reference:** `_runtime.paths.resolve_scalar_path()` and group/path-prefix resolvers · **Exception:** `LDSCInputError`
 
@@ -470,15 +470,10 @@ is dropped; no representative is selected. Inspect
 live log during a failing build). An empty result leaves no reference SNPs for LD scores.
 Under rsID matching, coordinate disagreements stop the build with a repair table.
 Under coordinate matching, differing SNP labels are reported and the PLINK label is published.
-During
-a failed build, check
-`<parent>/.<index-name>.build-state/build-gene-ldscore-index.log`; after a
-successful build, check `<index-dir>/diagnostics/build-gene-ldscore-index.log`.
+During or after a failed build, check `<index-dir>/.build/build-gene-ldscore-index.log`; after a successful build, check `<index-dir>/diagnostics/build-gene-ldscore-index.log`.
 Confirm that all coordinate sources match the explicit hg19/hg38 build, that `--snp-identifier` matches the intended key, and that the inputs overlap after shared identity cleanup.
 There is no build inference or liftover; declarations must agree and cannot be replaced by the command-line assertion.
-A failed first build leaves the index destination absent or
-empty and can be retried directly; the previous log is archived under
-`<parent>/.<index-name>.build-state/history/`.
+A failed first build leaves only the hidden `.build/` directory in the index destination and can be retried directly; the previous log is archived under `<index-dir>/.build/history/`.
 
 ### `build-gene-ldscore-index`: input conflicts
 
@@ -487,45 +482,32 @@ Names such as GRCh37/hg19 and GRCh38/hg38 are equivalent.
 Supply matching coordinates, correct an erroneous label only after verifying its coordinates, or perform an explicit conversion before index construction.
 The builder never converts coordinates or overwrites a conflicting label.
 
-SNP contradictions produce `.<index-name>.build-state/baseline_plink_issues.tsv` before chromosome workers start.
+SNP contradictions produce `<index-dir>/.build/baseline_plink_issues.tsv` before chromosome workers start.
 The table identifies shared keys, baseline/PLINK sources, coordinates and usable normalized allele pairs, and a reason such as `coordinate_mismatch`, `allele_mismatch`, or `cross_chromosome_coordinate_mismatch`.
 Verify the reference releases and repair the indicated records; ordinary unmatched SNPs and shared-policy identity cleanup remain separate diagnostics.
 
 **Developer reference:** `_ldscore.gene_index.build._validate_baseline_plink_inputs()` and `_genome.build_policy.GenomeBuildCheck` · **Exception:** `LDSCInputError`
 
-### `build-gene-ldscore-index`: a partial hidden stage remains after failure
+### `build-gene-ldscore-index`: a failed build left `.build/` in the index directory
 
-**Symptom:** a marked `.<index-name>.stage-<run-id>/` sibling contains one or
-more `chromosomes/chrN` directories, but the public index is absent, empty, or
-still contains its prior complete version.
+**Symptom:** the index directory holds a hidden `.build/` directory, possibly with `stage/chromosomes/chrN` shards, and either no index or its earlier complete version.
 
-`Finished chromosome N` means that shard was durably written inside the private
-run transaction; it never means partial chromosome coverage was published. A
-graceful failure removes the transaction best-effort. Abrupt termination or a
-filesystem cleanup error can retain it, but it is not a restart checkpoint and
-must not be copied into the public destination. Retry the full command. The
-next invocation removes a recognized computation-only stage before starting a
-new transaction. If cleanup warns again, confirm that no builder for the same
-destination is active, then remove only the exact marked path named in the
-warning. Unrecognized neighboring directories are never cleanup candidates.
+`Finished chromosome N` means that shard was durably written in the staged index under `.build/stage/`; it never means partial chromosome coverage was published.
+A graceful failure removes the stage; abrupt termination can retain it, but it is not a restart checkpoint and must not be copied into the index.
+Retry the full command in the same output directory: the next invocation archives the failed log and discards the stage before starting.
+If `metadata.json` is missing beside `.build/`, the failure happened during publication and no loadable index remains; rebuild with `--overwrite`.
 
-### `build-gene-ldscore-index`: transaction cleanup remains after success
+### `build-gene-ldscore-index`: the build directory remains after success
 
-**Symptom:** the command finishes successfully but warns that a builder-owned
-`.stage-*` transaction path could not be removed, commonly with `Directory not
-empty` or `Device or resource busy` on a shared filesystem.
+**Symptom:** the command finishes successfully but warns that its build directory could not be removed, commonly with `Directory not empty` or `Device or resource busy` on a shared filesystem.
 
-The destination was already replaced and reload-validated. It is a successful,
-loadable index; cleanup is garbage collection and the warning reports the exact
-retained path. Do not rerun the expensive build solely for this warning. After
-confirming no build for the same destination is active, remove the reported
-builder-owned path manually or let the next invocation retry recognized
-cleanup. Never delete an unmarked neighboring directory based only on a similar
-name.
+The index was already published and reload-validated; it is a successful, loadable index, and the warning reports the exact retained path.
+Do not rerun the expensive build solely for this warning.
+After confirming that no build of the same index is active, remove `<index-dir>/.build/` manually, or let the next build of this index remove it.
 
-Earlier releases kept logs in a visible `<index-dir>.build/` directory and used a standalone hidden lock, `.<index-name>.build-gene-ldscore-index.lock`.
-The current builder ignores both, so it does not wait for a build started by an earlier release.
-Let any such build finish before building the same destination, then remove the old directory and lock manually if you no longer need their logs.
+Earlier releases kept build state beside the index: hidden `.<index-name>.build-state/` and `.<index-name>.stage-*/` directories, a visible `<index-dir>.build/` log directory, and a standalone hidden lock, `.<index-name>.build-gene-ldscore-index.lock`.
+The current builder ignores all of them, so it does not wait for a build started by an earlier release.
+Let any such build finish before building the same destination, then remove those directories and the lock manually if you no longer need their logs.
 
 ### `build-gene-ldscore-index`: required identity or build option is missing
 

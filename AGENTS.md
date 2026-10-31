@@ -4,7 +4,7 @@
 
 # LDSC Package Guidance
 
-Last updated on: 2026-10-30
+Last updated on: 2026-10-31
 
 This repository, `ldsc_py3_restructured`, develops the distributable scientific Python package `ldsc` (distribution version `2.0b0`), with source under `src/ldsc/`.
 
@@ -109,7 +109,8 @@ pytest
 - Failed authorized overwrites leave `RUN_FAILED.txt` (or `RUN_FAILED.chr<chrom>.txt` for concrete panel shards); successful retries remove the applicable marker.
   Markers add no rollback, quarantine, restoration, or action-order changes and do not enter metadata.
   Help and `munge-sumstats --infer-only` create no directories/logs/artifacts/markers; infer-only still requires `--output-dir`.
-  Gene-index publication retains its existing complete atomic transaction, with open logs in hidden sibling build-state and closed successful logs moved into published diagnostics.
+  Every file a run creates, writes, renames or deletes stays inside its output directory (or the derived `plots/` and `postprocessing/liability-scale/` roots); an empty or blank destination is rejected before anything is written.
+  Gene-index builds keep their lock, live log, issue tables and staged index in the index's hidden `.build/` directory and publish root `metadata.json` last, so the loader never reads an interrupted publication; a successful build moves its closed log into published diagnostics and removes `.build/`.
 - Preserve explicit legacy LDSC interoperability: regression accepts `.sumstats(.gz)` with SNP/A1/A2/Z/N and validates allele orientation; munging may export `.sumstats.gz`.
   Annotation workflows read `.annot(.gz)` and write `.annot.gz`; omitting both alleles permits base-identity matching even in allele-aware workflows, while supplying only one allele is invalid.
 - Legacy LD-score input requires `convert-legacy-ldscores` with complete chromosome 1–22 reference/weight `<prefix><chrom>.l2.ldscore(.gz)` families, required `.l2.M_5_50`, and optional `.l2.M` under the documented count policy.

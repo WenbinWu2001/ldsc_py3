@@ -1,9 +1,41 @@
 # Status
 
-Last updated on: 2026-10-30
+Last updated on: 2026-10-31
 
-Branch `restructure`; checked on 2026-10-30.
+Branch `restructure`; checked on 2026-10-31.
 Nothing below is in progress; each open item needs the user's go-ahead.
+
+## Completed: output-directory confinement (2026-10-31)
+
+The user set the rule on 2026-10-30: every file a run creates, writes, renames or deletes stays inside its output directory, and an empty `output_dir` never touches user files.
+An audit at `2551648` (record outside the repository) found that an empty destination meant the working directory, where an authorized `annotate` overwrite deleted a user's file, and that the gene LD-score index build and the annotation bundle wrote outside the output directory.
+The user approved the designs and authorized the work on 2026-10-30; matplotlib's own home-directory cache stays as it is.
+
+- `450ec21`: `output_directory_path()` in `_runtime/paths.py` rejects a missing or blank destination; `ensure_output_directory`, the failure-marker scope, `AnnotationWorkspace`, the `plots/` and liability-scale roots and the remaining direct derivations use it.
+  Every `--output-dir`, `--result-dir` and `--h2-result-dir` option rejects a blank value as an argument-parsing error (`cli_help.output_directory_argument`).
+- `a7bcb94`: `plot` and `convert-h2-scale` check their result directory before the marker scope opens, so a misspelled result directory is no longer created.
+- `b12e304`: the gene LD-score index build keeps its lock, live log, issue tables, history and staged index in the index's hidden `.build/` directory and removes it after success; publication writes root `metadata.json` last, so the loader never reads an interrupted publication.
+  The sibling `.<name>.build-state/` and `.<name>.stage-*/` directories, the backup and the parent-directory recovery are gone.
+  Accepted cost: a failure during publication leaves no loadable index; a failure before publication keeps the earlier one.
+- `c6f4b2c`: the rsID cross-chromosome SQLite join creates its `SNP` indexes before inserting, so it writes no temporary sort file to the system temporary directory.
+  On the 1KG 30x BIM files of all 22 autosomes (28.9 million rows per table) the step took 141.4 s instead of 122.8 s, with a 3.35 GB instead of 3.22 GB database and 1.38 GB instead of 1.45 GB peak memory (one run each).
+  `EXPLAIN QUERY PLAN` of all 16 queries of the two other stores (`DiskIdentityIndex`, `QuantileIdentityStore`) showed no temporary B-tree, so they are unchanged.
+- `fbe9760`: `AnnotationBundle.prepared_in(workspace)`; `LDScoreCalculator.run` with an output directory prepares a saved `run_annotate` result in its own output directory instead of the annotate output directory.
+- This commit: `docs/reference/logs-and-outputs.md` (new "Output confinement" section), `docs/reference/gene-ldscore-index.md`, `docs/user-guide/troubleshooting.md`, `docs/user-guide/workflows/gene-list-ld-scores.md`, `docs/dev/architecture.md`, `docs/dev/code-structure.md` and four other reference pages describe the contract; `AGENTS.md` records the rule; `lessons.md` gains "An empty destination is the working directory".
+- Evidence: a before/after comparison of exported copies of `2551648` and the final tree matched exactly in the `--help` output of `ldsc` and all 14 commands, every parser's sample parse, and the modules each help path imports; only the 13 destination options gained the blank-value type.
+  Of the 29 marker cases only a `plot` run on a missing result directory changed (it no longer creates the directory and a marker), and an empty `munge-sumstats --output-dir` now stops at parsing (exit 2 instead of 1).
+  In sandboxes that list every file anywhere, gene-index builds (fresh, overwrite, failed) left `.index.build-state/` beside the index before and nothing outside it now; a chr_pos annotate-then-LD-score run wrote `.ldsc-annotation-<id>/` into the annotate output before and nothing now.
+  Published index, annotation and LD-score files were identical in content (gzip files compared decompressed).
+- Full pytest on an exported copy of `fbe9760` with this commit's documentation, the workspace `resources/` linked into its parent folder: 2,424 passed, none skipped.
+  Each code commit first ran its focused tests (2,356 for `450ec21`, 426 for `a7bcb94`, 1,091 for `b12e304`, 162 for `c6f4b2c`, 1,776 for `fbe9760`).
+
+### Decisions taken during implementation
+
+- `build-gene-ldscore-index` treats index component names beside `.build/` as an interrupted build (rebuild with `--overwrite`); without `.build/` they stay unrecognized and are refused, so a lone user `metadata.json` is never replaced.
+- Publication merges `diagnostics/` entry by entry and keeps unrelated files in the index directory, which the old whole-directory swap deleted.
+- A cleanup failure of `.build/` after a successful build is a `UserWarning`, because the workflow log is already closed.
+- `estimate_partitioned_h2_batch`, indexed `ldscore` and indexed scoring also route their output directory through `output_directory_path()`, though no public entry point reaches them with an empty value.
+- `LDScoreCalculator.compute_chromosome` and a direct `bundle.read()` keep preparing a saved result in the annotate output directory, the bundle's own output, as the brief allows.
 
 ## Completed: one failure-marker scope per run (2026-10-30)
 

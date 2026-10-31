@@ -1,6 +1,6 @@
 # Architecture
 
-Last updated on: 2026-10-30
+Last updated on: 2026-10-31
 
 LDSC3 (distribution `ldsc`) is the Python 3 package that replaces legacy LDSC.
 It reads optional SNP-level annotations, PLINK reference panels or R² matrices, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to the computation modules of its private domain packages; and writes LDSC3 artifacts that can be chained into later runs.
@@ -40,9 +40,8 @@ Start with [the contributor entry](code-structure.md) to locate a change; this d
 - **Project continuous-target quantiles**: verify one fitted partitioned model and resupplied SNP annotations, then calculate joint-model quantile heritability and standardized coefficients without refitting. Entry points: `ldsc quantile-h2`, `ldsc.run_quantile_h2()`
 - **Audit workflow runs**: artifact-writing workflow wrappers create deterministic
   per-run logs around their owned work. The gene LD-score index builder writes its log
-  to hidden `.<index-name>.build-state/` before destination preflight/recovery
-  so failures do not create a partial index, then moves a closed successful log
-  into the published `diagnostics/`. Logs are diagnostic files and are not
+  to the hidden `.build/` directory inside the index directory, then moves a closed
+  successful log into the published `diagnostics/` and removes `.build/`. Logs are diagnostic files and are not
   included in result `output_paths`.
 
 ## Layer Structure
@@ -140,6 +139,7 @@ Architecture invariant: CLI code should dispatch only; it should not contain num
 These modules define the package-wide contracts that every workflow shares.
 They normalize path tokens, chromosome ordering, genome-build aliases, exact SNP identifier modes, input header aliases, and `chr_pos`-family genome-build inference before the kernel is called.
 `ldsc._runtime.paths` also owns output-directory creation, fixed-artifact collision preflight, coherent artifact-family preflight, and stale owned-sibling cleanup helpers.
+Its `output_directory_path()` turns a destination into a path and rejects an empty or blank one, which would otherwise mean the working directory; `ensure_output_directory()`, the failure-marker scope, `AnnotationWorkspace`, and the `plots/` and liability-scale roots use it, and `cli_help.output_directory_argument` rejects a blank destination option while parsing.
 `ldsc._genome.build_inference` is public for Python callers through the top-level `ldsc` exports, while the CLI exposes it through workflow build options and the read-only `infer-genome-build` helper.
 Architecture invariant: numerical functions consume resolved inputs.
 Shared normalization stays here or in the workflow layer; the runtime reference-panel adapters currently live at `ldsc._refpanel.adapters` and resolve panel-specific inputs before numerical projection.
@@ -278,10 +278,10 @@ Architecture invariant: regression and the computation modules never parse legac
 
 ### `ldsc._ldscore.gene_index.build`, `ldsc._ldscore.gene_index.atoms`
 
-The workflow module owns the `build-gene-ldscore-index` command, explicit hg19/hg38 plus any SNP identifier mode, an explicitly selected cM/kb/SNP window, pre-QC baseline/PLINK inner intersection by the effective key, canonical `index_id`, hidden build-state logging/locking, incremental chromosome persistence inside one private run transaction, complete atomic publication/recovery, strict mode/build/digest validation, and explicit indexed `ldscore` assembly.
-Each worker atomically installs its payload in a distinct staged chromosome directory and returns compact evidence; the coordinator writes all shared and identity metadata, validates the complete stage, and moves that existing tree into place.
-The open log stays under `.<index-name>.build-state/`, outside the replaceable artifact; after its handler closes, a successful log moves into the published `diagnostics/`.
-A missing or empty destination is not mutated before commit, and post-commit transaction or log-placement cleanup is warning-only.
+The workflow module owns the `build-gene-ldscore-index` command, explicit hg19/hg38 plus any SNP identifier mode, an explicitly selected cM/kb/SNP window, pre-QC baseline/PLINK inner intersection by the effective key, canonical `index_id`, logging, locking and staging in the index's hidden `.build/` directory, incremental chromosome persistence in the staged index, publication with root `metadata.json` written last, strict mode/build/digest validation, and explicit indexed `ldscore` assembly.
+Each worker atomically installs its payload in a distinct staged chromosome directory and returns compact evidence; the coordinator writes all shared and identity metadata, validates the complete stage, and moves its components into the index directory, root `metadata.json` last.
+The open log stays under `<index-dir>/.build/`; after its handler closes, a successful log moves into the published `diagnostics/` and `.build/` is removed.
+A failure before publication keeps an earlier index loadable, and build-directory or log-placement cleanup after publication is warning-only.
 Shared allele-aware cleanup and duplicate-group removal retain audit diagnostics.
 Contradictory baseline/PLINK coordinates or usable alleles fail with a repair table before chromosome workers; cross-chromosome rsID checks use a temporary SQLite join.
 Empty intersections fail, PLINK `CHR/POS/SNP/A1/A2` metadata is authoritative, and canonical sorting maps back to preserved physical BIM/BED indices.
@@ -474,9 +474,8 @@ Private boundary: these modules are not the supported import surface; numerical 
 - **Output collision handling**: output directories are literal destinations.
   Most workflows create missing directories and reuse existing ones while
   checking fixed output files, including workflow logs, before writing. The
-  gene LD-score index builder instead leaves a missing or empty publication destination
-  untouched until commit and writes live state to hidden
-  `.<index-name>.build-state/`. By
+  gene LD-score index builder keeps its live state in the destination's hidden
+  `.build/` directory and publishes with root `metadata.json` last. By
   default an existing artifact raises `FileExistsError`; `--overwrite` or
   `overwrite=True` makes replacement explicit without deleting unrelated files
   or cleaning the directory. Sharded workflows may narrow ownership to the

@@ -1,6 +1,6 @@
 # Calculate LD scores from gene lists
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-31
 
 Use gene-list mode to turn pathway, expression, proteomic, GO or other gene lists into query annotations for partitioned heritability, estimated with stratified LD score regression (S-LDSC; Finucane et al. 2015).
 LDSC3 resolves each gene list against one gene coordinate catalog, marks the SNPs inside the listed genes' intervals, and writes an ordinary, self-contained LD-score directory that `partitioned-h2` reads.
@@ -118,7 +118,7 @@ The file format is in [build one complete index](../../reference/gene-ldscore-in
 How the inputs are combined:
 
 - Baseline and PLINK SNPs are matched on the SNP identity of the chosen mode, as in PLINK-based `ldscore`; SNPs found on only one side are dropped and counted, every SNP of a duplicated SNP identity is dropped and listed in `diagnostics/dropped_snps/`, and an empty match fails.
-- PLINK supplies the published `CHR`, `POS`, `SNP`, `A1` and `A2`; conflicting coordinates for one rsID, or incompatible alleles at one position, stop the build with the repair table `.<index-name>.build-state/baseline_plink_issues.tsv`.
+- PLINK supplies the published `CHR`, `POS`, `SNP`, `A1` and `A2`; conflicting coordinates for one rsID, or incompatible alleles at one position, stop the build with the repair table `<index-dir>/.build/baseline_plink_issues.tsv`.
 - The baseline LD scores, counts and regression weights are recomputed from the PLINK genotypes; precomputed `.l2.ldscore.gz`, `.M` and `.M_5_50` files distributed beside the baseline annotations are not used, so everything in the index shares one set of samples, filters and LD window.
 - Gene intervals do not restrict the baseline LD scores: every retained reference SNP contributes according to its baseline annotation value, whether or not it lies in a gene.
   Do not prefilter the PLINK or baseline inputs to gene regions unless you intend that narrower reference panel.
@@ -133,17 +133,17 @@ Resources:
 - A cM LD window needs informative `.bim` `CM` values or `--genetic-map-hg19-sources` or `--genetic-map-hg38-sources` for the asserted genome build; kb and SNP-count LD windows need no genetic map.
   SNP-count LD windows count SNPs after SNP identity matching, genotype and MAF filtering.
 
-While the build runs, follow its log next to the destination:
+While the build runs, follow its log in the destination's hidden build directory:
 
 ```bash
-tail -f /path/to/indexes/.baseline_100kb.build-state/build-gene-ldscore-index.log
+tail -f /path/to/indexes/baseline_100kb/.build/build-gene-ldscore-index.log
 ```
 
 The log first reports annotation preparation (`Reading annotation inputs`, then SNP identity checks, then `Annotation preparation complete`) and then each chromosome.
 Its final `Finished` or `Failed` line gives the outcome.
-On success, the closed log moves to `/path/to/indexes/baseline_100kb/diagnostics/build-gene-ldscore-index.log`.
-Input checks run before any computation, and failed checks write their repair tables, such as `plink_input_issues.tsv`, under `.<index-name>.build-state/` next to the destination rather than inside it.
-If the gene coordinate catalog fails validation, repair it using `.<index-name>.build-state/gene_coordinate_catalog_issues.tsv.gz` ([catalog repair](../../reference/results/gene-list-diagnostics.md#gene-coordinate-catalog-repair-and-index-builder-issues)).
+On success, the closed log moves to `/path/to/indexes/baseline_100kb/diagnostics/build-gene-ldscore-index.log` and `.build/` is removed; the build writes nothing outside the destination.
+Input checks run before any computation, and failed checks write their repair tables, such as `plink_input_issues.tsv`, under `<index-dir>/.build/`.
+If the gene coordinate catalog fails validation, repair it using `<index-dir>/.build/gene_coordinate_catalog_issues.tsv.gz` ([catalog repair](../../reference/results/gene-list-diagnostics.md#gene-coordinate-catalog-repair-and-index-builder-issues)).
 
 One output directory holds one complete, immutable index with a single `index_id`; it cannot be extended with chromosomes or settings, so any change to an input or setting needs a complete rebuild.
 The destination stays absent or empty until the whole index is published, and a failed build never leaves a partial index.

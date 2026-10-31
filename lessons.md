@@ -1,7 +1,7 @@
 
 # Lessons
 
-Last updated on: 2026-10-30
+Last updated on: 2026-10-31
 
 ## Refactoring must preserve attribution outside removable banners
 
@@ -195,7 +195,7 @@ Last updated on: 2026-10-30
 ## Output ownership must cover normalization and recovery
 
 - Summary/root cause/correction: A package-wide retry audit found raw-path logs/audits/scratch and markers diverging from normalized result roots, CLI markers choosing the first repeated destination, and index recovery rejecting its own marker while diagnostic scans overlooked empty directories and symlinks; reuse normalized destinations, follow argparse's final value, share index preflight, inspect every diagnostic entry, and test the existing owned-backup recovery with a retained failure marker.
-- Recurrence: the CLI's own marker scope, read from raw arguments, treated `--output-dir ""` as the working directory and wrote `RUN_FAILED.txt` there; markers now come only from the workflows' parsed scopes, where an empty destination opens none (`test_an_empty_output_directory_never_places_a_marker_in_the_working_directory`).
+- Recurrence: the CLI's own marker scope, read from raw arguments, treated `--output-dir ""` as the working directory and wrote `RUN_FAILED.txt` there; markers now come only from the workflows' parsed scopes, and an empty destination is rejected outright (see "An empty destination is the working directory").
 
 ## Worker counts need one CPU-budget policy
 
@@ -321,3 +321,11 @@ Last updated on: 2026-10-30
 - Summary/root cause/correction: Failure markers written in the calling process read the most recent workflow log from per-thread state, but `build-r2-matrix`, `convert-legacy-ldscores` and `quantile-h2` open their log inside a `serial_calculation` worker, so their markers said "No workflow log was opened" while the log held the traceback; the last two also ran their marker guard inside the worker, where a killed worker writes nothing.
   `serial_calculation` now returns the worker's log path, and each guard runs in the calling process around a separately named worker function, because the worker looks the function up by name and would otherwise run the guard again.
   Test state handed across a process boundary through a real worker; see `tests/runtime/test_serial_calculation.py`.
+
+## An empty destination is the working directory
+
+- Summary/root cause/correction: `normalize_path_token("")` is `""` and `Path("")` is `.`, so `ensure_output_directory("")` accepted the working directory; `annotate`, `convert-legacy-ldscores` and `SumstatsMunger.run` published into it, and an authorized `annotate` overwrite deleted a user's `query.21.annot.gz` there as a stale owned sibling.
+  A whitespace-only value created a directory literally named by its spaces.
+  Only some workflows checked for an empty value, each in its own way.
+  `output_directory_path()` in `_runtime/paths.py` now rejects a missing or blank destination, every output-path derivation goes through it, and `cli_help.output_directory_argument` rejects a blank destination option while parsing.
+  Test every command and Python entry point with `""` and `"  "` from an empty working directory and assert it stays empty; see `tests/runtime/test_output_confinement.py`.

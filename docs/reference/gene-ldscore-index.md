@@ -1,6 +1,6 @@
 # Exact gene LD-score indexes
 
-Last updated on: 2026-10-29
+Last updated on: 2026-10-31
 
 `--workers` sets the number of workers (default one, each with one BLAS thread); CPU budgets, limits and failure handling are in [parallel execution](parallel-execution.md).
 
@@ -33,14 +33,14 @@ ldsc build-gene-ldscore-index \
 
 The supplied gene coordinate catalog is required and is the complete set of genes embedded in the index.
 It uses the one-based format in [Gene-list query input](formats/gene-lists.md).
-The builder validates every catalog row as canonical before creating a transaction or constructing atoms; any defect stops the build and writes the full repair table described in [Gene-list diagnostics and repair](results/gene-list-diagnostics.md).
+The builder validates every catalog row as canonical before creating the staged index or constructing atoms; any defect stops the build and writes the full repair table described in [Gene-list diagnostics and repair](results/gene-list-diagnostics.md).
 
 Index construction defaults to unpadded gene intervals (`--padding-bp 0`).
 The example above explicitly builds a non-default 100 kb index, which is why
 both its destination name and command record `100kb`/`100000`. Omit the flag
 for the default unpadded index.
 
-PLINK prefixes use the [shared content-based resolver](input-paths.md#plink-prefix-resolution). A plain stem such as `1000G.EUR.QC.` is sufficient; `@` is optional. The builder validates all selected trios and requires chromosomes 1-22 before annotation preparation and genotype computation. Failed PLINK validation writes a complete `plink_input_issues.tsv` repair audit under `.<output-name>.build-state/`, alongside the live build log.
+PLINK prefixes use the [shared content-based resolver](input-paths.md#plink-prefix-resolution). A plain stem such as `1000G.EUR.QC.` is sufficient; `@` is optional. The builder validates all selected trios and requires chromosomes 1-22 before annotation preparation and genotype computation. Failed PLINK validation writes a complete `plink_input_issues.tsv` repair audit under `<index-dir>/.build/`, alongside the live build log.
 
 The builder supports PLINK inputs in hg19 or hg38 and all four SNP identifier modes.
 `--genome-build` and `--snp-identifier` are required without defaults; there is no `auto`, inference, or liftover.
@@ -86,8 +86,9 @@ Every row in a duplicate effective-identity group is dropped, warned, and record
 Baseline-only and PLINK-only SNPs are dropped and counted.
 PLINK supplies chromosome, position, alleles, cM, genotypes, output identity, and gene projection coordinates for consistent matches.
 Conflicting coordinates for a shared rsID or incompatible usable allele pairs at a shared base key stop the build before chromosome workers run.
-The repair table is `.<index-name>.build-state/baseline_plink_issues.tsv`, with affected keys, input coordinates/alleles, reasons, and sources.
+The repair table is `<index-dir>/.build/baseline_plink_issues.tsv`, with affected keys, input coordinates/alleles, reasons, and sources.
 Cross-chromosome rsID conflicts are checked using a temporary disk-backed join, preserving chromosome-bounded metadata memory.
+Its database is in `<index-dir>/.build/`, and each table's `SNP` index exists before rows are inserted, so the join writes no temporary sort file to the system temporary directory.
 Ordinary unmatched SNPs remain an inner intersection; rsID matching alone does not establish a genome build.
 
 ### SNP identity contract
@@ -191,17 +192,13 @@ One output directory contains one complete immutable index:
             ldscore_operator.npz
             atom_statistics.npz
             reference_snp_funnel.parquet
-
-.<index-name>.build-state/        # hidden operational state
-    build-gene-ldscore-index.lock
-    build-gene-ldscore-index.log # present while running or after failure
-    gene_coordinate_catalog_issues.tsv.gz # present after catalog failure
-    baseline_plink_issues.tsv    # present after SNP consistency failure
-    history/                     # prior failed/interrupted attempts
-
-.<index-name>.stage-<run-id>/     # hidden, private transaction while building
-    .gene-index-publication.json
-    <index-name>/chromosomes/chrN/
+    .build/                       # hidden; present while building or after a failure
+        build-gene-ldscore-index.lock
+        build-gene-ldscore-index.log # live log
+        gene_coordinate_catalog_issues.tsv.gz # after a catalog failure
+        baseline_plink_issues.tsv    # after an SNP consistency failure
+        history/                     # earlier failed or interrupted attempts
+        stage/                       # the index being built
 ```
 
 `index_id` is a canonical SHA-256 identity over scientific content and settings, not file paths or output names.
@@ -233,50 +230,34 @@ Online assembly and direct gene-list workflows share `_annotation.query_outcomes
 
 ## Output preflight, logging, and replacement
 
-- A missing destination stays absent, and an existing empty destination stays
-  empty, until successful publication.
-- A valid existing index requires `--overwrite`, even if its `index_id` would
-  be unchanged.
-- A directory containing only the regular root `RUN_FAILED.txt` marker is reusable.
-  Preflight leaves the marker in place; successful publication replaces the directory and clears it.
-  Marker presence does not authorize replacing unrelated files, directories, or incomplete scientific artifacts.
-- Marker-only recognition checks every entry: any other file, directory or symlink, and a marker that is a directory or symlink, make the directory unrecognized.
-  Interrupted-publication recovery also accepts an owned marker-only destination when exactly one validated matching backup exists, and carries the marker into the recovered index until the current build succeeds.
-  Recovery still refuses unrelated destination contents.
-- Other nonempty invalid directories fail before chromosome computation, including with `--overwrite`.
-- A failed build never publishes a partial scientific index. An authorized overwrite failure may leave a marker-only public directory. Graceful failure removes its marked private transaction best-effort; an interrupted transaction is never reused scientifically on retry.
-- Two builders cannot target the same absolute directory concurrently.
+Every file the build creates, writes, renames or deletes is inside the index directory.
+The lock, the live log, issue tables, earlier failed attempts and the index being built are in its hidden `.build/` directory, which a successful build removes.
 
-While the build is running, the live log is
-`<parent>/.<index-name>.build-state/build-gene-ldscore-index.log`, so `tail -f`
-works without placing an open file inside the replaceable artifact. After a
-successful publication, the handler closes and the complete log moves atomically
-to `<index-dir>/diagnostics/build-gene-ldscore-index.log`. Failed logs stay in
-hidden state, and a retry archives them under `.<index-name>.build-state/history/`.
-The lifecycle footer is the status authority: `Started`
-without a terminal `Finished` or `Failed` line indicates abrupt termination;
-there is no separate status file. The JSON diagnostic is a successful-build
-summary, not a live status record.
+- A missing destination is created when the build starts; until a build succeeds it holds only `.build/` and, after a failed authorized overwrite, `RUN_FAILED.txt`.
+- A valid existing index requires `--overwrite`, even if its `index_id` would be unchanged.
+- A directory holding only `.build/` and a regular `RUN_FAILED.txt` is reused without `--overwrite`.
+  Preflight leaves the marker in place; a successful build removes it.
+- Index components beside `.build/` without a loadable index are the remains of an interrupted build or publication; rebuilding over them needs `--overwrite`.
+- Any other content fails before chromosome computation, including with `--overwrite`: unrelated files or directories, a symlink, a marker that is not a regular file, or index component names without `.build/`.
+- Two builders cannot target the same directory concurrently.
 
-Before chromosome computation, the builder creates one marked run-specific
-sibling stage. Each worker writes its large payloads in a private temporary
-shard directory, closes them, and atomically renames that directory to
-`<stage>/<index-name>/chromosomes/chrN`. `Finished chromosome N` is logged only
-after this rename, so it means the internal shard is durable; it does not mean
-chromosome N is public. Workers return compact evidence, and the coordinator
-writes shared metadata, the catalog, diagnostics, and final `index_id` metadata
-after all chromosomes finish in canonical order.
+While the build is running, the live log is `<index-dir>/.build/build-gene-ldscore-index.log`, so `tail -f` works.
+After a successful publication, the handler closes, the complete log moves to `<index-dir>/diagnostics/build-gene-ldscore-index.log`, and `.build/` is removed.
+Failed logs stay in `.build/`, and a retry archives them under `.build/history/`.
+The lifecycle footer is the status authority: `Started` without a terminal `Finished` or `Failed` line indicates abrupt termination; there is no separate status file.
+The JSON diagnostic is a successful-build summary, not a live status record.
 
-The complete staged index is then reload-validated and moved into place without
-rewriting or copying its chromosome payloads. During overwrite, the old valid
-index remains loadable until the replacement passes validation. A graceful
-failure keeps the old scientific index and its prior success diagnostics while
-leaving the failed attempt in hidden build state. After the replacement is
-reload-validated, transaction cleanup is best-effort garbage collection: a
-cleanup error warns with the retained builder-owned path but does not turn the
-completed publication into a failed command. Recognized computation-only
-stages are discarded on the next invocation, never resumed. Ambiguous backup
-evidence fails rather than guessing.
+Before chromosome computation, the builder creates the staged index in `.build/stage/`.
+Each worker writes its large payloads in a private temporary shard directory, closes them, and atomically renames that directory to `.build/stage/chromosomes/chrN`.
+`Finished chromosome N` is logged only after this rename, so it means the internal shard is durable; it does not mean chromosome N is public.
+Workers return compact evidence, and the coordinator writes shared metadata, the catalog, diagnostics, and final `index_id` metadata after all chromosomes finish in canonical order.
+
+The complete staged index is then reload-validated and published without copying its chromosome payloads.
+Publication removes the old root `metadata.json`, which records `index_id`, then replaces each other component with its staged counterpart, merging `diagnostics/` entry by entry and keeping unrelated files, and writes the new `metadata.json` last.
+The published index is reload-validated again.
+The loader rejects a directory without `metadata.json`, so an interrupted publication is never read as an index.
+A failure before publication begins keeps the earlier index complete and loadable; a failure during publication leaves no loadable index, which the failure marker and the loader report.
+Leftovers of a failed attempt are discarded on the next invocation, never resumed.
 
 ## Assemble gene-list LD scores
 
@@ -308,9 +289,10 @@ Only the configured regression restriction and region policy select the regressi
 See also the task-oriented [build guide](../user-guide/workflows/gene-list-ld-scores.md)
 and [indexed LD-score guide](../user-guide/workflows/gene-list-ld-scores.md).
 
-`_gene_index_build_lock` holds one nonblocking lock, `.<index-name>.build-state/build-gene-ldscore-index.lock`, for each destination.
-The builder neither reads nor migrates the visible `<index-name>.build/` log directory or the standalone `.<index-name>.build-gene-ldscore-index.lock` of earlier releases.
-Active build-state locking, validated publication, and interrupted-publication recovery remain required; these are not unused runtime helpers.
+`_gene_index_build_lock` holds one nonblocking lock, `<index-dir>/.build/build-gene-ldscore-index.lock`, for each destination.
+A successful build removes `.build/` while still holding the lock, so taking the lock checks that the locked file is still the one at the lock path and retries otherwise.
+The builder neither reads nor migrates the hidden sibling `.<index-name>.build-state/` and `.<index-name>.stage-*/` directories, the visible `<index-name>.build/` log directory, or the standalone `.<index-name>.build-gene-ldscore-index.lock` of earlier releases.
+Build-directory locking and validated publication remain required; these are not unused runtime helpers.
 
 ## Bounded validation and query assembly
 

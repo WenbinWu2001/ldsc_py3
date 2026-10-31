@@ -1,6 +1,6 @@
 # Gene-list diagnostics and repair
 
-Last updated on: 2026-10-30
+Last updated on: 2026-10-31
 
 This guide is the detailed reference for diagnosing direct and indexed
 gene-list `ldscore` runs. The design assumes that users do not inspect a file
@@ -25,7 +25,7 @@ Change the gene coordinate catalog only when catalog line evidence shows that it
 | `diagnostics/input_issues.tsv` | Input-integrity or preparation failures | Consolidated required-artifact issues and repair guidance. |
 | `diagnostics/ldscore.log` | Every ordinary `ldscore` workflow | Aggregate counts and diagnostic pointers, numbered batches and chromosome progress, plus specific failure details. Full successful query/source logging requires DEBUG. |
 | `diagnostics/gene_catalog_issues.tsv` | Direct gene-list LD scores with catalog defects, on successful publication or diagnostic-only gene gates | Complete latent catalog defects; the log summarizes their count. Uses the existing standalone annotate catalog-issue schema. |
-| `.<index-name>.build-state/gene_coordinate_catalog_issues.tsv.gz` | A gene LD-score index build whose catalog is noncanonical | Every detected source-catalog defect. It is outside the unpublished index. |
+| `<index-dir>/.build/gene_coordinate_catalog_issues.tsv.gz` | A gene LD-score index build whose catalog is noncanonical | Every detected source-catalog defect. It is in the index directory's hidden build directory, not part of a published index. |
 
 A structural catalog failure may prevent reliable gene-list matching, so it
 does not create a synthetic gene-list audit. A Gate A identifier failure writes
@@ -300,7 +300,7 @@ one from the start only. The catalog represents one declared `hg19`/GRCh37 or
 also requires names and ID/name namespaces to be completely unambiguous.
 
 When index construction fails, inspect
-`.<index-name>.build-state/gene_coordinate_catalog_issues.tsv.gz`. Its columns
+`<index-dir>/.build/gene_coordinate_catalog_issues.tsv.gz`. Its columns
 are:
 
 | Column | Meaning |

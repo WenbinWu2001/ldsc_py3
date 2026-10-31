@@ -95,8 +95,8 @@ def fail_gene_list_resolution(batch, output_config):
 def fail_unusable_queries(diagnostics, message, output_config):
     """Stop when the queries or the gene control cannot be used.
 
-    ``diagnostics`` (an annotation bundle or ``QueryDiagnostics``) supplies the
-    query statuses, gene-list batch, and chromosome scope to write. The written
+    ``diagnostics`` (``QueryDiagnostics``) supplies the query statuses,
+    gene-list batch, chromosome scope and input issues to write. The written
     paths, gene-list rejections and SNP support, and query statuses go to the
     workflow log before ``LDSCInputError(message)`` is raised.
     """

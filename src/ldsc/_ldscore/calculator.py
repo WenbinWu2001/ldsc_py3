@@ -77,6 +77,7 @@ from .outputs import (
     LDSCORE_LOG,
     LDScoreDirectoryWriter,
     LDScoreOutputConfig,
+    QueryDiagnostics,
     REF_METADATA_GLOB,
     REGRESSION_LD_SCORE_COLUMN,
     common_count_config,
@@ -1438,10 +1439,11 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
             if annotation_bundle.gene_list_batch is not None:
                 annotation_bundle, gate_b_error = _apply_direct_gene_gate_b(annotation_bundle,ref_panel,ldscore_config,global_config)
                 if gate_b_error:
-                    fail_unusable_queries(annotation_bundle, gate_b_error, output_config)
+                    fail_unusable_queries(_bundle_diagnostics(annotation_bundle), gate_b_error, output_config)
             statuses = annotation_bundle.query_statuses
             if statuses and not annotation_bundle.query_columns:
-                fail_unusable_queries(annotation_bundle, all_query_annotations_skipped_message(statuses), output_config)
+                fail_unusable_queries(_bundle_diagnostics(annotation_bundle),
+                                      all_query_annotations_skipped_message(statuses), output_config)
             result = LDScoreCalculator()._run(annotation_bundle,ref_panel,ldscore_config,global_config,
                 output_config=output_config,regression_snps=regression_snps,regression_regions=regression_regions)
             log_query_outcomes(result.gene_list_batch, result.query_statuses)
@@ -2308,6 +2310,12 @@ def _grid_emptied_message(funnels: Sequence[pd.DataFrame]) -> str:
         "identifier mode and genome build, or leave a chromosome out of the annotation files to exclude it on purpose. "
         f"Other causes & fixes: {_LDSCORE_INTERSECTION_DOC}"
     )
+
+
+def _bundle_diagnostics(bundle) -> QueryDiagnostics:
+    """Return the query diagnostics an annotation bundle holds, for the LD-score writer."""
+    return QueryDiagnostics(dict(bundle.source_summary.get("chromosome_scope", {})), tuple(bundle.query_statuses),
+                            bundle.gene_list_batch, bundle.input_issues)
 
 
 def _write_one_ref_metadata_sidecar(metadata: pd.DataFrame, chrom: str, output_dir: str) -> None:

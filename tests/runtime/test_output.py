@@ -197,9 +197,10 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
 
     def test_ldscore_writer_can_commit_diagnostics_only_for_all_skipped_batch(self):
         from ldsc._annotation.query_outcomes import QueryAnnotationStatus
+        from ldsc._ldscore.outputs import QueryDiagnostics
 
-        result = dataclass_replace(
-            make_split_ldscore_result(query=False),
+        diagnostics = QueryDiagnostics(
+            {},
             query_statuses=(
                 QueryAnnotationStatus(
                     "bad",
@@ -215,7 +216,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             output_dir = Path(tmpdir) / "out"
 
             paths = LDScoreDirectoryWriter().write_query_diagnostics(
-                result,
+                diagnostics,
                 LDScoreOutputConfig(output_dir=output_dir),
             )
 

@@ -118,16 +118,16 @@ DEFAULT_COUNT_CONFIG = common_count_config(0.05)
 
 @dataclass(frozen=True)
 class QueryDiagnostics:
-    """Diagnostics of an LD-score run that stopped before calculation.
+    """Diagnostics of an LD-score run that stopped before publication.
 
-    The writer's diagnostics methods write each record that is present:
-    ``chromosome_scope.json``, ``input_issues.tsv``, the query statuses, and
-    the gene-list audit and resolution summary.
+    The only input of the writer's diagnostics methods, which write each
+    record that is present: ``chromosome_scope.json``, ``input_issues.tsv``,
+    the query statuses, and the gene-list audit and resolution summary.
     """
 
     chromosome_scope: dict
-    query_statuses: tuple = ()
-    gene_list_batch: Any = None
+    query_statuses: tuple[QueryAnnotationStatus, ...] = ()
+    gene_list_batch: StagedGeneListBatch | None = None
     input_issues: pd.DataFrame | None = None
 
 
@@ -210,40 +210,47 @@ class LDScoreDirectoryWriter:
                                "gene_catalog_issues", "chromosome_scope", "input_issues", "reference_snp_funnel")
 
     @staticmethod
-    def artifact_family(output_dir, result=None, *, diagnostics_only=False, gene_list_batch=None,
+    def artifact_family(output_dir, result: _LDScorePublication | QueryDiagnostics | None = None, *,
                         include_logs=False) -> ArtifactFamily:
         """Describe all owned LD-score directory files and the outputs selected by a result.
 
         With no result, describe ownership for early collision checks without
-        predicting scientific outputs. Diagnostic-only writes use the same
-        declaration. Existing chromosome drop reports remain owned even when
-        the current result has no drops for that chromosome.
+        predicting outputs. A ``QueryDiagnostics`` selects only the diagnostics
+        it holds; an ``_LDScorePublication`` selects the complete directory.
+        Existing chromosome drop reports remain owned even when the current
+        result has no drops for that chromosome.
         """
         output_dir = Path(output_dir)
-        scientific = result is not None and not diagnostics_only
-        query_batches = getattr(result, "query_batches", ())
-        batch = gene_list_batch if gene_list_batch is not None else getattr(result, "gene_list_batch", None)
+        publication = result if isinstance(result, _LDScorePublication) else None
+        diagnostics = result if isinstance(result, QueryDiagnostics) else None
+        scientific = publication is not None
+        batch = None if result is None else result.gene_list_batch
+        query_batches = publication.query_batches if scientific else ()
         entries = {
             "metadata": ("metadata.json", scientific),
             "baseline": (BASELINE_FILE, scientific),
             "query": ("ldscore.query.parquet", scientific and len(query_batches) == 1),
-            "overlap": ("ldscore.overlap.parquet", scientific and getattr(result, "overlap", None) is not None),
-            "query_status": ("diagnostics/query_annotation_status.tsv", bool(getattr(result, "query_statuses", ()))),
-            "chromosome_scope": ("diagnostics/chromosome_scope.json", bool(getattr(result, "chromosome_scope", None) or getattr(result, "source_summary", {}).get("chromosome_scope"))),
-            "input_issues": ("diagnostics/input_issues.tsv", getattr(result, "input_issues", None) is not None),
+            "overlap": ("ldscore.overlap.parquet", scientific and publication.overlap is not None),
+            "query_status": ("diagnostics/query_annotation_status.tsv",
+                             result is not None and bool(result.query_statuses)),
+            "chromosome_scope": ("diagnostics/chromosome_scope.json",
+                                 result is not None and bool(result.chromosome_scope)),
+            "input_issues": ("diagnostics/input_issues.tsv",
+                             diagnostics is not None and diagnostics.input_issues is not None),
             "gene_list_audit": ("diagnostics/gene_list_audit.tsv.gz", batch is not None),
             "gene_list_resolution_summary": ("diagnostics/gene_list_resolution_summary.tsv", batch is not None),
-            "gene_catalog_issues": ("diagnostics/gene_catalog_issues.tsv", getattr(batch, "catalog", None) is not None and not batch.catalog.issues.empty),
+            "gene_catalog_issues": ("diagnostics/gene_catalog_issues.tsv",
+                                    batch is not None and batch.catalog is not None and not batch.catalog.issues.empty),
             "ld_window_snp_counts": ("diagnostics/ld_window_snp_counts.tsv",
-                                     scientific and getattr(result, "ld_window_snp_counts", None) is not None),
+                                     scientific and publication.ld_window_snp_counts is not None),
             "reference_snp_funnel": ("diagnostics/reference_snp_funnel.tsv",
-                                     scientific and getattr(result, "reference_snp_funnel", None) is not None),
+                                     scientific and publication.reference_snp_funnel is not None),
         }
         if scientific:
             if len(query_batches) > 1:
                 for ordinal, entry in enumerate(query_batches, 1):
                     entries[f"query_batch{ordinal:05d}"] = (entry["file"], True)
-            for chrom in (getattr(result, "identity_drops_by_chrom", {}) or {}):
+            for chrom in publication.identity_drops_by_chrom:
                 entries[f"dropped_snps_chr{chrom}"] = (dropped_snps_file(chrom), True)
         return declare_artifacts(
             output_dir, entries, label="LD-score output artifact",
@@ -353,8 +360,8 @@ class LDScoreDirectoryWriter:
                             snp_universe_policy=result.snp_universe_policy,
                             legacy_ldscore_conversion=None if streamed else result.legacy_ldscore_conversion,
                             overlap=None if result.overlap is None else result.overlap.select_queries([]),
-                            ld_window_snp_counts=getattr(result, "ld_window_snp_counts", None),
-                            reference_snp_funnel=getattr(result, "reference_snp_funnel", None),
+                            ld_window_snp_counts=result.ld_window_snp_counts,
+                            reference_snp_funnel=result.reference_snp_funnel,
                         )
                         baseline_rg = _write_chromosome_aligned_parquet(shared.baseline_table, stage / BASELINE_FILE, compression)
                         for chrom, artifact in result.identity_drops_by_chrom.items():
@@ -433,7 +440,8 @@ class LDScoreDirectoryWriter:
                 if shared is not None:
                     shared.query_statuses = ordered_statuses()
                     if shared.query_statuses or shared.gene_list_batch is not None or shared.chromosome_scope:
-                        self.write_query_diagnostics(shared, output_config)
+                        self.write_query_diagnostics(QueryDiagnostics(
+                            shared.chromosome_scope, shared.query_statuses, shared.gene_list_batch), output_config)
                 raise
             finally:
                 close = getattr(results, "close", None)
@@ -452,12 +460,12 @@ class LDScoreDirectoryWriter:
 
     def write_gene_list_preflight(
         self,
-        batch: Any,
+        batch: StagedGeneListBatch,
         output_config: LDScoreOutputConfig,
     ) -> dict[str, str]:
         """Write Gate A audit/summary artifacts without scientific outputs."""
         output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
-        family = self.artifact_family(output_dir, gene_list_batch=batch)
+        family = self.artifact_family(output_dir, QueryDiagnostics({}, gene_list_batch=batch))
         paths = family.paths
         stale_paths = family.preflight(overwrite=output_config.overwrite)
         self._write_gene_list_diagnostic_files(batch, paths)
@@ -466,12 +474,12 @@ class LDScoreDirectoryWriter:
 
     def write_query_diagnostics(
         self,
-        result: Any,
+        diagnostics: QueryDiagnostics,
         output_config: LDScoreOutputConfig,
     ) -> dict[str, str]:
         """Write available validation diagnostics without scientific artifacts."""
         output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
-        family = self.artifact_family(output_dir, result, diagnostics_only=True)
+        family = self.artifact_family(output_dir, diagnostics)
         paths = family.paths
         if not any(name in paths for name in ("query_status", "gene_list_audit", "chromosome_scope", "input_issues")):
             raise LDSCInternalError(
@@ -479,7 +487,7 @@ class LDScoreDirectoryWriter:
                 "Re-run with DEBUG logging and report the traceback."
             )
         stale_paths = family.preflight(overwrite=output_config.overwrite)
-        self._write_query_diagnostic_files(result, paths)
+        self._write_query_diagnostic_files(diagnostics, paths)
         remove_output_artifacts(stale_paths)
         return {name: str(path) for name, path in paths.items()}
 
@@ -492,46 +500,45 @@ class LDScoreDirectoryWriter:
         unlike ``write_query_diagnostics``, this neither checks for nor removes
         them. The caller has already run the output-family preflight.
         """
-        paths = cls.artifact_family(output_dir, diagnostics, diagnostics_only=True).paths
+        paths = cls.artifact_family(output_dir, diagnostics).paths
         cls._write_query_diagnostic_files(diagnostics, paths)
         return {name: str(path) for name, path in paths.items()}
 
     @staticmethod
-    def _write_ld_window_snp_counts(result: Any, paths: dict[str, Path]) -> None:
+    def _write_ld_window_snp_counts(publication: _LDScorePublication, paths: dict[str, Path]) -> None:
         """Write per-chromosome R2 matrix/kept SNP counts behind an R2 matrix ``--ld-wind-snps`` window."""
         if "ld_window_snp_counts" in paths:
             paths["ld_window_snp_counts"].parent.mkdir(parents=True, exist_ok=True)
-            result.ld_window_snp_counts.to_csv(paths["ld_window_snp_counts"], sep="\t", index=False)
+            publication.ld_window_snp_counts.to_csv(paths["ld_window_snp_counts"], sep="\t", index=False)
 
     @staticmethod
-    def _write_reference_snp_funnel(result: Any, paths: dict[str, Path]) -> None:
+    def _write_reference_snp_funnel(publication: _LDScorePublication, paths: dict[str, Path]) -> None:
         """Write every chromosome's reference-SNP funnel, including skipped chromosomes."""
         if "reference_snp_funnel" in paths:
             from .._refpanel.funnel import write_reference_snp_funnel
 
-            write_reference_snp_funnel(result.reference_snp_funnel, paths["reference_snp_funnel"])
+            write_reference_snp_funnel(publication.reference_snp_funnel, paths["reference_snp_funnel"])
 
     @staticmethod
-    def _write_query_diagnostic_files(result: Any, paths: dict[str, Path]) -> None:
-        """Serialize fixed query diagnostics after family preflight."""
-        query_statuses = tuple(getattr(result, "query_statuses", ()))
-        gene_list_batch = getattr(result, "gene_list_batch", None)
+    def _write_query_diagnostic_files(result: _LDScorePublication | QueryDiagnostics,
+                                      paths: dict[str, Path]) -> None:
+        """Serialize the query diagnostics that ``artifact_family`` selected for ``result``."""
         if "chromosome_scope" in paths:
             paths["chromosome_scope"].parent.mkdir(parents=True, exist_ok=True)
-            atomic_write_json(getattr(result, "chromosome_scope", None) or result.source_summary["chromosome_scope"], paths["chromosome_scope"])
+            atomic_write_json(result.chromosome_scope, paths["chromosome_scope"])
         if "input_issues" in paths:
             paths["input_issues"].parent.mkdir(parents=True, exist_ok=True)
             result.input_issues.to_csv(paths["input_issues"], sep="\t", index=False, na_rep="")
         if "query_status" in paths:
             paths["query_status"].parent.mkdir(parents=True, exist_ok=True)
-            pd.DataFrame([record.as_dict() for record in query_statuses], columns=QUERY_STATUS_COLUMNS).to_csv(
+            pd.DataFrame([record.as_dict() for record in result.query_statuses], columns=QUERY_STATUS_COLUMNS).to_csv(
                 paths["query_status"], sep="\t", index=False, na_rep=""
             )
-        if gene_list_batch is not None:
-            LDScoreDirectoryWriter._write_gene_list_diagnostic_files(gene_list_batch, paths)
+        if result.gene_list_batch is not None:
+            LDScoreDirectoryWriter._write_gene_list_diagnostic_files(result.gene_list_batch, paths)
 
     @staticmethod
-    def _write_gene_list_diagnostic_files(batch: Any, paths: dict[str, Path]) -> None:
+    def _write_gene_list_diagnostic_files(batch: StagedGeneListBatch, paths: dict[str, Path]) -> None:
         """Persist gene resolution and any latent catalog defects before logging."""
         paths["gene_list_audit"].parent.mkdir(parents=True, exist_ok=True)
         batch.write_audit(paths["gene_list_audit"])
@@ -549,12 +556,12 @@ class LDScoreDirectoryWriter:
 
     def _build_metadata(
         self,
-        result: Any,
+        publication: _LDScorePublication,
         files: dict[str, str],
         baseline_rg: list[dict] | None = None,
         query_rg: list[dict] | None = None,
     ) -> dict[str, Any]:
-        """Build the JSON metadata payload for one LD-score result.
+        """Build the JSON metadata payload for one LD-score directory.
 
         The metadata always includes ``count_config`` so downstream regression
         code can report the common-SNP count threshold even when MAF metadata is
@@ -562,8 +569,8 @@ class LDScoreDirectoryWriter:
         records the chromosome, row-group index, row offset, and row count for
         each chromosome-aligned parquet row group.
         """
-        baseline_table = getattr(result, "baseline_table")
-        config_snapshot = getattr(result, "config_snapshot", None)
+        baseline_table = publication.baseline_table
+        config_snapshot = publication.config_snapshot
         if config_snapshot is None:
             raise LDSCInternalError(
                 "LD-score output writer could not build metadata because LDScoreResult.config_snapshot is missing. "
@@ -573,13 +580,13 @@ class LDScoreDirectoryWriter:
         identity_metadata = identity_artifact_metadata(
             artifact_type="ldscore",
             snp_identifier=config_snapshot.snp_identifier,
-            genome_build=getattr(config_snapshot, "genome_build", None),
+            genome_build=config_snapshot.genome_build,
         )
         chromosomes = baseline_table["CHR"].astype(str).drop_duplicates().tolist()
-        overlap = getattr(result, "overlap", None)
+        overlap = publication.overlap
         overlap_config = None
         if overlap is not None:
-            count_config = dict(getattr(result, "count_config", None) or {})
+            count_config = publication.count_config
             overlap_config = {
                 "total_all_reference_snps": float(overlap.total_all_reference_snps),
                 "total_common_reference_snps": (
@@ -589,41 +596,35 @@ class LDScoreDirectoryWriter:
                 "common_maf_min": float(count_config.get("common_reference_snp_maf_min", 0.05)),
                 "common_maf_operator": str(count_config.get("common_reference_snp_maf_operator", ">=")),
                 "stored_block": (
-                    "baseline_rows_plus_query_diagonal"
-                    if list(getattr(result, "query_columns", []))
-                    else "baseline_by_baseline"
+                    "baseline_rows_plus_query_diagonal" if publication.query_columns else "baseline_by_baseline"
                 ),
             }
         payload = {
             **identity_metadata,
             "files": dict(files),
             "chromosomes": chromosomes,
-            "chromosome_scope": getattr(result, "chromosome_scope", None),
-            "baseline_columns": list(getattr(result, "baseline_columns", [])),
-            "query_columns": list(getattr(result, "query_columns", [])),
-            "annotation_types": dict(result.annotation_types),
-            "counts": list(getattr(result, "count_records", [])),
-            "count_config": dict(getattr(result, "count_config", None) or DEFAULT_COUNT_CONFIG),
+            "chromosome_scope": publication.chromosome_scope,
+            "baseline_columns": list(publication.baseline_columns),
+            "query_columns": list(publication.query_columns),
+            "annotation_types": dict(publication.annotation_types),
+            "counts": list(publication.count_records),
+            "count_config": dict(publication.count_config or DEFAULT_COUNT_CONFIG),
             "overlap_config": overlap_config,
             "n_baseline_rows": int(len(baseline_table)),
-            "n_query_rows": int(len(baseline_table)) if getattr(result, "query_columns", []) else 0,
+            "n_query_rows": int(len(baseline_table)) if publication.query_columns else 0,
             "row_group_layout": "one_per_chromosome",
             "baseline_row_groups": baseline_rg or [],
             "query_row_groups": query_rg,
-            "query_batches": list(result.query_batches),
+            "query_batches": list(publication.query_batches),
         }
-        query_statuses = tuple(getattr(result, "query_statuses", ()))
-        gene_list_batch = getattr(result, "gene_list_batch", None)
-        if query_statuses:
+        gene_list_batch = publication.gene_list_batch
+        if publication.query_statuses:
             payload["query_diagnostics"] = {"status": "diagnostics/query_annotation_status.tsv"}
-        if getattr(result, "chromosome_scope", None):
+        if publication.chromosome_scope:
             payload.setdefault("query_diagnostics", {})["chromosome_scope"] = "diagnostics/chromosome_scope.json"
-        input_issues = getattr(result, "input_issues", None)
-        if input_issues is not None and not input_issues.empty:
-            payload.setdefault("query_diagnostics", {})["input_issues"] = "diagnostics/input_issues.tsv"
         if gene_list_batch is not None:
             payload["gene_list_resolution_policy"] = gene_list_batch.resolution_policy
-            catalog = getattr(gene_list_batch, "catalog", None)
+            catalog = gene_list_batch.catalog
             if catalog is not None and not catalog.issues.empty:
                 payload.setdefault("query_diagnostics", {})["gene_catalog_issues"] = "diagnostics/gene_catalog_issues.tsv"
             payload["gene_list_resolution_counts"] = {
@@ -637,13 +638,10 @@ class LDScoreDirectoryWriter:
                     "gene_list_resolution_summary": "diagnostics/gene_list_resolution_summary.tsv",
                 }
             )
-        index_provenance = getattr(result, "index_provenance", None)
-        if index_provenance is not None:
-            payload.update(dict(index_provenance))
-        snp_universe_policy = getattr(result, "snp_universe_policy", None)
-        if snp_universe_policy is not None:
-            payload["snp_universe_policy"] = dict(snp_universe_policy)
-        legacy_import = getattr(result, "legacy_ldscore_conversion", None)
-        if legacy_import is not None:
-            payload["legacy_ldscore_conversion"] = dict(legacy_import)
+        if publication.index_provenance is not None:
+            payload.update(dict(publication.index_provenance))
+        if publication.snp_universe_policy is not None:
+            payload["snp_universe_policy"] = dict(publication.snp_universe_policy)
+        if publication.legacy_ldscore_conversion is not None:
+            payload["legacy_ldscore_conversion"] = dict(publication.legacy_ldscore_conversion)
         return payload

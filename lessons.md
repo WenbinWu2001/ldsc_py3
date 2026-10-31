@@ -131,6 +131,7 @@ Last updated on: 2026-10-30
 ## Read-only CLI modes must bypass the entire failure-marker lifecycle
 
 - Summary/root cause/correction: The overwrite marker wrapper treated argparse's successful help exit as a failed run; exclude help and inference-only parsing checks from the marker scope and verify absent directories and existing markers remain untouched on success and failure.
+- Recurrence: An argument-parsing error with `--overwrite` (a misspelled or missing option) created the output directory and a marker reading `SystemExit: 2`, because the marker helper treated every `BaseException` as a failed run; `overwrite_failure_marker` now re-raises `SystemExit` without touching the output scope, and `tests/runtime/test_failure_markers.py` covers argument-parsing errors for a workflow-parsed, a CLI-parsed and a derived-destination command.
 
 ## Munging summaries must use parser accounting
 

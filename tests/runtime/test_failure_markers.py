@@ -121,6 +121,53 @@ def test_cli_help_with_overwrite_leaves_output_scope_untouched(tmp_path, help_fl
         assert not output_dir.exists()
 
 
+@pytest.mark.parametrize(
+    ("argv", "marker_name"),
+    [
+        (["h2", "--output-dir", "{root}", "--overwrite", "--bogus-flag"], "RUN_FAILED.txt"),
+        (["h2", "--output-dir", "{root}", "--overwrite"], "RUN_FAILED.txt"),
+        (["ldscore", "--output-dir", "{root}", "--overwrite", "--bogus-flag"], "RUN_FAILED.txt"),
+        (["plot", "--result-dir", "{root}", "--overwrite", "--bogus-flag"], "plots/RUN_FAILED.txt"),
+        (["build-r2-matrix", "--plink-prefix", "panel.chr22", "--output-dir", "{root}", "--overwrite",
+          "--bogus-flag"], "RUN_FAILED.chr22.txt"),
+    ],
+)
+@pytest.mark.parametrize("existing", [False, True])
+def test_cli_argument_error_with_overwrite_leaves_output_scope_untouched(tmp_path, argv, marker_name, existing):
+    root = tmp_path / "out"
+    marker = root / marker_name
+    if existing:
+        marker.parent.mkdir(parents=True)
+        marker.write_text("previous failed run", encoding="utf-8")
+
+    status = cli.run_cli([token.format(root=root) for token in argv])
+
+    assert status == 2
+    if existing:
+        assert marker.read_text(encoding="utf-8") == "previous failed run"
+        assert [path for path in root.rglob("*") if path.is_file()] == [marker]
+    else:
+        assert not root.exists()
+
+
+@pytest.mark.parametrize("code", [0, 2])
+def test_marker_helper_leaves_scope_untouched_when_argument_parsing_exits(tmp_path, code):
+    output_dir = tmp_path / "out"
+
+    with pytest.raises(SystemExit):
+        with overwrite_failure_marker(output_dir, overwrite=True, command="ldsc h2 --bogus-flag"):
+            raise SystemExit(code)
+    assert not output_dir.exists()
+
+    output_dir.mkdir()
+    marker = output_dir / "RUN_FAILED.txt"
+    marker.write_text("previous failed run", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        with overwrite_failure_marker(output_dir, overwrite=True, command="ldsc h2 --bogus-flag"):
+            raise SystemExit(code)
+    assert marker.read_text(encoding="utf-8") == "previous failed run"
+
+
 @pytest.mark.parametrize("entrypoint", ["cli", "python"])
 @pytest.mark.parametrize("input_state", ["valid", "missing", "omitted"])
 @pytest.mark.parametrize("existing", [False, True])

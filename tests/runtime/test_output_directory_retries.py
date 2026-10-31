@@ -67,16 +67,16 @@ def test_failure_marker_uses_the_normalized_output_directory(tmp_path, monkeypat
     assert not (output / "RUN_FAILED.txt").exists()
 
 
-@pytest.mark.parametrize("command,option,nested", [
-    ("h2", "--output-dir", ""),
-    ("plot", "--result-dir", "plots"),
-    ("convert-h2-scale", "--h2-result-dir", "postprocessing/liability-scale"),
+@pytest.mark.parametrize("command,option,nested,inputs", [
+    ("h2", "--output-dir", "", ["--sumstats-file", "missing.parquet", "--ldscore-dir", "missing"]),
+    ("plot", "--result-dir", "plots", []),
+    ("convert-h2-scale", "--h2-result-dir", "postprocessing/liability-scale", ["--samp-prev", "0.5", "--pop-prev", "0.01"]),
 ])
-def test_cli_marker_follows_last_destination_option(tmp_path, command, option, nested):
+def test_cli_marker_follows_last_destination_option(tmp_path, command, option, nested, inputs):
     first, last = tmp_path / "first", tmp_path / "last"
     # Invalid input fails before computation; argparse chooses the last value.
     assert cli.run_cli([
-        command, option, str(first), f"{option}={last}", "--overwrite",
+        command, option, str(first), f"{option}={last}", *inputs, "--overwrite",
     ]) != 0
     assert not first.exists()
     assert (last / nested / "RUN_FAILED.txt").is_file()

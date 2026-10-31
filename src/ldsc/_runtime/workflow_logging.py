@@ -210,11 +210,15 @@ def overwrite_failure_marker(
     artifacts. It writes the marker only after an exception escapes, leaving
     the target directory exactly as the wrapped workflow's existing action
     order left it. Any successful materializing retry removes the applicable
-    old marker after the wrapped success path completes.
+    old marker after the wrapped success path completes. ``SystemExit``, which
+    in this package only argument parsing raises for help or an argument error,
+    creates, replaces and removes nothing: no run was attempted.
     """
     marker_path = Path(normalize_path_token(output_dir)) / marker_name
     try:
         yield marker_path
+    except SystemExit:
+        raise
     except BaseException as exc:
         if overwrite:
             detailed_log = str(log_path) if log_path is not None else last_workflow_log_path()

@@ -1,6 +1,6 @@
 # Logs and Outputs
 
-Last updated on: 2026-10-29
+Last updated on: 2026-10-30
 
 This page describes what a logged workflow writes besides its scientific results: logs, console messages, output preflight and failure markers.
 The rules for writing log and error messages, and the logging API boundary, are in [logging design](../dev/design/logging.md).
@@ -209,7 +209,10 @@ Gene LD-score index preflight, direct publication, and interrupted-publication r
 Existing recovery of a validated owned backup preserves the failure marker until the current build succeeds.
 See [`test_output_directory_retries.py`](../../tests/runtime/test_output_directory_retries.py).
 
-CLI help and `munge-sumstats --infer-only` bypass the marker lifecycle entirely. Even with `--overwrite`, they create no output directories or files and never create, replace, or remove a failure marker. This also applies when inference or argument parsing fails.
+CLI help and `munge-sumstats --infer-only` bypass the marker lifecycle entirely.
+Even with `--overwrite`, they create no output directories or files and never create, replace, or remove a failure marker.
+This also applies when inference or argument parsing fails.
+An argument-parsing error, such as a misspelled or missing option, stops before any run starts, so it likewise creates no output directory and leaves an existing failure marker unchanged; the exit code 2 and the usage message on stderr report it.
 
 ## Log Layout
 

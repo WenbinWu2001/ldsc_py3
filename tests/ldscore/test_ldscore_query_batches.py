@@ -243,7 +243,7 @@ def test_batch_publication_is_private_and_overwrite_removes_owned_siblings(tmp_p
 
 
 def test_missing_current_query_manifest_is_rejected(tmp_path):
-    LDScoreDirectoryWriter().write(make_split_ldscore_result(), LDScoreOutputConfig(output_dir=tmp_path))
+    LDScoreDirectoryWriter().write_batches([make_split_ldscore_result()], LDScoreOutputConfig(output_dir=tmp_path))
     path = tmp_path / "metadata.json"
     payload = json.loads(path.read_text())
     payload.pop("query_batches")

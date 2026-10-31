@@ -175,7 +175,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
                 gene_list_batch=batch,
             )
 
-            LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
+            LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
 
             status_table = pd.read_csv(output_dir / "diagnostics" / "query_annotation_status.tsv", sep="\t")
             audit = pd.read_csv(output_dir / "diagnostics" / "gene_list_audit.tsv.gz", sep="\t")
@@ -242,7 +242,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
     def test_ldscore_writer_emits_overlap_sidecar(self):
         result = dataclass_replace(make_split_ldscore_result(query=True), overlap=self._overlap())
         with tempfile.TemporaryDirectory() as tmpdir:
-            LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=tmpdir))
+            LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=tmpdir))
             self.assertTrue((Path(tmpdir) / "ldscore.overlap.parquet").exists())
             meta = json.loads((Path(tmpdir) / "metadata.json").read_text())
             self.assertEqual(meta["files"]["overlap"], "ldscore.overlap.parquet")
@@ -252,7 +252,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
     def test_load_ldscore_from_dir_reads_overlap(self):
         result = dataclass_replace(make_split_ldscore_result(query=True), overlap=self._overlap())
         with tempfile.TemporaryDirectory() as tmpdir:
-            LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=tmpdir))
+            LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=tmpdir))
             loaded = load_ldscore_from_dir(tmpdir)
         self.assertIsNotNone(loaded.overlap)
         self.assertEqual(loaded.overlap.total_all_reference_snps, 10.0)
@@ -267,7 +267,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
         writer = LDScoreDirectoryWriter()
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "ldscores"
-            output_paths = writer.write(result, LDScoreOutputConfig(output_dir=output_dir))
+            output_paths = writer.write_batches([result], LDScoreOutputConfig(output_dir=output_dir)).output_paths
 
             self.assertEqual(set(output_paths), {"metadata", "baseline", "query"})
             metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
@@ -300,7 +300,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
         result = dataclass_replace(make_split_ldscore_result(query=False), config_snapshot=None)
         with tempfile.TemporaryDirectory() as tmpdir:
             with self.assertRaisesRegex(LDSCInternalError, "config_snapshot"):
-                LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=tmpdir))
+                LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=tmpdir))
 
     def test_ldscore_writer_rejects_allele_aware_without_baseline_alleles(self):
         result = dataclass_replace(
@@ -309,7 +309,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             with self.assertRaisesRegex(LDSCInternalError, "baseline_table.*A1/A2"):
-                LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=tmpdir))
+                LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=tmpdir))
 
     def test_ldscore_writer_rejects_allele_aware_without_query_alleles(self):
         result = make_allele_aware_ldscore_result(query=True)
@@ -317,7 +317,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
         result = dataclass_replace(result, query_table=query)
         with tempfile.TemporaryDirectory() as tmpdir:
             with self.assertRaisesRegex(LDSCInternalError, "query_table.*A1/A2"):
-                LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=tmpdir))
+                LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=tmpdir))
 
     def test_ldscore_writer_rejects_allele_aware_query_allele_mismatch(self):
         result = make_allele_aware_ldscore_result(query=True)
@@ -327,13 +327,13 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with self.assertRaisesRegex(LDSCInputError, "query rows must match baseline rows"):
-                LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=tmpdir))
+                LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=tmpdir))
 
     def test_ldscore_writer_round_trips_through_public_loader(self):
         result = make_allele_aware_ldscore_result(query=True)
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "ldscores"
-            LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
+            LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
 
             loaded = load_ldscore_from_dir(str(output_dir))
 
@@ -346,7 +346,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
         result = make_multi_chrom_result()
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "out"
-            LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
+            LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
 
             for fname in ("ldscore.baseline.parquet", "ldscore.query.parquet"):
                 pf = pq.ParquetFile(output_dir / fname)
@@ -361,7 +361,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
         result = make_multi_chrom_result()
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "out"
-            LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
+            LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
 
             metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
             rg_by_chrom = {e["chrom"]: e["row_group_index"] for e in metadata["baseline_row_groups"]}
@@ -376,7 +376,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
         result = make_multi_chrom_result()
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "out"
-            LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
+            LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
 
             metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
             self.assertEqual(metadata["row_group_layout"], "one_per_chromosome")
@@ -397,7 +397,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
         result = make_split_ldscore_result(query=False)
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "out"
-            LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
+            LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
 
             metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
             self.assertIsNone(metadata["query_row_groups"])
@@ -409,7 +409,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
         writer = LDScoreDirectoryWriter()
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "ldscores"
-            output_paths = writer.write(result, LDScoreOutputConfig(output_dir=output_dir))
+            output_paths = writer.write_batches([result], LDScoreOutputConfig(output_dir=output_dir)).output_paths
 
             self.assertEqual(set(output_paths), {"metadata", "baseline"})
             self.assertFalse((output_dir / "ldscore.query.parquet").exists())
@@ -426,7 +426,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             stale.write_text("stale\n", encoding="utf-8")
 
             with self.assertRaisesRegex(FileExistsError, "overwrite"):
-                LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
+                LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
 
             self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
             self.assertFalse((output_dir / "metadata.json").exists())
@@ -435,11 +435,13 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
     def test_baseline_only_overwrite_removes_stale_query_parquet(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "ldscores"
-            LDScoreDirectoryWriter().write(make_split_ldscore_result(query=True), LDScoreOutputConfig(output_dir=output_dir))
+            LDScoreDirectoryWriter().write_batches(
+                [make_split_ldscore_result(query=True)], LDScoreOutputConfig(output_dir=output_dir)
+            )
             self.assertTrue((output_dir / "ldscore.query.parquet").exists())
 
-            LDScoreDirectoryWriter().write(
-                make_split_ldscore_result(query=False),
+            LDScoreDirectoryWriter().write_batches(
+                [make_split_ldscore_result(query=False)],
                 LDScoreOutputConfig(output_dir=output_dir, overwrite=True),
             )
 
@@ -454,13 +456,13 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "ldscores"
             partitioned = dataclass_replace(make_split_ldscore_result(query=True), overlap=self._overlap())
-            LDScoreDirectoryWriter().write(partitioned, LDScoreOutputConfig(output_dir=output_dir))
+            LDScoreDirectoryWriter().write_batches([partitioned], LDScoreOutputConfig(output_dir=output_dir))
             self.assertTrue((output_dir / "ldscore.overlap.parquet").exists())
 
             # Re-running the directory as an unpartitioned (overlap-free) result must
             # clear the now-stale overlap sidecar via the canonical output family.
-            LDScoreDirectoryWriter().write(
-                make_split_ldscore_result(query=False),
+            LDScoreDirectoryWriter().write_batches(
+                [make_split_ldscore_result(query=False)],
                 LDScoreOutputConfig(output_dir=output_dir, overwrite=True),
             )
 
@@ -479,7 +481,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with self.assertRaisesRegex(LDSCInputError, "query rows must match baseline rows"):
-                LDScoreDirectoryWriter().write(bad_result, LDScoreOutputConfig(output_dir=tmpdir))
+                LDScoreDirectoryWriter().write_batches([bad_result], LDScoreOutputConfig(output_dir=tmpdir))
 
     def test_refuses_overwrite_before_writing_any_file(self):
         result = make_split_ldscore_result(query=True)
@@ -488,7 +490,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             (output_dir / "ldscore.baseline.parquet").write_text("existing", encoding="utf-8")
 
             with self.assertRaisesRegex(FileExistsError, "overwrite=True"):
-                LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
+                LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
 
             self.assertFalse((output_dir / "metadata.json").exists())
             self.assertEqual((output_dir / "ldscore.baseline.parquet").read_text(encoding="utf-8"), "existing")
@@ -500,7 +502,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             (output_dir / "metadata.json").write_text("existing", encoding="utf-8")
             (output_dir / "ldscore.baseline.parquet").write_text("existing", encoding="utf-8")
 
-            LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir, overwrite=True))
+            LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir, overwrite=True))
 
             metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
             baseline = pd.read_parquet(output_dir / "ldscore.baseline.parquet")
@@ -521,7 +523,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "ldscores"
-            LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
+            LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
 
             metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
 

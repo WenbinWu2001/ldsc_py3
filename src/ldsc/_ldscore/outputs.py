@@ -8,8 +8,6 @@ one Parquet row group per chromosome.
 
 from __future__ import annotations
 
-import gzip
-import json
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
@@ -22,9 +20,9 @@ import pyarrow.parquet as pq
 
 from .._core.snp_identity import identity_artifact_metadata
 from ..config import normalize_required_path
-from .source import is_numbered_query_batch_file, validate_ldscore_baseline_table, validate_ldscore_query_table
-from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError
-from .._runtime.artifacts import ArtifactFamily, atomic_write_json, declare_artifacts, to_serializable
+from .source import is_numbered_query_batch_file
+from ..errors import LDSCConfigError, LDSCInternalError
+from .._runtime.artifacts import ArtifactFamily, atomic_write_json, declare_artifacts
 from .._runtime.paths import ensure_output_directory, remove_output_artifacts
 
 if TYPE_CHECKING:
@@ -161,8 +159,7 @@ class LDScoreDirectoryWriter:
     Annotation counts and the ordered ``query_batches`` manifest are embedded
     in root metadata. Each Parquet file has chromosome-aligned row groups.
     ``write_batches`` releases completed query values, publishes after complete
-    success, and returns an ``LDScoreSource``. ``write`` serializes an already
-    materialized single result and returns artifact paths.
+    success, and returns an ``LDScoreSource``.
     """
 
     # Diagnostics owned by the writer but not listed in metadata ``files``.
@@ -186,7 +183,7 @@ class LDScoreDirectoryWriter:
         entries = {
             "metadata": ("metadata.json", scientific),
             "baseline": (BASELINE_FILE, scientific),
-            "query": ("ldscore.query.parquet", scientific and (getattr(result, "query_table", None) is not None or len(query_batches) == 1)),
+            "query": ("ldscore.query.parquet", scientific and len(query_batches) == 1),
             "overlap": ("ldscore.overlap.parquet", scientific and getattr(result, "overlap", None) is not None),
             "query_status": ("diagnostics/query_annotation_status.tsv", bool(getattr(result, "query_statuses", ()))),
             "chromosome_scope": ("diagnostics/chromosome_scope.json", bool(getattr(result, "chromosome_scope", None) or getattr(result, "source_summary", {}).get("chromosome_scope"))),
@@ -323,60 +320,6 @@ class LDScoreDirectoryWriter:
         cls._write_query_diagnostic_files(diagnostics, paths)
         return {name: str(path) for name, path in paths.items()}
 
-    def write(self, result: Any, output_config: LDScoreOutputConfig) -> dict[str, str]:
-        """Write ``metadata.json`` and canonical LD-score parquet files.
-
-        Existing canonical family files are checked before any output file is
-        written. Replacement requires ``output_config.overwrite=True``;
-        unrelated files in the directory are ignored. The returned paths map
-        includes ``"baseline"``, ``"metadata"``, ``"query"`` when query
-        annotations were supplied, and ``"overlap"`` for partitioned runs.
-        """
-        output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
-        baseline_table = getattr(result, "baseline_table", None)
-        query_table = getattr(result, "query_table", None)
-        if baseline_table is None:
-            raise LDSCInternalError(
-                "LD-score output writer could not write the result because LDScoreDirectoryWriter.write() "
-                "received an LDScoreResult without baseline_table. Most likely an upstream LD-score workflow "
-                "returned an incomplete result object. Re-run with DEBUG logging and report the traceback."
-            )
-        snp_identifier = validate_ldscore_baseline_table(
-            baseline_table, result.baseline_columns, result.config_snapshot,
-        )
-        validate_ldscore_query_table(
-            baseline_table, query_table, result.query_columns, snp_identifier=snp_identifier,
-        )
-
-        overlap = getattr(result, "overlap", None)
-        family = self.artifact_family(output_dir, result)
-        paths = family.paths
-        identity_drops_by_chrom = dict(getattr(result, "identity_drops_by_chrom", {}) or {})
-        stale_paths = family.preflight(overwrite=output_config.overwrite)
-
-        compression = None if output_config.parquet_compression in {None, "none"} else output_config.parquet_compression
-        baseline_rg = _write_chromosome_aligned_parquet(baseline_table, paths["baseline"], compression)
-        query_rg = None
-        if query_table is not None:
-            query_rg = _write_chromosome_aligned_parquet(query_table, paths["query"], compression)
-        if overlap is not None:
-            from .overlap_table import overlap_to_long_frame
-            overlap_to_long_frame(overlap).to_parquet(paths["overlap"], index=False)
-        for chrom, artifact in identity_drops_by_chrom.items():
-            artifact.write_to(paths[f"dropped_snps_chr{chrom}"])
-        self._write_query_diagnostic_files(result, paths)
-        self._write_ld_window_snp_counts(result, paths)
-        self._write_reference_snp_funnel(result, paths)
-        metadata = self.build_metadata(
-            result,
-            files=family.metadata_files(exclude=self.METADATA_EXCLUDED_FILES),
-            baseline_rg=baseline_rg,
-            query_rg=query_rg,
-        )
-        paths["metadata"].write_text(json.dumps(to_serializable(metadata), indent=2, sort_keys=True), encoding="utf-8")
-        remove_output_artifacts(stale_paths)
-        return {name: str(path) for name, path in paths.items()}
-
     @staticmethod
     def _write_ld_window_snp_counts(result: Any, paths: dict[str, Path]) -> None:
         """Write per-chromosome R2 matrix/kept SNP counts behind an R2 matrix ``--ld-wind-snps`` window."""
@@ -444,7 +387,6 @@ class LDScoreDirectoryWriter:
         each chromosome-aligned parquet row group.
         """
         baseline_table = getattr(result, "baseline_table")
-        query_table = getattr(result, "query_table", None)
         config_snapshot = getattr(result, "config_snapshot", None)
         if config_snapshot is None:
             raise LDSCInternalError(
@@ -483,16 +425,7 @@ class LDScoreDirectoryWriter:
             "chromosome_scope": getattr(result, "chromosome_scope", None),
             "baseline_columns": list(getattr(result, "baseline_columns", [])),
             "query_columns": list(getattr(result, "query_columns", [])),
-            "annotation_types": (
-                dict(getattr(result, "annotation_types", {}) or {})
-                or {
-                    str(name): "unknown"
-                    for name in [
-                        *list(getattr(result, "baseline_columns", [])),
-                        *list(getattr(result, "query_columns", [])),
-                    ]
-                }
-            ),
+            "annotation_types": dict(result.annotation_types),
             "counts": list(getattr(result, "count_records", [])),
             "count_config": dict(getattr(result, "count_config", None) or DEFAULT_COUNT_CONFIG),
             "overlap_config": overlap_config,
@@ -501,10 +434,7 @@ class LDScoreDirectoryWriter:
             "row_group_layout": "one_per_chromosome",
             "baseline_row_groups": baseline_rg or [],
             "query_row_groups": query_rg,
-            "query_batches": getattr(result, "query_batches", None) or ([{
-                "file": files["query"], "query_columns": list(result.query_columns),
-                "row_groups": query_rg or [],
-            }] if query_table is not None else []),
+            "query_batches": list(result.query_batches),
         }
         query_statuses = tuple(getattr(result, "query_statuses", ()))
         gene_list_batch = getattr(result, "gene_list_batch", None)

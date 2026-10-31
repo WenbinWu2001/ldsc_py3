@@ -27,7 +27,7 @@ def damaged_panel(**values):
 
 
 def test_h2_command_stops_on_an_infinite_ld_score_even_for_a_snp_the_trait_lacks(tmp_path):
-    LDScoreDirectoryWriter().write(damaged_panel(base=(N_SNPS - 1, np.inf)),
+    LDScoreDirectoryWriter().write_batches([damaged_panel(base=(N_SNPS - 1, np.inf))],
                                    LDScoreOutputConfig(output_dir=tmp_path / "ld"))
     z = signed_statistics(np.random.default_rng(1), panel().baseline_table["base"])
     rows = [f"rs{i}\tA\tC\t{z[i]:.5f}\t10000" for i in range(N_SNPS - 1)]  # no row for the damaged SNP

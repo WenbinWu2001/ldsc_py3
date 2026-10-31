@@ -23,7 +23,7 @@ from ldsc._annotation.overlap import OverlapContribution
 
 def ld_directory(tmp_path):
     result = fixtures.RegressionWorkflowTest().make_ldscore_result()
-    LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=tmp_path))
+    LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=tmp_path))
     return result
 
 
@@ -141,7 +141,7 @@ def batch_inputs(tmp_path):
         ["base"], ["first", "second", "third"], frozenset(), frozenset(baseline.SNP), [],
         config_snapshot=workflow.GlobalConfig(snp_identifier="rsid"), overlap=overlap,
     )
-    LDScoreDirectoryWriter().write(source, LDScoreOutputConfig(output_dir=tmp_path))
+    LDScoreDirectoryWriter().write_batches([source], LDScoreOutputConfig(output_dir=tmp_path))
     table = workflow.SumstatsTable(data=frame[["SNP", "Z", "N"]], trait_name="trait", has_alleles=False,
                                    source_path="trait", config_snapshot=source.config_snapshot)
     return table, load_ldscore_from_dir(str(tmp_path))
@@ -298,7 +298,7 @@ def two_baseline_inputs(tmp_path):
                "common_reference_snp_count": 1000.} for column in ("base", "second")]
     source = LDScoreResult(baseline, None, counts, ["base", "second"], [], frozenset(), frozenset(baseline.SNP), [],
                            config_snapshot=workflow.GlobalConfig(snp_identifier="rsid"))
-    LDScoreDirectoryWriter().write(source, LDScoreOutputConfig(output_dir=tmp_path))
+    LDScoreDirectoryWriter().write_batches([source], LDScoreOutputConfig(output_dir=tmp_path))
 
 
 def _h2_trait(tmp_path):
@@ -454,7 +454,7 @@ def test_functional_command_keeps_complete_model_at_root(tmp_path):
     result = LDScoreResult(baseline, None, [{**r, "group": "baseline"} for r in source.count_records if r["column"] in ("base", "first")],
                           ["base", "first"], [], frozenset(), source.ld_regression_snps, [], config_snapshot=source.config_snapshot,
                           overlap=overlap)
-    LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=tmp_path / "ld", overwrite=True))
+    LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=tmp_path / "ld", overwrite=True))
     summary = cli.main(args).summary
     assert summary.category.tolist() == ["base", "first"]
     metadata = json.loads((tmp_path / "out/diagnostics/metadata.json").read_text())
@@ -560,7 +560,7 @@ def _near_collinear_rg_inputs(tmp_path, *, with_overlap, shared_rows_only=False)
         ["base", "dup"], [], frozenset(), frozenset(baseline.SNP), [],
         config_snapshot=workflow.GlobalConfig(snp_identifier="rsid"), overlap=overlap,
     )
-    LDScoreDirectoryWriter().write(source, LDScoreOutputConfig(output_dir=tmp_path))
+    LDScoreDirectoryWriter().write_batches([source], LDScoreOutputConfig(output_dir=tmp_path))
     data = frame[["SNP", "Z", "N"]].assign(A1="A", A2="G")
     rows = [slice(0, 40), slice(20, 60)] if shared_rows_only else [slice(None), slice(None)]
     tables = [workflow.SumstatsTable(data=data.iloc[row].assign(Z=data.Z.iloc[row] * sign).reset_index(drop=True),

@@ -62,7 +62,7 @@ def only_first_region(seed=4):
 
 
 def test_rg_marks_a_singular_pair_unestimable_with_its_context(tmp_path):
-    LDScoreDirectoryWriter().write(panel(), LDScoreOutputConfig(output_dir=tmp_path / "ld"))
+    LDScoreDirectoryWriter().write_batches([panel()], LDScoreOutputConfig(output_dir=tmp_path / "ld"))
     sources = [SumstatsMunger().write_output(table, tmp_path / "sumstats") for table in traits()]
 
     result = workflow.run_rg(sumstats_sources=sources, ldscore_dir=str(tmp_path / "ld"),
@@ -93,7 +93,7 @@ def test_rg_marks_a_singular_pair_unestimable_with_its_context(tmp_path):
 
 
 def test_h2_command_prints_the_jackknife_context(tmp_path, caplog):
-    LDScoreDirectoryWriter().write(panel(), LDScoreOutputConfig(output_dir=tmp_path / "ld"))
+    LDScoreDirectoryWriter().write_batches([panel()], LDScoreOutputConfig(output_dir=tmp_path / "ld"))
     source = SumstatsMunger().write_output(only_first_region(), tmp_path / "sumstats")
 
     code = cli.run_cli(["h2", "--sumstats-file", source, "--ldscore-dir", str(tmp_path / "ld"),

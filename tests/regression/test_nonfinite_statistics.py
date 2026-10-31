@@ -26,7 +26,7 @@ def with_nonfinite(table, z_rows=(), n_rows=()):
 
 
 def test_h2_command_drops_nonfinite_legacy_rows_and_records_them(tmp_path):
-    LDScoreDirectoryWriter().write(panel(), LDScoreOutputConfig(output_dir=tmp_path / "ld"))
+    LDScoreDirectoryWriter().write_batches([panel()], LDScoreOutputConfig(output_dir=tmp_path / "ld"))
     rng = np.random.default_rng(11)
     z = signed_statistics(rng, panel().baseline_table["base"])
     rows = [f"rs{i}\tA\tC\t{z[i]:.5f}\t10000" for i in range(N_SNPS)]

@@ -572,14 +572,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
         self.assertEqual(result.baseline_table.columns.tolist(), ["CHR", "SNP", "POS", "A1", "A2", "regression_ld_scores", "base"])
         self.assertEqual(result.ld_regression_snps, frozenset({"1:10:A:C", "1:20:A:G"}))
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_paths = ldscore_workflow.LDScoreDirectoryWriter().write(
-                result,
-                ldscore_workflow.LDScoreOutputConfig(output_dir=tmpdir),
-            )
-            baseline = pd.read_parquet(output_paths["baseline"])
-        self.assertEqual(baseline["A1"].tolist(), ["A", "A"])
-        self.assertEqual(baseline["A2"].tolist(), ["C", "G"])
+        self.assertEqual(result.baseline_table["A1"].tolist(), ["A", "A"])
+        self.assertEqual(result.baseline_table["A2"].tolist(), ["C", "G"])
 
     def test_split_ldscore_table_requires_alleles_in_allele_aware_mode(self):
         ldscore_table = pd.DataFrame(

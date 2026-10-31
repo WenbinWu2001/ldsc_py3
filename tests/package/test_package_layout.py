@@ -123,6 +123,17 @@ print(ldsc.__file__)
             },
         )
 
+    def test_cli_rejects_a_separator_before_the_command(self):
+        import contextlib
+        import io
+        from ldsc import cli
+
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(cli.run_cli(["--", "h2"]), 2)
+        self.assertIn("usage: ldsc", stderr.getvalue())
+        self.assertIn("put the command first", stderr.getvalue())
+
     def test_every_cli_command_names_functions_its_module_defines(self):
         from importlib import import_module
         from ldsc import cli

@@ -161,9 +161,11 @@ def main(argv: Sequence[str] | None = None):
     if command is None:
         # Top-level help, no arguments, or an unknown command: the lightweight
         # parser prints help or an argparse error and exits without importing
-        # any workflow module.
-        _build_top_level_parser().parse_args(argv)
-        return None
+        # any workflow module. It accepts a leading "--" ("ldsc -- h2") without
+        # running anything, so that form is an error too.
+        parser = _build_top_level_parser()
+        parser.parse_args(argv)
+        parser.error(f"{argv[0]!r} is not a command; put the command first, as in 'ldsc h2 --help'")
     module = import_module(command.module, __package__)
     if command.add_arguments is None:
         return module.main(argv[1:])

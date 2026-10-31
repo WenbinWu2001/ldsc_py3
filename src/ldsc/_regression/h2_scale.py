@@ -16,7 +16,7 @@ sensitivity figure is requested.
 
 from __future__ import annotations
 
-from .._runtime.cli_help import CLIHelpFormatter
+from .._runtime.cli_help import CLIHelpFormatter, output_directory_argument
 from .._runtime.workflow_logging import LOG_LEVEL_HELP
 from .._runtime.artifacts import atomic_write_dataframe, atomic_write_json
 from .._runtime.result_files import declared_result_file
@@ -39,6 +39,7 @@ from ..errors import LDSCInputError, LDSCUsageError
 from .._runtime.paths import (
     ensure_output_directory,
     normalize_path_token,
+    output_directory_path,
     preflight_output_artifact_family,
     remove_output_artifacts,
 )
@@ -84,13 +85,14 @@ class H2ScaleConversionArtifact:
 
 def default_liability_scale_dir(h2_result_dir) -> Path:
     """Return the default ``convert-h2-scale`` destination inside an h2 result directory."""
-    return Path(normalize_path_token(h2_result_dir)) / "postprocessing" / "liability-scale"
+    return output_directory_path(h2_result_dir, label="h2 result directory") / "postprocessing" / "liability-scale"
 
 
 @materializing_overwrite_guard(
     lambda h2_result_dir, **kwargs: (
         (
-            kwargs.get("output_dir") or default_liability_scale_dir(h2_result_dir),
+            default_liability_scale_dir(h2_result_dir) if kwargs.get("output_dir") is None
+            else output_directory_path(kwargs["output_dir"]),
             kwargs.get("overwrite", False),
         )
     ),
@@ -174,7 +176,7 @@ def convert_h2_scale(
 
     pyplot = _load_pyplot() if mode == "sensitivity" else None
     destination = (
-        Path(normalize_path_token(output_dir))
+        output_directory_path(output_dir)
         if output_dir is not None
         else default_liability_scale_dir(source_dir)
     )
@@ -271,7 +273,7 @@ def add_convert_h2_scale_arguments(parser: argparse.ArgumentParser) -> None:
     logs = parser.add_argument_group('Logging')
 
     inputs.add_argument(
-        '--h2-result-dir', required=True, metavar='DIR',
+        '--h2-result-dir', required=True, metavar='DIR', type=output_directory_argument,
         help=(
             'Required saved unpartitioned h2 result directory. Conversion outputs are written below '
             'postprocessing/liability-scale/ in this directory.'

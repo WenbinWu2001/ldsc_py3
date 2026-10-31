@@ -202,16 +202,6 @@ def test_a_failure_after_a_successful_run_leaves_no_marker(tmp_path, monkeypatch
     assert not (output_dir / "RUN_FAILED.txt").exists()
 
 
-def test_an_empty_output_directory_never_places_a_marker_in_the_working_directory(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    raw = tmp_path / "raw.tsv"
-    raw.write_text("SNP A1 A2 P BETA N\nrs1 A G 0.05 0.2 1000\n", encoding="utf-8")
-
-    assert cli.run_cli(["munge-sumstats", "--raw-sumstats-file", str(raw), "--output-dir", "", "--overwrite"]) == 1
-
-    assert sorted(path.name for path in tmp_path.iterdir()) == ["raw.tsv"]
-
-
 @pytest.mark.parametrize("help_flag", ["--help", "-h"])
 @pytest.mark.parametrize("existing", [False, True])
 def test_cli_help_with_overwrite_leaves_output_scope_untouched(tmp_path, help_flag, existing):

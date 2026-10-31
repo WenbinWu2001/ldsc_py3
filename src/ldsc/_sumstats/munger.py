@@ -47,7 +47,7 @@ from typing import Any
 
 import pandas as pd
 
-from .._runtime.cli_help import CLIHelpFormatter, SCALAR_PATH_HELP
+from .._runtime.cli_help import CLIHelpFormatter, SCALAR_PATH_HELP, output_directory_argument
 from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
 from .._core.chromosomes import chrom_sort_key, normalize_chromosome_series
 from .._core.coordinates import (
@@ -1179,7 +1179,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     output.add_argument(
-        '--output-dir', required=True, metavar='DIR',
+        '--output-dir', required=True, metavar='DIR', type=output_directory_argument,
         help=(
             'Required destination for munged summary statistics and diagnostics. Still required with '
             '--infer-only, which creates no files or directories.'

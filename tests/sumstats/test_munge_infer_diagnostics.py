@@ -8,9 +8,11 @@ from ldsc._sumstats import munger as workflow
 from ldsc.errors import LDSCUsageError
 
 
-def test_infer_only_rejects_blank_output_before_reading():
-    with pytest.raises(LDSCUsageError, match='--output-dir'):
+def test_infer_only_rejects_blank_output_before_reading(capsys):
+    with pytest.raises(SystemExit) as caught:
         workflow.main(['--raw-sumstats-file', 'absent.tsv', '--infer-only', '--output-dir', ' '])
+    assert caught.value.code == 2
+    assert 'argument --output-dir: must name a directory' in capsys.readouterr().err
 
 
 def test_suggested_command_preserves_overrides(tmp_path, capsys):

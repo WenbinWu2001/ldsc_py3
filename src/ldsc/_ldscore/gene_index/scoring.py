@@ -33,7 +33,7 @@ from .artifact import (
     inspect_index_paths,
 )
 from ..._runtime.parallelism import validate_workers
-from ..._runtime.paths import normalize_path_token
+from ..._runtime.paths import output_directory_path
 from ..._refpanel.funnel import concat_funnels
 from ..._runtime.progress import advance, report_phase
 from ...errors import LDSCInputError
@@ -455,7 +455,7 @@ def run_indexed_ldscore(
     if isinstance(query_batch_size, bool) or not isinstance(query_batch_size, int) or query_batch_size < 1:
         raise ValueError("query_batch_size must be a positive integer.")
     validate_workers(workers)
-    output_dir = normalize_path_token(output_dir)
+    output_dir = str(output_directory_path(output_dir))
     from ..._runtime.preflight import inspect_declared_inputs
     from ..outputs import LDScoreDirectoryWriter, QueryDiagnostics
     LDScoreDirectoryWriter.artifact_family(output_dir).preflight(overwrite=overwrite)

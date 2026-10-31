@@ -43,7 +43,7 @@ import pandas as pd
 
 from .._runtime.artifacts import atomic_write_json
 from .._runtime.serial_calculation import serial_calculation
-from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
+from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP, output_directory_argument
 from .._runtime.workflow_logging import FAILURE_MARKER, LOG_LEVEL_HELP
 from .._core.columns import (
     normalize_genome_build,
@@ -1579,7 +1579,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     output.add_argument(
-        '--output-dir', required=True, metavar='DIR',
+        '--output-dir', required=True, metavar='DIR', type=output_directory_argument,
         help=(
             'Required destination for R2 Parquet files, chromosome SNP metadata, and diagnostics.'
         ),

@@ -41,7 +41,7 @@ from types import TracebackType
 from typing import Any, Callable
 
 from ..errors import LDSCUsageError
-from .paths import normalize_path_token
+from .paths import output_directory_path
 
 
 _LDSC_LOGGER_NAME = "LDSC"
@@ -240,7 +240,7 @@ def overwrite_failure_marker(
     caller's; the inner scope neither writes nor removes, so the outermost
     scope decides the marker and its recorded command.
     """
-    marker_path = Path(normalize_path_token(output_dir)) / marker_name
+    marker_path = output_directory_path(output_dir) / marker_name
     open_marker = getattr(_CURRENT, "marker_path", None)
     if open_marker is not None:
         if marker_path.resolve() != open_marker.resolve():

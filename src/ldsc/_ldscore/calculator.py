@@ -51,7 +51,7 @@ from .batch_execution import finalize_batch, run_chromosome_batch, run_query_bat
 from .direct_batches import DirectChromosomeFragment, stage_direct_chromosome, stage_query_table
 from .fragments import StagedLDScoreBatch
 from .._core.chromosomes import chrom_sort_key
-from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
+from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP, output_directory_argument
 from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
 from .._runtime.parallelism import (
     WORKERS_HELP, chromosome_pool, parse_workers, resolve_worker_count, validate_workers,
@@ -86,6 +86,7 @@ from .._runtime.paths import (
     ensure_output_directory,
     normalize_optional_path_token,
     normalize_path_token,
+    output_directory_path,
     resolve_scalar_path,
     split_cli_path_tokens,
 )
@@ -1196,7 +1197,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     output.add_argument(
-        '--output-dir', required=True, metavar='DIR',
+        '--output-dir', required=True, metavar='DIR', type=output_directory_argument,
         help=(
             'Required destination for LD-score tables, SNP counts, and diagnostics.'
         ),
@@ -1523,7 +1524,7 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> "LDScoreSource":
             "ldscore indexed mode requires --query-annot-gene-list-sources."
         )
     from .gene_index.scoring import run_indexed_ldscore
-    output_dir = Path(normalize_path_token(args.output_dir))
+    output_dir = output_directory_path(args.output_dir)
     log_path = output_dir / LDSCORE_LOG
     LDScoreDirectoryWriter.artifact_family(output_dir, include_logs=True).preflight(
         overwrite=bool(getattr(args, "overwrite", False)), additional_paths=[log_path],

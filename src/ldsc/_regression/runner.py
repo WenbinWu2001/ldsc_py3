@@ -67,7 +67,7 @@ import numpy as np
 import pandas as pd
 
 from .._runtime.serial_calculation import serial_calculation
-from .._runtime.cli_help import CLIHelpFormatter, SCALAR_PATH_HELP
+from .._runtime.cli_help import CLIHelpFormatter, SCALAR_PATH_HELP, output_directory_argument
 from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
 from .._core.coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from ..config import (
@@ -77,7 +77,7 @@ from ..config import (
     print_global_config_banner,
     suppress_global_config_banner,
 )
-from .._runtime.paths import ensure_output_directory, normalize_path_token
+from .._runtime.paths import ensure_output_directory, normalize_path_token, output_directory_path
 from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from . import estimators as reg
 from .jackknife import JackknifeIdentifiabilityError
@@ -1053,7 +1053,7 @@ class RegressionRunner:
         worker_count = resolve_worker_count(workers, max(1, len(queries)),
                                              task_unit="query-plus-baseline model", batch_size=query_batch_size)
         sort_by = _resolve_summary_sort(summary_sort_by, has_queries=bool(queries))
-        output_dir = normalize_path_token(output_dir)
+        output_dir = str(output_directory_path(output_dir))
         writer = PartitionedH2DirectoryWriter()
         writer.artifact_family(output_dir, write_per_query_results=bool(queries),
                                coefficient_delete_values=not queries, query_status=bool(queries)).preflight(overwrite=overwrite)
@@ -3666,7 +3666,7 @@ def _add_regression_sections(parser, include_h2_intercept: bool) -> SimpleNamesp
 def _add_regression_output_arguments(output) -> None:
     """Add the regression output directory and overwrite policy."""
     output.add_argument(
-        '--output-dir', required=True, metavar='DIR',
+        '--output-dir', required=True, metavar='DIR', type=output_directory_argument,
         help=(
             'Required destination for regression estimates and diagnostics.'
         ),

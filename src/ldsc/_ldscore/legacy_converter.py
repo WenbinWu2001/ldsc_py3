@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 
 from .._runtime.serial_calculation import serial_calculation
-from .._runtime.cli_help import CLIHelpFormatter
+from .._runtime.cli_help import CLIHelpFormatter, output_directory_argument
 from .._runtime.workflow_logging import LOG_LEVEL_HELP
 from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from .._core.columns import normalize_genome_build
@@ -820,7 +820,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     output.add_argument(
-        '--output-dir', required=True, metavar='DIR',
+        '--output-dir', required=True, metavar='DIR', type=output_directory_argument,
         help=(
             'Required destination for the converted LD-score tables, counts, and diagnostics. Source files '
             'are not changed.'

@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 from typing import Sequence
 
-from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP
+from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, output_directory_argument
 from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
 from .bundle import AnnotationBundle
 from .loading import build_annotation_shards
@@ -204,7 +204,7 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
     output.add_argument(
-        '--output-dir', required=True, metavar='DIR',
+        '--output-dir', required=True, metavar='DIR', type=output_directory_argument,
         help=(
             'Required destination for chromosome .annot.gz files and diagnostics.'
         ),

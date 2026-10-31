@@ -37,7 +37,7 @@ import pandas as pd
 from scipy import sparse
 
 from ..._runtime.worker_runtime import initialize_worker, native_thread_state
-from ..._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP
+from ..._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, output_directory_argument
 from ..._runtime.workflow_logging import args_output_scope, FAILURE_MARKER, LOG_LEVEL_HELP
 from ..._runtime.parallelism import (
     WORKERS_HELP, chromosome_pool, parse_workers, resolve_worker_count, run_chromosome_tasks,
@@ -236,7 +236,7 @@ def build_parser() -> argparse.ArgumentParser:
                              'No default; specify exactly one LD window. Whole-chromosome windows are rejected.')
 
     output.add_argument(
-        '--output-dir', required=True, metavar='DIR',
+        '--output-dir', required=True, metavar='DIR', type=output_directory_argument,
         help=(
             'Required destination for the complete reusable gene LD-score index and diagnostics.'
         ),

@@ -18,7 +18,7 @@ explicit in the figure; no estimate is refitted or converted by plotting.
 
 from __future__ import annotations
 
-from .._runtime.cli_help import CLIHelpFormatter
+from .._runtime.cli_help import CLIHelpFormatter, output_directory_argument
 from .._runtime.workflow_logging import LOG_LEVEL_HELP
 from .._runtime.artifacts import atomic_write_json
 from .._runtime.result_files import declared_result_file
@@ -36,7 +36,9 @@ import pandas as pd
 from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from ..config import get_global_config
 from ..errors import LDSCInputError
-from .._runtime.paths import ensure_output_directory, normalize_path_token, preflight_output_artifact_family
+from .._runtime.paths import (
+    ensure_output_directory, normalize_path_token, output_directory_path, preflight_output_artifact_family,
+)
 
 
 @dataclass(frozen=True)
@@ -74,13 +76,13 @@ class _PlotContract:
 
 def default_plot_dir(result_dir) -> Path:
     """Return the default ``plot`` destination: ``plots/`` inside the result directory."""
-    return Path(normalize_path_token(result_dir)) / "plots"
+    return output_directory_path(result_dir, label="result directory") / "plots"
 
 
 @materializing_overwrite_guard(
     lambda result_dir, **kwargs: (
         (
-            kwargs.get("output_dir") or default_plot_dir(result_dir),
+            default_plot_dir(result_dir) if kwargs.get("output_dir") is None else output_directory_path(kwargs["output_dir"]),
             kwargs.get("overwrite", False),
         )
     ),
@@ -174,7 +176,7 @@ def plot_result(
                 "Supply a tab-separated table with one field per declared column."
             )
     builders = _load_builders()
-    destination = Path(normalize_path_token(output_dir)) if output_dir is not None else default_plot_dir(source_dir)
+    destination = output_directory_path(output_dir) if output_dir is not None else default_plot_dir(source_dir)
     paths = {
         "plot": destination / contract.filename,
         "metadata": destination / "diagnostics" / "metadata.json",
@@ -234,7 +236,7 @@ def add_plot_arguments(parser: argparse.ArgumentParser) -> None:
     logs = parser.add_argument_group('Logging')
 
     inputs.add_argument(
-        '--result-dir', required=True, metavar='DIR',
+        '--result-dir', required=True, metavar='DIR', type=output_directory_argument,
         help=(
             'Required saved LDSC3 result directory to plot. The result type selects the plot automatically; '
             'files are written below plots/ in this directory.'

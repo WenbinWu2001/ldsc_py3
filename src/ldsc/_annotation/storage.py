@@ -16,6 +16,8 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 
+from .._runtime.paths import output_directory_path
+
 BINARY_BITORDER = "little"
 
 
@@ -28,7 +30,7 @@ class AnnotationWorkspace:
     """
 
     def __init__(self, output_dir: str | Path, *, defer=False):
-        destination = Path(output_dir)
+        destination = output_directory_path(output_dir)
         destination.mkdir(parents=True, exist_ok=True)
         self.path = (destination / f".ldsc-annotation-{uuid.uuid4().hex}" if defer else
                      Path(tempfile.mkdtemp(prefix=".ldsc-annotation-", dir=destination)))

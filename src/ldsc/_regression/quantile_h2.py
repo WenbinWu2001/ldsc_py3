@@ -20,7 +20,7 @@ import pandas as pd
 from scipy import stats
 
 from .._runtime.serial_calculation import serial_calculation
-from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP
+from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, output_directory_argument
 from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
 from ..errors import LDSCInputError
 from .._annotation.storage import AnnotationWorkspace
@@ -539,7 +539,7 @@ def add_quantile_h2_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
     output.add_argument(
-        '--output-dir', required=True, metavar='DIR',
+        '--output-dir', required=True, metavar='DIR', type=output_directory_argument,
         help=(
             'Required destination for quantile heritability, standardized coefficients, and diagnostics.'
         ),

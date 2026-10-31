@@ -18,7 +18,7 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 
-from .._runtime.cli_help import CLIHelpFormatter
+from .._runtime.cli_help import CLIHelpFormatter, output_directory_argument
 from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
 from .._core.identifiers import build_snp_id_series
 from .r2_format import R2MatrixChromosome, lookup_pairs_in_parquet, r2_matrix_chromosomes, resolve_r2_build_dir
@@ -562,7 +562,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     output.add_argument(
-        '--output-dir', required=True, metavar='DIR',
+        '--output-dir', required=True, metavar='DIR', type=output_directory_argument,
         help=(
             'Required destination for query_r2_matrix.tsv (r2, sign_r, r, status plus input columns) '
             'and diagnostics. sign_r and r use query allele orientation.'

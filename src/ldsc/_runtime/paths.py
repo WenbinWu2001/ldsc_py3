@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 from .._core.chromosomes import STANDARD_CHROMOSOMES, chrom_sort_key, normalize_chromosome
-from ..errors import LDSCInputError
+from ..errors import LDSCConfigError, LDSCInputError
 
 InputPathToken = Union[str, PathLike[str]]
 InputPathCollection = Union[InputPathToken, Sequence[InputPathToken]]
@@ -51,6 +51,26 @@ _OUTPUT_COLLISION_TROUBLESHOOTING = (
 def normalize_path_token(path: InputPathToken) -> str:
     """Normalize one public path token without resolving it on disk."""
     return os.path.expanduser(os.path.expandvars(str(path)))
+
+
+def output_directory_path(path: Optional[InputPathToken], *, label: str = "output directory") -> Path:
+    """Return the normalized directory a run writes into, rejecting a missing or blank value.
+
+    An empty token would normalize to the working directory, where an
+    authorized overwrite can replace or remove the user's own files; ``"."``
+    names the working directory on purpose.
+
+    Raises
+    ------
+    LDSCConfigError
+        If ``path`` is ``None``, empty, or only whitespace.
+    """
+    if path is None or not str(path).strip():
+        raise LDSCConfigError(
+            f"The {label} is empty, so this run would write into the working directory. "
+            f"Pass a directory path for the {label}, or '.' to use the working directory on purpose."
+        )
+    return Path(normalize_path_token(path))
 
 
 def normalize_optional_path_token(path: Optional[InputPathToken]) -> Optional[str]:
@@ -497,8 +517,8 @@ def ensure_output_directory(
     *,
     label: str = "output directory",
 ) -> Path:
-    """Create the requested directory and record normal creation at INFO level."""
-    output_dir = Path(normalize_path_token(path))
+    """Create the requested directory and record normal creation at INFO level; reject an empty path."""
+    output_dir = output_directory_path(path, label=label)
     if output_dir.exists():
         if not output_dir.is_dir():
             raise LDSCInputError(

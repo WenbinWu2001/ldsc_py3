@@ -19,6 +19,15 @@ SCALAR_PATH_HELP = (
 )
 
 
+
+def output_directory_argument(value: str) -> str:
+    """Parse a destination directory option, rejecting a blank value that would mean the working directory."""
+    if not value.strip():
+        raise argparse.ArgumentTypeError(
+            "must name a directory; an empty value would write into the working directory "
+            "(pass '.' to use the working directory on purpose)"
+        )
+    return value
 class CLIHelpFormatter(argparse.HelpFormatter):
     """Wrap help at spaces without splitting option names or file paths."""
 

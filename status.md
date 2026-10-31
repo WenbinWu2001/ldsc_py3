@@ -5,6 +5,39 @@ Last updated on: 2026-10-30
 Branch `restructure`; checked on 2026-10-30.
 Nothing below is in progress; each open item needs the user's go-ahead.
 
+## Completed: one failure-marker scope per run (2026-10-30)
+
+Architecture review candidate 10.
+Re-checked at `a9131ca`, the review's duplicated chromosome regex was already gone (`cd77462`), but the nested guards remained and two marker defects the review had not reported were measured.
+The user accepted two rounds of recommendations on 2026-10-30 and authorized the implementation; the question record and evidence are outside the repository.
+
+- `fea62a8`: a failure marker written in the calling process names a workflow log opened in a `serial_calculation` worker; markers of `build-r2-matrix` (CLI and Python), `convert-legacy-ldscores` (CLI) and `quantile-h2` had said "No workflow log was opened" while the log held the traceback.
+  The `quantile-h2` and `convert-legacy-ldscores` guards moved into the calling process around separately named worker functions, so a killed worker still leaves a marker.
+- `c8d81da`: one marker scope per run.
+  `run_cli` no longer opens a scope from raw arguments (`_cli_failure_marker_scope` and `_raw_option_value` are gone); it records its command line with `cli_command()`, and the workflow's scope writes it.
+  A scope opened inside an open one neither writes nor removes and must name the same marker, so a failed run writes one marker instead of two (three for `annotate`, two for the Python `run_h2`).
+  `munge-sumstats` opens its scope before its option checks, so an invalid option combination leaves a marker from Python as from the CLI; `--infer-only` and console output after a completed run (munging summary, gene-index funnel notice, plot figure close) are outside every scope.
+  `--output-dir ""` with `--overwrite` no longer writes `RUN_FAILED.txt` into the working directory.
+- `14a8fb7`: `build-r2-matrix` names its marker from the BIM chromosomes, by the rule its log and metadata already used.
+  A prefix without a chromosome in its file name, a one-match glob, or a name such as `EUR_5.chr22` had left `RUN_FAILED.txt`, which a successful run of another chromosome in the same output directory then deleted.
+  Input checks run in the calling process before the marker opens, so errors found before the chromosomes are known (options, PLINK files, genetic-map headers, keep and SNP restriction files) leave no marker; their diagnostics files still record them.
+- This commit: `docs/reference/logs-and-outputs.md`, `docs/reference/input-paths.md` and `docs/dev/architecture.md` describe the contract; `lessons.md` gains "Per-thread state does not cross the worker boundary" and two recurrences; the `run_build_r2_matrix_from_args` docstring says no scientific output has been replaced, since input checks rewrite diagnostics files.
+- Evidence: a before/after comparison of exported copies of `a9131ca` and `14a8fb7` (the candidate 5 harness plus 13 marker scenarios) matched exactly in the `--help` output of `ldsc` and all 14 commands, every parser, and the modules each help path imports.
+  Of the 29 earlier marker cases only `run_fail_r2_chr` changed, as designed: its missing PLINK input now leaves diagnostics and no marker.
+  The scenarios changed only as designed: one marker write per failure, log pointers for `build-r2-matrix` and `convert-legacy-ldscores`, BIM-named `build-r2-matrix` markers that a later chromosome run leaves in place, no marker for a corrupt PLINK input or an empty `--output-dir`; Python keyword errors, the Python legacy marker and the munging option-error marker were unchanged.
+- Full pytest on an exported copy of `14a8fb7` with this commit's documentation, the workspace `resources/` linked into its parent folder: 2,374 passed, none skipped.
+  Each code commit first ran its focused tests (1,030 for `fea62a8`, 1,359 for `c8d81da`, 1,189 for `14a8fb7`).
+
+### Decisions taken during implementation
+
+- `build-r2-matrix` option errors (for example no LD window) leave no marker, like its input errors, because they too come before the chromosomes are known.
+- Tests that replaced `R2MatrixBuilder.run` now replace `_inspect_inputs` and `_run`, and the PLINK retry test fails inside the run through an SNP restriction that matches nothing.
+
+### Left open from candidate 10
+
+- Python API labels stay as they were, as decided: `run_ldscore`, `run_build_r2_matrix` and `build_gene_ldscore_index` record the `run_*_from_args(...)` function they call.
+- `ldsc -- h2` still exits 0 without running anything (left open from candidate 5).
+
 ## Completed: one CLI command table (2026-10-30)
 
 Architecture review candidate 5.
@@ -28,8 +61,8 @@ The user accepted two rounds of recommendations on 2026-10-30 for the remaining 
 
 ### Left open from candidate 5
 
-- Candidate 10 stays separate: the CLI-level marker wrapper still reads raw arguments (`_cli_failure_marker_scope`, `_raw_option_value`) on top of the workflow guards, and `annotate --overwrite` still nests three guards.
-- Errors that workflows raise after parsing for invalid option combinations (`LDSCUsageError`) still leave a failure marker, as before.
+- Candidate 10: done; see "Completed: one failure-marker scope per run".
+- Errors that workflows raise after parsing for invalid option combinations (`LDSCUsageError`) keep leaving a failure marker, as decided in candidate 10, now also from Python for `munge-sumstats`.
 - `ldsc -- h2` exits 0 without running anything, because the top-level parser accepts it; the refactor kept this behavior.
 
 ## Completed: gene-index fixtures through the build writer (2026-10-30)

@@ -187,10 +187,12 @@ A successful core overwrite removes these derived roots after publishing the new
 Python-only `output_dir=` overrides for plotting and conversion are unmanaged and therefore outside this cleanup boundary.
 
 An authorized overwrite that fails writes `RUN_FAILED.txt` in the applicable
-output scope; concrete chromosome reference-panel attempts use
-`RUN_FAILED.chr<chrom>.txt`. Marker creation adds no rollback, quarantine, or
+output scope.
+A `build-r2-matrix` run whose `--plink-prefix` has no `@` and whose BIM files hold one chromosome uses `RUN_FAILED.chr<chrom>.txt`; as with chromosome assignment, the prefix's file name plays no part.
+Marker creation adds no rollback, quarantine, or
 action-order change. It does not enter scientific metadata or block a retry,
 and a successful retry removes the applicable marker.
+See [logs and outputs](logs-and-outputs.md#failed-overwrite-markers) for the full marker contract.
 
 ## General Resolution Rules
 

@@ -185,6 +185,8 @@ Last updated on: 2026-10-30
 ## PLINK filename parsing must be shared across workflows
 
 - Summary/root cause/correction: Dotted chromosome prefixes failed in gene-index construction while direct LD scores worked because filename-based discovery stripped `.22` with `Path.stem` and a separate preflight had already switched to BIM contents; centralize PLINK discovery, trio validation, and chromosome assignment, pass resolved mappings to workers, and test equivalent token forms through both numerical workflows.
+- Recurrence: `build-r2-matrix` still named its failure marker from the prefix's file name after its log, metadata and output ownership had moved to BIM contents, so a prefix such as `panel` holding chromosome 22 left `RUN_FAILED.txt`, and a successful job for another chromosome in the same output directory deleted it.
+  The marker now opens after `R2MatrixBuilder._inspect_inputs()` and uses `_is_chromosome_scoped_invocation()`; see `test_a_chromosome_job_never_removes_another_chromosomes_marker` in `tests/runtime/test_failure_markers.py`.
 
 ## Failure markers must not block their own retry
 
@@ -193,6 +195,7 @@ Last updated on: 2026-10-30
 ## Output ownership must cover normalization and recovery
 
 - Summary/root cause/correction: A package-wide retry audit found raw-path logs/audits/scratch and markers diverging from normalized result roots, CLI markers choosing the first repeated destination, and index recovery rejecting its own marker while diagnostic scans overlooked empty directories and symlinks; reuse normalized destinations, follow argparse's final value, share index preflight, inspect every diagnostic entry, and test the existing owned-backup recovery with a retained failure marker.
+- Recurrence: the CLI's own marker scope, read from raw arguments, treated `--output-dir ""` as the working directory and wrote `RUN_FAILED.txt` there; markers now come only from the workflows' parsed scopes, where an empty destination opens none (`test_an_empty_output_directory_never_places_a_marker_in_the_working_directory`).
 
 ## Worker counts need one CPU-budget policy
 
@@ -312,3 +315,9 @@ Last updated on: 2026-10-30
 - Summary/root cause/correction: A summary-statistics row with a missing `Z` reached the `h2` fit, because only `rg` dropped missing values after its merge.
   The outcome then depended on an unrelated setting: a single-annotation `h2` fit raised "SVD did not converge"; under a chi-square cap, `chisq <= cap` is `False` for NaN, so the cap removed the row silently and logged it as an outlier; `rg` aborted in its per-trait `h2` loop.
   Decide missing and infinite values explicitly where the input is prepared (`_prepare_trait_sumstats` in `src/ldsc/_regression/runner.py`), record what was dropped, and test each downstream path that used to absorb them; see `tests/regression/test_nonfinite_statistics.py`.
+
+## Per-thread state does not cross the worker boundary
+
+- Summary/root cause/correction: Failure markers written in the calling process read the most recent workflow log from per-thread state, but `build-r2-matrix`, `convert-legacy-ldscores` and `quantile-h2` open their log inside a `serial_calculation` worker, so their markers said "No workflow log was opened" while the log held the traceback; the last two also ran their marker guard inside the worker, where a killed worker writes nothing.
+  `serial_calculation` now returns the worker's log path, and each guard runs in the calling process around a separately named worker function, because the worker looks the function up by name and would otherwise run the guard again.
+  Test state handed across a process boundary through a real worker; see `tests/runtime/test_serial_calculation.py`.

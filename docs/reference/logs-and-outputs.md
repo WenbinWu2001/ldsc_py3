@@ -189,8 +189,8 @@ escapes:
 - `plot`: `<result-dir>/plots/RUN_FAILED.txt`
 - `convert-h2-scale`:
   `<h2-result-dir>/postprocessing/liability-scale/RUN_FAILED.txt`
-- concrete chromosome `build-r2-matrix`:
-  `<output-dir>/RUN_FAILED.chr<chrom>.txt`
+- `build-r2-matrix` whose `--plink-prefix` has no `@` and whose BIM files hold one chromosome:
+  `<output-dir>/RUN_FAILED.chr<chrom>.txt`, scoped like that run's `metadata.chr<chrom>.json` and log, so parallel per-chromosome runs into one output directory keep separate markers; the prefix's file name plays no part
 
 The marker records the failed command/API boundary, UTC timestamp, exception,
 detailed log path or absence of one, and a conservative warning that the active
@@ -202,8 +202,16 @@ the failure, it remains with the usual `Failed` footer and traceback. A
 successful materializing retry removes its applicable marker after normal
 success. No-overwrite failures create no marker.
 
+One run writes one marker.
+The workflow decides its marker from its parsed arguments, and `build-r2-matrix` from its checked inputs; the CLI only supplies its command line, which the marker records as the failed command.
+When one public entry point calls another, as `run_h2` calls `run_h2_from_args`, the outermost one writes the marker and names itself.
+The marker names the workflow log even when the log was opened in a worker.
+A failure after a run has completed, such as the printed munging summary failing because stdout was closed, leaves no marker; the completed run has already removed any earlier one.
+`build-r2-matrix` errors raised before its chromosomes are known, in its options or its input checks (PLINK files, genetic-map headers, keep file, SNP restriction file), leave no marker: no scientific output has been replaced yet, and no marker name chosen then is one a successful retry would remove.
+`diagnostics/input_issues.tsv` or `diagnostics/plink_input_issues.tsv` records those input errors.
+
 The marker helper uses `_runtime.paths.normalize_path_token`, matching output preflight and publication.
-CLI marker scope follows the last occurrence of a destination option, as argparse does.
+CLI marker scope follows the last occurrence of a destination option, as argparse does, and an empty destination such as `--output-dir ""` has no marker scope.
 Marker-only directories do not collide with writer artifact families.
 Gene LD-score index preflight, direct publication, and interrupted-publication recovery share recognition of owned diagnostics; this excludes symlinks, special files, and unrelated empty subdirectories.
 Existing recovery of a validated owned backup preserves the failure marker until the current build succeeds.
@@ -213,6 +221,8 @@ CLI help and `munge-sumstats --infer-only` bypass the marker lifecycle entirely.
 Even with `--overwrite`, they create no output directories or files and never create, replace, or remove a failure marker.
 This also applies when inference or argument parsing fails.
 An argument-parsing error, such as a misspelled or missing option, stops before any run starts, so it likewise creates no output directory and leaves an existing failure marker unchanged; the exit code 2 and the usage message on stderr report it.
+The Python keyword checks of `run_ldscore`, `run_build_r2_matrix`, `run_h2`, `run_partitioned_h2`, `run_rg` and `run_quantile_h2` (an unknown or missing keyword, or a value outside the command's choices) are their argument parsing and likewise leave no marker.
+An invalid option combination found after parsing, such as `munge-sumstats --source-genome-build` with an rsID-family `--snp-identifier`, is a failed run and leaves a marker, except in `build-r2-matrix` as described above.
 
 ## Log Layout
 

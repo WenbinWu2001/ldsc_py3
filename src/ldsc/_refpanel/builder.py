@@ -1674,9 +1674,9 @@ def run_build_r2_matrix_from_args(args: argparse.Namespace) -> R2MatrixBuildResu
     A failed authorized overwrite leaves ``RUN_FAILED.chr<chrom>.txt`` when the
     PLINK prefix has no ``@`` and its BIM files hold one chromosome, and
     ``RUN_FAILED.txt`` otherwise. Errors raised before the chromosomes are
-    known, in the options or the input checks, leave no marker: no output has
-    been replaced, and a marker name chosen then could not be the one a
-    successful retry removes.
+    known, in the options or the input checks, leave no marker: no scientific
+    output has been replaced, and a marker name chosen then could not be the
+    one a successful retry removes.
     """
 
     build_config, global_config = config_from_args(args)

@@ -162,7 +162,7 @@ See the [build policy](../reference/snp-identity-and-genome-build.md#genome-buil
 The private [inspection module](../../src/ldsc/_genome/build_inspection.py) backs `ldsc infer-genome-build PATH` without adding a Python export.
 It reads owned artifact metadata and relevant members, reuses shared table/column readers and HM3 inference, and renders declared, inferred, unknown, or separately labeled alternative builds independently of the SNP identifier mode.
 It does not call workflow build resolution: unknown evidence is a successful inspection, while contradictory evidence and invalid inputs are errors.
-The module also supplies the command's `PATH` argument and writes the report to stdout (`add_inspection_arguments()`, `run_inspection_from_args()`); the CLI marks the command read-only, which excludes it from failure-marker handling.
+The module also supplies the command's `PATH` argument and writes the report to stdout (`add_inspection_arguments()`, `run_inspection_from_args()`); it opens no failure-marker scope, and the CLI marks the command read-only so its errors give no workflow-log advice.
 No artifact writers, workflow logs, or liftover participate.
 `tests/genome/test_genome_build_inspection.py` covers artifact families, sampling, rsID reporting, exit codes, and read-only behavior through the CLI.
 
@@ -184,6 +184,10 @@ The same module owns the small `RUN_FAILED` marker helper used at public
 materializing boundaries. The helper adds failure visibility for authorized
 overwrites but performs no rollback, restoration, quarantine, or action-order
 change. See [logs-and-outputs.md](../reference/logs-and-outputs.md).
+Each run has one marker scope, opened by its workflow (`materializing_overwrite_guard()` or `overwrite_failure_marker()`) from parsed arguments, or by `run_build_r2_matrix_from_args()` after `R2MatrixBuilder._inspect_inputs()` has assigned chromosomes from BIM contents.
+A scope opened inside an open one neither writes nor removes, so the outermost public entry point decides the marker and its label.
+The CLI opens no scope; `run_cli()` wraps dispatch in `cli_command()`, and the marker records that command line.
+`serial_calculation()` returns a workflow log path opened in its worker, so a marker written in the calling process names that log.
 
 ### `ldsc._plotting.dispatch`, `ldsc._regression.h2_scale`
 

@@ -176,6 +176,20 @@ def args_output_scope(args):
 
 
 @contextmanager
+def cli_command(command: str):
+    """Record ``command``, an ``ldsc`` command line, as the failed command of markers written in the block.
+
+    The CLI opens no marker scope of its own: the workflow's scope writes the
+    user's command line in place of its Python API description.
+    """
+    _CURRENT.cli_command = command
+    try:
+        yield
+    finally:
+        _CURRENT.cli_command = None
+
+
+@contextmanager
 def overwrite_failure_marker(
     output_dir: str | PathLike[str],
     *,
@@ -195,14 +209,21 @@ def overwrite_failure_marker(
         Whether this attempt explicitly authorized replacement. Failures from
         no-overwrite attempts do not create markers.
     command : str
-        CLI command or concise Python API call description for the failed
-        attempt.
+        Concise Python API call description for the failed attempt. Inside
+        :func:`cli_command`, the marker records the ``ldsc`` command line
+        instead.
     log_path : path-like, optional
         Expected detailed log. When omitted, the most recently opened workflow
         log in this thread is used if available.
     marker_name : str, optional
         Marker filename. Default is ``"RUN_FAILED.txt"``; chromosome-scoped
         workflows may supply a narrower name.
+
+    Raises
+    ------
+    RuntimeError
+        If a scope opened inside another scope on this thread names a
+        different marker.
 
     Notes
     -----
@@ -213,8 +234,24 @@ def overwrite_failure_marker(
     old marker after the wrapped success path completes. ``SystemExit``, which
     in this package only argument parsing raises for help or an argument error,
     creates, replaces and removes nothing: no run was attempted.
+
+    One run writes one marker. A public entry point that calls another, such
+    as ``run_h2`` calling ``run_h2_from_args``, opens a scope inside the
+    caller's; the inner scope neither writes nor removes, so the outermost
+    scope decides the marker and its recorded command.
     """
     marker_path = Path(normalize_path_token(output_dir)) / marker_name
+    open_marker = getattr(_CURRENT, "marker_path", None)
+    if open_marker is not None:
+        if marker_path.resolve() != open_marker.resolve():
+            raise RuntimeError(
+                f"A run opened a different failure marker '{marker_path}' inside the scope of '{open_marker}'; "
+                "one run must name one failure marker."
+            )
+        yield marker_path
+        return
+    reset_workflow_log_path()
+    _CURRENT.marker_path = marker_path
     try:
         yield marker_path
     except SystemExit:
@@ -226,7 +263,7 @@ def overwrite_failure_marker(
                 marker_path.parent.mkdir(parents=True, exist_ok=True)
                 _atomic_write_failure_marker(
                     marker_path,
-                    command=command,
+                    command=getattr(_CURRENT, "cli_command", None) or command,
                     error=exc,
                     log_path=detailed_log,
                 )
@@ -237,6 +274,8 @@ def overwrite_failure_marker(
         raise
     else:
         marker_path.unlink(missing_ok=True)
+    finally:
+        _CURRENT.marker_path = None
 
 
 def _atomic_write_failure_marker(
@@ -293,7 +332,6 @@ def materializing_overwrite_guard(
                 return function(*args, **kwargs)
             output_dir, overwrite, *marker = scope
             marker_name = marker[0] if marker else FAILURE_MARKER
-            reset_workflow_log_path()
             with overwrite_failure_marker(
                 output_dir,
                 overwrite=bool(overwrite),

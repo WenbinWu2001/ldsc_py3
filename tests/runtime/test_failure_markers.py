@@ -2,14 +2,63 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import shlex
 from unittest import mock
 
 import pytest
 
+import ldsc
 from ldsc import cli
-from ldsc._runtime.workflow_logging import overwrite_failure_marker
+from ldsc._runtime import workflow_logging
+from ldsc._runtime.workflow_logging import materializing_overwrite_guard, overwrite_failure_marker
 from ldsc._refpanel import builder as r2_matrix_builder
-from ldsc.errors import LDSCInputError
+from ldsc._sumstats import munger as sumstats_munger
+from ldsc.errors import LDSCInputError, LDSCUsageError
+
+PLINK_FIXTURE = Path(__file__).parents[1] / "fixtures/minimal_external_resources/plink/hm3_chr22_subset"
+
+# One run per materializing command that passes argument parsing and then fails
+# inside the workflow, with the marker it leaves relative to "{root}".
+FAILING_CLI_RUNS = {
+    "annotate": (["--ref-snp-annot-sources", "nope.@.annot.gz", "--query-annot-bed-sources", "nope.bed",
+                  "--genome-build", "hg38", "--output-dir", "{root}"], "RUN_FAILED.txt"),
+    "ldscore": (["--output-dir", "{root}"], "RUN_FAILED.txt"),
+    "build-r2-matrix": (["--plink-prefix", str(PLINK_FIXTURE), "--ld-wind-kb", "1000", "--maf-min", "0.5",
+                         "--source-genome-build", "hg19", "--output-dir", "{root}"], "RUN_FAILED.chr22.txt"),
+    "build-gene-ldscore-index": (["--snp-identifier", "chr_pos", "--genome-build", "hg38",
+                                  "--baseline-annot-sources", "nope.@.annot.gz", "--gene-coordinate-file", "nope.tsv",
+                                  "--plink-prefix", "nope.@", "--ld-wind-kb", "100", "--output-dir", "{root}"],
+                                 "RUN_FAILED.txt"),
+    "convert-legacy-ldscores": (["--legacy-reference-dir", "nope", "--legacy-weight-dir", "nope",
+                                 "--output-dir", "{root}"], "RUN_FAILED.txt"),
+    "munge-sumstats": (["--raw-sumstats-file", "nope.tsv", "--output-dir", "{root}"], "RUN_FAILED.txt"),
+    "h2": (["--sumstats-file", "nope.parquet", "--ldscore-dir", "nope", "--output-dir", "{root}"], "RUN_FAILED.txt"),
+    "partitioned-h2": (["--sumstats-file", "nope.parquet", "--ldscore-dir", "nope", "--output-dir", "{root}"],
+                       "RUN_FAILED.txt"),
+    "rg": (["--sumstats-sources", "nope1.parquet,nope2.parquet", "--ldscore-dir", "nope", "--output-dir", "{root}"],
+           "RUN_FAILED.txt"),
+    "quantile-h2": (["--partitioned-h2-result-dir", "nope", "--target-annot-sources", "nope.@.annot.gz",
+                     "--target-annot-column", "x", "--baseline-annot-sources", "nope.@.annot.gz",
+                     "--ref-metadata-sources", "nope.@.tsv", "--output-dir", "{root}"], "RUN_FAILED.txt"),
+    "query-r2-matrix": (["--r2-matrix-dir", "nope", "--pairs-file", "nope.tsv", "--output-dir", "{root}"],
+                        "RUN_FAILED.txt"),
+    "convert-h2-scale": (["--h2-result-dir", "{root}", "--samp-prev", "0.5", "--pop-prev", "0.01"],
+                         "postprocessing/liability-scale/RUN_FAILED.txt"),
+    "plot": (["--result-dir", "{root}"], "plots/RUN_FAILED.txt"),
+}
+
+
+def _record_marker_writes(monkeypatch) -> list[Path]:
+    """Record every failure-marker write; the design writes one marker per failed run."""
+    writes = []
+    write = workflow_logging._atomic_write_failure_marker
+
+    def recording(path, **kwargs):
+        writes.append(Path(path))
+        return write(path, **kwargs)
+
+    monkeypatch.setattr(workflow_logging, "_atomic_write_failure_marker", recording)
+    return writes
 
 
 def test_authorized_overwrite_failure_writes_durable_marker_without_rollback(tmp_path):
@@ -48,58 +97,102 @@ def test_successful_retry_removes_marker_and_no_overwrite_failure_does_not_creat
     assert not marker.exists()
 
 
-def test_cli_failure_marker_uses_nested_plot_scope(tmp_path):
-    result_dir = tmp_path / "result"
-    result_dir.mkdir()
+@pytest.mark.parametrize("command", FAILING_CLI_RUNS)
+def test_cli_failure_leaves_one_marker_naming_the_command(tmp_path, monkeypatch, command):
+    monkeypatch.chdir(tmp_path)
+    writes = _record_marker_writes(monkeypatch)
+    options, marker_name = FAILING_CLI_RUNS[command]
+    root = tmp_path / "out"
+    argv = [command, *(token.format(root=root) for token in options), "--overwrite"]
 
-    with mock.patch.object(cli, "main", side_effect=RuntimeError("plot failed")):
-        status = cli.run_cli(["plot", "--result-dir", str(result_dir), "--overwrite"])
+    assert cli.run_cli(argv) == 1
 
-    assert status == 2
-    marker = result_dir / "plots" / "RUN_FAILED.txt"
-    assert marker.is_file()
-    assert "ldsc plot" in marker.read_text(encoding="utf-8")
-
-
-@pytest.mark.parametrize(
-    ("command", "source_flag", "nested"),
-    [
-        ("convert-h2-scale", "--h2-result-dir", "postprocessing/liability-scale"),
-        ("h2", "--output-dir", ""),
-        ("partitioned-h2", "--output-dir", ""),
-        ("quantile-h2", "--output-dir", ""),
-        ("rg", "--output-dir", ""),
-        ("annotate", "--output-dir", ""),
-        ("ldscore", "--output-dir", ""),
-        ("build-r2-matrix", "--output-dir", ""),
-        ("build-gene-ldscore-index", "--output-dir", ""),
-        ("convert-legacy-ldscores", "--output-dir", ""),
-        ("munge-sumstats", "--output-dir", ""),
-        ("query-r2-matrix", "--output-dir", ""),
-    ],
-)
-def test_cli_materializing_commands_share_marker_policy(tmp_path, command, source_flag, nested):
-    root = tmp_path / command
-    with mock.patch.object(cli, "main", side_effect=RuntimeError("failed")):
-        status = cli.run_cli([command, source_flag, str(root), "--overwrite"])
-
-    assert status == 2
-    assert (root / nested / "RUN_FAILED.txt").is_file()
+    assert writes == [root / marker_name]
+    assert f"Command: {shlex.join(['ldsc', *argv])}\n" in (root / marker_name).read_text(encoding="utf-8")
 
 
-def test_cli_infer_only_munge_failure_writes_no_marker(tmp_path):
-    with mock.patch.object(cli, "main", side_effect=RuntimeError("failed")):
-        cli.run_cli(
-            [
-                "munge-sumstats",
-                "--output-dir",
-                str(tmp_path / "out"),
-                "--overwrite",
-                "--infer-only",
-            ]
+def test_python_failure_leaves_one_marker_naming_the_public_call(tmp_path, monkeypatch):
+    writes = _record_marker_writes(monkeypatch)
+    output_dir = tmp_path / "out"
+
+    with pytest.raises(LDSCInputError):
+        ldsc.run_h2(
+            sumstats_file=str(tmp_path / "nope.parquet"), ldscore_dir=str(tmp_path / "nope"),
+            output_dir=str(output_dir), overwrite=True,
         )
 
-    assert not (tmp_path / "out").exists()
+    assert writes == [output_dir / "RUN_FAILED.txt"]
+    assert "Command: Python API: run_h2(...)\n" in (output_dir / "RUN_FAILED.txt").read_text(encoding="utf-8")
+
+
+def test_nested_marker_scopes_write_once_with_the_outermost_label(tmp_path, monkeypatch):
+    writes = _record_marker_writes(monkeypatch)
+
+    @materializing_overwrite_guard(lambda output_dir: (output_dir, True), command="inner_call(...)")
+    def inner_call(output_dir):
+        raise RuntimeError("failed")
+
+    with pytest.raises(RuntimeError, match="failed"):
+        with overwrite_failure_marker(tmp_path, overwrite=True, command="Python API: outer_call(...)"):
+            inner_call(tmp_path)
+
+    assert writes == [tmp_path / "RUN_FAILED.txt"]
+    assert "Command: Python API: outer_call(...)\n" in (tmp_path / "RUN_FAILED.txt").read_text(encoding="utf-8")
+
+
+def test_a_nested_marker_scope_must_name_the_open_marker(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with overwrite_failure_marker(tmp_path / "out", overwrite=True, command="outer"):
+        with overwrite_failure_marker("out", overwrite=True, command="same marker, relative spelling"):
+            pass
+
+    with pytest.raises(RuntimeError, match="different failure marker"):
+        with overwrite_failure_marker(tmp_path / "out", overwrite=False, command="outer"):
+            with overwrite_failure_marker(tmp_path / "elsewhere", overwrite=False, command="inner"):
+                pass
+
+
+def test_munging_option_errors_leave_a_marker_from_python_too(tmp_path):
+    raw = tmp_path / "raw.tsv"
+    raw.write_text("SNP A1 A2 P BETA N\nrs1 A G 0.05 0.2 1000\n", encoding="utf-8")
+    output_dir = tmp_path / "out"
+
+    with pytest.raises(LDSCUsageError):
+        sumstats_munger.main([
+            "--raw-sumstats-file", str(raw), "--output-dir", str(output_dir), "--overwrite",
+            "--snp-identifier", "rsid", "--source-genome-build", "hg38",
+        ])
+
+    assert "Error: LDSCUsageError" in (output_dir / "RUN_FAILED.txt").read_text(encoding="utf-8")
+
+
+def test_a_failure_after_a_successful_run_leaves_no_marker(tmp_path, monkeypatch):
+    raw = tmp_path / "raw.tsv"
+    raw.write_text("SNP A1 A2 P BETA N\nrs1 A G 0.05 0.2 1000\nrs2 C T 0.5 -0.1 1000\n", encoding="utf-8")
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+    (output_dir / "RUN_FAILED.txt").write_text("previous failed run", encoding="utf-8")
+    # The console summary of a completed run fails, as when stdout is piped into `head`.
+    monkeypatch.setattr(sumstats_munger, "print", mock.Mock(side_effect=BrokenPipeError("stdout")), raising=False)
+
+    status = cli.run_cli([
+        "munge-sumstats", "--raw-sumstats-file", str(raw), "--output-dir", str(output_dir), "--overwrite",
+        "--snp-identifier", "rsid", "--no-snp-restriction",
+    ])
+
+    assert status == 2
+    assert (output_dir / "sumstats.parquet").is_file()
+    assert not (output_dir / "RUN_FAILED.txt").exists()
+
+
+def test_an_empty_output_directory_never_places_a_marker_in_the_working_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    raw = tmp_path / "raw.tsv"
+    raw.write_text("SNP A1 A2 P BETA N\nrs1 A G 0.05 0.2 1000\n", encoding="utf-8")
+
+    assert cli.run_cli(["munge-sumstats", "--raw-sumstats-file", str(raw), "--output-dir", "", "--overwrite"]) == 1
+
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["raw.tsv"]
 
 
 @pytest.mark.parametrize("help_flag", ["--help", "-h"])
@@ -211,28 +304,10 @@ def test_infer_only_with_overwrite_never_mutates_output_scope(
 
 def test_unknown_cli_command_does_not_claim_an_output_scope(tmp_path):
     output_dir = tmp_path / "out"
-    with mock.patch.object(cli, "main", side_effect=RuntimeError("failed")):
-        cli.run_cli(["not-a-command", "--output-dir", str(output_dir), "--overwrite"])
 
-    assert not (output_dir / "RUN_FAILED.txt").exists()
+    assert cli.run_cli(["not-a-command", "--output-dir", str(output_dir), "--overwrite"]) == 2
 
-
-def test_cli_concrete_reference_panel_failure_uses_chromosome_marker(tmp_path):
-    output_dir = tmp_path / "panel"
-    with mock.patch.object(cli, "main", side_effect=RuntimeError("failed")):
-        cli.run_cli(
-            [
-                "build-r2-matrix",
-                "--plink-prefix",
-                str(tmp_path / "reference.chr22"),
-                "--output-dir",
-                str(output_dir),
-                "--overwrite",
-            ]
-        )
-
-    assert (output_dir / "RUN_FAILED.chr22.txt").is_file()
-    assert not (output_dir / "RUN_FAILED.txt").exists()
+    assert not output_dir.exists()
 
 
 def test_python_reference_panel_failure_uses_chromosome_marker(tmp_path):

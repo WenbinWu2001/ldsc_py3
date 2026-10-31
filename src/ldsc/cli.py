@@ -20,17 +20,15 @@ import argparse
 from dataclasses import dataclass
 from importlib import import_module
 import logging
-from pathlib import Path
 import shlex
 import sys
 from typing import Sequence
 
 from ._runtime.cli_help import CLIHelpFormatter
 from ._runtime.workflow_logging import (
-    FAILURE_MARKER,
+    cli_command,
     install_cli_console_handler,
     last_workflow_log_path,
-    overwrite_failure_marker,
     remove_cli_console_handler,
     reset_workflow_log_path,
 )
@@ -55,9 +53,8 @@ class _Command:
     not import the SciPy-heavy workflows. A module that parses its own
     arguments provides ``build_parser()`` and ``main(argv)``; otherwise
     ``add_arguments`` fills a no-abbreviation parser and ``run`` takes the
-    parsed namespace. ``read_only`` commands write nothing, so they stay
-    outside the failure-marker lifecycle and their errors give no
-    workflow-log advice.
+    parsed namespace. ``read_only`` commands write nothing and open no
+    workflow log, so their errors give no workflow-log advice.
     """
 
     help: str
@@ -174,7 +171,11 @@ def main(argv: Sequence[str] | None = None):
 
 
 def run_cli(argv: Sequence[str] | None = None) -> int:
-    """Run the CLI with a clean user-error boundary and traceback logging."""
+    """Run the CLI with a clean user-error boundary and traceback logging.
+
+    The workflow decides whether a failed run leaves a failure marker and
+    where; the marker records this command line.
+    """
     cli_mode = argv is None
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     if cli_mode:
@@ -182,18 +183,8 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
         install_cli_console_handler()
     result = None
     try:
-        marker_scope = _cli_failure_marker_scope(raw_argv)
-        if marker_scope is None:
+        with cli_command(shlex.join(["ldsc", *raw_argv])):
             result = main(argv)
-        else:
-            output_dir, marker_name = marker_scope
-            with overwrite_failure_marker(
-                output_dir,
-                overwrite=True,
-                command=shlex.join(["ldsc", *raw_argv]),
-                marker_name=marker_name,
-            ):
-                result = main(argv)
     except SystemExit as exc:
         if exc.code is None:
             return 0
@@ -219,50 +210,10 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
-def _cli_failure_marker_scope(argv: Sequence[str]) -> tuple[Path, str] | None:
-    """Return the authorized overwrite marker scope encoded by raw CLI args."""
-    if not argv or "--overwrite" not in argv:
-        return None
-    if "--help" in argv or "-h" in argv:
-        return None
-    name = argv[0]
-    if name not in _COMMANDS or _read_only(argv):
-        return None
-    if name == "munge-sumstats" and "--infer-only" in argv:
-        return None
-    if name == "plot":
-        from ._plotting.dispatch import default_plot_dir
-        source = _raw_option_value(argv, "--result-dir")
-        return (default_plot_dir(source), FAILURE_MARKER) if source is not None else None
-    if name == "convert-h2-scale":
-        from ._regression.h2_scale import default_liability_scale_dir
-        source = _raw_option_value(argv, "--h2-result-dir")
-        return (default_liability_scale_dir(source), FAILURE_MARKER) if source is not None else None
-    output_dir = _raw_option_value(argv, "--output-dir")
-    if output_dir is None:
-        return None
-    if name == "build-r2-matrix":
-        from ._refpanel.builder import failure_marker_name
-        return Path(output_dir), failure_marker_name(_raw_option_value(argv, "--plink-prefix"))
-    return Path(output_dir), FAILURE_MARKER
-
-
 def _read_only(argv: Sequence[str]) -> bool:
     """Return whether ``argv`` names a subcommand that writes nothing."""
     command = _COMMANDS.get(argv[0]) if argv else None
     return command is not None and command.read_only
-
-
-def _raw_option_value(argv: Sequence[str], option: str) -> str | None:
-    """Extract the last option value, matching argparse's store action."""
-    value = None
-    for index, token in enumerate(argv):
-        if token == option and index + 1 < len(argv):
-            value = argv[index + 1]
-        prefix = option + "="
-        if token.startswith(prefix):
-            value = token[len(prefix) :]
-    return value
 
 
 def _log_internal_error(exc: BaseException, *, workflow_advice: bool = True) -> None:

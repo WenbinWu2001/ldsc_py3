@@ -48,7 +48,7 @@ from typing import Any
 import pandas as pd
 
 from .._runtime.cli_help import CLIHelpFormatter, SCALAR_PATH_HELP
-from .._runtime.workflow_logging import LOG_LEVEL_HELP
+from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
 from .._core.chromosomes import chrom_sort_key, normalize_chromosome_series
 from .._core.coordinates import (
     coordinate_missing_mask,
@@ -734,6 +734,9 @@ def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable | Ra
     stay in one workflow path. Successful materializing runs print the resolved
     liftover method and mapping/drop summary to stdout at every log level;
     direct Python calls to ``SumstatsMunger.run`` remain console-quiet.
+    A failed authorized overwrite, including an invalid option combination,
+    leaves a failure marker; ``infer_only`` runs and the printed summary of a
+    completed run are outside the marker's scope.
 
     Parameters
     ----------
@@ -757,6 +760,32 @@ def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable | Ra
         If artifacts for the resolved names already exist and ``args.overwrite`` is
         false.
     """
+    if not getattr(args, "infer_only", False):
+        munger, table, munge_config = _munge_from_args(args)
+        print(_render_munge_summary(munger.build_run_summary(), table.provenance["coordinate_provenance"], munge_config))
+        return table
+    raw_config, munge_config = _checked_munge_configs(args)
+    global_config = _resolve_main_global_config(args)
+    source_path = resolve_scalar_path(raw_config.raw_sumstats_file, label="raw sumstats")
+    inference = infer_raw_sumstats(source_path, raw_config, munge_config, global_config)
+    inference = _apply_build_inference_report(source_path, raw_config, munge_config, global_config, inference)
+    inference = _apply_missing_column_report(source_path, raw_config, munge_config, inference)
+    inference = _preserve_inference_options(inference, args)
+    print(_render_inference_report(inference, source_path, args.output_dir))
+    return inference
+
+
+@materializing_overwrite_guard(args_output_scope, command="run_munge_sumstats_from_args(...)")
+def _munge_from_args(args: argparse.Namespace) -> tuple[SumstatsMunger, SumstatsTable, MungeConfig]:
+    """Run a materializing munging request; the caller prints its summary once the run is complete."""
+    raw_config, munge_config = _checked_munge_configs(args)
+    munger = SumstatsMunger()
+    table = munger.run(raw_config, munge_config, _resolve_main_global_config(args))
+    return munger, table, munge_config
+
+
+def _checked_munge_configs(args: argparse.Namespace) -> tuple[MungeConfig, MungeConfig]:
+    """Return the munging configs of parsed arguments whose input and output paths are nonempty."""
     if not str(getattr(args, "raw_sumstats_file", "") or "").strip():
         raise LDSCUsageError(
             "munge-sumstats requires a nonempty --raw-sumstats-file, including with --infer-only. "
@@ -764,20 +793,7 @@ def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable | Ra
         )
     if not str(getattr(args, "output_dir", "") or "").strip():
         raise LDSCUsageError("munge-sumstats requires a nonempty --output-dir. Pass --output-dir <directory>, including with --infer-only; dry runs write nothing.")
-    raw_config, munge_config = _munge_configs_from_args(args)
-    if getattr(args, "infer_only", False):
-        global_config = _resolve_main_global_config(args)
-        source_path = resolve_scalar_path(raw_config.raw_sumstats_file, label="raw sumstats")
-        inference = infer_raw_sumstats(source_path, raw_config, munge_config, global_config)
-        inference = _apply_build_inference_report(source_path, raw_config, munge_config, global_config, inference)
-        inference = _apply_missing_column_report(source_path, raw_config, munge_config, inference)
-        inference = _preserve_inference_options(inference, args)
-        print(_render_inference_report(inference, source_path, args.output_dir))
-        return inference
-    munger = SumstatsMunger()
-    table = munger.run(raw_config, munge_config, _resolve_main_global_config(args))
-    print(_render_munge_summary(munger.build_run_summary(), table.provenance["coordinate_provenance"], munge_config))
-    return table
+    return _munge_configs_from_args(args)
 
 
 def _render_munge_summary(summary: MungeRunSummary, metadata: dict[str, Any], config: MungeConfig) -> str:

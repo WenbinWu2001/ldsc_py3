@@ -374,7 +374,7 @@ flowchart LR
 - Kernel: `ldsc._ldscore.compute`
 - Postprocessing: `ldsc._ldscore.outputs`
 
-## 4A. `convert-legacy-ldscores`: Selected legacy LDSC Suites To Canonical LDSC3
+## 4A. `convert-legacy-ldscores`: Selected legacy LDSC Suites To an LDSC3 LD-score Directory
 
 This explicit migration boundary accepts complete chromosomes 1-22 reference
 and regression-weight directories. A complete baseline partitioned suite also
@@ -391,7 +391,7 @@ flowchart LR
   R["Legacy reference directory"] --> C["convert-legacy-ldscores"]
   W["Legacy weight directory"] --> C
   F["Frequency directory (baseline only)"] --> C
-  C --> O["Canonical LDSC3 LD-score directory"]
+  C --> O["LDSC3 LD-score directory"]
   C --> D["conversion log and issue audit"]
 ```
 

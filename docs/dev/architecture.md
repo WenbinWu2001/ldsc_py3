@@ -422,7 +422,7 @@ The writer stores run metadata once, and `_regression.quantile_h2.load_fitted_pa
 | `_ldscore.gene_index.batches.indexed_results` | Own the indexed run's persistent pool; `_IndexedProducer` reloads and releases one chromosome operator per task and reduces compact float64 statistics in index order |
 | `_ldscore.query_variation.summarize_variation`, `combine_variation` | Exact global variation from first values and within-chromosome flags, preserving each LD-score producer's precision |
 | `_ldscore.fragments.StagedLDScoreBatch`, `write_query_fragments` | Private batch descriptor and ordered validation/publication from direct float32 or indexed float64 fragments; delete each consumed fragment without a genome-wide query array |
-| `_ldscore.outputs._LDScorePublication`, `LDScoreDirectoryWriter.write_batches` | Retain explicit shared publication state while releasing each materialized or staged batch; publish canonical artifacts after success and clean owned scratch on handled failure |
+| `_ldscore.outputs._LDScorePublication`, `LDScoreDirectoryWriter.write_batches` | Retain explicit shared publication state while releasing each materialized or staged batch; publish the LD-score directory after success and clean owned scratch on handled failure |
 | `LDScoreSource.read_queries` | Explicit selected-query reads across manifest files in requested order, without caching or a width cap |
 
 `LDScoreDirectoryWriter.write_batches()` consumes materialized `LDScoreResult` values or private `StagedLDScoreBatch` descriptors behind the same publication interface.

@@ -33,10 +33,14 @@ The user accepted two rounds of recommendations on 2026-10-30 and authorized the
 - `build-r2-matrix` option errors (for example no LD window) leave no marker, like its input errors, because they too come before the chromosomes are known.
 - Tests that replaced `R2MatrixBuilder.run` now replace `_inspect_inputs` and `_run`, and the PLINK retry test fails inside the run through an SNP restriction that matches nothing.
 
-### Left open from candidate 10
+### Follow-ups closed after candidate 10 (2026-10-30)
 
-- Python API labels stay as they were, as decided: `run_ldscore`, `run_build_r2_matrix` and `build_gene_ldscore_index` record the `run_*_from_args(...)` function they call.
-- `ldsc -- h2` still exits 0 without running anything (left open from candidate 5).
+The user asked for both items left open by candidates 5 and 10 to be fixed.
+
+- `b2f4bf6`: `ldsc -- h2` stops with a usage error (exit 2) that says to put the command first; before, the top-level parser accepted it and the command exited 0 without running anything.
+- `9ac5529`: markers from `run_ldscore`, `run_build_r2_matrix` and `build_gene_ldscore_index` name that function, as the other Python entry points already did, instead of the `run_*_from_args(...)` function they call.
+  `run_ldscore` and `build_gene_ldscore_index` open their own scope after their argument checks; `run_build_r2_matrix` passes its name to the parsed workflow, whose marker opens only once the chromosomes are known.
+- Evidence: focused tests per commit (197 passed for `b2f4bf6`, 1,193 for `9ac5529`); full pytest on an exported copy of `9ac5529` with the workspace `resources/` linked into its parent folder: 2,378 passed, none skipped.
 
 ## Completed: one CLI command table (2026-10-30)
 
@@ -63,7 +67,7 @@ The user accepted two rounds of recommendations on 2026-10-30 for the remaining 
 
 - Candidate 10: done; see "Completed: one failure-marker scope per run".
 - Errors that workflows raise after parsing for invalid option combinations (`LDSCUsageError`) keep leaving a failure marker, as decided in candidate 10, now also from Python for `munge-sumstats`.
-- `ldsc -- h2` exits 0 without running anything, because the top-level parser accepts it; the refactor kept this behavior.
+- `ldsc -- h2`: fixed in `b2f4bf6`; see "Follow-ups closed after candidate 10".
 
 ## Completed: gene-index fixtures through the build writer (2026-10-30)
 

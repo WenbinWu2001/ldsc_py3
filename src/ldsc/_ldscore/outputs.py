@@ -157,6 +157,7 @@ class _LDScorePublication:
     query_statuses: tuple[QueryAnnotationStatus, ...] = ()
     query_batches: list[dict] = field(default_factory=list)
     identity_drops_by_chrom: dict[str, TsvDiagnostics] = field(default_factory=dict)
+    ref_metadata_chroms: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -252,6 +253,8 @@ class LDScoreDirectoryWriter:
                     entries[f"query_batch{ordinal:05d}"] = (entry["file"], True)
             for chrom in publication.identity_drops_by_chrom:
                 entries[f"dropped_snps_chr{chrom}"] = (dropped_snps_file(chrom), True)
+            for chrom in publication.ref_metadata_chroms:
+                entries[f"ref_metadata_chr{chrom}"] = (ref_metadata_file(chrom), True)
         return declare_artifacts(
             output_dir, entries, label="LD-score output artifact",
             extra_owned=[*([output_dir / LDSCORE_LOG,
@@ -266,6 +269,7 @@ class LDScoreDirectoryWriter:
     def write_batches(
         self, results: Iterable[LDScoreResult | StagedLDScoreBatch],
         output_config: LDScoreOutputConfig, *, query_status_order: Iterable[str] = (),
+        ref_metadata_dir: str | PathLike[str] | None = None,
     ) -> LDScoreSource:
         """Publish sequential LD-score batches and return a saved source.
 
@@ -285,6 +289,11 @@ class LDScoreDirectoryWriter:
         query_status_order : sequence of str, optional
             Original query-source order for diagnostic statuses. Empty by
             default, preserving the order produced by the batches.
+        ref_metadata_dir : str or os.PathLike[str], optional
+            Directory holding exported ``ref_metadata/chr*_meta.tsv.gz``
+            reference-metadata files, published with the other files and
+            listed in ``metadata.json`` and ``output_paths``. Default is
+            ``None``: no reference metadata is exported.
 
         Returns
         -------
@@ -414,6 +423,14 @@ class LDScoreDirectoryWriter:
                     (stage / entry["file"]).rename(stage / name)
                     entry["file"] = name
                 shared.query_batches = query_batches
+                if ref_metadata_dir is not None:
+                    chroms = []
+                    for path in sorted(Path(ref_metadata_dir).glob(REF_METADATA_GLOB)):
+                        chrom = path.name.removeprefix("chr").removesuffix("_meta.tsv.gz")
+                        (stage / ref_metadata_file(chrom)).parent.mkdir(parents=True, exist_ok=True)
+                        os.replace(path, stage / ref_metadata_file(chrom))
+                        chroms.append(chrom)
+                    shared.ref_metadata_chroms = tuple(chroms)
                 staged_family = self.artifact_family(stage, shared)
                 paths = staged_family.paths
                 if shared.overlap is not None:

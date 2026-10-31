@@ -251,3 +251,28 @@ def test_missing_current_query_manifest_is_rejected(tmp_path):
     from ldsc.errors import LDSCInputError
     with pytest.raises(LDSCInputError, match="query_batches"):
         load_ldscore_from_dir(str(tmp_path))
+
+
+def test_exported_reference_metadata_is_published_with_the_directory(tmp_path):
+    """--export-ref-metadata files are listed outputs, kept by a rerun and removed by a run without export."""
+    from pathlib import Path
+
+    from ldsc import cli
+
+    plink = Path(__file__).resolve().parents[1] / "fixtures/minimal_external_resources/plink/hm3_chr22_subset"
+    output = tmp_path / "out"
+
+    def ldscore(*extra):
+        assert cli.run_cli(["ldscore", "--output-dir", str(output), "--plink-prefix", str(plink),
+                            "--snp-identifier", "chr_pos", "--genome-build", "hg38", "--ld-wind-snps", "3",
+                            *extra]) == 0
+        return json.loads((output / "metadata.json").read_text())["files"]
+
+    exported = output / "ref_metadata/chr22_meta.tsv.gz"
+    assert ldscore("--export-ref-metadata")["ref_metadata_chr22"] == "ref_metadata/chr22_meta.tsv.gz"
+    assert exported.exists()
+    assert ldscore("--export-ref-metadata", "--overwrite")["ref_metadata_chr22"] == "ref_metadata/chr22_meta.tsv.gz"
+    assert exported.exists()
+    assert "ref_metadata_chr22" not in ldscore("--overwrite")
+    assert not exported.exists()
+    assert not list(output.glob(".ldsc-*"))

@@ -28,7 +28,6 @@ from contextlib import ExitStack, contextmanager
 from tempfile import TemporaryDirectory
 from dataclasses import dataclass, field, replace as dataclass_replace
 import logging
-import os
 from pathlib import Path
 import sys
 from typing import Any, Sequence
@@ -78,7 +77,6 @@ from .outputs import (
     LDScoreDirectoryWriter,
     LDScoreOutputConfig,
     QueryDiagnostics,
-    REF_METADATA_GLOB,
     REGRESSION_LD_SCORE_COLUMN,
     common_count_config,
     ref_metadata_file,
@@ -545,12 +543,8 @@ class LDScoreCalculator:
                 width=ldscore_config.query_batch_size, pool=pool, workers=worker_count,
                 scratch_root=output_config.output_dir)
             result = self.output_writer.write_batches(results, output_config,
-                query_status_order=[status.query for status in annotation_bundle.query_statuses])
-            if export_root is not None:
-                for path in Path(export_root).glob(REF_METADATA_GLOB):
-                    destination = Path(output_config.output_dir) / path.relative_to(export_root)
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-                    os.replace(path, destination)
+                query_status_order=[status.query for status in annotation_bundle.query_statuses],
+                ref_metadata_dir=export_dir)
             _log_annotation_classification(result)
             return result
 
@@ -2331,7 +2325,7 @@ def _write_one_ref_metadata_sidecar(metadata: pd.DataFrame, chrom: str, output_d
     path.parent.mkdir(parents=True, exist_ok=True)
     metadata[columns].to_csv(path, sep="\t", index=False, na_rep="NA", float_format=SIDECAR_FLOAT_FORMAT,
                              compression="gzip")
-    LOGGER.info(f"Wrote reference-metadata sidecar '{path}'.")
+    LOGGER.info(f"Wrote reference-metadata sidecar '{ref_metadata_file(chrom)}'.")
 
 
 def _output_config_from_args(args: argparse.Namespace) -> LDScoreOutputConfig:

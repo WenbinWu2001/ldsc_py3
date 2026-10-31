@@ -5,6 +5,31 @@ Last updated on: 2026-10-31
 Branch `restructure`; checked on 2026-10-31.
 Nothing below is in progress; each open item needs the user's go-ahead.
 
+## Completed: one LD-score publication path (2026-10-31)
+
+Architecture review candidate 6.
+Re-checked at `c23a633`, the two LD-score directory writers remained and `LDScoreCalculator.write_outputs` was already gone; a probe also found that a failed `convert-legacy-ldscores` overwrite left a directory that did not load.
+The user confirmed two rounds of recommendations on 2026-10-31 and authorized the implementation; the question record and evidence are outside the repository.
+
+- `f8dfdd9`: `convert-legacy-ldscores` publishes through `LDScoreDirectoryWriter.write_batches()` as a one-item batch, so its files are staged inside the output directory and `metadata.json` is written last.
+  Before, an authorized overwrite that failed while writing `ldscore.overlap.parquet` left the new baseline beside the earlier `metadata.json`, and loading the directory raised `LDSCInternalError`; now the earlier directory stays complete and loadable.
+  The user accepted the reload that `write_batches()` performs: on the 1000G EUR Phase 3 baseline suite (1,171,592 rows, 53 columns) it takes 4.8 s and holds a 390 MB baseline table, and it adds two lines to the converter log; a directory that does not load now fails the run.
+- `8646f72`: `LDScoreDirectoryWriter.write()` is removed (a breaking change), with the three branches only it reached; tests call `write_batches([result], ...)`.
+- `63da3d2`: `_ldscore/batch_publication.py` is folded into `LDScoreDirectoryWriter.write_batches()` in `_ldscore/outputs.py`, so the method no longer delegates to a module function that called back into the writer's private methods; `build_metadata` became `_build_metadata`, and the stale "Raises" text is fixed.
+- This commit: `docs/reference/formats/legacy-ldscores.md`, `docs/reference/input-paths.md`, `docs/dev/architecture.md`, `docs/dev/code-structure.md`, `docs/dev/data-flow.md` and `docs/dev/design/memory-and-cpu.md` describe the one publication path; `lessons.md` gains "A second writer lacks the first writer's publication guarantees".
+- Evidence: a before/after harness ran exported copies of `c23a633` and of each commit on 13 scenarios: direct `ldscore` runs (baseline only, one query batch, three query batches, a three-batch directory overwritten by one batch, a refused rerun), indexed scoring with two batches, and conversions (unpartitioned, baseline rsID, baseline `chr_pos`, a baseline directory overwritten by an unpartitioned one, a refused rerun).
+  All 71 output files were identical after every commit (logs excluded, gzip files compared decompressed), and so were the outcomes and `output_paths`; only the index build report's timings and process IDs differed, as they do between two runs of the same commit.
+  Converting the real baseline suite with the final code gave byte-identical files to `c23a633` (80 s and 3.28 GB peak memory, against 85-96 s and 2.96-3.71 GB before, one run each).
+- Focused tests per commit: 220 (`f8dfdd9`), 294 plus all 484 of `tests/ldscore` (`8646f72`), 737 (`63da3d2`).
+  Full pytest on an exported copy of `63da3d2` with this commit's documentation, the workspace `resources/` linked into its parent folder: 2,425 passed, none skipped.
+
+### Decisions taken during implementation
+
+- `legacy-ldscores.md` also states the known limit: as for `ldscore`, a failure while the staged files are moved into place is not rolled back.
+- `outputs.py` imports `load_ldscore_from_dir` at module level, since it already imports from `_ldscore.source`; the import of `fragments` stays inside `write_batches`, because `fragments` imports `outputs`.
+- Commit `8646f72` also removed two imports that were already unused (`gzip`, `LDSCInputError`).
+- Kept as they are: the writer's loosely typed `result: Any` arguments (annotation bundles also reach the diagnostics writers) and `ldscore` moving its `ref_metadata/` export into place after publication.
+
 ## Completed: output-directory confinement (2026-10-31)
 
 The user set the rule on 2026-10-30: every file a run creates, writes, renames or deletes stays inside its output directory, and an empty `output_dir` never touches user files.

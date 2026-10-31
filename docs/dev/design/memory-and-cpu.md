@@ -413,7 +413,7 @@ See [the replay measurements](../validation/performance.md#direct-ld-score-assem
 **Public LD tables aggregate chromosomes within each query batch.** One batch uses `ldscore.query.parquet`; multiple batches use ordered `ldscore.query.batch00001.parquet` files.
 Root `metadata.json.query_batches` records each file, ordered query columns, and chromosome row groups.
 Baseline, counts, and overlap are shared once.
-`_ldscore/batch_publication.py` stages all query files inside the output directory, publishes after successful computation, and writes metadata last.
+`LDScoreDirectoryWriter.write_batches()` in `_ldscore/outputs.py` stages all query files inside the output directory, publishes after successful computation, and writes metadata last.
 Its `_LDScorePublication` record retains only the shared baseline, counts, overlap, provenance, and diagnostic descriptors needed for publication.
 Materialized query tables, the LD-score producer's SNP sets, chromosome results, and staged query paths remain with the active batch and can be released before the next batch is requested.
 `_ldscore.source.validate_ldscore_baseline_table()` checks the shared baseline once, from the first batch; `validate_ldscore_query_table()` checks a complete materialized query table against it.

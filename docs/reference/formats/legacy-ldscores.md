@@ -1,6 +1,6 @@
 # Legacy LD-Score Suite Conversion
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-31
 
 Conversion runs serially in one worker with **1 BLAS thread**, including reconstructed annotation overlap products.
 See [parallel execution](../parallel-execution.md) for native-limit verification and Python process startup.
@@ -207,6 +207,9 @@ are additionally reported when they could explain a common-SNP count discrepancy
 The command creates the requested output directory's `diagnostics/` area while it validates the sources.
 It writes `convert-legacy-ldscores.log` and `conversion_issues.tsv.gz`, including a header-only issue table after a clean conversion.
 Root `metadata.json` and parquet artifacts are written only after all validation succeeds.
+The converter writes the Parquet files and `metadata.json` to a staging directory inside the output directory and moves them into place only after all are written, `metadata.json` last, so a run that fails before then leaves an earlier converted LD-score directory complete and loadable.
+It then reloads the published directory, and a directory that does not load fails the run.
+As for `ldscore`, a failure while the staged files are moved into place is not rolled back.
 A diagnostics-only failed directory is not a consumable LD-score directory and a corrected rerun into it requires `--overwrite`.
 
 ## Module Boundary

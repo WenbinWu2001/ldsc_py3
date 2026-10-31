@@ -329,3 +329,10 @@ Last updated on: 2026-10-31
   Only some workflows checked for an empty value, each in its own way.
   `output_directory_path()` in `_runtime/paths.py` now rejects a missing or blank destination, every output-path derivation goes through it, and `cli_help.output_directory_argument` rejects a blank destination option while parsing.
   Test every command and Python entry point with `""` and `"  "` from an empty working directory and assert it stays empty; see `tests/runtime/test_output_confinement.py`.
+
+## A second writer lacks the first writer's publication guarantees
+
+- Summary/root cause/correction: `convert-legacy-ldscores` wrote its LD-score directory through `LDScoreDirectoryWriter.write()`, a second writer beside the staged `write_batches()`, so it wrote Parquet files over the destination in place.
+  An authorized overwrite that failed while writing `ldscore.overlap.parquet` left the new baseline beside the earlier `metadata.json`, and loading the directory raised `LDSCInternalError`.
+  The converter now publishes through `write_batches()` as a one-item batch, and `write()` is gone.
+  Route every producer of one artifact family through one publication path, and test a failed overwrite for each producer, not only the main workflow; see `test_failed_overwrite_keeps_the_earlier_converted_directory` in `tests/ldscore/test_legacy_ldscore_converter.py`.

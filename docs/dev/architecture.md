@@ -270,7 +270,7 @@ R²-matrix preparation opens each chromosome once through `R2MatrixRefPanel.open
 ### `ldsc._ldscore.legacy_converter`
 
 This workflow module is the sole public reader of selected legacy LD-score fragments.
-It discovers one coherent autosomal reference family and one weight family, joins them by rsID, accepts either an unpartitioned single-score suite or a complete full baseline suite, validates the fixed legacy common-SNP-count semantics, and writes an ordinary canonical LDSC3 LD-score directory through `LDScoreDirectoryWriter`.
+It discovers one coherent autosomal reference family and one weight family, joins them by rsID, accepts either an unpartitioned single-score suite or a complete full baseline suite, validates the fixed legacy common-SNP-count semantics, and writes an ordinary LDSC3 LD-score directory through `LDScoreDirectoryWriter.write_batches()` as a one-item batch, so its files are staged and the published directory is reloaded as in an `ldscore` run.
 Baseline conversion reconstructs and validates marginal counts plus the full overlap matrix; it never accepts query or thin annotations.
 Inputs remain read-only and provenance includes selected prefixes/files, intersections, coordinate evidence, and count origins.
 Routine source hashes are not computed.
@@ -422,10 +422,11 @@ The writer stores run metadata once, and `_regression.quantile_h2.load_fitted_pa
 | `_ldscore.gene_index.batches.indexed_results` | Own the indexed run's persistent pool; `_IndexedProducer` reloads and releases one chromosome operator per task and reduces compact float64 statistics in index order |
 | `_ldscore.query_variation.summarize_variation`, `combine_variation` | Exact global variation from first values and within-chromosome flags, preserving each LD-score producer's precision |
 | `_ldscore.fragments.StagedLDScoreBatch`, `write_query_fragments` | Private batch descriptor and ordered validation/publication from direct float32 or indexed float64 fragments; delete each consumed fragment without a genome-wide query array |
-| `_ldscore.batch_publication._LDScorePublication`, `write_ldscore_batches` | Retain explicit shared publication state while releasing each materialized or staged batch; publish canonical artifacts after success and clean owned scratch on handled failure |
+| `_ldscore.outputs._LDScorePublication`, `LDScoreDirectoryWriter.write_batches` | Retain explicit shared publication state while releasing each materialized or staged batch; publish canonical artifacts after success and clean owned scratch on handled failure |
 | `LDScoreSource.read_queries` | Explicit selected-query reads across manifest files in requested order, without caching or a width cap |
 
 `LDScoreDirectoryWriter.write_batches()` consumes materialized `LDScoreResult` values or private `StagedLDScoreBatch` descriptors behind the same publication interface.
+It is the only publication path for LD-score directories: direct `ldscore`, indexed scoring and `convert-legacy-ldscores` all publish through it.
 Its publication record retains the baseline, counts, overlap, provenance, and diagnostics, without retaining the LD-score producer's query values, SNP sets, or chromosome results.
 The producer owns active fragments through consumption or worker shutdown; the writer closes the producer before removing publication staging on handled failure.
 Fragment validation consumes tables directly and checks row alignment once per fragment, without constructing partial result objects.

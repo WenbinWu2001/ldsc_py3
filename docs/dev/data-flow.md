@@ -1,6 +1,6 @@
 # Data Flow
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-31
 
 Examples below use the munged file names written without a trait label (`sumstats.parquet`, `sumstats.gz`); naming rules are in [artifact metadata](../reference/formats/artifact-metadata.md).
 
@@ -401,6 +401,9 @@ and full overlap from annotations and frequencies, validates present legacy
 counts, and reconstructs only missing `.M`. The strict legacy common rule is
 fixed at `0.05`. See
 [`legacy-ldscores.md`](../reference/formats/legacy-ldscores.md).
+
+The converter publishes through `LDScoreDirectoryWriter.write_batches()` as a one-item batch, the path `ldscore` uses.
+Its files are staged inside the output directory, `metadata.json` is written last, and the published directory is reloaded before the run succeeds.
 
 ## Region Exclusion
 

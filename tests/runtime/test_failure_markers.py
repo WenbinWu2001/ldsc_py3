@@ -102,6 +102,8 @@ def test_cli_failure_leaves_one_marker_naming_the_command(tmp_path, monkeypatch,
     writes = _record_marker_writes(monkeypatch)
     options, marker_name = FAILING_CLI_RUNS[command]
     root = tmp_path / "out"
+    # An existing empty directory: plot and convert-h2-scale need their result directory to exist.
+    root.mkdir()
     argv = [command, *(token.format(root=root) for token in options), "--overwrite"]
 
     assert cli.run_cli(argv) == 1

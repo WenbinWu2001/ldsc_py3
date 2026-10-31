@@ -74,6 +74,8 @@ def test_failure_marker_uses_the_normalized_output_directory(tmp_path, monkeypat
 ])
 def test_cli_marker_follows_last_destination_option(tmp_path, command, option, nested, inputs):
     first, last = tmp_path / "first", tmp_path / "last"
+    # plot and convert-h2-scale check their result directory before the marker opens, so it must exist.
+    last.mkdir()
     # Invalid input fails before computation; argparse chooses the last value.
     assert cli.run_cli([
         command, option, str(first), f"{option}={last}", *inputs, "--overwrite",

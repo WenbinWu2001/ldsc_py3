@@ -38,7 +38,6 @@ from ..config import get_global_config
 from ..errors import LDSCInputError, LDSCUsageError
 from .._runtime.paths import (
     ensure_output_directory,
-    normalize_path_token,
     output_directory_path,
     preflight_output_artifact_family,
     remove_output_artifacts,
@@ -88,16 +87,15 @@ def default_liability_scale_dir(h2_result_dir) -> Path:
     return output_directory_path(h2_result_dir, label="h2 result directory") / "postprocessing" / "liability-scale"
 
 
-@materializing_overwrite_guard(
-    lambda h2_result_dir, **kwargs: (
-        (
-            default_liability_scale_dir(h2_result_dir) if kwargs.get("output_dir") is None
-            else output_directory_path(kwargs["output_dir"]),
-            kwargs.get("overwrite", False),
-        )
-    ),
-    command="convert_h2_scale(...)",
-)
+def _conversion_marker_scope(h2_result_dir, **kwargs):
+    """Return a conversion's marker scope after checking its h2 result directory, so a missing one creates nothing."""
+    source_dir = _require_directory(h2_result_dir, label="h2 result directory")
+    output_dir = kwargs.get("output_dir")
+    destination = default_liability_scale_dir(source_dir) if output_dir is None else output_directory_path(output_dir)
+    return destination, kwargs.get("overwrite", False)
+
+
+@materializing_overwrite_guard(_conversion_marker_scope, command="convert_h2_scale(...)")
 def convert_h2_scale(
     h2_result_dir: str | os.PathLike[str],
     *,
@@ -342,7 +340,7 @@ def run_convert_h2_scale_from_args(args: argparse.Namespace) -> H2ScaleConversio
 
 
 def _require_directory(path: str | os.PathLike[str], *, label: str) -> Path:
-    result = Path(normalize_path_token(path))
+    result = output_directory_path(path, label=label)
     if not result.is_dir():
         raise LDSCInputError(
             f"{label} does not exist or is not a directory: '{result}'."

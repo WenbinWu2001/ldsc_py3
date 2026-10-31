@@ -107,3 +107,13 @@ def test_output_helpers_reject_an_empty_destination(empty_cwd, helper):
         helper()
 
     assert list(empty_cwd.iterdir()) == []
+
+
+@pytest.mark.parametrize("command,option", [("plot", "--result-dir"), ("convert-h2-scale", "--h2-result-dir")])
+@pytest.mark.parametrize("overwrite", [True, False])
+def test_derived_commands_create_nothing_for_a_missing_result_directory(empty_cwd, command, option, overwrite):
+    extra = ["--samp-prev", "0.5", "--pop-prev", "0.01"] if command == "convert-h2-scale" else []
+
+    assert cli.run_cli([command, option, "resutls_typo", *extra, *(["--overwrite"] if overwrite else [])]) == 1
+
+    assert list(empty_cwd.iterdir()) == []

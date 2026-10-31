@@ -37,7 +37,7 @@ from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_o
 from ..config import get_global_config
 from ..errors import LDSCInputError
 from .._runtime.paths import (
-    ensure_output_directory, normalize_path_token, output_directory_path, preflight_output_artifact_family,
+    ensure_output_directory, output_directory_path, preflight_output_artifact_family,
 )
 
 
@@ -79,15 +79,15 @@ def default_plot_dir(result_dir) -> Path:
     return output_directory_path(result_dir, label="result directory") / "plots"
 
 
-@materializing_overwrite_guard(
-    lambda result_dir, **kwargs: (
-        (
-            default_plot_dir(result_dir) if kwargs.get("output_dir") is None else output_directory_path(kwargs["output_dir"]),
-            kwargs.get("overwrite", False),
-        )
-    ),
-    command="plot_result(...)",
-)
+def _plot_marker_scope(result_dir, **kwargs):
+    """Return a plot run's marker scope after checking its result directory, so a missing one creates nothing."""
+    source_dir = _require_result_directory(result_dir)
+    output_dir = kwargs.get("output_dir")
+    destination = default_plot_dir(source_dir) if output_dir is None else output_directory_path(output_dir)
+    return destination, kwargs.get("overwrite", False)
+
+
+@materializing_overwrite_guard(_plot_marker_scope, command="plot_result(...)")
 def plot_result(
     result_dir: str | os.PathLike[str],
     *,
@@ -269,7 +269,7 @@ def run_plot_from_args(args: argparse.Namespace) -> PlotArtifact:
 
 
 def _require_result_directory(path: str | os.PathLike[str]) -> Path:
-    result = Path(normalize_path_token(path))
+    result = output_directory_path(path, label="result directory")
     if not result.is_dir():
         raise LDSCInputError(
             f"Plot result directory does not exist or is not a directory: '{result}'."

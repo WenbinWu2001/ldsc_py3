@@ -434,10 +434,10 @@ class LegacyLDScoreConverter:
             config_snapshot=GlobalConfig(snp_identifier=mode, genome_build=effective_build),
             legacy_ldscore_conversion=provenance,
         )
-        paths = LDScoreDirectoryWriter().write(
-            ldscore,
+        paths = LDScoreDirectoryWriter().write_batches(
+            [ldscore],
             LDScoreOutputConfig(output_dir=output_root, overwrite=overwrite),
-        )
+        ).output_paths
         return LegacyLDScoreConversionResult(profile, len(baseline), ("base",), paths)
 
     def _convert_baseline_partitioned(
@@ -694,10 +694,10 @@ class LegacyLDScoreConverter:
             overlap=overlap,
             legacy_ldscore_conversion=provenance,
         )
-        paths = LDScoreDirectoryWriter().write(
-            ldscore,
+        paths = LDScoreDirectoryWriter().write_batches(
+            [ldscore],
             LDScoreOutputConfig(output_dir=output_root, overwrite=overwrite),
-        )
+        ).output_paths
         return LegacyLDScoreConversionResult(
             "baseline_partitioned", len(baseline), tuple(reference_columns), paths
         )

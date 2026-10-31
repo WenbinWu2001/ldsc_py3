@@ -393,6 +393,42 @@ def test_baseline_partitioned_conversion_reconstructs_counts_and_full_overlap(tm
     assert loaded.query_columns == []
 
 
+def test_failed_overwrite_keeps_the_earlier_converted_directory(tmp_path: Path, monkeypatch) -> None:
+    """A conversion that fails while writing leaves the earlier directory complete and loadable."""
+    from ldsc._ldscore import overlap_table
+    from tests.worker_fixtures import calculation_body
+
+    _write_unpartitioned_suite(tmp_path / "reference", tmp_path / "weights")
+    _write_partitioned_suite(tmp_path / "baseline", tmp_path / "baseline_weights", tmp_path / "frequencies")
+    output = tmp_path / "converted"
+    ldsc.convert_legacy_ldscores(
+        legacy_reference_dir=tmp_path / "reference",
+        legacy_weight_dir=tmp_path / "weights",
+        output_dir=output,
+    )
+
+    def fail_overlap_write(*args, **kwargs):
+        raise OSError("disk full while writing ldscore.overlap.parquet")
+
+    # Run the converter in this process so the failing overlap writer reaches it.
+    monkeypatch.setattr(overlap_table, "overlap_to_long_frame", fail_overlap_write)
+    with calculation_body(), pytest.raises(OSError, match="disk full"):
+        ldsc.convert_legacy_ldscores(
+            legacy_reference_dir=tmp_path / "baseline",
+            legacy_weight_dir=tmp_path / "baseline_weights",
+            legacy_frequency_dir=tmp_path / "frequencies",
+            output_dir=output,
+            overwrite=True,
+        )
+
+    loaded = ldsc.load_ldscore_from_dir(str(output))
+    assert loaded.baseline_columns == ["base"]
+    assert len(loaded.baseline_table) == 22
+    assert loaded.overlap is None
+    assert (output / "RUN_FAILED.txt").exists()
+    assert not list(output.glob(".ldsc-batches-*"))
+
+
 def test_baseline_partitioned_conversion_fails_on_conflicting_legacy_count(tmp_path: Path) -> None:
     reference = tmp_path / "baseline"
     weights = tmp_path / "weights"

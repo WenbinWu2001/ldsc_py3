@@ -128,13 +128,22 @@ def test_r2_builder_retries_failure_without_touching_other_markers(tmp_path, sco
     bed = tmp_path / "1000G.EUR.QC.21.bed"
     original = bed.read_bytes()
     bed.unlink()
+    # A PLINK input error comes before the chromosomes are known: diagnostics, no marker.
+    with pytest.raises(LDSCInputError):
+        r2_matrix_builder.run_build_r2_matrix_from_args(args)
+    assert (output / "diagnostics/plink_input_issues.tsv").is_file()
+    assert not list(output.glob("RUN_FAILED*"))
+    bed.write_bytes(original)
+    # A restriction matching no SNP passes the input checks, then fails inside the run's marker scope.
+    (tmp_path / "no_match.tsv").write_text("SNP\tCHR\tPOS\nrs0\t1\t1\n")
+    args.ref_panel_snps_file = str(tmp_path / "no_match.tsv")
     with pytest.raises(LDSCInputError):
         r2_matrix_builder.run_build_r2_matrix_from_args(args)
     marker = output / ("RUN_FAILED.chr21.txt" if scoped else "RUN_FAILED.txt")
     assert marker.is_file()
     other = output / "RUN_FAILED.chr22.txt"
     other.write_text("other attempt")
-    bed.write_bytes(original)
+    args.ref_panel_snps_file = None
     result = r2_matrix_builder.run_build_r2_matrix_from_args(args)
     assert len(result.output_paths["r2_hg19"]) == (1 if scoped else 2)
     assert not marker.exists()

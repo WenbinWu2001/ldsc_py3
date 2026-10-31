@@ -1,3 +1,4 @@
+import contextlib
 import gc
 import gzip
 import importlib.util
@@ -847,17 +848,27 @@ class R2MatrixBuildConfigFromArgsTest(unittest.TestCase):
         self.assertEqual(global_config.snp_identifier, "chr_pos")
         self.assertEqual(global_config.genome_build, "auto")
 
+    @staticmethod
+    def _built_without_inputs(fake_inspect):
+        """Capture the builder's configuration without reading inputs or building."""
+        builder = r2_matrix_builder.R2MatrixBuilder
+        result = r2_matrix_builder.R2MatrixBuildResult(matrix_name="out", chromosomes=[])
+        stack = contextlib.ExitStack()
+        stack.enter_context(mock.patch.object(builder, "_inspect_inputs", fake_inspect))
+        stack.enter_context(mock.patch.object(builder, "_run", return_value=result))
+        return stack
+
     def test_run_build_r2_matrix_uses_parser_default_identifier_for_restriction_file(self):
         captured = {}
 
-        def fake_run(self, config):
+        def fake_inspect(self, config):
             captured["global_config"] = self.global_config
             captured["config"] = config
-            return r2_matrix_builder.R2MatrixBuildResult(matrix_name="out", chromosomes=[])
+            return Path("out"), [], []
 
         set_global_config(GlobalConfig(snp_identifier="chr_pos"))
         try:
-            with mock.patch.object(r2_matrix_builder.R2MatrixBuilder, "run", fake_run):
+            with self._built_without_inputs(fake_inspect):
                 r2_matrix_builder.run_build_r2_matrix(
                     plink_prefix="plink/panel.@",
                     source_genome_build="hg19",
@@ -876,11 +887,11 @@ class R2MatrixBuildConfigFromArgsTest(unittest.TestCase):
     def test_run_build_r2_matrix_uses_snp_batch_size_keyword(self):
         captured = {}
 
-        def fake_run(self, config):
+        def fake_inspect(self, config):
             captured["config"] = config
-            return r2_matrix_builder.R2MatrixBuildResult(matrix_name="out", chromosomes=[])
+            return Path("out"), [], []
 
-        with mock.patch.object(r2_matrix_builder.R2MatrixBuilder, "run", fake_run):
+        with self._built_without_inputs(fake_inspect):
             r2_matrix_builder.run_build_r2_matrix(
                 plink_prefix="plink/panel.@",
                 source_genome_build="hg19",
@@ -1843,7 +1854,6 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
             builder = r2_matrix_builder.R2MatrixBuilder(
                 global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")
             )
-            builder._workflow_log_path = output_dir / "diagnostics" / "build-r2-matrix.log"
 
             with self._skip_selection_pre_pass(), mock.patch.object(
                 r2_matrix_builder.R2MatrixBuilder,
@@ -1855,7 +1865,11 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
                     "meta_hg38": str(output_dir / "hg38" / "chr1_meta.tsv.gz"),
                 },
             ):
-                result = builder.run(config)
+                # The parsed workflow's path: inspected inputs plus a workflow log.
+                result = builder._run(
+                    config, *builder._inspect_inputs(config),
+                    workflow_log_path=output_dir / "diagnostics" / "build-r2-matrix.log",
+                )
 
             self.assertEqual((output_dir / "notes.txt").read_text(encoding="utf-8"), "user notes\n")
             self.assertEqual(result.chromosomes, ["1"])

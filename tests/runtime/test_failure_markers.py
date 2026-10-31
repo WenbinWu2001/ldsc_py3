@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 import shlex
+import shutil
 from unittest import mock
 
 import pytest
@@ -11,7 +11,6 @@ import ldsc
 from ldsc import cli
 from ldsc._runtime import workflow_logging
 from ldsc._runtime.workflow_logging import materializing_overwrite_guard, overwrite_failure_marker
-from ldsc._refpanel import builder as r2_matrix_builder
 from ldsc._sumstats import munger as sumstats_munger
 from ldsc.errors import LDSCInputError, LDSCUsageError
 
@@ -310,21 +309,56 @@ def test_unknown_cli_command_does_not_claim_an_output_scope(tmp_path):
     assert not output_dir.exists()
 
 
-def test_python_reference_panel_failure_uses_chromosome_marker(tmp_path):
-    output_dir = tmp_path / "panel"
-    args = argparse.Namespace(
-        output_dir=str(output_dir),
-        overwrite=True,
-        plink_prefix=str(tmp_path / "reference.chr22"),
-    )
+def _copy_panel(prefix: Path, *, chrom: str = "22") -> Path:
+    """Copy the chromosome 22 PLINK fixture to ``prefix``, writing ``chrom`` into the BIM file."""
+    prefix.parent.mkdir(parents=True, exist_ok=True)
+    for suffix in (".bed", ".fam"):
+        shutil.copy(f"{PLINK_FIXTURE}{suffix}", f"{prefix}{suffix}")
+    rows = Path(f"{PLINK_FIXTURE}.bim").read_text(encoding="utf-8").splitlines()
+    Path(f"{prefix}.bim").write_text("".join(f"{chrom}\t{row.split(chr(9), 1)[1]}\n" for row in rows), encoding="utf-8")
+    return prefix
 
-    with mock.patch.object(
-        r2_matrix_builder,
-        "config_from_args",
-        side_effect=RuntimeError("failed before config"),
-    ):
-        with pytest.raises(RuntimeError, match="failed before config"):
-            r2_matrix_builder.run_build_r2_matrix_from_args(args)
 
-    assert (output_dir / "RUN_FAILED.chr22.txt").is_file()
-    assert not (output_dir / "RUN_FAILED.txt").exists()
+def _build_r2_matrix(prefix, output_dir, *extra):
+    return cli.run_cli([
+        "build-r2-matrix", "--plink-prefix", str(prefix), "--output-dir", str(output_dir),
+        "--ld-wind-kb", "1000", "--source-genome-build", "hg19", "--overwrite", *extra,
+    ])
+
+
+@pytest.mark.parametrize("name", ["panel", "EUR_5.chr22", "pan*"])
+def test_r2_marker_follows_the_bim_chromosome_not_the_file_name(tmp_path, name):
+    _copy_panel(tmp_path / "p" / name.replace("*", "el"))
+    output_dir = tmp_path / "out"
+
+    # MAF 0.5 removes every SNP after the inputs are checked, so the run fails inside its marker scope.
+    assert _build_r2_matrix(tmp_path / "p" / name, output_dir, "--maf-min", "0.5") == 1
+
+    assert sorted(path.name for path in output_dir.glob("RUN_FAILED*")) == ["RUN_FAILED.chr22.txt"]
+    assert (output_dir / "diagnostics" / "build-r2-matrix.chr22.log").is_file()
+
+
+def test_a_chromosome_job_never_removes_another_chromosomes_marker(tmp_path):
+    output_dir = tmp_path / "out"
+    assert _build_r2_matrix(_copy_panel(tmp_path / "p" / "panelA", chrom="21"), output_dir, "--maf-min", "0.5") == 1
+    assert _build_r2_matrix(_copy_panel(tmp_path / "p" / "panelB"), output_dir) == 0
+
+    assert sorted(path.name for path in output_dir.glob("RUN_FAILED*")) == ["RUN_FAILED.chr21.txt"]
+    assert (output_dir / "hg19" / "chr22_meta.tsv.gz").is_file()
+
+
+@pytest.mark.parametrize("failure", ["missing PLINK input", "no LD window"])
+def test_r2_errors_before_the_chromosomes_are_known_leave_no_marker(tmp_path, failure):
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+    marker = output_dir / "RUN_FAILED.chr22.txt"
+    marker.write_text("previous failed run", encoding="utf-8")
+    argv = ["build-r2-matrix", "--plink-prefix", str(tmp_path / "missing.chr22"), "--output-dir", str(output_dir),
+            "--source-genome-build", "hg19", "--overwrite"]
+    if failure == "missing PLINK input":
+        argv += ["--ld-wind-kb", "1000"]
+
+    assert cli.run_cli(argv) == 1
+
+    assert sorted(path.name for path in output_dir.glob("RUN_FAILED*")) == ["RUN_FAILED.chr22.txt"]
+    assert marker.read_text(encoding="utf-8") == "previous failed run"

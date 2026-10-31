@@ -33,8 +33,6 @@ from __future__ import annotations
 import argparse
 import gc
 import logging
-import os
-import re
 
 from dataclasses import asdict, dataclass, field, replace as dataclass_replace
 from pathlib import Path
@@ -69,7 +67,7 @@ from .._runtime.paths import ensure_output_directory, preflight_output_artifact_
 from .._runtime.workflow_logging import (
     log_inputs,
     log_outputs,
-    materializing_overwrite_guard,
+    overwrite_failure_marker,
     workflow_logging,
 )
 from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
@@ -221,6 +219,16 @@ def _resolve_build_metadata_path(
     return output_dir / "diagnostics" / "metadata.json"
 
 
+def _failure_marker_name(
+    config: R2MatrixBuildConfig,
+    chrom_sources: Sequence[tuple[str, str]],
+) -> str:
+    """Return the failure marker of a run, scoped like its metadata so parallel chromosome runs keep their own."""
+    if _is_chromosome_scoped_invocation(config, chrom_sources):
+        return f"RUN_FAILED.chr{chrom_sources[0][1]}.txt"
+    return FAILURE_MARKER
+
+
 def _expected_ref_panel_output_paths(
     config: R2MatrixBuildConfig,
     chromosomes: Sequence[str],
@@ -368,7 +376,6 @@ class R2MatrixBuilder:
     def __init__(self, global_config: GlobalConfig | None = None) -> None:
         """Initialize the builder with shared identifier and build defaults."""
         self.global_config = global_config or get_global_config()
-        self._workflow_log_path: Path | None = None
 
     def run(self, config: R2MatrixBuildConfig) -> R2MatrixBuildResult:
         """Build fixed-name R2 matrix files for every chromosome.
@@ -408,16 +415,19 @@ class R2MatrixBuilder:
             If no chromosome artifacts are produced or if multiple PLINK inputs
             resolve to the same chromosome.
         """
-        return self._run(config, workflow_log_path=self._workflow_log_path)
+        output_dir, chrom_sources, resolved_prefixes = self._inspect_inputs(config)
+        return self._run(config, output_dir, chrom_sources, resolved_prefixes, workflow_log_path=None)
 
-    @serial_calculation
-    def _run(
+    def _inspect_inputs(
         self,
         config: R2MatrixBuildConfig,
-        *,
-        workflow_log_path: Path | None,
-    ) -> R2MatrixBuildResult:
-        """Shared implementation for direct API and parsed workflow entry points."""
+    ) -> tuple[Path, list[tuple[str, str]], list[str]]:
+        """Check every declared input in the calling process and assign PLINK chromosomes from BIM contents.
+
+        Returns the output directory, the ``(prefix, chromosome)`` sources, and
+        the resolved PLINK prefixes. Input issues are written under the output
+        directory's ``diagnostics/`` before the error is raised.
+        """
         print_global_config_banner(type(self).__name__, self.global_config)
         output_dir = ensure_output_directory(config.output_dir, label="output directory")
         from .._runtime.preflight import inspect_declared_inputs
@@ -437,8 +447,20 @@ class R2MatrixBuilder:
             pd.DataFrame(plink.issues).to_csv(issues_path, sep="\t", index=False)
             LOGGER.error("PLINK input validation failed; complete repair audit: %s", issues_path)
             raise
-        resolved_prefixes = plink.prefixes
-        chrom_sources = [(prefix, chrom) for chrom, prefix in plink.chromosome_prefixes.items()]
+        return output_dir, [(prefix, chrom) for chrom, prefix in plink.chromosome_prefixes.items()], plink.prefixes
+
+    @serial_calculation
+    def _run(
+        self,
+        config: R2MatrixBuildConfig,
+        output_dir: Path,
+        chrom_sources: list[tuple[str, str]],
+        resolved_prefixes: list[str],
+        *,
+        workflow_log_path: Path | None,
+    ) -> R2MatrixBuildResult:
+        """Build from inspected inputs in one worker; shared by the direct API and the parsed workflow."""
+        issues_path = output_dir / "diagnostics" / "plink_input_issues.tsv"
         workflow_log_path = _resolve_build_ref_panel_log_path(workflow_log_path, config, chrom_sources)
         if workflow_log_path is not None:
             scope = [chrom for _, chrom in chrom_sources] if _is_chromosome_scoped_invocation(config, chrom_sources) else None
@@ -1642,53 +1664,34 @@ def config_from_args(args: argparse.Namespace) -> tuple[R2MatrixBuildConfig, Glo
     return build_config, global_config
 
 
-def _reference_panel_failure_marker_scope(
-    args: argparse.Namespace,
-) -> tuple[str | os.PathLike[str], bool, str] | None:
-    """Return the full-suite or concrete-chromosome overwrite marker scope."""
-    output_dir = getattr(args, "output_dir", None)
-    if output_dir is None:
-        return None
-    return output_dir, bool(getattr(args, "overwrite", False)), failure_marker_name(getattr(args, "plink_prefix", None))
-
-
-def failure_marker_name(plink_prefix: str | None) -> str:
-    """Return the failure marker of a build-r2-matrix run on ``plink_prefix``.
-
-    A prefix whose file name names exactly one chromosome (``panel.chr22``)
-    builds that chromosome alone, so its failed overwrite leaves
-    ``RUN_FAILED.chr<chrom>.txt``; any other prefix, including a ``@`` suite,
-    leaves ``RUN_FAILED.txt``. Inputs are not resolved or read.
-    """
-    prefix = str(plink_prefix or "")
-    if "@" not in prefix:
-        matches = re.findall(
-            r"(?:^|[._-])(?:chr)?(1[0-9]|2[0-2]|[1-9]|X|Y)(?=$|[._-])",
-            Path(prefix).name,
-            flags=re.IGNORECASE,
-        )
-        chromosomes = {match.upper() for match in matches}
-        if len(chromosomes) == 1:
-            return f"RUN_FAILED.chr{next(iter(chromosomes))}.txt"
-    return FAILURE_MARKER
-
-
-@materializing_overwrite_guard(
-    _reference_panel_failure_marker_scope,
-    command="run_build_r2_matrix_from_args(...)",
-)
 def run_build_r2_matrix_from_args(args: argparse.Namespace) -> R2MatrixBuildResult:
     """Run R2 matrix building from parsed CLI arguments.
 
     The parsed workflow preflights all deterministic R2 matrix artifacts plus the
     selected build-r2-matrix log before chromosome processing. The returned
     ``R2MatrixBuildResult`` contains R2 matrix artifact paths only.
+
+    A failed authorized overwrite leaves ``RUN_FAILED.chr<chrom>.txt`` when the
+    PLINK prefix has no ``@`` and its BIM files hold one chromosome, and
+    ``RUN_FAILED.txt`` otherwise. Errors raised before the chromosomes are
+    known, in the options or the input checks, leave no marker: no output has
+    been replaced, and a marker name chosen then could not be the one a
+    successful retry removes.
     """
 
     build_config, global_config = config_from_args(args)
     builder = R2MatrixBuilder(global_config=global_config)
-    builder._workflow_log_path = Path(build_config.output_dir) / "diagnostics" / "build-r2-matrix.log"
-    return builder.run(build_config)
+    output_dir, chrom_sources, resolved_prefixes = builder._inspect_inputs(build_config)
+    with overwrite_failure_marker(
+        output_dir,
+        overwrite=build_config.overwrite,
+        command="Python API: run_build_r2_matrix_from_args(...)",
+        marker_name=_failure_marker_name(build_config, chrom_sources),
+    ):
+        return builder._run(
+            build_config, output_dir, chrom_sources, resolved_prefixes,
+            workflow_log_path=output_dir / "diagnostics" / "build-r2-matrix.log",
+        )
 
 
 def run_build_r2_matrix(**kwargs: Any) -> R2MatrixBuildResult:

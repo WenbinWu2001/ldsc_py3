@@ -5,6 +5,33 @@ Last updated on: 2026-10-30
 Branch `restructure`; checked on 2026-10-30.
 Nothing below is in progress; each open item needs the user's go-ahead.
 
+## Completed: one CLI command table (2026-10-30)
+
+Architecture review candidate 5.
+Re-checked at `781d75b`, the review's main reason was gone: `8d305cf` had removed `cli.build_parser()`, so tests already parsed with the parsers users run.
+The user accepted two rounds of recommendations on 2026-10-30 for the remaining friction and authorized the implementation; the question record and evidence are outside the repository.
+
+- `45c7965`: six parser descriptions that were overwritten before any help was printed, and three repeated `prog` assignments, are gone.
+  `add_h2_arguments`, `add_partitioned_h2_arguments`, `add_rg_arguments` and `add_convert_h2_scale_arguments` now set their own description, so every workflow parser owns its description.
+- `82cb4a1`: the `_COMMANDS` table in `src/ldsc/cli.py` lists each subcommand once, with its one-line help, its workflow module, and either the module's `build_parser()` and `main(argv)` or the add-arguments and run functions for a parser the CLI builds.
+  `main`, `_command_parser`, the top-level help, the failure-marker scope and the internal-error advice read it.
+  A command's module is imported by name only when the command is parsed or run, which replaced six `_load_*` helpers and five eager workflow imports; `cli.py` went from 347 to 276 lines.
+  `infer-genome-build`'s argument and stdout report moved to `add_inspection_arguments()` and `run_inspection_from_args()` in `src/ldsc/_genome/build_inspection.py`.
+  A new test checks that every row names functions its module defines.
+- `ddf0366`: an argument-parsing error with `--overwrite`, such as a misspelled or missing option, no longer creates the output directory or writes a `RUN_FAILED.txt` reading `SystemExit: 2`; `overwrite_failure_marker` re-raises `SystemExit` without touching the output scope.
+  The explicit help, `--infer-only` and read-only exclusions stay.
+  The contract is in `docs/reference/logs-and-outputs.md`, and `lessons.md` records the recurrence.
+- This commit: `docs/dev/architecture.md` and `docs/dev/code-structure.md` describe the table and the inspection module's CLI functions.
+- Evidence: a before/after comparison of exported copies of `781d75b` and the final tree matched exactly in the `--help` output of `ldsc` and all 14 commands, every parser's settings and actions with one sample parse per command, and the modules each help path imports; `ldsc --help` and `ldsc build-r2-matrix --help` still import neither the regression nor the munging workflow.
+  In a 29-case failure-marker matrix, only the 12 argument-error cases changed, as designed; the help, run-failure, `--infer-only`, `infer-genome-build`, unknown-command and no-overwrite cases matched, including exit codes and messages.
+- Full pytest on an exported copy of `ddf0366` with this commit's documentation: 2,361 passed, none skipped; each other commit ran its focused tests (385 for `45c7965`, 393 for `82cb4a1`, 607 for `ddf0366`).
+
+### Left open from candidate 5
+
+- Candidate 10 stays separate: the CLI-level marker wrapper still reads raw arguments (`_cli_failure_marker_scope`, `_raw_option_value`) on top of the workflow guards, and `annotate --overwrite` still nests three guards.
+- Errors that workflows raise after parsing for invalid option combinations (`LDSCUsageError`) still leave a failure marker, as before.
+- `ldsc -- h2` exits 0 without running anything, because the top-level parser accepts it; the refactor kept this behavior.
+
 ## Completed: gene-index fixtures through the build writer (2026-10-30)
 
 Architecture review candidate 4.

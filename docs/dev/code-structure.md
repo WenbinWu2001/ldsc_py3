@@ -73,7 +73,7 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 
 | Module | Responsibility |
 | --- | --- |
-| `ldsc.cli` | unified `ldsc` command and subcommand dispatch |
+| `ldsc.cli` | unified `ldsc` command; the `_COMMANDS` table maps each subcommand to its workflow module and entry functions |
 | `ldsc.config` | frozen public config dataclasses and basic validation |
 | `ldsc._core.chromosomes` | canonical chromosome normalization and ordering |
 | `ldsc._core.columns` | resolve header aliases and normalize identifier/build tokens |
@@ -157,14 +157,14 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 
 | Goal | Start here |
 | --- | --- |
-| change CLI flags or subcommand wiring | workflow `build_parser` / `add_*_arguments` functions, then `src/ldsc/cli.py` for dispatch (`main`, `_command_parser`); follow [CLI help guidelines](guidelines/cli-help.md) |
+| change CLI flags or subcommand wiring | workflow `build_parser` / `add_*_arguments` functions, then the `_COMMANDS` table in `src/ldsc/cli.py`, which `main` and `_command_parser` read; follow [CLI help guidelines](guidelines/cli-help.md) |
 | change help wrapping or shared log-level wording | `src/ldsc/_runtime/cli_help.py:CLIHelpFormatter`, `src/ldsc/_runtime/workflow_logging.py:LOG_LEVEL_HELP`; verify `tests/package/test_cli_help.py` |
 | change path-token behavior | `src/ldsc/_runtime/paths.py` |
 | change output collision policy | `src/ldsc/_runtime/paths.py`, then the workflow writer that owns the artifact |
 | change a keyword-argument Python workflow (`run_ldscore`, `run_build_r2_matrix`, `run_h2`, `run_partitioned_h2`, `run_rg`, `run_quantile_h2`) | the function in its workflow module, keyword checks in `src/ldsc/_runtime/workflow_kwargs.py`; verify `tests/package/test_workflow_keyword_checks.py` and `tests/regression/test_python_regression_workflows.py` |
 | change workflow log files, lifecycle lines, or log-level handling | `src/ldsc/_runtime/workflow_logging.py`, then the workflow orchestration function that owns the output directory |
 | change header aliases or identifier/build normalization | `src/ldsc/_core/columns.py` |
-| change read-only artifact build inspection | `src/ldsc/_genome/build_inspection.py`, with CLI dispatch in `src/ldsc/cli.py` and coverage in `tests/genome/test_genome_build_inspection.py` |
+| change read-only artifact build inspection | `src/ldsc/_genome/build_inspection.py`, which also holds the command's argument and stdout report, with its read-only `_COMMANDS` row in `src/ldsc/cli.py` and coverage in `tests/genome/test_genome_build_inspection.py` |
 | change automatic `chr_pos` genome-build inference | `src/ldsc/_genome/build_inference.py` |
 | change annotation loading or `ldsc annotate` behavior | `src/ldsc/_annotation/builder.py`, then `src/ldsc/_annotation/sources.py` and `src/ldsc/_annotation/annotate.py` |
 | change BED parsing or interval projection | `src/ldsc/_core/regions.py:iter_bed_rows`, then `src/ldsc/_annotation/interval_queries.py` and `src/ldsc/_annotation/interval_projection.py:ChromosomeProjector` |

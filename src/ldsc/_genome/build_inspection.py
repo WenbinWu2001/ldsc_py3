@@ -2,8 +2,10 @@
 
 Reports coordinate provenance independently of the SNP identifier mode. This
 helper does not resolve workflow configuration or verify declared coordinates.
+It also supplies the command's argument and its stdout report for the CLI.
 """
 
+import argparse
 from dataclasses import dataclass, field
 import gzip
 import json
@@ -23,6 +25,7 @@ from .._core.columns import (
 from ..errors import LDSCInputError
 from .build_inference import infer_chr_pos_build
 from .._runtime.paths import normalize_path_token
+from .._runtime.cli_help import CLIHelpFormatter
 
 
 _RSID_NOTICE = "This artifact's workflow uses rsIDs for SNP matching."
@@ -137,6 +140,27 @@ def inspect_genome_build(path: str) -> str:
             f"Could not inspect {path}: {detail}. Check the file format and readability. "
             f"See {_TROUBLESHOOTING}."
         ) from exc
+
+
+def add_inspection_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add the public ``infer-genome-build`` argument to ``parser``."""
+    parser.prog = 'ldsc infer-genome-build'
+    parser.formatter_class = CLIHelpFormatter
+    parser.description = "Inspect an artifact's genome build without writing files."
+    parser.add_argument(
+        "path", metavar="PATH",
+        help=("Required exact file or recognized LDSC3 artifact directory. Read build declarations "
+              "or infer hg19/hg38 from SNP coordinates. No patterns or multiple paths. "
+              "Print unknown when evidence is insufficient; unknown exits successfully. "
+              "Creates no files or logs."),
+    )
+
+
+def run_inspection_from_args(args: argparse.Namespace) -> str:
+    """Print the build report for ``args.path`` to stdout and return it."""
+    report = inspect_genome_build(args.path)
+    print(report)
+    return report
 
 
 def _inspect_table(path: Path, *, inherited=None) -> _Inspection:

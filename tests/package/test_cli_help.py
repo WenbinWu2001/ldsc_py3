@@ -82,7 +82,7 @@ def _help_sections(parser):
 
 @pytest.fixture(scope="module")
 def commands():
-    return {name: cli._command_parser(name) for name in cli._SUBCOMMAND_HELP}
+    return {name: cli._command_parser(name) for name in cli._COMMANDS}
 
 
 @pytest.mark.parametrize("command, inputs, default", [

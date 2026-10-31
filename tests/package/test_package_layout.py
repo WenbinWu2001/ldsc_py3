@@ -3,7 +3,6 @@ import tempfile
 import subprocess
 import sys
 import unittest
-from unittest import mock
 
 import pandas as pd
 
@@ -124,10 +123,25 @@ print(ldsc.__file__)
             },
         )
 
+    def test_every_cli_command_names_functions_its_module_defines(self):
+        from importlib import import_module
+        from ldsc import cli
+
+        for name, command in cli._COMMANDS.items():
+            with self.subTest(command=name):
+                self.assertEqual(command.add_arguments is None, command.run is None)
+                module = import_module(command.module, "ldsc")
+                functions = (
+                    ("build_parser", "main") if command.add_arguments is None
+                    else (command.add_arguments, command.run)
+                )
+                for function in functions:
+                    self.assertTrue(callable(getattr(module, function, None)), f"{command.module}.{function}")
+
     def test_materializing_cli_subcommands_use_explicit_or_derived_output_directories(self):
         from ldsc import cli
 
-        for command in cli._SUBCOMMAND_HELP:
+        for command in cli._COMMANDS:
             command_parser = cli._command_parser(command)
             with self.subTest(command=command):
                 output_actions = [
@@ -139,11 +153,12 @@ print(ldsc.__file__)
                     self.assertEqual(len(output_actions), 1)
                     self.assertTrue(output_actions[0].required)
 
-    def test_top_level_help_does_not_import_heavy_workflows(self):
+    def test_help_does_not_import_heavy_workflows(self):
         import subprocess
         import textwrap
 
-        # `ldsc --help` only lists subcommands, so it must not import the
+        # `ldsc --help` only lists subcommands, and `build-r2-matrix` needs
+        # neither regression nor munging, so neither help may import the
         # SciPy-heavy regression and munging workflows. Run in a clean
         # subprocess so an unrelated import in this process cannot mask a
         # regression.
@@ -152,7 +167,7 @@ print(ldsc.__file__)
             import sys
             from ldsc import cli
             try:
-                cli.main(["--help"])
+                cli.main(sys.argv[1:])
             except SystemExit:
                 pass
             heavy = [
@@ -163,19 +178,21 @@ print(ldsc.__file__)
             print(",".join(heavy))
             """
         )
-        completed = subprocess.run(
-            [sys.executable, "-c", probe],
-            capture_output=True,
-            text=True,
-            cwd=tempfile.gettempdir(),
-        )
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        imported_heavy = completed.stdout.splitlines()[-1].strip()
-        self.assertEqual(
-            imported_heavy,
-            "",
-            f"`ldsc --help` should not import heavy workflows, but imported: {imported_heavy}",
-        )
+        for argv in (["--help"], ["build-r2-matrix", "--help"]):
+            with self.subTest(argv=argv):
+                completed = subprocess.run(
+                    [sys.executable, "-c", probe, *argv],
+                    capture_output=True,
+                    text=True,
+                    cwd=tempfile.gettempdir(),
+                )
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                imported_heavy = completed.stdout.splitlines()[-1].strip()
+                self.assertEqual(
+                    imported_heavy,
+                    "",
+                    f"`ldsc {' '.join(argv)}` should not import heavy workflows, but imported: {imported_heavy}",
+                )
 
     def test_annotation_builder_owns_public_workflow_entrypoints(self):
         from ldsc._annotation import builder as annotation_builder
@@ -474,13 +491,3 @@ print(ldsc.__file__)
                     "0.01",
                 ]
             )
-
-    def test_build_ref_panel_help_fast_path_avoids_scipy_backed_imports(self):
-        from ldsc import cli
-
-        with mock.patch.object(cli, "_load_regression_runner", side_effect=AssertionError("regression import should not occur")), \
-             mock.patch.object(cli, "_load_sumstats_munger", side_effect=AssertionError("munging import should not occur")):
-            with self.assertRaises(SystemExit) as exc:
-                cli.main(["build-r2-matrix", "--help"])
-
-        self.assertEqual(exc.exception.code, 0)

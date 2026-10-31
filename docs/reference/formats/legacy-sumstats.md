@@ -1,6 +1,6 @@
 # Legacy Munged Summary-Statistics Compatibility
 
-Last updated on: 2026-10-30
+Last updated on: 2026-10-31
 
 This document defines the public compatibility boundary for munged summary statistics written by the legacy LDSC Python 2 implementation and consumed by LDSC3 regression workflows.
 
@@ -10,7 +10,7 @@ The compatibility input is a legacy whitespace-delimited `.sumstats` or `.sumsta
 
 Legacy munged summary statistics are treated as rsID-based source inputs.
 Their `SNP` values are compatibility lookup keys, not assertions of the canonical LDSC3 regression identity.
-The canonical LDSC3 LD-score panel remains authoritative for its recorded SNP identifier mode and for panel-owned identity metadata.
+The LDSC3 LD-score directory remains authoritative for its recorded SNP identifier mode and for its own identity metadata.
 
 This compatibility boundary applies when legacy munged summary statistics are consumed by `h2`, `partitioned-h2`, or `rg`.
 It does not make legacy LD-score fragments part of the public regression input contract; regression continues to consume an LDSC3 LD-score directory.

@@ -72,7 +72,7 @@ annotation columns are biologically a baseline rather than a query model; that
 advanced-use assertion belongs to the caller. No all-ones root annotation is
 required.
 
-The inputs are suite directories and the output is a new canonical LDSC3
+The inputs are suite directories and the output is a new LDSC3
 LD-score directory. Routine conversion must not require users to enumerate
 chromosome files or provide low-level column mappings.
 

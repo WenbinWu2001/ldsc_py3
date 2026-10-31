@@ -282,7 +282,7 @@ flowchart LR
 
 ## 4. `ldscore`: Reference Panel And Optional Annotations To An LD-Score Directory
 
-The canonical LD-score workflow preflights root `metadata.json`,
+The `ldscore` workflow preflights root `metadata.json`,
 `ldscore.baseline.parquet`, optional single or numbered query batch files, optional
 `ldscore.overlap.parquet`, and `diagnostics/ldscore.log` as one owned family
 before writing any of them. Use

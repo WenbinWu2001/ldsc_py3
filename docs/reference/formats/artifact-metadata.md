@@ -245,6 +245,7 @@ The row-complete audit and per-source summary are present for gene-list runs.
 `ld_window_snp_counts.tsv` is present only for R² matrix runs with `--ld-wind-snps`; it records each chromosome's `panel_snps`, `kept_snps`, `ld_wind_snps`, and `counting_basis` (`panel_rows`).
 `reference_snp_funnel.tsv` is present for every native and indexed run; it records each chromosome's reference-SNP funnel with `funnel`, `chrom`, `backend`, `step_index`, `step`, `removed` (`NA` for a step that did not run) and `remaining`, as described in [reference SNPs on the annotation SNP grid](../ldscore-snp-universes.md#reference-snp-funnel).
 It is owned by the LD-score writer but not listed in the `files` entry of `metadata.json`.
+Exported `ref_metadata/chr<chrom>_meta.tsv.gz` files are published with the directory, `metadata.json` last, and listed in `files` as `ref_metadata_chr<chrom>`.
 `ldscore.overlap.parquet` holds the annotation overlap matrix (long form:
 `row_annotation`, `col_annotation`, `overlap_all_snps`, `overlap_common_snps`)
 that `partitioned-h2` requires. It is written only for runs with two or more

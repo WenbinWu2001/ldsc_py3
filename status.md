@@ -5,6 +5,30 @@ Last updated on: 2026-10-31
 Branch `restructure`; checked on 2026-10-31.
 Nothing below is in progress; each open item needs the user's go-ahead.
 
+## Completed: typed LD-score writer inputs and published reference metadata (2026-10-31)
+
+Follow-ups of architecture review candidate 6, which the user asked for on 2026-10-31 after the candidate was done; the user confirmed the design (six recommendations) and authorized the work the same day.
+
+- `d3ec11a`: the LD-score writer takes two input types instead of any object read through `getattr` defaults: `_LDScorePublication` for a complete directory and `QueryDiagnostics` for diagnostics alone.
+  `artifact_family()` selects outputs by type and lost its `diagnostics_only` and `gene_list_batch` keywords and the `source_summary` fallback; `write_query_diagnostics()` accepts only `QueryDiagnostics` (both breaking).
+  The direct workflow converts its annotation bundle to `QueryDiagnostics` before `fail_unusable_queries()`, and a failed publication writes its diagnostics through one.
+- `9d38075`: `ldscore --export-ref-metadata` files are published by `LDScoreDirectoryWriter.write_batches(ref_metadata_dir=...)` with the other files, `metadata.json` last, instead of being moved into the output directory after publication.
+  They are declared as produced outputs, so an overwrite does not delete them as stale, and they are listed in `metadata.json` `files` and `output_paths` as `ref_metadata_chr<chrom>`, like dropped-SNP reports; the worker log line names the published path instead of the staging path.
+- This commit: docstrings, two messages (`source.py`, the `runner.py` fallback name) and seven documentation pages say "LD-score directory" where they said "canonical LD-score directory", "canonical LDSC3 directory", "canonical LD-score result" or "LD-score artifact"; `artifact-metadata.md`, `configuration.md` and `architecture.md` describe the two changes.
+- Evidence: the before/after harness, extended with an exported run, an exported run overwritten without export, and an exported run overwritten with export, ran exported copies of `370ab11` and each commit (18 scenarios, 98 files).
+  `d3ec11a` changed nothing; `9d38075` changed only the `files` entry of the exported runs' `metadata.json` (one added `ref_metadata_chr1` key) and their `output_paths`, as designed; the exported files themselves were identical, and the run without export still removed them.
+  The harness does not reach the failure diagnostics paths; the tests cover them.
+- Focused tests: 617 plus all 390 of `tests/runtime` (`d3ec11a`), 671 (`9d38075`).
+  Full pytest on an exported copy of `9d38075` with this commit's changes, the workspace `resources/` linked into its parent folder: 2,426 passed, none skipped.
+
+### Decisions taken during implementation
+
+- `QueryDiagnostics` fields are typed (`QueryAnnotationStatus` statuses, `StagedGeneListBatch | None`), and its docstring says "stopped before publication", since a failed publication also uses it.
+- The writer reads the export directory once all batches succeed and moves its files into its own staging directory; the chromosome is taken from each file name.
+- The `config_snapshot is None` check in `_build_metadata` stays, as recorded on 2026-10-29.
+- `calculator.py` lost its now-unused `os` and `REF_METADATA_GLOB` imports.
+- Not changed: "canonical" in other senses (columns, sorting, annotation text), the writers' shared collision label "output artifact", and the "LD-score panel" wording in code.
+
 ## Completed: one LD-score publication path (2026-10-31)
 
 Architecture review candidate 6.
@@ -28,7 +52,7 @@ The user confirmed two rounds of recommendations on 2026-10-31 and authorized th
 - `legacy-ldscores.md` also states the known limit: as for `ldscore`, a failure while the staged files are moved into place is not rolled back.
 - `outputs.py` imports `load_ldscore_from_dir` at module level, since it already imports from `_ldscore.source`; the import of `fragments` stays inside `write_batches`, because `fragments` imports `outputs`.
 - Commit `8646f72` also removed two imports that were already unused (`gzip`, `LDSCInputError`).
-- Kept as they are: the writer's loosely typed `result: Any` arguments (annotation bundles also reach the diagnostics writers) and `ldscore` moving its `ref_metadata/` export into place after publication.
+- Left out at first and done next at the user's request (section above): the writer's loosely typed `result: Any` arguments and `ldscore` moving its `ref_metadata/` export into place after publication.
 
 ## Completed: output-directory confinement (2026-10-31)
 

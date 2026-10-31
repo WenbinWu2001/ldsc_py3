@@ -136,7 +136,7 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 | `ldsc._ldscore.source` | canonical directory loading, manifest/schema and table/identity validation shared with writers, resident baseline/count/overlap metadata, and uncached selected-query reads |
 | `ldsc._ldscore.overlap_table` | `LDScoreOverlap` and its long-frame Parquet read/write for the LD-score directory's overlap table |
 | `ldsc._ldscore.outputs` | `LDScoreDirectoryWriter`: LD-score Parquet layout with chromosome row groups, query batch files, query diagnostics and the root `metadata.json`, and `write_batches`, the one staged publication of complete LD-score directories |
-| `ldsc._ldscore.legacy_converter` | sole legacy LDSC LD-score-suite import boundary: deterministic family discovery, rsID joins, count/overlap validation or reconstruction, source/discovery provenance without source-file hashes, diagnostics, and canonical LDSC3 directory writing |
+| `ldsc._ldscore.legacy_converter` | sole legacy LDSC LD-score-suite import boundary: deterministic family discovery, rsID joins, count/overlap validation or reconstruction, source/discovery provenance without source-file hashes, diagnostics, and LDSC3 LD-score directory writing |
 | `ldsc._ldscore.gene_index.build` | gene LD-score index building and transactional publication |
 | `ldsc._ldscore.gene_index.artifact` | the on-disk index format: chromosome payloads, `index_id` and published-row hashes, staged writes, readers and component inspection |
 | `ldsc._ldscore.gene_index.scoring`, `ldsc._ldscore.gene_index.batches` | `load_gene_ldscore_index`, `run_indexed_ldscore`, and bounded chromosome workers holding one operator each |

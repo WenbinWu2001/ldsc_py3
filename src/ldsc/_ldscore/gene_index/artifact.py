@@ -275,7 +275,7 @@ def _validate_metadata_identity(metadata: dict, *, index_id: str) -> None:
 
 
 def _cast_index_baseline_rows(frame: pd.DataFrame) -> pd.DataFrame:
-    """Match the canonical LD-score writer's persisted floating dtypes."""
+    """Match the LD-score directory writer's persisted floating dtypes."""
     float64_columns = [column for column in frame.columns if frame[column].dtype == np.float64]
     return frame.astype({column: np.float32 for column in float64_columns}) if float64_columns else frame
 

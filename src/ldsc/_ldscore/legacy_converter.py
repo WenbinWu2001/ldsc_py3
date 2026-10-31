@@ -136,7 +136,7 @@ class LegacyLDScoreConverter:
             Directories containing exactly one coherent autosomal LD-score
             family for the reference and regression-weight roles.
         output_dir : path-like
-            New canonical LDSC3 LD-score directory.
+            New LDSC3 LD-score directory.
         legacy_frequency_dir : path-like, optional
             Required only for baseline partitioned conversion.
         snp_identifier : {"rsid", "chr_pos"}, optional
@@ -720,14 +720,14 @@ def convert_legacy_ldscores(
     overwrite: bool = False,
     log_level: str | None = None,
 ) -> LegacyLDScoreConversionResult:
-    """Convert one selected legacy LD-score suite to a canonical LDSC3 directory.
+    """Convert one selected legacy LD-score suite to an LDSC3 LD-score directory.
 
     Parameters
     ----------
     legacy_reference_dir, legacy_weight_dir : path-like
         Complete chromosomes 1-22 legacy reference and weight directories.
     output_dir : path-like
-        Destination for the canonical LDSC3 LD-score directory.
+        Destination for the LDSC3 LD-score directory.
     legacy_frequency_dir : path-like, optional
         Complete frequency family required by baseline partitioned conversion.
     snp_identifier : {"rsid", "chr_pos"}, optional

@@ -861,7 +861,7 @@ class RegressionRunner:
         sumstats_table : SumstatsTable
             Munged single-trait summary statistics.
         ldscore_result : LDScoreSource or LDScoreResult
-            Canonical LD-score result containing baseline LD-score columns and
+            LD-score directory containing baseline LD-score columns and
             at least one query LD-score column.
         query_column : str
             Query annotation to test in the baseline-plus-query model. The
@@ -1292,7 +1292,7 @@ class RegressionRunner:
             separates them, as in ``ldsc rg``; a shared label without source
             paths raises ``LDSCInputError``.
         ldscore_result : LDScoreSource or LDScoreResult
-            Canonical LD-score result. Only baseline LD scores are used for genetic correlation.
+            LD-score directory. Only baseline LD scores are used for genetic correlation.
         anchor_index : int or None, optional
             If provided, index of the anchor trait. The method computes
             ``anchor`` against every other trait and skips non-anchor pairs.
@@ -1440,7 +1440,7 @@ def _regression_genome_build(
             check.declared(role, source, build)
         else:
             check.frames(role, source, [table.data])
-    panel_source = str(ldscore_result.output_paths.get('metadata', 'LD-score artifact'))
+    panel_source = str(ldscore_result.output_paths.get('metadata', 'LD-score directory'))
     build = getattr(ldscore_result.config_snapshot, 'genome_build', None)
     if build in {'hg19', 'hg38'}:
         check.declared('--ldscore-dir', panel_source, build)
@@ -1517,7 +1517,7 @@ def _project_legacy_sumstats_to_panel(
     table : SumstatsTable
         Legacy text table marked with ``provenance['legacy_ldsc']``.
     ldscore_result : LDScoreSource or LDScoreResult
-        Canonical LDSC3 LD-score panel used by the pending regression.
+        LDSC3 LD-score directory used by the pending regression.
 
     Returns
     -------

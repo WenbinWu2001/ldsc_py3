@@ -1,6 +1,6 @@
 # Python API reference
 
-Last updated on: 2026-10-30
+Last updated on: 2026-10-31
 
 The supported Python interface is the set of names exported by the `ldsc` package (`ldsc.__all__`, 82 names on 2026-10-30).
 Modules whose names start with an underscore, including the domain packages such as `ldsc._ldscore`, are private even when a name defined there is re-exported.
@@ -26,7 +26,7 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | `compute_quantile_h2` | Project one fitted joint model onto target-defined quantiles. |
 | `compute_standardized_coefficients` | Compute paper-compatible fixed-scale standardized coefficients. |
 | `convert_h2_scale` | Convert a saved observed-scale SNP heritability estimate. |
-| `convert_legacy_ldscores` | Convert one selected legacy LD-score suite to a canonical LDSC3 directory. |
+| `convert_legacy_ldscores` | Convert one selected legacy LD-score suite to an LDSC3 LD-score directory. |
 | `infer_chr_pos_build` | Infer the genome build and coordinate basis of a ``CHR``/``POS`` table. |
 | `infer_raw_sumstats` | Infer raw summary-statistics format and minimal parser hints. |
 | `load_fitted_partitioned_model` | Load one baseline-only or per-query LDSC3 partitioned-h2 fitted model. |
@@ -56,7 +56,7 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | `GlobalConfig` | Shared configuration used across LDSC3 workflows. |
 | `H2OutputConfig` | Directory-oriented output config for unpartitioned h2 summaries. |
 | `LDScoreConfig` | Configuration for chromosome-wise LD-score calculation. |
-| `LDScoreOutputConfig` | Directory-oriented output config for canonical LD-score results. |
+| `LDScoreOutputConfig` | Directory-oriented output config for LD-score directories. |
 | `MungeConfig` | Configuration for legacy-compatible summary-statistics munging. |
 | `PartitionedH2OutputConfig` | Directory-oriented output config for partitioned-h2 regression summaries. |
 | `QuantileH2OutputConfig` | Output directory and replacement policy for ``quantile-h2`` results. |

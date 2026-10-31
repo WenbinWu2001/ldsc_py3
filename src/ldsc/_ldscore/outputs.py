@@ -162,7 +162,7 @@ class _LDScorePublication:
 
 @dataclass(frozen=True)
 class LDScoreOutputConfig:
-    """Directory-oriented output config for canonical LD-score results.
+    """Directory-oriented output config for LD-score directories.
 
     Parameters
     ----------
@@ -170,9 +170,9 @@ class LDScoreOutputConfig:
         Directory that receives ``metadata.json``,
         ``ldscore.baseline.parquet``, and optional ``ldscore.query.parquet``.
     overwrite : bool, optional
-        If ``True``, replace existing canonical LD-score files in
+        If ``True``, replace existing LD-score directory files in
         ``output_dir`` and remove stale owned siblings after a successful
-        write. If ``False``, any existing canonical family file raises
+        write. If ``False``, any existing LD-score directory file raises
         ``FileExistsError`` before any parquet or metadata file is written.
         Default is ``False``.
     parquet_compression : {"snappy", "gzip", "brotli", "zstd", "none", None}, optional

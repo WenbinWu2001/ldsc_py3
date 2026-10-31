@@ -2329,7 +2329,7 @@ def _write_one_ref_metadata_sidecar(metadata: pd.DataFrame, chrom: str, output_d
 
 
 def _output_config_from_args(args: argparse.Namespace) -> LDScoreOutputConfig:
-    """Translate LD-score CLI arguments into the canonical directory output config."""
+    """Translate LD-score CLI arguments into the LD-score directory output config."""
     return LDScoreOutputConfig(
         output_dir=normalize_path_token(args.output_dir),
         overwrite=getattr(args, "overwrite", False),

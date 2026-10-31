@@ -388,7 +388,7 @@ def load_ldscore_from_dir(
     if not metadata_path.exists():
         raise LDSCInputError(
             f"Could not load LD-score directory '{root}': missing `metadata.json`. "
-            "Most likely this is not a canonical `ldsc ldscore` output directory or the diagnostics file "
+            "Most likely this is not an LD-score directory written by `ldsc ldscore` or the diagnostics file "
             "was copied without the data files. Pass the complete LD-score output directory."
         )
     LOGGER.info(f"Loading LD-score directory from '{root}'.")

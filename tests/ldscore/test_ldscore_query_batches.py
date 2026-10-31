@@ -199,7 +199,7 @@ def test_batch_writer_releases_tables_and_reads_across_files(tmp_path):
     assert not list(tmp_path.glob(".ldsc-batches-*"))
 def test_batch_write_failure_closes_producer_and_removes_scratch(tmp_path, monkeypatch):
     from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
-    from ldsc._ldscore import batch_publication as _ldscore_batch_output
+    from ldsc._ldscore import outputs as _ldscore_outputs
 
     closed = []
     def results():
@@ -210,7 +210,7 @@ def test_batch_write_failure_closes_producer_and_removes_scratch(tmp_path, monke
     producer = results()
     def fail(*args, **kwargs):
         raise OSError("simulated disk failure")
-    monkeypatch.setattr(_ldscore_batch_output, "_write_chromosome_aligned_parquet", fail)
+    monkeypatch.setattr(_ldscore_outputs, "_write_chromosome_aligned_parquet", fail)
     with pytest.raises(OSError, match="simulated disk failure"):
         LDScoreDirectoryWriter().write_batches(producer, LDScoreOutputConfig(output_dir=tmp_path / "out"))
     assert closed == [True]

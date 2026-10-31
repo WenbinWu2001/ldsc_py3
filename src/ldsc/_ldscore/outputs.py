@@ -1,16 +1,23 @@
 """Writer for the LD-score directory.
 
 ``LDScoreDirectoryWriter`` declares the files an LD-score run owns and
-writes ``ldscore.baseline.parquet``, the query batch files, the optional
+publishes ``ldscore.baseline.parquet``, the query batch files, the optional
 ``ldscore.overlap.parquet`` and the root ``metadata.json`` manifest, with
-one Parquet row group per chromosome.
+one Parquet row group per chromosome. Publication consumes one query batch
+at a time, stages every file inside the output directory, and moves the
+staged files into place after all batches succeed, ``metadata.json`` last.
+Only the shared baseline, compact counts, overlap blocks and diagnostic
+descriptors survive between batches.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+import os
+from dataclasses import dataclass, field, replace
 from os import PathLike
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Iterable
 
 import numpy as np
@@ -18,16 +25,24 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from .._annotation.query_outcomes import gene_viability_errors
+from .._annotation.semantics import require_unique_annotation_names
+from .._annotation.storage import TsvDiagnostics
 from .._core.snp_identity import identity_artifact_metadata
 from ..config import normalize_required_path
-from .source import is_numbered_query_batch_file
-from ..errors import LDSCConfigError, LDSCInternalError
-from .._runtime.artifacts import ArtifactFamily, atomic_write_json, declare_artifacts
+from .source import (is_numbered_query_batch_file, load_ldscore_from_dir, query_batch_file_name,
+                     validate_ldscore_baseline_table, validate_ldscore_query_table)
+from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError
+from .._runtime.artifacts import ArtifactFamily, atomic_write_json, declare_artifacts, to_serializable
 from .._runtime.paths import ensure_output_directory, remove_output_artifacts
 
 if TYPE_CHECKING:
+    from ..config import GlobalConfig
+    from .._annotation.gene_query_storage import StagedGeneListBatch
+    from .._annotation.query_outcomes import QueryAnnotationStatus
     from .fragments import StagedLDScoreBatch
     from .calculator import LDScoreResult
+    from .overlap_table import LDScoreOverlap
     from .source import LDScoreSource
 
 
@@ -114,6 +129,34 @@ class QueryDiagnostics:
     query_statuses: tuple = ()
     gene_list_batch: Any = None
     input_issues: pd.DataFrame | None = None
+
+
+@dataclass(slots=True)
+class _LDScorePublication:
+    """Retain only shared artifacts and metadata while consuming query batches.
+
+    Query values, the LD-score producer's SNP sets, and chromosome results
+    remain owned by the active batch. Diagnostic paths here refer to publication staging.
+    """
+
+    baseline_table: pd.DataFrame
+    baseline_columns: list[str]
+    count_records: list[dict]
+    count_config: dict
+    config_snapshot: GlobalConfig
+    gene_list_batch: StagedGeneListBatch | None
+    chromosome_scope: dict
+    index_provenance: dict | None
+    annotation_types: dict[str, str]
+    snp_universe_policy: dict | None
+    legacy_ldscore_conversion: dict | None
+    overlap: LDScoreOverlap | None
+    ld_window_snp_counts: pd.DataFrame | None = None
+    reference_snp_funnel: pd.DataFrame | None = None
+    query_columns: list[str] = field(default_factory=list)
+    query_statuses: tuple[QueryAnnotationStatus, ...] = ()
+    query_batches: list[dict] = field(default_factory=list)
+    identity_drops_by_chrom: dict[str, TsvDiagnostics] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -248,8 +291,9 @@ class LDScoreDirectoryWriter:
         FileExistsError
             An owned artifact exists and overwrite is disabled.
         LDSCInputError
-            No results were yielded, baseline values or SNP rows disagree
-            across batches, or annotation names are invalid or repeated.
+            No results were yielded, a batch's query rows differ from the
+            first batch's baseline rows, annotation names repeat, or the
+            gene-list control or every query is unusable.
 
         Notes
         -----
@@ -270,9 +314,141 @@ class LDScoreDirectoryWriter:
         adds no rollback for a later filesystem publication failure, and
         completed batches are not resumable checkpoints.
         """
-        from .batch_publication import write_ldscore_batches
+        from .fragments import StagedLDScoreBatch, write_query_fragments
 
-        return write_ldscore_batches(self, results, output_config, query_status_order)
+        root = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
+        self.artifact_family(root).preflight(overwrite=output_config.overwrite)
+        compression = None if output_config.parquet_compression in {None, "none"} else output_config.parquet_compression
+        shared = None
+        query_batches, overlaps, statuses = [], [], []
+        status_positions = {name: index for index, name in enumerate(query_status_order)}
+        def ordered_statuses():
+            return tuple(sorted(statuses, key=lambda status: status_positions.get(status.query, len(status_positions))))
+        with TemporaryDirectory(prefix=".ldsc-batches-", dir=root) as temporary:
+            stage = Path(temporary)
+            try:
+                for result in results:
+                    streamed = isinstance(result, StagedLDScoreBatch)
+                    if shared is None:
+                        # The first batch's baseline is the run's baseline; later
+                        # batches add queries whose rows must match it exactly.
+                        snp_identifier = validate_ldscore_baseline_table(
+                            result.baseline_table, result.baseline_columns, result.config_snapshot,
+                        )
+                        if not streamed:
+                            validate_ldscore_query_table(
+                                result.baseline_table, result.query_table, result.query_columns,
+                                snp_identifier=snp_identifier,
+                            )
+                        shared = _LDScorePublication(
+                            baseline_table=result.baseline_table,
+                            baseline_columns=list(result.baseline_columns),
+                            count_records=[record for record in result.count_records if record["group"] == "baseline"],
+                            count_config=dict(result.count_config),
+                            config_snapshot=result.config_snapshot,
+                            gene_list_batch=result.gene_list_batch,
+                            chromosome_scope=result.chromosome_scope,
+                            index_provenance=result.index_provenance,
+                            annotation_types={name: result.annotation_types.get(name, "unknown") for name in result.baseline_columns},
+                            snp_universe_policy=result.snp_universe_policy,
+                            legacy_ldscore_conversion=None if streamed else result.legacy_ldscore_conversion,
+                            overlap=None if result.overlap is None else result.overlap.select_queries([]),
+                            ld_window_snp_counts=getattr(result, "ld_window_snp_counts", None),
+                            reference_snp_funnel=getattr(result, "reference_snp_funnel", None),
+                        )
+                        baseline_rg = _write_chromosome_aligned_parquet(shared.baseline_table, stage / BASELINE_FILE, compression)
+                        for chrom, artifact in result.identity_drops_by_chrom.items():
+                            path = stage / dropped_snps_file(chrom)
+                            artifact.write_to(path)
+                            shared.identity_drops_by_chrom[chrom] = TsvDiagnostics(path)
+                    elif not streamed:
+                        validate_ldscore_query_table(
+                            shared.baseline_table, result.query_table, result.query_columns,
+                            snp_identifier=snp_identifier,
+                        )
+                    require_unique_annotation_names(shared.baseline_columns, [*shared.query_columns, *result.query_columns])
+                    shared.query_columns.extend(result.query_columns)
+                    shared.count_records.extend(record for record in result.count_records if record["group"] == "query")
+                    shared.annotation_types.update(result.annotation_types)
+                    statuses.extend(result.query_statuses)
+                    if result.query_columns:
+                        filename = f"query-{len(query_batches) + 1}.parquet"
+                        groups = (write_query_fragments(result, shared.baseline_table, stage / filename, compression)
+                                  if streamed else
+                                  _write_chromosome_aligned_parquet(result.query_table, stage / filename, compression))
+                        query_batches.append({"file": filename, "query_columns": list(result.query_columns), "row_groups": groups})
+                    if result.overlap is not None:
+                        overlaps.append(result.overlap)
+                    del result
+                if shared is None:
+                    raise LDSCInputError("LD-score batch writing received no calculation results.")
+                shared.query_statuses = ordered_statuses()
+                errors = gene_viability_errors(shared.gene_list_batch, shared.query_statuses, shared)
+                if errors:
+                    raise LDSCInputError("; ".join(errors))
+                if overlaps:
+                    first = overlaps[0]
+                    def blocks(name):
+                        block = getattr(first, name)
+                        if block is None:
+                            return None
+                        return pd.concat([block.loc[:, shared.baseline_columns], *[
+                            getattr(overlap, name).loc[:, overlap.query_diagonal_all.index] for overlap in overlaps]], axis=1)
+                    def diagonal(name):
+                        if getattr(first, name) is None:
+                            return None
+                        return pd.concat([getattr(overlap, name) for overlap in overlaps])
+                    shared.overlap = replace(first, baseline_block_all=blocks("baseline_block_all"),
+                                             baseline_block_common=blocks("baseline_block_common"),
+                                             query_diagonal_all=diagonal("query_diagonal_all"),
+                                             query_diagonal_common=diagonal("query_diagonal_common"))
+                for ordinal, entry in enumerate(query_batches, 1):
+                    name = query_batch_file_name(ordinal, len(query_batches))
+                    (stage / entry["file"]).rename(stage / name)
+                    entry["file"] = name
+                shared.query_batches = query_batches
+                staged_family = self.artifact_family(stage, shared)
+                paths = staged_family.paths
+                if shared.overlap is not None:
+                    from .overlap_table import overlap_to_long_frame
+                    overlap_to_long_frame(shared.overlap).to_parquet(paths["overlap"], index=False)
+                self._write_query_diagnostic_files(shared, paths)
+                self._write_ld_window_snp_counts(shared, paths)
+                self._write_reference_snp_funnel(shared, paths)
+                metadata = self._build_metadata(shared,
+                    files=staged_family.metadata_files(exclude=self.METADATA_EXCLUDED_FILES),
+                    baseline_rg=baseline_rg,
+                    query_rg=query_batches[0]["row_groups"] if len(query_batches) == 1 else None)
+                paths["metadata"].write_text(json.dumps(to_serializable(metadata), indent=2, sort_keys=True), encoding="utf-8")
+                family = self.artifact_family(root, shared)
+                stale = family.preflight(overwrite=output_config.overwrite)
+                for key, destination in family.paths.items():
+                    if key == "metadata":
+                        continue
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    os.replace(paths[key], destination)
+                os.replace(paths["metadata"], family.paths["metadata"])
+                remove_output_artifacts(stale)
+            except BaseException:
+                if shared is not None:
+                    shared.query_statuses = ordered_statuses()
+                    if shared.query_statuses or shared.gene_list_batch is not None or shared.chromosome_scope:
+                        self.write_query_diagnostics(shared, output_config)
+                raise
+            finally:
+                close = getattr(results, "close", None)
+                if close is not None:
+                    close()
+        from .._annotation.gene_query_storage import persistent_gene_diagnostics
+        shared.baseline_table = None  # the reload below reads the published baseline
+        source = load_ldscore_from_dir(str(root))
+        paths = {key: str(value) for key, value in family.paths.items()}
+        return replace(source, output_paths=paths, query_statuses=shared.query_statuses,
+                       gene_list_batch=persistent_gene_diagnostics(shared.gene_list_batch, paths),
+                       chromosome_scope=shared.chromosome_scope,
+                       snp_universe_policy=shared.snp_universe_policy,
+                       identity_drops_by_chrom={chrom: TsvDiagnostics(root / dropped_snps_file(chrom))
+                                                for chrom in shared.identity_drops_by_chrom})
 
     def write_gene_list_preflight(
         self,
@@ -371,7 +547,7 @@ class LDScoreDirectoryWriter:
             batch.catalog.issues.to_csv(paths["gene_catalog_issues"], sep="\t", index=False, na_rep="")
             log_gene_catalog_issues(batch.catalog.issues)
 
-    def build_metadata(
+    def _build_metadata(
         self,
         result: Any,
         files: dict[str, str],

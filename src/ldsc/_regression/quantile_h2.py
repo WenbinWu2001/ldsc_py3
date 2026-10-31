@@ -565,7 +565,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-@serial_calculation
 @materializing_overwrite_guard(
     args_output_scope,
     command="run_quantile_h2_from_args(...)",
@@ -608,6 +607,12 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
         provenance checks fail, target values are invalid, or a requested
         quantile is empty.
     """
+    return _run_quantile_h2(args)
+
+
+@serial_calculation
+def _run_quantile_h2(args) -> QuantileH2Result:
+    """Run :func:`run_quantile_h2_from_args` in one worker; its failure marker stays with the caller."""
     output_dir = ensure_output_directory(args.output_dir, label="output directory")
     diagnostics_dir = output_dir / "diagnostics"
     writer = QuantileH2DirectoryWriter()

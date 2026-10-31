@@ -105,6 +105,14 @@ class LegacyLDScoreConverter:
     SNP identifier modes and fixes legacy common-SNP count semantics at ``0.05``.
     """
 
+    @materializing_overwrite_guard(
+        lambda self, **kwargs: (
+            (kwargs["output_dir"], kwargs.get("overwrite", False))
+            if kwargs.get("output_dir")
+            else None
+        ),
+        command="LegacyLDScoreConverter.convert(...)",
+    )
     def convert(
         self,
         *,
@@ -170,14 +178,6 @@ class LegacyLDScoreConverter:
         )
 
     @serial_calculation
-    @materializing_overwrite_guard(
-        lambda self, **kwargs: (
-            (kwargs["output_dir"], kwargs.get("overwrite", False))
-            if kwargs.get("output_dir")
-            else None
-        ),
-        command="LegacyLDScoreConverter.convert(...)",
-    )
     def _convert(
         self,
         *,

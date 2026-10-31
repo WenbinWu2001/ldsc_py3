@@ -14,6 +14,7 @@ import traceback
 import warnings
 
 from . import worker_runtime as _worker_runtime
+from .workflow_logging import last_workflow_log_path, set_workflow_log_path
 
 
 class _LogRecords(logging.Handler):
@@ -45,23 +46,30 @@ def _invoke(module, name, args, kwargs, log_level):
             exc.add_note("Calculation child traceback:\n" + traceback.format_exc().rstrip())
             exc.__traceback__ = exc.__context__ = exc.__cause__ = None
             result, error = None, exc
-    return result, handler.records, [(str(w.message), w.category, w.filename, w.lineno) for w in caught], error
+    notices = [(str(w.message), w.category, w.filename, w.lineno) for w in caught]
+    return result, handler.records, notices, error, last_workflow_log_path()
 
 
 def serial_calculation(function):
-    """Run a complete serial calculation in one child, or reuse its caller child."""
+    """Run a complete serial calculation in one child, or reuse its caller child.
+
+    A workflow log the child opens becomes the caller's most recent log, so a
+    failure marker or error message written in the caller names it.
+    """
     @wraps(function)
     def controlled(*args, **kwargs):
         if _worker_runtime._INITIALIZED:
             return function(*args, **kwargs)
         with ProcessPoolExecutor(max_workers=1, mp_context=mp.get_context("spawn")) as pool:
-            result, records, notices, error = pool.submit(
+            result, records, notices, error, log_path = pool.submit(
                 _invoke, function.__module__, function.__qualname__, args, kwargs,
                 logging.getLogger("LDSC").getEffectiveLevel()).result()
         for name, level, message in records:
             logging.getLogger(name).log(level, message)
         for message, category, filename, lineno in notices:
             warnings.warn_explicit(message, category, filename, lineno)
+        if log_path is not None:
+            set_workflow_log_path(log_path)
         if error is not None:
             raise error
         return result

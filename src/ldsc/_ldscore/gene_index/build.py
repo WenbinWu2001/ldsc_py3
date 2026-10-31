@@ -1778,11 +1778,18 @@ def _validate_baseline_plink_inputs(sources, prefixes, config, chromosomes, buil
 
 
 def _cross_chromosome_rsid_issues(sources, prefixes, config, chromosomes, build_dir):
-    """Join chromosome declarations on disk without retaining genome-wide metadata."""
+    """Join chromosome declarations on disk without retaining genome-wide metadata.
+
+    The database is in the build directory. Each table's ``SNP`` index exists
+    before its rows are inserted, so SQLite maintains it as rows arrive and
+    the join probes it directly; creating it afterwards would sort the
+    genome-wide table in a temporary file in the system temporary directory.
+    """
     with tempfile.TemporaryDirectory(prefix="identity-", dir=build_dir) as temporary:
         with closing(sqlite3.connect(str(Path(temporary) / "coordinates.sqlite"))) as database:
             for table in ("baseline", "plink"):
                 database.execute(f"CREATE TABLE {table} (SNP TEXT, CHR TEXT, POS INTEGER)")
+                database.execute(f"CREATE INDEX {table}_snp ON {table} (SNP)")
             for chrom in chromosomes:
                 baseline = sources.shards[chrom].metadata()
                 plink = clean_identity_artifact_table(
@@ -1791,8 +1798,6 @@ def _cross_chromosome_rsid_issues(sources, prefixes, config, chromosomes, build_
                 for table, frame in (("baseline", baseline), ("plink", plink)):
                     frame.loc[:, ["SNP", "CHR", "POS"]].astype({"CHR": str}).to_sql(
                         table, database, if_exists="append", index=False, chunksize=1000)
-            database.execute("CREATE INDEX baseline_snp ON baseline (SNP)")
-            database.execute("CREATE INDEX plink_snp ON plink (SNP)")
             issues = pd.read_sql_query(
                 "SELECT b.SNP AS base_key, b.CHR AS CHR_baseline, b.POS AS POS_baseline, "
                 "p.CHR AS CHR_plink, p.POS AS POS_plink FROM baseline b JOIN plink p ON b.SNP=p.SNP "

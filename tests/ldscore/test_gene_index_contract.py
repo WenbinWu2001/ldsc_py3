@@ -117,6 +117,41 @@ def test_builder_reports_shared_rsid_on_different_chromosomes(tmp_path, monkeypa
     assert 'cross_chromosome_coordinate_mismatch' in set(issues.reason)
 
 
+def test_cross_chromosome_rsid_join_indexes_before_inserting_and_needs_no_temporary_sort(tmp_path, monkeypatch):
+    # Genome-wide tables are large: a CREATE INDEX after the inserts sorts them in a temporary file that
+    # SQLite places in the system temporary directory, outside the output directory.
+    baseline = {chrom: pd.DataFrame({'CHR': [chrom], 'POS': [10], 'SNP': [f'rs{chrom}']}) for chrom in ('1', '2')}
+    sources = Namespace(shards={chrom: Namespace(metadata=lambda chrom=chrom: baseline[chrom]) for chrom in baseline})
+    monkeypatch.setattr(index, '_read_bim_identity', lambda prefix: baseline[prefix].assign(A1='A', A2='G'))
+    statements, plans, databases = [], [], []
+    real_connect = index.sqlite3.connect
+
+    def traced_connect(path, *args, **kwargs):
+        databases.append(Path(path))
+        connection = real_connect(path, *args, **kwargs)
+        connection.set_trace_callback(statements.append)
+        original_read = index.pd.read_sql_query
+
+        def plan_then_read(query, database, *read_args, **read_kwargs):
+            plans.extend(row[-1] for row in database.execute(f'EXPLAIN QUERY PLAN {query}'))
+            return original_read(query, database, *read_args, **read_kwargs)
+
+        monkeypatch.setattr(index.pd, 'read_sql_query', plan_then_read)
+        return connection
+
+    monkeypatch.setattr(index.sqlite3, 'connect', traced_connect)
+    config = Namespace(snp_identifier='rsid', baseline_annot_sources=('baseline',))
+
+    issues = index._cross_chromosome_rsid_issues(sources, {'1': '1', '2': '2'}, config, ('1', '2'), tmp_path)
+
+    assert issues.empty
+    assert databases and all(tmp_path in path.parents for path in databases)
+    first_insert = next(i for i, sql in enumerate(statements) if sql.lstrip().upper().startswith('INSERT'))
+    index_creations = [i for i, sql in enumerate(statements) if sql.lstrip().upper().startswith('CREATE INDEX')]
+    assert len(index_creations) == 2 and max(index_creations) < first_insert
+    assert plans and not any('TEMP B-TREE' in detail for detail in plans)
+
+
 @pytest.mark.parametrize('build,mode,unit,value', [('hg19', 'rsid_allele_aware', 'cm', .15),
                                                 ('hg38', 'chr_pos_allele_aware', 'snps', 2)])
 def test_complete_autosomal_index_build_and_reload(tmp_path, build, mode, unit, value):

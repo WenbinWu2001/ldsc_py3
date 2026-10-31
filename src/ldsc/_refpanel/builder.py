@@ -1439,10 +1439,7 @@ def _write_dropped_sidecar(dropped_df: pd.DataFrame, path: Path, chrom: str) -> 
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the feature parser for R2 matrix generation."""
-    parser = argparse.ArgumentParser(
-        description="Build an R2 matrix from a PLINK reference input.",
-        allow_abbrev=False,
-    )
+    parser = argparse.ArgumentParser(allow_abbrev=False)
     parser.prog = 'ldsc build-r2-matrix'
     parser.formatter_class = CLIHelpFormatter
     parser.description = 'Build an R2 matrix of pairwise R2 values and SNP metadata from PLINK genotypes.'

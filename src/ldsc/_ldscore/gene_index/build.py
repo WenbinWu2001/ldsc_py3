@@ -128,11 +128,7 @@ class _GeneIndexArgumentParser(argparse.ArgumentParser):
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the offline gene LD-score index parser."""
-    parser = _GeneIndexArgumentParser(
-        prog="ldsc build-gene-ldscore-index",
-        description="Build an exact PLINK-backed disjoint-atom gene LD-score index.",
-        allow_abbrev=False,
-    )
+    parser = _GeneIndexArgumentParser(allow_abbrev=False)
     parser.prog = 'ldsc build-gene-ldscore-index'
     parser.formatter_class = CLIHelpFormatter
     parser.description = 'Build a reusable gene LD-score index from hg19 or hg38 PLINK genotypes and baseline annotations.'

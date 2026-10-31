@@ -560,11 +560,7 @@ def add_quantile_h2_arguments(parser: argparse.ArgumentParser) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the standalone ``quantile-h2`` parser used by ``run_quantile_h2``."""
-    parser = argparse.ArgumentParser(
-        prog="ldsc quantile-h2",
-        description="Project a fitted partitioned-LDSC model onto continuous-annotation quantiles.",
-        allow_abbrev=False,
-    )
+    parser = argparse.ArgumentParser(allow_abbrev=False)
     add_quantile_h2_arguments(parser)
     return parser
 

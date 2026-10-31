@@ -3058,6 +3058,7 @@ def add_h2_arguments(parser) -> None:
     """Register grouped h2 command-line options."""
     parser.prog = "ldsc h2"
     parser.formatter_class = CLIHelpFormatter
+    parser.description = "Estimate heritability from munged summary statistics and LD scores."
     sections = _add_regression_sections(parser, include_h2_intercept=True)
     sections.inputs.add_argument(
         '--trait-name', default=None,
@@ -3079,6 +3080,7 @@ def add_partitioned_h2_arguments(parser) -> None:
     """Register grouped partitioned-h2 command-line options."""
     parser.prog = "ldsc partitioned-h2"
     parser.formatter_class = CLIHelpFormatter
+    parser.description = "Estimate partitioned heritability with independent query models."
     sections = _add_regression_sections(parser, include_h2_intercept=True)
     sections.inputs.add_argument(
         '--trait-name', default=None,
@@ -3128,6 +3130,7 @@ def add_rg_arguments(parser) -> None:
     """Register grouped rg command-line options."""
     parser.prog = "ldsc rg"
     parser.formatter_class = CLIHelpFormatter
+    parser.description = "Estimate genetic correlation."
     sections = _add_regression_sections(parser, include_h2_intercept=False)
     sections.inputs.add_argument(
         '--anchor-trait', default=None,

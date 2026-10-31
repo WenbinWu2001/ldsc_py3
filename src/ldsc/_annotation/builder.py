@@ -231,7 +231,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser : argparse.ArgumentParser
         Parser for arguments accepted after ``ldsc annotate``.
     """
-    parser = argparse.ArgumentParser(description="Project BED or gene-list queries into LDSC3 .annot.gz files.", allow_abbrev=False)
+    parser = argparse.ArgumentParser(allow_abbrev=False)
     add_annotate_arguments(parser)
     return parser
 

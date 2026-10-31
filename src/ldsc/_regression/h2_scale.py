@@ -264,6 +264,7 @@ def add_convert_h2_scale_arguments(parser: argparse.ArgumentParser) -> None:
     """Add the public ``convert-h2-scale`` arguments to ``parser``."""
     parser.prog = 'ldsc convert-h2-scale'
     parser.formatter_class = CLIHelpFormatter
+    parser.description = 'Convert a saved observed-scale SNP heritability estimate to liability scale.'
     inputs = parser.add_argument_group('Input result')
     scale = parser.add_argument_group('Case prevalences')
     output = parser.add_argument_group('Output')

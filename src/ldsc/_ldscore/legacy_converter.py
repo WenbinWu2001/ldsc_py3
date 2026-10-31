@@ -770,7 +770,7 @@ def build_parser() -> argparse.ArgumentParser:
     argparse.ArgumentParser
         Parser containing the closed converter argument surface.
     """
-    parser = argparse.ArgumentParser(prog="ldsc convert-legacy-ldscores", allow_abbrev=False)
+    parser = argparse.ArgumentParser(allow_abbrev=False)
     parser.prog = 'ldsc convert-legacy-ldscores'
     parser.formatter_class = CLIHelpFormatter
     parser.description = 'Convert complete legacy reference and regression-weight suites into one LDSC3 LD-score directory.'

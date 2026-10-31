@@ -519,7 +519,6 @@ def _orientation_multiplier(query_a1: np.ndarray, panel_a1: np.ndarray, panel_a2
 def build_parser() -> argparse.ArgumentParser:
     """Build the ``ldsc query-r2-matrix`` argument parser."""
     parser = argparse.ArgumentParser(
-        prog="ldsc query-r2-matrix",
         description="Query unbiased R2 (and signed r) for SNP pairs from an R2 matrix.",
         allow_abbrev=False,
     )

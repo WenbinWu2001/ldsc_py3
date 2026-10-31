@@ -97,16 +97,7 @@ def _command_parser(command: str) -> argparse.ArgumentParser:
         return r2_matrix_query.build_parser()
     if command == "munge-sumstats":
         return _load_sumstats_munger().build_parser()
-    descriptions = {
-        "infer-genome-build": _SUBCOMMAND_HELP["infer-genome-build"],
-        "convert-h2-scale": "Convert a saved observed-scale SNP heritability estimate to liability scale.",
-        "plot": "Create the approved plot for a canonical LDSC3 result directory.",
-        "h2": "Estimate heritability from munged summary statistics and LD scores.",
-        "partitioned-h2": "Estimate partitioned heritability with independent query models.",
-        "quantile-h2": "Project a fitted partitioned-heritability model onto continuous-annotation quantiles.",
-        "rg": "Estimate genetic correlation.",
-    }
-    parser = _NoAbbrevArgumentParser(prog=f"ldsc {command}", description=descriptions[command])
+    parser = _NoAbbrevArgumentParser(prog=f"ldsc {command}")
     if command == "infer-genome-build":
         _add_build_inspection_arguments(parser)
     elif command == "convert-h2-scale":
@@ -200,6 +191,7 @@ def main(argv: Sequence[str] | None = None):
 
 
 def _add_build_inspection_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.description = _SUBCOMMAND_HELP["infer-genome-build"]
     parser.add_argument(
         "path", metavar="PATH",
         help=("Required exact file or recognized LDSC3 artifact directory. Read build declarations "

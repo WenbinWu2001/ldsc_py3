@@ -50,7 +50,6 @@ layer persists the table but never imports a plotting library.
 
 from __future__ import annotations
 
-import gzip
 import json
 import os
 import re

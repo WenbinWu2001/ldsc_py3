@@ -1381,7 +1381,8 @@ class RegressionRunner:
                         samp_prev_1=prev[i][0], pop_prev_1=prev[i][1],
                         samp_prev_2=prev[j][0], pop_prev_2=prev[j][1],
                     )
-                    metadata = _rg_pair_metadata(tables[i], tables[j], outcome, full_row, config, pair_kind)
+                    metadata = _rg_pair_metadata(tables[i], tables[j], outcome, full_row, config, pair_kind,
+                                                 (prev[i], prev[j]))
                 except Exception as exc:
                     error = _format_exception(exc)
                     status = "unestimable" if isinstance(exc, JackknifeIdentifiabilityError) else "failed"
@@ -1393,7 +1394,8 @@ class RegressionRunner:
                                                    status=status, n_snps_used=fit_summary["n_snps"] if fit_summary else 0,
                                                    samp_prev_1=prev[i][0], pop_prev_1=prev[i][1],
                                                    samp_prev_2=prev[j][0], pop_prev_2=prev[j][1])
-                    metadata = _failed_rg_pair_metadata(tables[i], tables[j], full_row, config, pair_kind, fit_summary)
+                    metadata = _failed_rg_pair_metadata(tables[i], tables[j], full_row, config, pair_kind,
+                                                        (prev[i], prev[j]), fit_summary)
                 rg_full_rows.append(full_row)
                 rg_rows.append(_concise_rg_row(full_row))
                 per_pair_metadata.append(metadata)
@@ -2135,19 +2137,15 @@ def _count_totals_for_columns(count_records, columns: Sequence[str]) -> dict[str
     return count_totals
 
 
-def _is_missing_prevalence(value) -> bool:
-    """True when a prevalence is unset (None) or a NaN quantitative-trait marker."""
-    return value is None or (isinstance(value, float) and math.isnan(value))
-
-
 def _liability_pair(obs, obs_se, samp_prev, pop_prev):
     """Return (liab, liab_se) for an absolute SNP heritability estimate, or (nan, nan).
 
-    Liability is defined only when both prevalences are finite probabilities;
-    a quantitative trait (None/NaN) or unset prevalence yields NaN. ``obs`` and
-    ``obs_se`` are the observed-scale point estimate and standard error.
+    The prevalences come checked from ``RegressionConfig`` or
+    ``estimate_rg_pairs``, where a quantitative trait is ``(None, None)``;
+    it yields NaN. ``obs`` and ``obs_se`` are the observed-scale point
+    estimate and standard error.
     """
-    if _is_missing_prevalence(samp_prev) or _is_missing_prevalence(pop_prev):
+    if samp_prev is None or pop_prev is None:
         return float("nan"), float("nan")
     c = float(reg.liability_conversion_factor(samp_prev, pop_prev))
     return obs * c, obs_se * c
@@ -2163,11 +2161,6 @@ def _config_prevalence(config: "RegressionConfig | None") -> tuple[float | None,
     if config is None:
         return None, None
     return getattr(config, "samp_prev", None), getattr(config, "pop_prev", None)
-
-
-def _nan_to_none(value):
-    """Map a NaN prevalence cell back to None for clean JSON metadata."""
-    return None if (isinstance(value, float) and math.isnan(value)) else value
 
 
 def _scale_label(*prevalences) -> str:
@@ -2369,7 +2362,7 @@ def summarize_partitioned_h2(
     )
     c = (
         float(reg.liability_conversion_factor(samp_prev, pop_prev))
-        if not _is_missing_prevalence(samp_prev) and not _is_missing_prevalence(pop_prev)
+        if samp_prev is not None and pop_prev is not None
         else float("nan")
     )
     table["category_h2_liab"] = table["category_h2_obs"] * c
@@ -2563,13 +2556,11 @@ def _h2_metadata(
     }
 
 
-def _rg_prevalence_metadata(full_row: dict[str, object]) -> dict[str, object]:
-    """Per-pair prevalence + scale provenance pulled from a full rg row."""
-    prev = {
-        key: _nan_to_none(full_row.get(key))
-        for key in ("samp_prev_1", "pop_prev_1", "samp_prev_2", "pop_prev_2")
-    }
-    return {**prev, "scale": _scale_label(*prev.values())}
+def _rg_prevalence_metadata(prevalences) -> dict[str, object]:
+    """Per-pair prevalences and scale from the pair's two checked ``(samp_prev, pop_prev)`` inputs."""
+    (samp_prev_1, pop_prev_1), (samp_prev_2, pop_prev_2) = prevalences
+    return {"samp_prev_1": samp_prev_1, "pop_prev_1": pop_prev_1, "samp_prev_2": samp_prev_2,
+            "pop_prev_2": pop_prev_2, "scale": _scale_label(samp_prev_1, pop_prev_1, samp_prev_2, pop_prev_2)}
 
 
 def _rg_pair_metadata(
@@ -2579,8 +2570,9 @@ def _rg_pair_metadata(
     full_row: dict[str, object],
     config: RegressionConfig,
     pair_kind: str,
+    prevalences,
 ) -> dict[str, object]:
-    """Build per-pair metadata for an estimated rg pair."""
+    """Build per-pair metadata for an estimated rg pair; ``prevalences`` holds the two traits' pairs."""
     dataset = outcome.dataset
     return {
         "trait_1": full_row["trait_1"],
@@ -2593,7 +2585,7 @@ def _rg_pair_metadata(
         "n_snps_used": outcome.n_snps,
         "n_blocks_used": outcome.n_blocks,
         "effective_chisq_max": outcome.effective_chisq_max,
-        **_rg_prevalence_metadata(full_row),
+        **_rg_prevalence_metadata(prevalences),
         "count_key_used_for_regression": dataset.count_key_used_for_regression,
         "retained_ld_columns": list(dataset.retained_ld_columns),
         "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
@@ -2609,6 +2601,7 @@ def _failed_rg_pair_metadata(
     full_row: dict[str, object],
     config: RegressionConfig,
     pair_kind: str,
+    prevalences,
     fit_summary: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Build per-pair metadata for a failed or unestimable pair.
@@ -2628,7 +2621,7 @@ def _failed_rg_pair_metadata(
         "n_snps_used": 0,
         "n_blocks_used": 0,
         "effective_chisq_max": config.chisq_max,
-        **_rg_prevalence_metadata(full_row),
+        **_rg_prevalence_metadata(prevalences),
         **_intercept_policies(config),
     }
     if fit_summary is not None:

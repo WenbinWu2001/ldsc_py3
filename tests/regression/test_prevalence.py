@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from ldsc._regression import prevalence
@@ -141,3 +143,23 @@ def test_resolve_rg_manifest_duplicate_name_raises(tmp_path):
             samp_prev=None, pop_prev=None, manifest_path=str(manifest),
             trait_names=["scz", "scz"], trait_paths=["/data/a.sumstats", "/data/b.sumstats"],
         )
+
+
+def test_a_failed_rg_pair_keeps_the_prevalences_of_its_traits():
+    # The two halves of one trait share no SNP, so their pair fails; the pair
+    # used to show NaN prevalences and the observed scale although the run
+    # applied liability-scale prevalences to both traits.
+    whole = munged("A", "chr_pos_allele_aware", 1)
+    halves = [replace(whole, data=rows.reset_index(drop=True), trait_name=name, source_path=f"{name}.parquet")
+              for name, rows in (("first", whole.data.iloc[:80]), ("second", whole.data.iloc[80:]))]
+    runner = workflow.RegressionRunner(regression_config=RegressionConfig(num_blocks=10))
+
+    result = runner.estimate_rg_pairs(halves, panel(), prevalences=[(0.5, 0.01), (0.3, 0.02)])
+
+    row = result.rg_full.iloc[0]
+    assert row["status"] == "failed"
+    assert (row["samp_prev_1"], row["pop_prev_1"], row["samp_prev_2"], row["pop_prev_2"]) == (0.5, 0.01, 0.3, 0.02)
+    metadata = result.per_pair_metadata[0]
+    assert (metadata["samp_prev_1"], metadata["pop_prev_1"]) == (0.5, 0.01)
+    assert (metadata["samp_prev_2"], metadata["pop_prev_2"]) == (0.3, 0.02)
+    assert metadata["scale"] == "liability"

@@ -324,7 +324,8 @@ class RgResultFamily:
         and a failure note.
     rg_full : pandas.DataFrame
         Comprehensive diagnostic table with one row per attempted pair. Failed
-        pairs keep their row, set numeric fields to NaN, and store
+        pairs keep their row and the traits' input prevalences, set the
+        estimates to NaN, and store
         ``status='failed'``, or ``status='unestimable'`` when a jackknife block
         deletion left the fit unidentifiable, plus an ``error`` message.
     h2_per_trait : pandas.DataFrame
@@ -1403,7 +1404,9 @@ class RegressionRunner:
                         LOGGER.error("Pair %r vs %r jackknife diagnostics: %s", trait_1, trait_2, json.dumps(exc.failures))
                     fit_summary = getattr(exc, "fit_summary", None)
                     full_row = _failed_rg_full_row(trait_1=trait_1, trait_2=trait_2, pair_kind=pair_kind, error=error,
-                                                   status=status, n_snps_used=fit_summary["n_snps"] if fit_summary else 0)
+                                                   status=status, n_snps_used=fit_summary["n_snps"] if fit_summary else 0,
+                                                   samp_prev_1=prev[i][0], pop_prev_1=prev[i][1],
+                                                   samp_prev_2=prev[j][0], pop_prev_2=prev[j][1])
                     metadata = _failed_rg_pair_metadata(tables[i], tables[j], full_row, config, pair_kind, fit_summary)
                 rg_full_rows.append(full_row)
                 rg_rows.append(_concise_rg_row(full_row))
@@ -2493,10 +2496,13 @@ def _summarize_rg_pair(
 
 def _failed_rg_full_row(
     *, trait_1: str, trait_2: str, pair_kind: str, error: str, status: str = "failed", n_snps_used: int = 0,
+    samp_prev_1=None, pop_prev_1=None, samp_prev_2=None, pop_prev_2=None,
 ) -> dict[str, object]:
     """Build a full rg row for a failed or unestimable pair.
 
     ``n_snps_used`` is the pair's SNP count when its dataset was built, else 0.
+    The prevalences are the traits' inputs, which a failed pair keeps although
+    it has no estimates.
     """
     row = {column: math.nan for column in RG_FULL_COLUMNS}
     row.update(
@@ -2504,6 +2510,10 @@ def _failed_rg_full_row(
             "trait_1": trait_1,
             "trait_2": trait_2,
             "n_snps_used": n_snps_used,
+            "samp_prev_1": _prev_cell(samp_prev_1),
+            "pop_prev_1": _prev_cell(pop_prev_1),
+            "samp_prev_2": _prev_cell(samp_prev_2),
+            "pop_prev_2": _prev_cell(pop_prev_2),
             "pair_kind": pair_kind,
             "status": status,
             "error": error,

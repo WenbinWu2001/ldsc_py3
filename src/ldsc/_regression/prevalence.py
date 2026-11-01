@@ -11,8 +11,6 @@ here, before LD scores are loaded.
 
 Key Functions
 -------------
-parse_scalar_prevalence :
-    Single-trait (``h2``, ``partitioned-h2``) scalar ``(P, K)`` pair.
 resolve_rg_prevalences :
     Dispatch rg inputs (positional comma-list xor manifest) to a per-trait list
     aligned to the resolved trait order, or ``None`` for observed scale.
@@ -21,9 +19,9 @@ Design Notes
 ------------
 - Normalized unit is ``TraitPrevalence = (samp_prev | None, pop_prev | None)``;
   ``None`` marks a quantitative trait (no liability scale).
-- Range/consistency validation delegates to
-  ``_regression.estimators.liability_conversion_factor`` so the (0, 1)-or-NaN rule
-  lives in one place.
+- Range/consistency validation delegates to ``ldsc.config.normalize_prevalence_pair``,
+  which ``RegressionConfig`` also applies to the scalar ``h2``/``partitioned-h2``
+  pair, so the (0, 1)-or-NaN rule lives in one place.
 - Manifest lookup is by exact munged trait name; supersets are allowed, while
   missing resolved traits and (under the manifest scheme) duplicate resolved
   names are hard errors.
@@ -34,11 +32,10 @@ Dependencies
 """
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
+from ..config import normalize_prevalence_pair
 from ..errors import LDSCUsageError
-from .estimators import liability_conversion_factor
 
 TraitPrevalence = tuple[float | None, float | None]
 
@@ -58,34 +55,6 @@ def _token_to_value(token: str) -> float | None:
             "Most likely a malformed `--samp-prev`/`--pop-prev` entry or manifest cell. "
             "Use a probability in (0, 1), or `nan` for a quantitative trait."
         ) from exc
-
-
-def _validate_pair(samp_prev: float | None, pop_prev: float | None) -> TraitPrevalence:
-    """Enforce both-or-neither and (0, 1) range for one trait; return the normalized pair."""
-    both_present = samp_prev is not None and pop_prev is not None
-    both_absent = samp_prev is None and pop_prev is None
-    if not (both_present or both_absent):
-        raise LDSCUsageError(
-            "A trait has exactly one of sample/population prevalence specified "
-            f"(samp_prev={samp_prev!r}, pop_prev={pop_prev!r}). "
-            "Set both for a binary trait, or leave both unset (`nan`) for a quantitative trait."
-        )
-    if both_absent:
-        return (None, None)
-    # Reuse the kernel's (0, 1) validation; raises LDSCConfigError on bad input.
-    liability_conversion_factor(samp_prev, pop_prev)
-    return (float(samp_prev), float(pop_prev))
-
-
-def parse_scalar_prevalence(samp_prev, pop_prev) -> TraitPrevalence:
-    """Validate the scalar ``--samp-prev``/``--pop-prev`` pair for h2/partitioned-h2.
-
-    ``samp_prev``/``pop_prev`` are floats (possibly NaN) or None. NaN is treated
-    as None (quantitative). Returns the normalized ``(P, K)`` pair.
-    """
-    sp = None if samp_prev is None or (isinstance(samp_prev, float) and math.isnan(samp_prev)) else samp_prev
-    pp = None if pop_prev is None or (isinstance(pop_prev, float) and math.isnan(pop_prev)) else pop_prev
-    return _validate_pair(sp, pp)
 
 
 def parse_positional_prevalences(samp_prev: str, pop_prev: str, n_traits: int) -> list[TraitPrevalence]:
@@ -109,7 +78,7 @@ def parse_positional_prevalences(samp_prev: str, pop_prev: str, n_traits: int) -
                 "resolved trait, in resolved order. Re-check the order printed in the run log, or "
                 "use `--prevalence-manifest` to match by trait name."
             )
-    return [_validate_pair(s, p) for s, p in zip(sp, pp)]
+    return [normalize_prevalence_pair(s, p) for s, p in zip(sp, pp)]
 
 
 def parse_manifest_prevalences(
@@ -145,7 +114,7 @@ def parse_manifest_prevalences(
             idx = {col: header.index(col) for col in ("trait_name", "samp_prev", "pop_prev")}
             continue
         name = fields[idx["trait_name"]].strip()
-        table[name] = _validate_pair(
+        table[name] = normalize_prevalence_pair(
             _token_to_value(fields[idx["samp_prev"]]),
             _token_to_value(fields[idx["pop_prev"]]),
         )

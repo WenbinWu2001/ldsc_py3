@@ -74,6 +74,7 @@ from ..config import (
     GlobalConfig,
     RegressionConfig,
     get_global_config,
+    normalize_prevalence_pair,
     print_global_config_banner,
     suppress_global_config_banner,
 )
@@ -1299,6 +1300,11 @@ class RegressionRunner:
             Default is ``None``, which computes all unordered pairs.
         config : RegressionConfig or None, optional
             Regression settings. Defaults to the runner's config.
+        prevalences : sequence of (float or None, float or None), optional
+            One ``(samp_prev, pop_prev)`` pair per input trait, in input order,
+            for liability-scale columns; ``(None, None)`` or NaN marks a
+            quantitative trait. Default ``None`` reports every trait on the
+            observed scale.
 
         Returns
         -------
@@ -1309,9 +1315,10 @@ class RegressionRunner:
         Raises
         ------
         ValueError
-            If fewer than two traits are supplied or ``anchor_index`` is out of
-            bounds. Whole-run input failures, such as incompatible h2 datasets,
-            also propagate as ordinary exceptions.
+            If fewer than two traits are supplied, ``anchor_index`` is out of
+            bounds, or ``prevalences`` does not hold one valid pair per trait
+            (checked before any fit). Whole-run input failures, such as
+            incompatible h2 datasets, also propagate as ordinary exceptions.
         """
         config = config or self.regression_config
         tables = list(sumstats_tables)
@@ -1326,6 +1333,14 @@ class RegressionRunner:
                 "Most likely the anchor trait was resolved against a different input list. "
                 "Pass an anchor trait name or path that belongs to the current `--sumstats-sources` list."
             )
+        if prevalences is not None and len(prevalences) != len(tables):
+            raise LDSCUsageError(
+                f"rg regression received {len(prevalences)} prevalence pairs for {len(tables)} traits. "
+                "Most likely the prevalence list was built for a different input list. "
+                "Pass one (samp_prev, pop_prev) pair per trait, in input order."
+            )
+        prev = ([normalize_prevalence_pair(*pair) for pair in prevalences] if prevalences is not None
+                else [(None, None)] * len(tables))
         # Reject allele-free traits before any fit; a pair-level error would be
         # recorded as a failed pair instead of stopping the run.
         _require_rg_alleles(tables)
@@ -1338,7 +1353,6 @@ class RegressionRunner:
         _regression_genome_build(tables, ldscore_result,
                                  _ldscore_identity_mode(ldscore_result, self.global_config), context="rg")
         ldscores = _PreparedLDScores(ldscore_result)
-        prev = list(prevalences) if prevalences is not None else [(None, None)] * len(tables)
 
         h2_rows = []
         from .._runtime.progress import PhaseProgress
@@ -3915,19 +3929,15 @@ def _runner_from_args(args) -> tuple[RegressionRunner, RegressionConfig]:
     """Build the regression workflow objects from parsed CLI arguments.
 
     For ``h2`` / ``partitioned-h2`` the scalar ``--samp-prev`` / ``--pop-prev``
-    floats are validated and stored on the config. For ``rg`` these arguments are
+    floats are stored on the config, which validates them. For ``rg`` these arguments are
     comma-separated strings resolved later in :func:`run_rg_from_args` against the
     resolved trait list, so they are left off the (per-run) config here.
     """
-    from .prevalence import parse_scalar_prevalence
-
     count_kind = getattr(args, "count_kind", "common")
     samp_prev = getattr(args, "samp_prev", None)
     pop_prev = getattr(args, "pop_prev", None)
     if isinstance(samp_prev, str) or isinstance(pop_prev, str):
-        scalar_samp, scalar_pop = None, None  # rg comma-lists: resolved in run_rg_from_args
-    else:
-        scalar_samp, scalar_pop = parse_scalar_prevalence(samp_prev, pop_prev)
+        samp_prev, pop_prev = None, None  # rg comma-lists: resolved in run_rg_from_args
     config = RegressionConfig(
         num_blocks=args.num_blocks,
         use_common_counts=(count_kind == "common"),
@@ -3935,8 +3945,8 @@ def _runner_from_args(args) -> tuple[RegressionRunner, RegressionConfig]:
         intercept_gencov=getattr(args, "intercept_gencov", None),
         two_step_cutoff=args.two_step_cutoff,
         chisq_max=args.chisq_max,
-        samp_prev=scalar_samp,
-        pop_prev=scalar_pop,
+        samp_prev=samp_prev,
+        pop_prev=pop_prev,
         allow_identity_downgrade=getattr(args, "allow_identity_downgrade", False),
     )
     runner = RegressionRunner(get_global_config(), config)

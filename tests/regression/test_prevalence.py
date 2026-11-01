@@ -1,25 +1,61 @@
 import pytest
 
 from ldsc._regression import prevalence
+from ldsc._regression import runner as workflow
+from ldsc.config import RegressionConfig
 from ldsc.errors import LDSCConfigError, LDSCUsageError
+from tests.regression.test_trait_preparation import munged, panel
+from tests.worker_fixtures import calculation_body
 
 
-def test_scalar_both_none_is_quantitative():
-    assert prevalence.parse_scalar_prevalence(None, None) == (None, None)
+def test_config_without_prevalence_is_observed_scale():
+    config = RegressionConfig()
+    assert (config.samp_prev, config.pop_prev) == (None, None)
 
 
-def test_scalar_pair():
-    assert prevalence.parse_scalar_prevalence(0.5, 0.01) == (0.5, 0.01)
+def test_config_keeps_a_prevalence_pair():
+    config = RegressionConfig(samp_prev=0.5, pop_prev=0.01)
+    assert (config.samp_prev, config.pop_prev) == (0.5, 0.01)
 
 
-def test_scalar_half_specified_raises():
-    with pytest.raises(LDSCUsageError):
-        prevalence.parse_scalar_prevalence(0.5, None)
+def test_config_reads_nan_as_a_quantitative_trait():
+    config = RegressionConfig(samp_prev=float("nan"), pop_prev=float("nan"))
+    assert (config.samp_prev, config.pop_prev) == (None, None)
 
 
-def test_scalar_out_of_range_raises():
-    with pytest.raises(LDSCConfigError):
-        prevalence.parse_scalar_prevalence(0.5, 1.0)
+@pytest.mark.parametrize("samp_prev, pop_prev", [(0.5, None), (None, 0.01), (0.5, float("nan"))])
+def test_config_rejects_half_a_prevalence_pair(samp_prev, pop_prev):
+    # Before, the config kept the half pair and every fit silently stayed on the observed scale.
+    with pytest.raises(LDSCConfigError, match="exactly one of sample/population prevalence"):
+        RegressionConfig(samp_prev=samp_prev, pop_prev=pop_prev)
+
+
+@pytest.mark.parametrize("samp_prev, pop_prev", [(0.5, 1.0), (0.0, 0.01), (1.5, 0.01)])
+def test_config_rejects_a_prevalence_outside_the_open_unit_interval(samp_prev, pop_prev):
+    with pytest.raises(LDSCConfigError, match=r"outside the open interval \(0, 1\)"):
+        RegressionConfig(samp_prev=samp_prev, pop_prev=pop_prev)
+
+
+def test_config_rejects_a_prevalence_that_is_not_a_number():
+    with pytest.raises(LDSCConfigError, match="not a number"):
+        RegressionConfig(samp_prev="0.5", pop_prev=0.01)
+
+
+@pytest.mark.parametrize("prevalences, error", [
+    ([(0.5, None), (None, None)], LDSCConfigError),
+    ([(0.5, 1.2), (None, None)], LDSCConfigError),
+    ([(0.5, 0.01)], LDSCUsageError),
+])
+def test_rg_pairs_reject_bad_prevalences_before_any_fit(monkeypatch, prevalences, error):
+    def no_fit(*args, **kwargs):
+        raise AssertionError("a fit ran before the prevalences were checked")
+
+    monkeypatch.setattr(workflow.RegressionRunner, "_fit_h2_dataset", no_fit)
+    tables = [munged("A", "chr_pos_allele_aware", 1), munged("B", "chr_pos_allele_aware", 2)]
+    runner = workflow.RegressionRunner(regression_config=RegressionConfig(num_blocks=10))
+    # In-process, so the replaced fit is the one the run would call.
+    with calculation_body(), pytest.raises(error):
+        runner.estimate_rg_pairs(tables, panel(), prevalences=prevalences)
 
 
 def test_positional_list_aligns_and_marks_qt():

@@ -18,7 +18,7 @@ from scipy import stats
 
 
 from ldsc.config import ConfigMismatchError, GlobalConfig, RegressionConfig, reset_global_config, set_global_config
-from ldsc.errors import LDSCInputError, LDSCInternalError, LDSCUsageError
+from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from ldsc._annotation.overlap import OverlapContribution
 from ldsc._ldscore.overlap_table import LDScoreOverlap
 
@@ -2297,7 +2297,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             ldscore_dir = self._write_h2_inputs(tmpdir)
             args = self._h2_args(tmpdir, ldscore_dir, samp_prev=0.5, pop_prev=None)
-            with self._patched_h2(), self.assertRaises(LDSCUsageError):
+            with self._patched_h2(), self.assertRaisesRegex(LDSCConfigError, "exactly one of sample/population"):
                 regression_runner.run_h2_from_args(args)
 
     def test_run_h2_from_args_requires_output_dir_before_loading_inputs(self):

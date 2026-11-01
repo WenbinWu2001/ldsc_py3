@@ -1092,6 +1092,48 @@ class MungeConfig:
             )
 
 
+def normalize_prevalence_pair(samp_prev, pop_prev) -> tuple[float | None, float | None]:
+    """Return one trait's ``(samp_prev, pop_prev)``, or ``(None, None)`` for a quantitative trait.
+
+    NaN and ``None`` both mark a missing prevalence. A binary trait needs both
+    values, each a number in the open interval ``(0, 1)``; one missing value,
+    a value outside that interval, or a value that is not a number raises
+    ``LDSCConfigError``. ``RegressionConfig`` and the ``rg`` prevalence
+    parsers apply this rule, so a half-specified pair fails before any fit
+    instead of leaving the trait silently on the observed scale.
+    """
+    values = []
+    for value in (samp_prev, pop_prev):
+        if value is not None:
+            try:
+                if isinstance(value, (bool, str, bytes)):
+                    raise TypeError
+                value = float(value)
+            except (TypeError, ValueError):
+                raise LDSCConfigError(
+                    f"A prevalence is not a number (samp_prev={samp_prev!r}, pop_prev={pop_prev!r}). "
+                    "Pass a probability strictly between 0 and 1, or `nan` for a quantitative trait."
+                ) from None
+            if math.isnan(value):
+                value = None
+        values.append(value)
+    samp, pop = values
+    if (samp is None) != (pop is None):
+        raise LDSCConfigError(
+            "A trait has exactly one of sample/population prevalence specified "
+            f"(samp_prev={samp!r}, pop_prev={pop!r}). "
+            "Set both for a binary trait, or leave both unset (`nan`) for a quantitative trait."
+        )
+    if samp is not None and not (0 < samp < 1 and 0 < pop < 1):
+        raise LDSCConfigError(
+            "Liability-scale conversion received a prevalence outside the open interval (0, 1) "
+            f"(samp_prev={samp!r}, pop_prev={pop!r}). "
+            "Most likely `--samp-prev`/`--pop-prev` was given a value <= 0 or >= 1. "
+            "Pass a probability strictly between 0 and 1, or `nan` for a quantitative trait."
+        )
+    return samp, pop
+
+
 @dataclass(frozen=True)
 class RegressionConfig:
     """Configuration for heritability and genetic-correlation regressions.
@@ -1127,13 +1169,14 @@ class RegressionConfig:
         applies the legacy default outlier cap ``max(0.001 * N.max(), 80)`` to
         down-weight extreme-chi-square SNPs; single-annotation ``h2`` stays uncapped
         and relies on the two-step estimator instead.
-    samp_prev, pop_prev : float, list of float, or None, optional
-        Liability-scale prevalence inputs for binary traits: each a probability
-        in the open interval ``(0, 1)``, or NaN/None for a quantitative trait.
-        For ``h2`` / ``partitioned-h2`` these are scalars stored here; for ``rg``
-        the resolved per-trait list is passed to ``estimate_rg_pairs`` rather than
-        stored on this (per-run) config. Both must be supplied together. Defaults
-        are ``None`` (observed scale).
+    samp_prev, pop_prev : float or None, optional
+        Liability-scale prevalence inputs of an ``h2`` or ``partitioned-h2``
+        binary trait: both a probability in the open interval ``(0, 1)``, or
+        both NaN/None for a quantitative trait (NaN is stored as ``None``).
+        Supplying only one, or a value outside ``(0, 1)``, raises
+        ``LDSCConfigError``. For ``rg`` the per-trait pairs are passed to
+        ``estimate_rg_pairs`` instead of this config. Defaults are ``None``
+        (observed scale).
     allow_identity_downgrade : bool, optional
         If ``True``, same-family allele-aware/base regression inputs may run
         under the base SNP identifier mode. Cross-family mixes remain rejected.
@@ -1147,8 +1190,8 @@ class RegressionConfig:
     intercept_gencov: float | None = None
     two_step_cutoff: float | None = None
     chisq_max: float | None = None
-    samp_prev: float | list[float] | None = None
-    pop_prev: float | list[float] | None = None
+    samp_prev: float | None = None
+    pop_prev: float | None = None
     allow_identity_downgrade: bool = False
 
     def __post_init__(self) -> None:
@@ -1162,3 +1205,6 @@ class RegressionConfig:
             raise LDSCConfigError(_positive_number_message("RegressionConfig", "two_step_cutoff", self.two_step_cutoff))
         if self.chisq_max is not None and self.chisq_max <= 0:
             raise LDSCConfigError(_positive_number_message("RegressionConfig", "chisq_max", self.chisq_max))
+        samp_prev, pop_prev = normalize_prevalence_pair(self.samp_prev, self.pop_prev)
+        object.__setattr__(self, "samp_prev", samp_prev)
+        object.__setattr__(self, "pop_prev", pop_prev)

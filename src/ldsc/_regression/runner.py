@@ -799,14 +799,8 @@ class RegressionRunner:
             # Single-annotation fits read the filtered frame for their diagnostic bins.
             merged, keep = _kept_rows(merged, keep), None
         x = _ld_design(merged, columns, keep)
-        intercept = None
-        if not config.use_intercept:
-            intercept = 1
-        elif config.intercept_h2 is not None:
-            intercept = float(config.intercept_h2)
-        two_step = config.two_step_cutoff
-        if two_step is None and intercept is None and len(columns) == 1:
-            two_step = 30
+        policy = _fit_policy(config)
+        intercept, two_step = policy.intercept_h2, policy.two_step_cutoff(len(columns))
         old_weights = len(columns) > 1
         _raise_on_model_collinearity(dataset, x)
         reference_snp_counts = np.asarray(
@@ -1218,17 +1212,9 @@ class RegressionRunner:
                 merged.index = pd.RangeIndex(len(merged))
             n_snp = len(merged)
         n_blocks = min(n_snp, config.num_blocks)
-        intercept_hsq = _select_intercept(config.intercept_h2, use_intercept=config.use_intercept, default_when_disabled=1)
-        intercept_gencov = _select_intercept(
-            config.intercept_gencov,
-            use_intercept=config.use_intercept,
-            default_when_disabled=0,
-        )
-        # Legacy estimate_rg defaults two-step to 30 for a single-annotation fit
-        # with a free h2 intercept and no explicit cutoff (sumstats.py:400).
-        two_step = config.two_step_cutoff
-        if two_step is None and intercept_hsq is None and len(dataset.retained_ld_columns) == 1:
-            two_step = 30
+        policy = _fit_policy(config)
+        intercept_hsq, intercept_gencov = policy.intercept_h2, policy.intercept_gencov
+        two_step = policy.two_step_cutoff(len(dataset.retained_ld_columns))
         x = np.asarray(merged[dataset.retained_ld_columns])
         try:
             _raise_on_model_collinearity(dataset, x)
@@ -2613,12 +2599,7 @@ def _rg_pair_metadata(
         "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
         "effective_snp_identifier": dataset.effective_snp_identifier,
         "identity_downgrade_applied": dataset.identity_downgrade_applied,
-        "intercept_h2_policy": _intercept_policy(config.intercept_h2, config.use_intercept, default_when_disabled=1),
-        "intercept_gencov_policy": _intercept_policy(
-            config.intercept_gencov,
-            config.use_intercept,
-            default_when_disabled=0,
-        ),
+        **_intercept_policies(config),
     }
 
 
@@ -2648,12 +2629,7 @@ def _failed_rg_pair_metadata(
         "n_blocks_used": 0,
         "effective_chisq_max": config.chisq_max,
         **_rg_prevalence_metadata(full_row),
-        "intercept_h2_policy": _intercept_policy(config.intercept_h2, config.use_intercept, default_when_disabled=1),
-        "intercept_gencov_policy": _intercept_policy(
-            config.intercept_gencov,
-            config.use_intercept,
-            default_when_disabled=0,
-        ),
+        **_intercept_policies(config),
     }
     if fit_summary is not None:
         metadata.update(
@@ -2663,13 +2639,13 @@ def _failed_rg_pair_metadata(
     return metadata
 
 
-def _intercept_policy(value: float | None, use_intercept: bool, default_when_disabled: float) -> str:
-    """Describe the effective intercept policy in per-pair metadata."""
-    if not use_intercept:
-        return f"fixed:{default_when_disabled:g}"
-    if value is None:
-        return "free"
-    return f"fixed:{float(value):g}"
+def _intercept_policies(config: RegressionConfig) -> dict[str, str]:
+    """Describe the heritability and genetic-covariance intercepts: ``free`` or ``fixed:<value>``."""
+    policy = _fit_policy(config)
+    return {
+        f"intercept_{name}_policy": "free" if value is None else f"fixed:{float(value):g}"
+        for name, value in (("h2", policy.intercept_h2), ("gencov", policy.intercept_gencov))
+    }
 
 
 def _require_rg_alleles(tables: Sequence[SumstatsTable]) -> None:
@@ -3034,13 +3010,45 @@ def _sort_partitioned_h2_summary(summary: pd.DataFrame, sort_by: str = "category
     ).reset_index(drop=True)
 
 
-def _select_intercept(value: float | None, use_intercept: bool, default_when_disabled: float):
-    """Resolve fixed-intercept config into the scalar expected by the kernel."""
-    if not use_intercept:
-        return default_when_disabled
-    if value is None:
+@dataclass(frozen=True)
+class _FitPolicy:
+    """Intercepts and two-step setting of a regression run, resolved once from its config.
+
+    ``None`` marks an intercept that the fit estimates.
+    """
+
+    intercept_h2: float | None
+    intercept_gencov: float | None
+    requested_two_step_cutoff: float | None
+
+    def two_step_cutoff(self, n_ld_columns: int) -> float | None:
+        """Two-step cutoff of a model with ``n_ld_columns`` LD-score columns, or ``None`` for no two-step fit.
+
+        A requested cutoff is used as given. Otherwise a single-annotation
+        model with an estimated heritability intercept uses 30, as legacy
+        LDSC's ``estimate_h2`` and ``estimate_rg`` do (``sumstats.py``).
+        """
+        if self.requested_two_step_cutoff is not None:
+            return self.requested_two_step_cutoff
+        if self.intercept_h2 is None and n_ld_columns == 1:
+            return 30
         return None
-    return float(value)
+
+
+def _fit_policy(config: RegressionConfig) -> _FitPolicy:
+    """Resolve a config's intercepts and two-step request for ``h2``, ``partitioned-h2`` and ``rg`` fits.
+
+    ``use_intercept=False`` fixes the heritability intercept at 1 and the
+    genetic-covariance intercept at 0; otherwise ``intercept_h2`` and
+    ``intercept_gencov`` fix them when set.
+    """
+    if not config.use_intercept:
+        return _FitPolicy(1, 0, config.two_step_cutoff)
+    return _FitPolicy(
+        None if config.intercept_h2 is None else float(config.intercept_h2),
+        None if config.intercept_gencov is None else float(config.intercept_gencov),
+        config.two_step_cutoff,
+    )
 
 
 def _resolve_default_chisq_max(chisq_max: float | None, n_annot: int, n_max: float) -> float | None:

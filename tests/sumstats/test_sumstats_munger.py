@@ -5,6 +5,7 @@ import gzip
 import io
 import tempfile
 import unittest
+import re
 import warnings
 from unittest import mock
 
@@ -60,7 +61,7 @@ class SumstatsMungerTest(unittest.TestCase):
         trait_name: str | None = "trait",
     ) -> None:
         """Write a self-describing sumstats parquet with identity footer metadata."""
-        footer = sumstats_workflow._sumstats_footer_metadata(
+        footer = sumstats_workflow._encode_sumstats_footer(
             GlobalConfig(snp_identifier=snp_identifier, genome_build=genome_build), trait_name
         )
         sumstats_workflow._write_sumstats_outputs(
@@ -2894,7 +2895,7 @@ class SumstatsParquetFooterTest(unittest.TestCase):
         import pyarrow.parquet as pq
 
         snapshot = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19")
-        footer = sumstats_workflow._sumstats_footer_metadata(snapshot, trait_name="height")
+        footer = sumstats_workflow._encode_sumstats_footer(snapshot, trait_name="height")
         with tempfile.TemporaryDirectory() as tmp:
             out = str(Path(tmp) / "sumstats.parquet")
             sumstats_workflow._write_sumstats_outputs(
@@ -2910,7 +2911,7 @@ class SumstatsParquetFooterTest(unittest.TestCase):
     def test_loader_rejects_footer_missing_identity_keys(self):
         snapshot = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19")
         for missing in (b"ldsc:snp_identifier", b"ldsc:genome_build"):
-            footer = sumstats_workflow._sumstats_footer_metadata(snapshot, trait_name="height")
+            footer = sumstats_workflow._encode_sumstats_footer(snapshot, trait_name="height")
             del footer[missing]
             with self.subTest(missing=missing), tempfile.TemporaryDirectory() as tmp:
                 out = str(Path(tmp) / "sumstats.parquet")
@@ -2920,8 +2921,38 @@ class SumstatsParquetFooterTest(unittest.TestCase):
                 with self.assertRaisesRegex(ldsc.LDSCInputError, missing.decode() + ".*Re-run munge-sumstats"):
                     sumstats_workflow.load_sumstats(out)
 
+    def test_loader_rejects_footers_the_writer_cannot_produce(self):
+        cases = {
+            "chr_pos without a concrete build": (
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"), {b"ldsc:genome_build": b"auto"},
+                "genome_build='auto'"),
+            "chr_pos with an empty build": (
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"), {b"ldsc:genome_build": b""},
+                "genome_build=None"),
+            "rsID with a build": (
+                GlobalConfig(snp_identifier="rsid"), {b"ldsc:genome_build": b"hg19"}, "genome_build='hg19'"),
+            "no trait-name key": (
+                GlobalConfig(snp_identifier="rsid"), {b"ldsc:trait_name": None}, "ldsc:trait_name"),
+        }
+        for label, (snapshot, edits, message) in cases.items():
+            footer = sumstats_workflow._encode_sumstats_footer(snapshot, trait_name="height")
+            for key, value in edits.items():
+                if value is None:
+                    del footer[key]
+                else:
+                    footer[key] = value
+            with self.subTest(label), tempfile.TemporaryDirectory() as tmp:
+                out = str(Path(tmp) / "sumstats.parquet")
+                sumstats_workflow._write_sumstats_outputs(
+                    self._frame(), output_files={"parquet": out}, output_format="parquet", footer_metadata=footer
+                )
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    with self.assertRaisesRegex(ldsc.LDSCInputError, re.escape(message) + ".*Re-run munge-sumstats"):
+                        sumstats_workflow.load_sumstats(out)
+
     def test_footer_encodes_none_genome_build_and_trait_as_empty(self):
-        footer = sumstats_workflow._sumstats_footer_metadata(
+        footer = sumstats_workflow._encode_sumstats_footer(
             GlobalConfig(snp_identifier="rsid_allele_aware"), trait_name=None
         )
         self.assertEqual(footer[b"ldsc:genome_build"], b"")

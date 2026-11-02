@@ -88,11 +88,11 @@ class RegressionWorkflowTest(unittest.TestCase):
         genome_build: str | None = None,
     ) -> None:
         """Write a self-describing sumstats parquet carrying identity footer metadata."""
-        from ldsc._sumstats.munger import _sumstats_footer_metadata, _write_sumstats_outputs
+        from ldsc._sumstats.munger import _encode_sumstats_footer, _write_sumstats_outputs
 
         if frame is None:
             frame = pd.DataFrame({"SNP": ["rs1"], "Z": [1.0], "N": [1000.0]})
-        footer = _sumstats_footer_metadata(
+        footer = _encode_sumstats_footer(
             GlobalConfig(snp_identifier=snp_identifier, genome_build=genome_build), trait_name
         )
         _write_sumstats_outputs(

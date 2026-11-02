@@ -44,7 +44,7 @@ from os import PathLike
 from pathlib import Path
 import re
 import shlex
-from typing import Any
+from typing import Any, NamedTuple
 
 import pandas as pd
 
@@ -310,8 +310,8 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     )
     if not (isinstance(df.index, pd.RangeIndex) and df.index.start == 0 and df.index.step == 1):
         df = df.reset_index(drop=True)
-    metadata = _read_sumstats_parquet_footer(resolved)
-    if metadata is None:
+    footer = _decode_sumstats_footer(resolved)
+    if footer is None:
         if str(resolved).lower().endswith(".parquet"):
             raise LDSCInputError(
                 _curated_sumstats_artifact_message(
@@ -335,7 +335,7 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
         )
         table.validate()
         return table
-    config_snapshot = _global_config_from_sumstats_metadata(metadata, artifact_path=resolved)
+    config_snapshot = footer.config
     mode = normalize_snp_identifier_mode(config_snapshot.snp_identifier)
     if is_allele_aware_mode(mode) and not {"A1", "A2"}.issubset(df.columns):
         raise LDSCInputError(
@@ -376,8 +376,8 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
         data=df,
         has_alleles={"A1", "A2"}.issubset(df.columns),
         source_path=resolved,
-        trait_name=_resolve_sumstats_trait_name(trait_name, metadata, resolved),
-        provenance={"metadata": metadata},
+        trait_name=_resolve_sumstats_trait_name(trait_name, footer.trait_name, resolved),
+        provenance={"metadata": footer.fields},
         config_snapshot=config_snapshot,
     )
     table.validate()
@@ -573,7 +573,7 @@ class SumstatsMunger:
                 data,
                 output_files=output_files,
                 output_format=munge_config.output_format,
-                footer_metadata=_sumstats_footer_metadata(
+                footer_metadata=_encode_sumstats_footer(
                     table_config_snapshot, raw_sumstats_config.trait_name, qc_thresholds,
                 ),
             )
@@ -707,7 +707,7 @@ class SumstatsMunger:
             sumstats.data,
             output_files=output_files,
             output_format=output_format,
-            footer_metadata=_sumstats_footer_metadata(
+            footer_metadata=_encode_sumstats_footer(
                 sumstats.config_snapshot, sumstats.trait_name, sumstats.provenance.get("qc_thresholds"),
             ),
         )
@@ -1708,14 +1708,14 @@ def _write_sumstats_tsv_gz(data: pd.DataFrame, path: str) -> None:
     frame.to_csv(path, sep="\t", index=False, float_format="%.3f", compression="gzip", na_rep="NA")
 
 
-def _sumstats_footer_metadata(
+def _encode_sumstats_footer(
     config_snapshot: GlobalConfig, trait_name: str | None, qc_thresholds: dict[str, float | None] | None = None,
 ) -> dict[bytes, bytes]:
     """Return discrete ``ldsc:*`` Parquet footer keys for a munged summary-statistics artifact.
 
     Mirrors the reference-panel footer convention in ``_refpanel/adapters.py``. A
     ``None`` ``genome_build`` (rsID-family) or ``trait_name`` is encoded as an
-    empty string and decoded back to ``None`` on read. ``qc_thresholds`` (the run's
+    empty string and decoded back to ``None`` by :func:`_decode_sumstats_footer`. ``qc_thresholds`` (the run's
     effective ``info_min`` and ``maf_min``) adds ``ldsc:qc_info_min`` and
     ``ldsc:qc_maf_min``; an empty value means that filter was not applied. Both
     keys are omitted when the thresholds are unknown, and readers ignore them.
@@ -1899,13 +1899,27 @@ def _resolve_curated_sumstats_columns(columns: list[str], *, context: str) -> di
     return {canonical: resolved[canonical] for canonical in ("SNP", "CHR", "POS", "N", "Z", "A1", "A2", "FRQ") if canonical in resolved}
 
 
-def _read_sumstats_parquet_footer(path: str) -> dict[str, Any] | None:
-    """Return embedded Parquet identity metadata, or ``None`` when absent.
+class _SumstatsFooter(NamedTuple):
+    """Decoded identity footer of a munged summary-statistics Parquet file."""
 
-    Text summary statistics and footerless Parquet both return ``None`` here; the public
-    loader distinguishes them and rejects the footerless Parquet case. A footer
-    without the ``ldsc:snp_identifier`` or ``ldsc:genome_build`` key is rejected.
-    Empty ``genome_build`` and ``trait_name`` values decode to ``None``.
+    config: GlobalConfig
+    trait_name: str | None
+    fields: dict[str, Any]
+
+
+_SUMSTATS_FOOTER_KEYS = ("artifact_type", "snp_identifier", "genome_build", "trait_name")
+
+
+def _decode_sumstats_footer(path: str) -> _SumstatsFooter | None:
+    """Decode the identity footer of a munged summary-statistics Parquet file.
+
+    Returns ``None`` for text summary statistics and for Parquet without an
+    ``ldsc:artifact_type`` key; the public loader distinguishes them and rejects
+    footerless Parquet. A footer is accepted only in a form
+    :func:`_encode_sumstats_footer` writes: all four keys present, artifact type
+    ``sumstats``, a valid SNP identifier mode, an empty genome build in
+    rsID-family modes and hg19 or hg38 in chr_pos-family modes, and a trait name
+    that is empty or not blank. The ``ldsc:qc_*`` keys are not read.
     """
     if not str(path).endswith(".parquet"):
         return None
@@ -1914,23 +1928,52 @@ def _read_sumstats_parquet_footer(path: str) -> dict[str, Any] | None:
     raw = pq.read_schema(path).metadata or {}
     if b"ldsc:artifact_type" not in raw:
         return None
-    missing = [key.decode("utf-8") for key in (b"ldsc:snp_identifier", b"ldsc:genome_build") if key not in raw]
+    missing = [f"ldsc:{key}" for key in _SUMSTATS_FOOTER_KEYS if f"ldsc:{key}".encode("utf-8") not in raw]
     if missing:
         raise LDSCInputError(
             _curated_sumstats_artifact_message(
                 path,
-                f"its parquet footer lacks the {' and '.join(missing)} identity metadata.",
+                f"its parquet footer lacks the {' and '.join(missing)} key{'s' if len(missing) > 1 else ''}.",
                 "Most likely it was written by an older LDSC3 version or edited after munging.",
             )
         )
-    genome_build = raw[b"ldsc:genome_build"].decode("utf-8") or None
-    trait_name = raw.get(b"ldsc:trait_name", b"").decode("utf-8") or None
-    return {
-        "artifact_type": raw[b"ldsc:artifact_type"].decode("utf-8"),
-        "snp_identifier": raw[b"ldsc:snp_identifier"].decode("utf-8"),
-        "genome_build": genome_build,
-        "trait_name": trait_name,
-    }
+    fields = {key: raw[f"ldsc:{key}".encode("utf-8")].decode("utf-8") or None for key in _SUMSTATS_FOOTER_KEYS}
+    try:
+        mode = validate_identity_artifact_metadata(fields, expected_artifact_type="sumstats")
+    except LDSCUserError as exc:
+        raise LDSCInputError(
+            _curated_sumstats_artifact_message(
+                path,
+                "its embedded parquet footer has invalid identity provenance.",
+                "Most likely it predates the current schema or was edited after munging.",
+            )
+        ) from exc
+    build = fields["genome_build"]
+    if identity_mode_family(mode) == "rsid":
+        valid_build, expected = build is None, "an empty genome_build"
+    else:
+        valid_build, expected = build in {"hg19", "hg38"}, "genome_build 'hg19' or 'hg38'"
+    if not valid_build:
+        raise LDSCInputError(
+            _curated_sumstats_artifact_message(
+                path,
+                f"its parquet footer records snp_identifier={mode!r} with genome_build={build!r}, "
+                f"but munge-sumstats writes {expected} for that mode.",
+                "Most likely the footer was edited after munging or written by another tool.",
+            )
+        )
+    try:
+        trait_name = normalize_trait_name(fields["trait_name"])
+    except LDSCConfigError as exc:
+        raise LDSCInputError(
+            _curated_sumstats_artifact_message(
+                path,
+                "its embedded parquet footer has a blank trait_name field.",
+                "Most likely the artifact was hand-edited or written by an outdated workflow.",
+            )
+        ) from exc
+    config = GlobalConfig(snp_identifier=mode, genome_build=build, log_level="INFO")
+    return _SumstatsFooter(config, trait_name, {**fields, "snp_identifier": mode, "trait_name": trait_name})
 
 
 def _curated_sumstats_artifact_message(path: str | PathLike[str], detail: str, likely: str) -> str:
@@ -1944,10 +1987,10 @@ def _curated_sumstats_artifact_message(path: str | PathLike[str], detail: str, l
 
 def _resolve_sumstats_trait_name(
     explicit_trait_name: str | None,
-    metadata: dict[str, Any] | None,
+    footer_trait_name: str | None,
     resolved_path: str,
 ) -> str | None:
-    """Resolve an assigned trait label from the CLI/API argument, then the parquet footer.
+    """Resolve an assigned trait label from the CLI/API argument, then the decoded parquet footer.
 
     Returns ``None`` when neither supplies a label. Regression outputs apply the
     filename fallback themselves, so ``SumstatsMunger.write_output`` never writes
@@ -1961,44 +2004,7 @@ def _resolve_sumstats_trait_name(
             "Most likely whitespace was passed as the trait label. "
             "Use a non-empty trait name or omit trait_name to derive it from the artifact."
         ) from exc
-    if explicit is not None:
-        return explicit
-    if isinstance(metadata, dict) and "trait_name" in metadata:
-        try:
-            metadata_trait = normalize_trait_name(metadata.get("trait_name"))
-        except LDSCConfigError as exc:
-            raise LDSCInputError(
-                _curated_sumstats_artifact_message(
-                    resolved_path,
-                    "its embedded parquet footer has a blank trait_name field.",
-                    "Most likely the artifact was hand-edited or written by an outdated workflow.",
-                )
-            ) from exc
-        return metadata_trait
-    return None
-
-
-def _global_config_from_sumstats_metadata(
-    metadata: dict[str, Any],
-    *,
-    artifact_path: str | PathLike[str],
-) -> GlobalConfig:
-    """Recreate a GlobalConfig snapshot from a summary-statistics Parquet footer payload."""
-    try:
-        mode = validate_identity_artifact_metadata(metadata, expected_artifact_type="sumstats")
-        return GlobalConfig(
-            snp_identifier=mode,
-            genome_build=metadata.get("genome_build"),
-            log_level="INFO",
-        )
-    except LDSCUserError as exc:
-        raise LDSCInputError(
-            _curated_sumstats_artifact_message(
-                artifact_path,
-                "its embedded parquet footer has invalid identity provenance.",
-                "Most likely it predates the current schema or was edited after munging.",
-            )
-        ) from exc
+    return explicit if explicit is not None else footer_trait_name
 
 
 def _effective_sumstats_config(config: GlobalConfig, coordinate_metadata: dict[str, Any]) -> GlobalConfig:

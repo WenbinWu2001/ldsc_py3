@@ -525,10 +525,11 @@ class LDScoreConfig:
         Override the guard that rejects windows effectively spanning an entire
         chromosome. Default is ``False``.
     export_ref_metadata : bool, optional
-        Write retained PLINK reference metadata, including effective CM, under
-        ``ref_metadata/`` in the output directory. Default is ``False``.
-        Requires an output configuration and is not a zero-write option.
-        R2 matrix inputs already have authoritative metadata sidecars.
+        Write retained PLINK reference metadata, including effective CM and
+        the minor allele as ``A1``, under ``ref_metadata/`` in the output
+        directory. Default is ``False``. Requires an output configuration and
+        is not a zero-write option. Rejected for an R2 matrix, whose metadata
+        sidecars already hold this metadata.
     workers : int, optional
         Maximum number of concurrent workers, default 1, including on HPC.
         Use joblib.cpu_count() as the detected available CPU budget.

@@ -173,6 +173,20 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 GlobalConfig(snp_identifier="rsid"),
             )
 
+    def test_calculator_rejects_ref_metadata_export_from_an_r2_matrix_before_writing(self):
+        from ldsc import LDScoreOutputConfig, R2MatrixRefPanel
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "out"
+            panel = R2MatrixRefPanel(GlobalConfig(snp_identifier="rsid"),
+                                     RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(Path(tmpdir) / "r2")))
+            with self.assertRaisesRegex(LDSCUsageError, "R2 matrix sidecars .* already hold"):
+                ldscore_workflow.LDScoreCalculator().run(
+                    None, panel, LDScoreConfig(ld_wind_snps=10, export_ref_metadata=True),
+                    GlobalConfig(snp_identifier="rsid"), LDScoreOutputConfig(output_dir=str(output_dir)),
+                )
+            self.assertFalse(output_dir.exists())
+
     def test_normalize_run_args_chr_pos_still_requires_genome_build(self):
         args = Namespace(
             output_dir="out",

@@ -477,6 +477,13 @@ class LDScoreCalculator:
                 "LDScoreCalculator.run() requires output_config when export_ref_metadata=True. "
                 "Reference metadata is a filesystem artifact, so pass LDScoreOutputConfig(output_dir=...)."
             )
+        if ldscore_config.export_ref_metadata and _reference_metadata_sources(ref_panel)[0] == "parquet_sidecar":
+            raise LDSCUsageError(
+                "ldscore cannot export reference metadata from an R2 matrix: --export-ref-metadata "
+                "(LDScoreConfig.export_ref_metadata) applies to a PLINK reference panel (--plink-prefix). "
+                "The R2 matrix sidecars chr<N>_meta.tsv.gz already hold the same CHR, POS, SNP, A1, A2, CM "
+                "and MAF metadata; use them directly and drop the option."
+            )
         if identity_mode_family(global_config.snp_identifier) == "chr_pos":
             from .._genome.build_policy import GenomeBuildCheck
             check = GenomeBuildCheck(global_config.genome_build, context='LDScoreCalculator', logger=LOGGER)
@@ -519,10 +526,8 @@ class LDScoreCalculator:
             cm_source, maf_source = _reference_metadata_sources(ref_panel)
             LOGGER.info("Reference-panel CM source: %s; MAF source: %s (annotation CM/MAF are ignored).",
                         cm_source, maf_source)
-            export_dir = (export_root if output_config is not None and ldscore_config.export_ref_metadata
-                          and cm_source != "parquet_sidecar" else None)
             producer = _DirectProducer(self, annotation_bundle, ref_panel, ldscore_config, global_config,
-                                       regression_regions, log_paths, output_dir=output_dir, export_dir=export_dir)
+                                       regression_regions, log_paths, output_dir=output_dir, export_dir=export_root)
             if output_config is None:
                 if len(annotation_bundle.query_columns) > ldscore_config.query_batch_size:
                     raise LDSCUsageError("Multiple query execution batches require output_config with an output directory. Use one batch for a small in-memory calculation.")
@@ -544,7 +549,7 @@ class LDScoreCalculator:
                 scratch_root=output_config.output_dir)
             result = self.output_writer.write_batches(results, output_config,
                 query_status_order=[status.query for status in annotation_bundle.query_statuses],
-                ref_metadata_dir=export_dir)
+                ref_metadata_dir=export_root)
             _log_annotation_classification(result)
             return result
 
@@ -1170,9 +1175,10 @@ def build_parser() -> argparse.ArgumentParser:
     plink.add_argument(
         '--export-ref-metadata', default=False, action='store_true',
         help=(
-            'Write reference-panel SNP metadata to ref_metadata/chrN_meta.tsv.gz under --output-dir. '
-            'Applies to PLINK input only; rejected with --gene-ldscore-index-dir. Default: off; these '
-            'additional files are not written.'
+            'Write reference-panel SNP metadata, with the minor allele as A1, to ref_metadata/chrN_meta.tsv.gz '
+            'under --output-dir. Applies to --plink-prefix only; rejected with --r2-matrix-dir, whose '
+            'chrN_meta.tsv.gz sidecars hold the same metadata, and with --gene-ldscore-index-dir. Default: off; '
+            'these additional files are not written.'
         ),
     )
 

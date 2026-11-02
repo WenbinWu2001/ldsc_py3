@@ -48,7 +48,6 @@ from typing import Any
 import pandas as pd
 
 from .._runtime.cli_help import CLIHelpFormatter, SCALAR_PATH_HELP, output_directory_argument
-from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
 from .._core.chromosomes import chrom_sort_key, normalize_chromosome_series
 from .._core.coordinates import (
     coordinate_missing_mask,
@@ -74,7 +73,15 @@ from .._runtime.paths import (
     remove_output_artifacts,
     resolve_scalar_path,
 )
-from .._runtime.workflow_logging import log_inputs, log_outputs, log_summary, materializing_overwrite_guard, workflow_logging
+from .._runtime.workflow_logging import (
+    LOG_LEVEL_HELP,
+    args_output_scope,
+    log_inputs,
+    log_outputs,
+    log_summary,
+    materializing_overwrite_guard,
+    workflow_logging,
+)
 from .._core.snp_identity import (
     IDENTITY_DROP_COLUMNS,
     coerce_identity_drop_frame,
@@ -88,15 +95,10 @@ from .._core.snp_identity import (
 from .._genome.liftover import SumstatsLiftoverRequest, default_liftover_metadata
 from . import munge_kernel as kernel_munge
 from . import munge_input
+from .munge_input import clean_header, default_cnames, get_cname_map, get_compression, null_values, read_header
 
 
 LOGGER = logging.getLogger("LDSC.sumstats_munger")
-null_values = munge_input.null_values
-default_cnames = munge_input.default_cnames
-read_header = munge_input.read_header
-get_cname_map = munge_input.get_cname_map
-get_compression = munge_input.get_compression
-clean_header = munge_input.clean_header
 
 _SUMSTATS_OUTPUT_FORMATS = {"parquet", "tsv.gz", "both"}
 _RAW_SUMSTATS_FORMATS = {"auto", "plain", "daner-old", "daner-new"}

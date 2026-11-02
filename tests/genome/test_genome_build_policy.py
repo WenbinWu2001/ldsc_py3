@@ -110,24 +110,24 @@ def test_panel_keep_list_requires_evidence_only_in_auto(tmp_path, requested, fai
 @pytest.mark.parametrize('requested, fails', [('auto', True), ('hg19', False)])
 def test_munge_checks_small_coordinate_keep_list(tmp_path, requested, fails):
     from ldsc import GlobalConfig
-    from ldsc._sumstats.munge_input import _resolve_source_coordinates
+    from ldsc._sumstats.munge_input import resolve_source_coordinates
     source, keep = tmp_path / 'raw.tsv', tmp_path / 'keep.tsv'
     coordinates(1, 'hg19').to_csv(source, sep='\t', index=False)
     coordinates(1, 'hg38', 2).to_csv(keep, sep='\t', index=False)
     config = GlobalConfig(snp_identifier='chr_pos', genome_build=requested)
     if fails:
         with pytest.raises(LDSCInputError, match='--source-genome-build hg19') as caught:
-            _resolve_source_coordinates(source, {'CHR': 'CHR', 'POS': 'POS'}, config, None, 0, restriction_path=keep)
+            resolve_source_coordinates(source, {'CHR': 'CHR', 'POS': 'POS'}, config, None, 0, restriction_path=keep)
         assert 'keep.tsv' in str(caught.value) and 'raw.tsv' in str(caught.value)
     else:
-        result = _resolve_source_coordinates(source, {'CHR': 'CHR', 'POS': 'POS'}, config, None, 0, restriction_path=keep)
+        result = resolve_source_coordinates(source, {'CHR': 'CHR', 'POS': 'POS'}, config, None, 0, restriction_path=keep)
         assert result['genome_build'] == 'hg19'
 
 
 def test_munge_explicit_build_does_not_read_text_coordinate_rows(tmp_path, monkeypatch):
     from ldsc import GlobalConfig
     from ldsc._genome import build_policy
-    from ldsc._sumstats.munge_input import _resolve_source_coordinates
+    from ldsc._sumstats.munge_input import resolve_source_coordinates
     source = tmp_path / 'raw.tsv'
     coordinates(1, 'hg38').to_csv(source, sep='\t', index=False)
 
@@ -135,7 +135,7 @@ def test_munge_explicit_build_does_not_read_text_coordinate_rows(tmp_path, monke
         raise AssertionError('an explicit build read the raw coordinate rows')
 
     monkeypatch.setattr(build_policy, '_table_frames', unexpected_read)
-    result = _resolve_source_coordinates(source, {'CHR': 'CHR', 'POS': 'POS'},
+    result = resolve_source_coordinates(source, {'CHR': 'CHR', 'POS': 'POS'},
         GlobalConfig(snp_identifier='chr_pos', genome_build='hg19'), None, 0)
     assert result['genome_build'] == 'hg19'
     assert result['genome_build_inferred'] is False
@@ -143,10 +143,10 @@ def test_munge_explicit_build_does_not_read_text_coordinate_rows(tmp_path, monke
 
 def test_munge_trusts_the_selected_build_specific_source_column(tmp_path):
     from ldsc import GlobalConfig
-    from ldsc._sumstats.munge_input import _resolve_source_coordinates
+    from ldsc._sumstats.munge_input import resolve_source_coordinates
     source = tmp_path / 'raw.tsv'
     coordinates(1, 'hg38', 2).rename(columns={'POS': 'hg19_POS'}).to_csv(source, sep='\t', index=False)
-    result = _resolve_source_coordinates(source, {'CHR': 'CHR', 'hg19_POS': 'POS'},
+    result = resolve_source_coordinates(source, {'CHR': 'CHR', 'hg19_POS': 'POS'},
         GlobalConfig(snp_identifier='chr_pos', genome_build='auto'), None, 0)
     assert result['genome_build'] == 'hg19'
     assert result['genome_build_inferred'] is False
@@ -366,13 +366,13 @@ def test_explicit_build_accepts_aliases_and_unlabeled_coordinates_without_infere
 def test_munge_preserves_bzip2_build_validation(tmp_path, declared, fails):
     import bz2
     from ldsc import GlobalConfig
-    from ldsc._sumstats.munge_input import _resolve_source_coordinates
+    from ldsc._sumstats.munge_input import resolve_source_coordinates
     path = tmp_path / 'raw.tsv.bz2'
     with bz2.open(path, 'wt') as stream:
         stream.write(f'CHR\tPOS\tgenome_build\n1\t123\t{declared}\n')
     config = GlobalConfig(snp_identifier='chr_pos', genome_build='hg19')
     def resolve():
-        return _resolve_source_coordinates(str(path), {'CHR': 'CHR', 'POS': 'POS'}, config, 'bz2', 0)
+        return resolve_source_coordinates(str(path), {'CHR': 'CHR', 'POS': 'POS'}, config, 'bz2', 0)
     if fails:
         with pytest.raises(LDSCInputError, match='Conflicting genome-build evidence') as caught:
             resolve()
@@ -426,11 +426,11 @@ def test_ldscore_explicit_build_checks_annotation_metadata(tmp_path):
 
 def test_munge_explicit_source_build_checks_selected_column_and_metadata(tmp_path):
     from ldsc import GlobalConfig
-    from ldsc._sumstats.munge_input import _resolve_source_coordinates
+    from ldsc._sumstats.munge_input import resolve_source_coordinates
     source = tmp_path / 'raw.tsv'
     source.write_text('CHR\thg38_POS\n1\t123\n')
     with pytest.raises(LDSCInputError, match='raw.tsv'):
-        _resolve_source_coordinates(source, {'CHR': 'CHR', 'hg38_POS': 'POS'},
+        resolve_source_coordinates(source, {'CHR': 'CHR', 'hg38_POS': 'POS'},
                                     GlobalConfig(snp_identifier='chr_pos', genome_build='hg19'), None, 0)
 
 

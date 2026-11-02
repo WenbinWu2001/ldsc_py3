@@ -9,9 +9,10 @@ Overview
 --------
 This module converts the historical munging script behavior into explicit
 Python dataclasses and a small service object. The public workflow boundary
-accepts path-like inputs and resolves the schema, sample-size choices, source
-build and keep-list through ``_sumstats.munge_input.prepare_munge_input``. It passes
-a ``ResolvedMungeInput`` to the kernel and consumes an explicit ``MungeResult``.
+accepts path-like inputs, reads the raw header with
+``_sumstats.munge_input.resolve_raw_schema`` (shared with ``--infer-only``) and
+resolves the source build and keep-list through ``munge_input.prepare_munge_input``.
+It passes a ``ResolvedMungeInput`` to the kernel and consumes an explicit ``MungeResult``.
 Packaged HM3 restriction is the default; a custom list replaces it, and
 ``no_snp_restriction`` disables keep-list filtering. For different coordinate
 builds, packaged HM3 uses quick liftover unless an explicit chain overrides it;
@@ -95,7 +96,7 @@ from .._core.snp_identity import (
 from .._genome.liftover import SumstatsLiftoverRequest, default_liftover_metadata
 from . import munge_kernel as kernel_munge
 from . import munge_input
-from .munge_input import clean_header, default_cnames, get_cname_map, get_compression, null_values, read_header
+from .munge_input import get_compression
 
 
 LOGGER = logging.getLogger("LDSC.sumstats_munger")
@@ -115,11 +116,12 @@ _CURATED_ARTIFACT_TROUBLESHOOTING = (
 class RawSumstatsInference:
     """Header-level inference report for one raw summary-statistics file.
 
-    The report is produced by ``--infer-only`` and by the normal munging
-    workflow before the kernel is called. It records only safe, format-aware
-    decisions: detected raw format, column hints that can be applied without
-    changing statistical meaning, INFO-list handling, missing required fields,
-    and command-line repair suggestions. Suggested commands should prefer
+    The report is produced by ``--infer-only`` and :func:`infer_raw_sumstats`
+    from the raw schema the munging run itself uses, so ``missing_fields``
+    names every header problem that would stop the run. It records only safe,
+    format-aware decisions: detected raw format, column hints that can be
+    applied without changing statistical meaning, INFO-list handling, missing
+    or conflicting fields, and command-line repair suggestions. Suggested commands should prefer
     explicit, resolved, reproducible values. ``auto`` should remain the
     user-friendly input default, not the diagnostic output.
     """
@@ -512,9 +514,8 @@ class SumstatsMunger:
                 ('SNP restriction', sumstats_snps_path), ('liftover chain', liftover_request.liftover_chain_file)],
                 issues_path=diagnostics_dir/'input_issues.tsv')
             source_path = resolve_scalar_path(raw_sumstats_config.raw_sumstats_file, label="raw sumstats")
-            raw_sumstats_config, munge_config, inference = _apply_raw_sumstats_inference(
-                source_path, raw_sumstats_config, munge_config
-            )
+            schema = munge_input.resolve_raw_schema(source_path, raw_sumstats_config, munge_config, config_snapshot)
+            column_hints = {**schema.inferred_hints, **raw_sumstats_config.column_hints}
             restriction_path = _resolve_sumstats_snps_path(munge_config)
             log_inputs(
                 raw_sumstats_file=source_path,
@@ -534,10 +535,7 @@ class SumstatsMunger:
                 f"packaged_hm3='{_uses_packaged_hm3(munge_config)}', "
                 f"output_genome_build='{liftover_request.target_build}'."
             )
-            request = munge_input.prepare_munge_input(
-                source_path, raw_sumstats_config, munge_config, config_snapshot,
-                liftover_request, restriction_path,
-            )
+            request = munge_input.prepare_munge_input(schema, config_snapshot, liftover_request, restriction_path)
             resolved_liftover = _liftover_request_from_config(munge_config, request.genome_build)
             if resolved_liftover.liftover_chain_file is not None:
                 resolved_liftover = replace(
@@ -606,7 +604,7 @@ class SumstatsMunger:
                     "output_dir": str(output_dir),
                     "output_format": munge_config.output_format,
                     "output_files": dict(output_files),
-                    "column_hints": dict(raw_sumstats_config.column_hints),
+                    "column_hints": dict(column_hints),
                     "coordinate_provenance": coordinate_metadata,
                     "metadata": coordinate_metadata,
                     "qc_thresholds": qc_thresholds,
@@ -623,7 +621,7 @@ class SumstatsMunger:
                 n_input_rows=result.n_input_rows,
                 n_retained_rows=len(table.data),
                 drop_counts=result.drop_counts,
-                inferred_columns={**dict(raw_sumstats_config.column_hints), "detected_format": inference.detected_format},
+                inferred_columns={**column_hints, "detected_format": schema.detected_format},
                 used_n_rule=result.used_n_rule,
                 output_paths=run_output_paths,
                 qc_thresholds={"INFO": request.qc.info_min, "FRQ": request.qc.maf_min},
@@ -769,9 +767,10 @@ def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable | Ra
     raw_config, munge_config = _checked_munge_configs(args)
     global_config = _resolve_main_global_config(args)
     source_path = resolve_scalar_path(raw_config.raw_sumstats_file, label="raw sumstats")
-    inference = infer_raw_sumstats(source_path, raw_config, munge_config, global_config)
-    inference = _apply_build_inference_report(source_path, raw_config, munge_config, global_config, inference)
-    inference = _apply_missing_column_report(source_path, raw_config, munge_config, inference)
+    schema = munge_input.resolve_raw_schema(source_path, raw_config, munge_config, global_config)
+    inference = _inference_from_schema(schema)
+    inference = _apply_build_inference_report(schema, munge_config, global_config, inference)
+    inference = _apply_missing_column_report(schema, inference)
     inference = _preserve_inference_options(inference, args)
     print(_render_inference_report(inference, source_path, args.output_dir))
     return inference
@@ -1386,175 +1385,57 @@ def infer_raw_sumstats(
 ) -> RawSumstatsInference:
     """Infer raw summary-statistics format and minimal parser hints.
 
-    The inference pass reads the header and first data row only. It detects
-    plain text, old DANER, and new DANER inputs; reports missing required
-    fields; identifies numeric/NA comma-separated INFO lists; and returns exact
-    CLI hints for cases that still need user confirmation. VCF-style headers
-    with leading ``##`` metadata are treated as plain input. It intentionally
-    does not treat ``NEFF`` as total sample size ``N``. Missing
-    ``A1/A2`` is reported only when the resolved ``global_config`` uses an
-    allele-aware SNP identifier mode; base modes ignore alleles and can munge
-    raw summary statistics without allele columns.
+    The inference pass reads the header and first data row only, through the
+    raw schema the munging run uses, so it reports every header problem that
+    would stop the run: missing or conflicting columns, ambiguous sample-size
+    or signed-statistic columns, and unusable old DANER count columns. It
+    detects plain text, old DANER, and new DANER inputs; identifies numeric/NA
+    comma-separated INFO lists; and returns exact CLI hints for cases that
+    still need user confirmation. VCF-style headers with leading ``##``
+    metadata are treated as plain input. It intentionally does not treat
+    ``NEFF`` as total sample size ``N``. Missing ``A1/A2`` is reported only
+    when the resolved ``global_config`` uses an allele-aware SNP identifier
+    mode; base modes ignore alleles and can munge raw summary statistics
+    without allele columns.
     """
     raw_config = raw_config or MungeConfig(raw_sumstats_file=raw_sumstats_file)
     munge_config = munge_config or MungeConfig()
     global_config = global_config or get_global_config()
     path = resolve_scalar_path(raw_sumstats_file, label="raw summary statistics")
-    file_cnames = read_header(path)
-    clean_headers = [clean_header(column) for column in file_cnames]
-    clean_set = set(clean_headers)
-    sample = _read_first_data_row(path)
-    requested_format = munge_config.sumstats_format
-    detected_format = _detect_sumstats_format(path, clean_set, requested_format)
-    column_hints: dict[str, str] = {}
-    info_list_columns: list[str] = list(munge_config.info_list_columns)
-    ignore_columns: list[str] = list(munge_config.ignore_columns)
-    suggested_args: list[str] = []
-    notes: list[str] = []
+    return _inference_from_schema(munge_input.resolve_raw_schema(path, raw_config, munge_config, global_config))
 
-    _append_suggested_option(suggested_args, "--input-format", detected_format)
-    if detected_format == "plain":
-        if "REF" in clean_set and "ALT" in clean_set and not {"A1", "A2", "EA", "NEA"} & clean_set:
-            column_hints.setdefault("a1", _original_column(file_cnames, "REF"))
-            column_hints.setdefault("a2", _original_column(file_cnames, "ALT"))
-    elif detected_format == "daner-new":
-        frq_u_column = _first_column_with_clean_prefix(file_cnames, "FRQ_U_")
-        if frq_u_column is not None:
-            column_hints.setdefault("frq", frq_u_column)
 
-    for column in file_cnames:
-        if default_cnames.get(clean_header(column)) == "INFO" and _sample_value_is_info_list(sample.get(column)):
-            info_list_columns.append(column)
-            notes.append(f"{column} appears to contain comma-separated per-study INFO values.")
-
-    translated = _inferred_targets(file_cnames, {**column_hints, **raw_config.column_hints})
-    old_daner_n = detected_format == "daner-old"
-    has_case_control_n = {"N_CAS", "N_CON"}.issubset(translated)
-    has_total_n = "N" in translated or munge_config.N is not None or (
-        munge_config.N_cas is not None and munge_config.N_con is not None
-    )
-    missing: list[str] = []
-    if not (has_total_n or has_case_control_n or old_daner_n):
-        missing.append("N")
-        if "NEFF" in clean_set:
-            notes.append("NEFF is not treated as N automatically; pass --N-col NEFF only if appropriate.")
-
-    has_signed = bool(translated & set(null_values)) or munge_config.signed_sumstats_spec is not None
+def _inference_from_schema(schema: munge_input.RawSchema) -> RawSumstatsInference:
+    """Report a raw schema: detected format, inferred hints, and each issue as a missing field with its note."""
+    suggested_args = ["--input-format", schema.detected_format]
+    notes = list(schema.notes)
     signed_sumstats_spec = None
-    if not has_signed and not munge_config.a1_inc:
-        missing.append("signed statistic")
-        signed_column = _likely_signed_sumstat_column(file_cnames)
-        if signed_column is not None:
-            signed_sumstats_spec = f"{signed_column},0"
-            suggested_args.extend(["--signed-sumstats", signed_sumstats_spec])
-            notes.append(
-                f"{signed_column} may be a signed effect column; pass --signed-sumstats {signed_sumstats_spec} "
-                "if its null value is 0 and it is oriented relative to A1."
-            )
-
-    requires_alleles = is_allele_aware_mode(global_config.snp_identifier)
-    has_alleles = {"A1", "A2"}.issubset(translated)
-    if requires_alleles and not has_alleles:
-        missing.append("A1/A2")
-        if "REF" in clean_set and "ALT" in clean_set:
-            notes.append(
-                "REF and ALT are present; pass --a1 REF --a2 ALT only if the signed statistic is relative to REF."
-            )
-
+    for issue in schema.issues:
+        if issue.note is not None:
+            notes.append(issue.note)
+        if issue.label == "signed statistic" and schema.config.signed_sumstats_spec is None:
+            signed_column = munge_input.likely_signed_sumstat_column(schema.headers)
+            if signed_column is not None:
+                signed_sumstats_spec = f"{signed_column},0"
+                suggested_args.extend(["--signed-sumstats", signed_sumstats_spec])
+                notes.append(
+                    f"{signed_column} may be a signed effect column; pass --signed-sumstats {signed_sumstats_spec} "
+                    "if its null value is 0 and it is oriented relative to A1."
+                )
     return RawSumstatsInference(
-        detected_format=detected_format,
-        column_hints=column_hints,
+        detected_format=schema.detected_format,
+        column_hints=dict(schema.inferred_hints),
         signed_sumstats_spec=signed_sumstats_spec,
-        ignore_columns=tuple(dict.fromkeys(ignore_columns)),
-        info_list_columns=tuple(dict.fromkeys(info_list_columns)),
-        missing_fields=tuple(missing),
+        ignore_columns=tuple(dict.fromkeys(schema.config.ignore_columns)),
+        info_list_columns=schema.config.info_list_columns,
+        missing_fields=tuple(dict.fromkeys(issue.label for issue in schema.issues)),
         suggested_args=tuple(suggested_args),
         notes=tuple(notes),
     )
 
 
-def _read_first_data_row(path: str) -> dict[str, str]:
-    """Return the first data row keyed by raw header names."""
-    file_cnames = read_header(path)
-    openfunc, _compression = get_compression(path)
-    skiprows = munge_input.count_leading_sumstats_comment_lines(path)
-    with openfunc(path) as handle:
-        for _idx in range(skiprows + 1):
-            handle.readline()
-        for line in handle:
-            if line.strip():
-                values = line.split()
-                return {column: values[idx] for idx, column in enumerate(file_cnames) if idx < len(values)}
-    return {}
-
-
-def _detect_sumstats_format(path: str, clean_headers: set[str], requested_format: str) -> str:
-    if requested_format != "auto":
-        return requested_format
-    has_old_daner_n = any(column.startswith("FRQ_A_") for column in clean_headers) and any(
-        column.startswith("FRQ_U_") for column in clean_headers
-    )
-    if has_old_daner_n:
-        return "daner-old"
-    if {"NCA", "NCO"}.issubset(clean_headers) or {"NCAS", "NCON"}.issubset(clean_headers):
-        return "daner-new"
-    return "plain"
-
-
-def _original_column(file_cnames: list[str], cleaned: str) -> str:
-    for column in file_cnames:
-        if clean_header(column) == cleaned:
-            return column
-    return cleaned
-
-
-def _first_column_with_clean_prefix(file_cnames: list[str], prefix: str) -> str | None:
-    for column in file_cnames:
-        if clean_header(column).startswith(prefix):
-            return column
-    return None
-
-
-def _likely_signed_sumstat_column(file_cnames: list[str]) -> str | None:
-    likely = {"EFFECT_SIZE", "EFFECTSIZE", "LOGOR", "LOG_OR", "BETA_HAT"}
-    for column in file_cnames:
-        if clean_header(column) in likely:
-            return column
-    return None
-
-
-def _sample_value_is_info_list(value: str | None) -> bool:
-    return value is not None and "," in str(value)
-
-
-def _inferred_targets(file_cnames: list[str], column_hints: dict[str, str]) -> set[str]:
-    targets = {default_cnames[clean_header(column)] for column in file_cnames if clean_header(column) in default_cnames}
-    targets.update(munge_input.COLUMN_HINT_TARGETS[key] for key, value in column_hints.items()
-                   if value is not None and key in munge_input.COLUMN_HINT_TARGETS)
-    return targets
-
-
-def _apply_raw_sumstats_inference(
-    source_path: str,
-    raw_config: MungeConfig,
-    munge_config: MungeConfig,
-) -> tuple[MungeConfig, MungeConfig, RawSumstatsInference]:
-    """Return configs updated with auto-inferred raw-format hints."""
-    inference = infer_raw_sumstats(source_path, raw_config, munge_config)
-    column_hints = {**inference.column_hints, **raw_config.column_hints}
-    raw_config = replace(raw_config, column_hints=column_hints)
-    munge_config = replace(
-        munge_config,
-        sumstats_format=inference.detected_format,
-        info_list_columns=tuple(dict.fromkeys([*munge_config.info_list_columns, *inference.info_list_columns])),
-        ignore_columns=tuple(dict.fromkeys([*munge_config.ignore_columns, *inference.ignore_columns])),
-    )
-    return raw_config, munge_config, inference
-
-
 def _apply_build_inference_report(
-    source_path: str,
-    raw_config: MungeConfig,
+    schema: munge_input.RawSchema,
     munge_config: MungeConfig,
     global_config: GlobalConfig,
     inference: RawSumstatsInference,
@@ -1580,18 +1461,13 @@ def _apply_build_inference_report(
     if output_build in {"hg19", "hg38"}:
         _append_suggested_option(suggested, "--output-genome-build", output_build)
     try:
-        hints = {**inference.column_hints, **raw_config.column_hints}
-        flags = {clean_header(value): target.upper() for target, value in hints.items() if target in {"chr", "pos"}}
-        mapping = get_cname_map(flags, default_cnames, munge_config.ignore_columns)
-        translation = {column: mapping[clean_header(column)] for column in read_header(source_path)
-                       if clean_header(column) in mapping}
-        _, compression = get_compression(source_path)
-        metadata = munge_input._resolve_source_coordinates(
-            source_path, translation, replace(global_config, genome_build=source_hint), compression,
-            munge_input.count_leading_sumstats_comment_lines(source_path),
-            restriction_path=munge_config.sumstats_snps_file if not munge_config.no_snp_restriction else None)
+        _, compression = get_compression(schema.source_path)
+        metadata = munge_input.resolve_source_coordinates(
+            schema.source_path, schema.column_map, replace(global_config, genome_build=source_hint), compression,
+            munge_input.count_leading_sumstats_comment_lines(schema.source_path),
+            restriction_path=_sumstats_snps_file_from_config(munge_config))
         resolved_source = metadata['genome_build']
-    except Exception as exc:
+    except LDSCUserError as exc:
         resolved_source = None
         missing.append("source_genome_build")
         notes.append(f"Unable to resolve a consistent source genome build. {exc}")
@@ -1658,61 +1534,13 @@ def _append_suggested_flag(args: list[str], flag: str) -> None:
 
 
 def _apply_missing_column_report(
-    source_path: str,
-    raw_config: MungeConfig,
-    config: MungeConfig,
+    schema: munge_input.RawSchema,
     inference: RawSumstatsInference,
 ) -> RawSumstatsInference:
-    """Scan raw columns in bounded chunks and diagnose unusable selected inputs."""
-    headers = read_header(source_path)
-    config = replace(config, info_list_columns=inference.info_list_columns)
-    columns = {munge_input.COLUMN_HINT_TARGETS[key]: value
-               for key, value in {**inference.column_hints, **raw_config.column_hints}.items()
-               if key in munge_input.COLUMN_HINT_TARGETS}
-    flags, _ = munge_input._column_hints(columns, config)
-    aliases = {key: target for key, target in default_cnames.items()
-               if not (config.signed_sumstats_spec or config.a1_inc) or target not in null_values}
-    mapping = munge_input.get_cname_map(flags, aliases, inference.ignore_columns)
-    if inference.detected_format == "daner-old":
-        frq = _first_column_with_clean_prefix(headers, "FRQ_U_")
-        if frq is not None:
-            mapping[clean_header(frq)] = "FRQ"
-    selected = {column: mapping[clean_header(column)] for column in headers if clean_header(column) in mapping}
-    if columns.get("N") is not None or columns.get("N_CAS") is not None:
-        munge_input._resolve_sample_size_column_strategy(columns, selected, source_path)
-    targets = set(selected.values())
-    _, conflicts = munge_input.resolve_qc_thresholds(config, targets)
-    if conflicts:
-        inference = replace(
-            inference,
-            notes=(*inference.notes, *(message for _, message in conflicts)),
-            missing_fields=(*inference.missing_fields, *(f"column required by {flag}" for flag, _ in conflicts)),
-        )
-    if "N" in targets or {"N_CAS", "N_CON"}.issubset(targets):
-        selected = {column: target for column, target in selected.items() if target != "NSTUDY"}
-
-    empty = set(selected)
-    if not empty:
+    """Scan the selected raw columns in bounded chunks and diagnose those that hold no value."""
+    names = munge_input.all_missing_columns(schema)
+    if not names:
         return inference
-    info_lists = {clean_header(column) for column in inference.info_list_columns}
-    _, compression = get_compression(source_path)
-    with pd.read_csv(
-        source_path, sep=r"\s+", compression=compression, na_values=[".", "NA"],
-        skiprows=munge_input.count_leading_sumstats_comment_lines(source_path),
-        chunksize=config.chunk_size, dtype=str, usecols=list(selected),
-    ) as reader:
-        for chunk in reader:
-            for column in tuple(empty):
-                values = chunk[column]
-                if clean_header(column) in info_lists:
-                    values = values.map(lambda value: kernel_munge._mean_info_list_value(value, column))
-                if values.notna().any():
-                    empty.remove(column)
-            if not empty:
-                break
-    if not empty:
-        return inference
-    names = [column for column in headers if column in empty]
     notes = [*inference.notes, "All-missing columns: " + ", ".join(names)]
     notes.append("Selected columns contain no nonmissing values: " + ", ".join(names)
                  + ". Supply populated columns with column overrides or repair the input; use --ignore only for optional columns and provide any required replacement.")
@@ -2188,7 +2016,7 @@ def _global_config_from_sumstats_metadata(
             genome_build=metadata.get("genome_build"),
             log_level="INFO",
         )
-    except Exception as exc:
+    except LDSCUserError as exc:
         raise LDSCInputError(
             _curated_sumstats_artifact_message(
                 artifact_path,

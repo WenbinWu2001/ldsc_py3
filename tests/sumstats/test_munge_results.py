@@ -60,10 +60,11 @@ def test_resolved_request_can_run_twice_without_accumulating_state(tmp_path):
     raw.write_text("SNP P BETA N\nkeep .05 .05 1000\noutside .05 -.05 1000\n")
     keep = tmp_path / "keep.tsv"
     keep.write_text("SNP\nkeep\n")
-    request = munge_input.prepare_munge_input(
-        str(raw), MungeConfig(no_snp_restriction=True), MungeConfig(no_snp_restriction=True), GlobalConfig(snp_identifier="rsid"),
-        SumstatsLiftoverRequest(), str(keep),
+    config = GlobalConfig(snp_identifier="rsid")
+    schema = munge_input.resolve_raw_schema(
+        str(raw), MungeConfig(no_snp_restriction=True), MungeConfig(no_snp_restriction=True), config,
     )
+    request = munge_input.prepare_munge_input(schema, config, SumstatsLiftoverRequest(), str(keep))
     first = kernel_munge.munge_sumstats(request)
     second = kernel_munge.munge_sumstats(request)
     assert first.n_input_rows == second.n_input_rows == 2

@@ -245,7 +245,7 @@ def _looks_missing_info_token(value):
     return str(value).strip().upper() in {'', '.', 'NA', 'NAN'}
 
 
-def _mean_info_list_value(value, column):
+def mean_info_list_value(value, column):
     """Return the mean of a comma-separated INFO list, ignoring missing tokens."""
     if pd.isna(value):
         return np.nan
@@ -270,7 +270,7 @@ def _mean_info_list_value(value, column):
 
 def _coerce_info_list_columns(dat, columns):
     for raw_col in columns:
-        dat[raw_col] = dat[raw_col].map(lambda value, column=raw_col: _mean_info_list_value(value, column))
+        dat[raw_col] = dat[raw_col].map(lambda value, column=raw_col: mean_info_list_value(value, column))
     return dat
 
 

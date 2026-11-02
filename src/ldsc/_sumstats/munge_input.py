@@ -7,11 +7,13 @@
 """Resolve raw summary-statistics inputs for the munging workflow.
 
 Header aliases, DANER profiles, sample-size selection and bounded source-build
-inference belong here. The numerical kernel receives only resolved settings.
+inference belong here. :func:`resolve_raw_schema` reads a raw header once for
+both the munging run and ``--infer-only``; the numerical kernel receives only
+resolved settings.
 """
 
 import bz2
-from dataclasses import replace
+from dataclasses import dataclass, replace
 import gzip
 import logging
 import warnings
@@ -25,10 +27,10 @@ from .._core.columns import (
     clean_header,
 )
 from ..config import GlobalConfig, MungeConfig
-from ..errors import LDSCInputError, LDSCUsageError
+from ..errors import LDSCInputError, LDSCUsageError, LDSCUserError
 from .._genome.liftover import SumstatsLiftoverRequest
 from .._core.snp_identity import identity_base_mode, identity_mode_family, is_allele_aware_mode
-from .munge_kernel import MungeQC, ResolvedMungeInput, prepare_sumstats_restriction
+from .munge_kernel import MungeQC, ResolvedMungeInput, mean_info_list_value, prepare_sumstats_restriction
 
 LOGGER = logging.getLogger('LDSC.sumstats_munger')
 _BUILD_INFERENCE_CHUNKSIZE = 5_000
@@ -73,6 +75,90 @@ describe_cname = {
     'NSTUDY': 'Number of studies in which the SNP was genotyped.'
 }
 
+_LIKELY_SIGNED_SUMSTAT_NAMES = {'EFFECT_SIZE', 'EFFECTSIZE', 'LOGOR', 'LOG_OR', 'BETA_HAT'}
+
+
+@dataclass(frozen=True)
+class RawSchemaIssue:
+    """One header-level problem that stops a munging run.
+
+    ``message`` is the self-contained error the run raises, of class ``error``.
+    ``label`` names the problem under ``Missing fields`` in the ``--infer-only``
+    report, and ``note`` is the report's explanation, or ``None`` when the
+    report explains the problem in its own words.
+    """
+
+    label: str
+    message: str
+    note: str | None
+    error: type[LDSCUserError] = LDSCInputError
+
+
+@dataclass(frozen=True)
+class RawSchema:
+    """How one raw summary-statistics file's header is read for munging.
+
+    Built by :func:`resolve_raw_schema` for both the munging run and
+    ``--infer-only``.
+
+    Attributes
+    ----------
+    source_path : str
+        Resolved raw summary-statistics path.
+    headers : tuple of str
+        Raw header names in file order.
+    detected_format : str
+        ``plain``, ``daner-old`` or ``daner-new``.
+    inferred_hints : dict of str to str
+        Column hints that the format implies; explicit hints override them.
+    config : MungeConfig
+        The munging config with the detected format, the merged INFO-list
+        columns and any ``signed_sumstats`` hint applied.
+    column_map : dict of str to str
+        Raw column to canonical field; the chosen signed statistic maps to
+        ``SIGNED_SUMSTAT``.
+    field_descriptions : dict of str to str
+        Raw column to a description of the field it supplies, for the log.
+    signed_sumstat_name : str
+        The raw signed-statistic column, or ``SIGNED_SUMSTATS`` when
+        ``--signed-sumstats`` or ``--a1-inc`` decides it.
+    signed_sumstat_null : float or None
+        Null value of the signed statistic.
+    qc : MungeQC
+        Sample-size constants, old DANER case and control counts, and the
+        effective INFO and MAF thresholds.
+    notes : tuple of str
+        Observations for ``--infer-only``, such as comma-separated INFO lists.
+    issues : tuple of RawSchemaIssue
+        Every header-level problem found, in the order the checks run.
+    """
+
+    source_path: str
+    headers: tuple[str, ...]
+    detected_format: str
+    inferred_hints: dict[str, str]
+    config: MungeConfig
+    column_map: dict[str, str]
+    field_descriptions: dict[str, str]
+    signed_sumstat_name: str
+    signed_sumstat_null: float | None
+    qc: MungeQC
+    notes: tuple[str, ...]
+    issues: tuple[RawSchemaIssue, ...]
+
+    def raise_issues(self) -> None:
+        """Raise one error for all issues; a single issue keeps its own message and class."""
+        if not self.issues:
+            return
+        if len(self.issues) == 1:
+            issue = self.issues[0]
+            raise issue.error(issue.message)
+        listed = "\n".join(f"  {index}. {issue.message}" for index, issue in enumerate(self.issues, start=1))
+        raise LDSCInputError(
+            f"munge-sumstats found {len(self.issues)} problems with the columns of '{self.source_path}'; "
+            f"fix all of them before rerunning:\n{listed}"
+        )
+
 
 def _decode_header_line(line):
     """Decode one raw header/comment line from plain or compressed input."""
@@ -105,6 +191,21 @@ def read_header(fh):
         return [x.rstrip('\n') for x in line.split()]
 
 
+def _read_first_data_row(path, headers):
+    """Return the first data row keyed by raw header names."""
+    openfunc, _compression = get_compression(path)
+    skiprows = count_leading_sumstats_comment_lines(path)
+    with openfunc(path) as handle:
+        for _idx in range(skiprows + 1):
+            handle.readline()
+        for line in handle:
+            line = _decode_header_line(line)
+            if line.strip():
+                values = line.split()
+                return {column: values[idx] for idx, column in enumerate(headers) if idx < len(values)}
+    return {}
+
+
 def get_cname_map(flag, default, ignore):
     """Map cleaned headers, preferring ignores, explicit hints, then aliases."""
     clean_ignore = [clean_header(x) for x in ignore]
@@ -132,47 +233,90 @@ def get_compression(fh):
     return openfunc, compression
 
 
+def _detect_format(clean_headers, requested_format):
+    """Return the requested raw format, or detect it from cleaned headers when it is ``auto``."""
+    if requested_format != 'auto':
+        return requested_format
+    if any(column.startswith('FRQ_A_') for column in clean_headers) and any(
+            column.startswith('FRQ_U_') for column in clean_headers):
+        return 'daner-old'
+    if {'NCA', 'NCO'}.issubset(clean_headers) or {'NCAS', 'NCON'}.issubset(clean_headers):
+        return 'daner-new'
+    return 'plain'
+
+
+def _format_hints(headers, clean_headers, detected_format):
+    """Return the column hints a raw format implies."""
+    hints = {}
+    if detected_format == 'plain':
+        if 'REF' in clean_headers and 'ALT' in clean_headers and not {'A1', 'A2', 'EA', 'NEA'} & clean_headers:
+            hints['a1'] = next(column for column in headers if clean_header(column) == 'REF')
+            hints['a2'] = next(column for column in headers if clean_header(column) == 'ALT')
+    elif detected_format == 'daner-new':
+        frq_u = next((column for column in headers if clean_header(column).startswith('FRQ_U_')), None)
+        if frq_u is not None:
+            hints['frq'] = frq_u
+    return hints
+
+
+def _first_row_info_lists(source_path, headers):
+    """Return INFO-alias columns whose first value is a comma-separated list, with a note for each."""
+    sample = _read_first_data_row(source_path, headers)
+    columns = [column for column in headers
+               if default_cnames.get(clean_header(column)) == 'INFO' and ',' in sample.get(column, '')]
+    return columns, [f"{column} appears to contain comma-separated per-study INFO values." for column in columns]
+
+
+def likely_signed_sumstat_column(file_cnames):
+    """Return the first column whose name suggests an unrecognized signed effect, or ``None``."""
+    return next((column for column in file_cnames if clean_header(column) in _LIKELY_SIGNED_SUMSTAT_NAMES), None)
+
+
 def _column_hints(columns: dict[str, str], config: MungeConfig):
     '''
     Parse flags that specify how to interpret nonstandard column names.
 
-    flag_cnames is a dict that maps (cleaned) arguments to internal column names
+    Returns the flags, a dict that maps (cleaned) arguments to internal column
+    names, the null value of ``--signed-sumstats``, and a usage message when
+    that option cannot be parsed.
     '''
     flag_cnames = {clean_header(source): target for target, source in columns.items()}
     flag_cnames.update({clean_header(source): 'INFO' for source in config.info_list_columns})
 
-    null_value = None
+    null_value, problem = None, None
     if config.signed_sumstats_spec:
         try:
             cname, null_value = config.signed_sumstats_spec.split(',')
             null_value = float(null_value)
             flag_cnames[clean_header(cname)] = 'SIGNED_SUMSTAT'
-        except ValueError as exc:
-            raise LDSCUsageError(
+        except ValueError:
+            null_value = None
+            problem = (
                 f"munge-sumstats could not parse --signed-sumstats={config.signed_sumstats_spec!r}. "
                 "Most likely the value is missing '<column>,<null_value>' or the null value is not numeric. "
                 "Use a value such as --signed-sumstats BETA,0 or --signed-sumstats OR,1."
-            ) from exc
+            )
 
-    return [flag_cnames, null_value]
+    return flag_cnames, null_value, problem
 
 
-def _validate_explicit_sample_size_column_strategy(columns):
-    """Validate mutually exclusive direct-N and case/control column hints."""
+def _explicit_sample_size_problem(columns):
+    """Return why the explicit direct-N and case/control column hints conflict, or ``None``."""
     has_direct_n = columns.get("N") is not None
     has_n_cas = columns.get("N_CAS") is not None
     has_n_con = columns.get("N_CON") is not None
     if has_n_cas != has_n_con:
         missing = '--N-con-col' if has_n_cas else '--N-cas-col'
-        raise LDSCUsageError(
+        return (
             f"munge-sumstats --N-cas-col and --N-con-col must be provided together; {missing} is missing. "
             "Pass both case/control column names, or drop the incomplete case/control hint and use --N-col."
         )
     if has_direct_n and has_n_cas:
-        raise LDSCUsageError(
+        return (
             "munge-sumstats --N-col cannot be combined with --N-cas-col and --N-con-col. "
             "Choose one sample-size strategy: a direct per-variant N column, or a paired case/control column strategy."
         )
+    return None
 
 
 def _warn_sample_size_column_suppression(message):
@@ -182,7 +326,7 @@ def _warn_sample_size_column_suppression(message):
 
 
 def _resolve_sample_size_column_strategy(columns, cname_translation, source_path):
-    """Apply explicit sample-size precedence and reject ambiguous inference."""
+    """Apply explicit sample-size precedence; return why automatic inference is ambiguous, or ``None``."""
     if columns.get("N") is not None:
         suppressed = [
             source for source, target in cname_translation.items()
@@ -195,7 +339,7 @@ def _resolve_sample_size_column_strategy(columns, cname_translation, source_path
                 f"--N-col {columns.get('N')} selected the direct-N sample-size strategy; ignored automatically inferred "
                 f"N_CAS/N_CON column(s): {', '.join(suppressed)}."
             )
-        return
+        return None
 
     if columns.get("N_CAS") is not None:
         suppressed = [
@@ -209,7 +353,7 @@ def _resolve_sample_size_column_strategy(columns, cname_translation, source_path
                 f"--N-cas-col {columns.get('N_CAS')} and --N-con-col {columns.get('N_CON')} selected the case/control "
                 f"sample-size strategy; ignored automatically inferred direct-N column(s): {', '.join(suppressed)}."
             )
-        return
+        return None
 
     sources_by_target = {
         target: [source for source, mapped_target in cname_translation.items() if mapped_target == target]
@@ -219,12 +363,13 @@ def _resolve_sample_size_column_strategy(columns, cname_translation, source_path
         direct = sources_by_target['N'][0]
         n_cas = sources_by_target['N_CAS'][0]
         n_con = sources_by_target['N_CON'][0]
-        raise LDSCInputError(
+        return (
             f"munge-sumstats found multiple sample-size strategies through automatic inference in '{source_path}': "
             f"direct N column '{direct}' and case/control columns '{n_cas}'/'{n_con}'. "
             "LDSC3 will not choose one silently because the values can differ. Choose one explicitly with "
             f"--N-col {direct} or --N-cas-col {n_cas} --N-con-col {n_con}."
         )
+    return None
 
 
 # Legacy LDSC QC defaults; each applies only when its column is selected.
@@ -268,7 +413,8 @@ def _old_daner_sample_sizes(file_cnames, source_path):
 
     The counts are the numeric suffixes of the first ``FRQ_A_<cases>`` and
     ``FRQ_U_<controls>`` columns, matched after header cleaning as in format
-    detection, so lowercase headers are read too.
+    detection, so lowercase headers are read too. The last value is a message
+    naming every missing column or non-count suffix, or ``None``.
     """
     columns, counts, problems = {}, {}, []
     for prefix, role in (('FRQ_A_', 'cases'), ('FRQ_U_', 'controls')):
@@ -285,13 +431,13 @@ def _old_daner_sample_sizes(file_cnames, source_path):
             problems.append(f"{suffix!r} in {column} is not a positive count of {role}")
         columns[prefix], counts[prefix] = column, count
     if problems:
-        raise LDSCInputError(
+        return None, None, None, (
             f"munge-sumstats reads '{source_path}' as old DANER format, which takes the case and control counts "
             f"from columns named FRQ_A_<cases> and FRQ_U_<controls>, but {'; '.join(problems)}. "
             "Most likely the file is not in old DANER format or these columns were renamed. Restore the "
             "count-named frequency columns, or pass another --input-format with --N-cas/--N-con or --N-col."
         )
-    return counts['FRQ_A_'], counts['FRQ_U_'], columns['FRQ_U_']
+    return counts['FRQ_A_'], counts['FRQ_U_'], columns['FRQ_U_'], None
 
 
 def _suggest_allele_fix(file_cnames):
@@ -302,10 +448,9 @@ def _suggest_allele_fix(file_cnames):
 
 
 def _suggest_signed_sumstat_fix(file_cnames):
-    likely = {'EFFECT_SIZE', 'EFFECTSIZE', 'LOGOR', 'LOG_OR', 'BETA_HAT'}
-    for column in file_cnames:
-        if clean_header(column) in likely:
-            return f" Try --signed-sumstats {column},0 if that column is the signed effect relative to A1."
+    column = likely_signed_sumstat_column(file_cnames)
+    if column is not None:
+        return f" Try --signed-sumstats {column},0 if that column is the signed effect relative to A1."
     return ""
 
 
@@ -315,134 +460,175 @@ def _suggest_n_fix(file_cnames):
     return ""
 
 
-def prepare_munge_input(
+def resolve_raw_schema(
     source_path: str,
     raw_config: MungeConfig,
     config: MungeConfig,
     global_config: GlobalConfig,
-    liftover_request: SumstatsLiftoverRequest,
-    restriction_path: str | None,
-) -> ResolvedMungeInput:
-    """Resolve raw schema, sample-size choices, source coordinates and keep-list before QC.
+) -> RawSchema:
+    """Read one raw summary-statistics header the way the munging run will.
 
-    Only build inference performs a streaming coordinate prepass. No output
-    directory or artifact is touched here; the returned request can be executed
-    without a CLI namespace or any further format/build decisions.
+    The munging run and ``--infer-only`` both call this, so the report and the
+    run cannot disagree about the header. It detects the raw format, applies the
+    column hints the format implies and comma-separated INFO lists found in the
+    first data row (explicit hints take priority), maps raw columns to canonical
+    fields, chooses the signed statistic, reads old DANER case and control
+    counts and resolves the INFO and MAF thresholds. Only the header and the
+    first data row are read; nothing is written.
+
+    Parameters
+    ----------
+    source_path : str
+        Resolved raw summary-statistics path.
+    raw_config : MungeConfig
+        Supplies the explicit ``column_hints``.
+    config : MungeConfig
+        Munging options: input format, ignored and INFO-list columns,
+        ``signed_sumstats_spec``, ``a1_inc``, sample-size constants and QC
+        thresholds.
+    global_config : GlobalConfig
+        Supplies the SNP identifier mode; allele-aware modes require A1/A2.
+
+    Returns
+    -------
+    RawSchema
+        The resolved reading. Problems that would stop the run are collected in
+        ``issues`` instead of being raised, so one report or one error lists
+        them all; :meth:`RawSchema.raise_issues` raises them.
     """
-    columns = {COLUMN_HINT_TARGETS[key]: source for key, source in raw_config.column_hints.items()
-               if key in COLUMN_HINT_TARGETS and source is not None}
+    headers = tuple(read_header(source_path))
+    clean_set = {clean_header(column) for column in headers}
+    detected_format = _detect_format(clean_set, config.sumstats_format)
+    inferred_hints = _format_hints(headers, clean_set, detected_format)
+    info_lists, notes = _first_row_info_lists(source_path, headers)
+    hints = {**inferred_hints, **raw_config.column_hints}
     config = replace(
         config,
-        signed_sumstats_spec=raw_config.column_hints.get('signed_sumstats', config.signed_sumstats_spec),
-        info_list_columns=config.info_list_columns or tuple(column for column in raw_config.column_hints.get('info_list', '').split(',') if column),
+        sumstats_format=detected_format,
+        signed_sumstats_spec=hints.get('signed_sumstats', config.signed_sumstats_spec),
+        info_list_columns=tuple(dict.fromkeys([*config.info_list_columns, *info_lists]))
+        or tuple(column for column in hints.get('info_list', '').split(',') if column),
     )
+    columns = {COLUMN_HINT_TARGETS[key]: source for key, source in hints.items()
+               if key in COLUMN_HINT_TARGETS and source is not None}
     qc = MungeQC(N=config.N, N_cas=config.N_cas, N_con=config.N_con,
                  N_min=config.N_min, nstudy_min=config.nstudy_min)
-    _validate_explicit_sample_size_column_strategy(columns)
-    file_cnames = read_header(source_path)  # note keys not cleaned
-    flag_cnames, signed_sumstat_null = _column_hints(columns, config)
-    if config.ignore_columns:
-        ignore_cnames = [clean_header(x) for x in config.ignore_columns]
-    else:
-        ignore_cnames = []
+    issues = []
+
+    def problem(label, message, note=None, error=LDSCInputError):
+        issues.append(RawSchemaIssue(label, message, note, error))
+
+    explicit_n_problem = _explicit_sample_size_problem(columns)
+    if explicit_n_problem is not None:
+        problem('sample-size options', explicit_n_problem, explicit_n_problem, LDSCUsageError)
+    flag_cnames, signed_sumstat_null, signed_spec_problem = _column_hints(columns, config)
+    if signed_spec_problem is not None:
+        problem('--signed-sumstats', signed_spec_problem, signed_spec_problem, LDSCUsageError)
+    ignore_cnames = [clean_header(x) for x in config.ignore_columns]
 
     # remove LOG_ODDS, BETA, Z, OR from the default list
     if config.signed_sumstats_spec is not None or config.a1_inc:
-        mod_default_cnames = {x: default_cnames[
-            x] for x in default_cnames if default_cnames[x] not in null_values}
+        aliases = {x: default_cnames[x] for x in default_cnames if default_cnames[x] not in null_values}
     else:
-        mod_default_cnames = default_cnames
+        aliases = default_cnames
+    cname_map = get_cname_map(flag_cnames, aliases, ignore_cnames)
+    daner_problem = None
+    if detected_format == 'daner-old':
+        N_cas, N_con, frq_u, daner_problem = _old_daner_sample_sizes(headers, source_path)
+        if daner_problem is not None:
+            problem('DANER case/control counts', daner_problem, daner_problem)
+        else:
+            qc = replace(qc, N_cas=N_cas, N_con=N_con)
+            cname_map[clean_header(frq_u)] = 'FRQ'
 
-    cname_map = get_cname_map(
-        flag_cnames, mod_default_cnames, ignore_cnames)
-    if config.sumstats_format == 'daner-old':
-        N_cas, N_con, frq_u = _old_daner_sample_sizes(file_cnames, source_path)
-        LOGGER.info(
-            f"Inferred that N_cas = {N_cas}, N_con = {N_con} from the FRQ_[A/U] columns."
-        )
-        qc = replace(qc, N_cas=N_cas, N_con=N_con)
-        cname_map[clean_header(frq_u)] = 'FRQ'
-
-    cname_translation = {x: cname_map[clean_header(x)] for x in file_cnames if
+    cname_translation = {x: cname_map[clean_header(x)] for x in headers if
                          clean_header(x) in cname_map}  # note keys not cleaned
-    _resolve_sample_size_column_strategy(columns, cname_translation, source_path)
-    cname_description = {
-        x: describe_cname[cname_translation[x]] for x in cname_translation}
+    # Sample size is judged only once the explicit sample-size options are valid.
+    if explicit_n_problem is None:
+        ambiguous_n = _resolve_sample_size_column_strategy(columns, cname_translation, source_path)
+        if ambiguous_n is not None:
+            problem('conflict: sample size', ambiguous_n, ambiguous_n)
+    field_descriptions = {x: describe_cname[cname_translation[x]] for x in cname_translation}
+    mapped = set(cname_translation.values())
+    if explicit_n_problem is None and daner_problem is None and not (
+            qc.N or (qc.N_cas and qc.N_con) or 'N' in mapped or {'N_CAS', 'N_CON'}.issubset(mapped)):
+        problem('N', (
+            f"munge-sumstats could not determine sample size (N) for '{source_path}'. "
+            "Most likely the input has no recognized N, N_CAS/N_CON, or DANER sample-size columns. "
+            "Provide --N, provide both --N-cas and --N-con, or include an inferable N column."
+            f"{_suggest_n_fix(headers)}"
+        ), "NEFF is not treated as N automatically; pass --N-col NEFF only if appropriate." if 'NEFF' in clean_set else None)
+
+    sign_cname = 'SIGNED_SUMSTATS'
+    signed_problem = signed_spec_problem is not None
     if config.signed_sumstats_spec is None and not config.a1_inc:
         sign_cnames = [
             x for x in cname_translation if cname_translation[x] in null_values]
         if len(sign_cnames) > 1:
-            raise LDSCInputError(
+            message = (
                 f"munge-sumstats found multiple signed statistic columns in '{source_path}': {sign_cnames}. "
                 "Most likely more than one effect column is present. Pass --signed-sumstats <column>,<null_value> "
                 "or use --ignore for the extra signed-statistic columns."
             )
-        if len(sign_cnames) == 0:
-            available = ', '.join(file_cnames)
+            problem('conflict: signed statistic', message, message)
+            signed_problem = True
+        elif not sign_cnames:
+            available = ', '.join(headers)
             accepted = ', '.join(sorted(null_values))
-            raise LDSCInputError(
+            problem('signed statistic', (
                 f"munge-sumstats could not find a signed summary statistic column in '{source_path}'. "
                 f"Available columns: {available}. Most likely the effect column has an unrecognized name. "
                 f"Expected one of: {accepted}, or pass --signed-sumstats <column>,<null_value>."
-                f"{_suggest_signed_sumstat_fix(file_cnames)}"
-            )
-        sign_cname = sign_cnames[0]
-        signed_sumstat_null = null_values[cname_translation[sign_cname]]
-        cname_translation[sign_cname] = 'SIGNED_SUMSTAT'
-    else:
-        sign_cname = 'SIGNED_SUMSTATS'
+                f"{_suggest_signed_sumstat_fix(headers)}"
+            ))
+            signed_problem = True
+        else:
+            sign_cname = sign_cnames[0]
+            signed_sumstat_null = null_values[cname_translation[sign_cname]]
+            cname_translation[sign_cname] = 'SIGNED_SUMSTAT'
 
     # check that we have all the columns we need
-    if not config.a1_inc:
-        req_cols = ['SNP', 'P', 'SIGNED_SUMSTAT']
-    else:
-        req_cols = ['SNP', 'P']
-
+    req_cols = ['SNP', 'P'] if config.a1_inc else ['SNP', 'P', 'SIGNED_SUMSTAT']
     for c in req_cols:
-        if c not in cname_translation.values():
-            available = ', '.join(file_cnames)
-            raise LDSCInputError(
-                f"munge-sumstats could not map the required column '{c}' from the header of '{source_path}'. "
-                f"Available columns: {available}. Most likely the file uses an unrecognized name for it. "
-                "Pass the matching column flag or rename the column. Other causes & fixes: "
-                "docs/user-guide/troubleshooting.md#munge-sumstats-could-not-map-a-required-column"
-            )
+        if c in cname_translation.values() or (c == 'SIGNED_SUMSTAT' and signed_problem):
+            continue
+        available = ', '.join(headers)
+        message = (
+            f"munge-sumstats could not map the required column '{c}' from the header of '{source_path}'. "
+            f"Available columns: {available}. Most likely the file uses an unrecognized name for it. "
+            "Pass the matching column flag or rename the column. Other causes & fixes: "
+            "docs/user-guide/troubleshooting.md#munge-sumstats-could-not-map-a-required-column"
+        )
+        problem('signed statistic' if c == 'SIGNED_SUMSTAT' else c, message, message)
 
     # check aren't any duplicated column names in mapping
     for field in cname_translation:
-        numk = file_cnames.count(field)
+        numk = headers.count(field)
         if numk > 1:
-            raise LDSCInputError(
+            message = (
                 f"munge-sumstats found {numk} columns named '{field}' in '{source_path}'. "
                 "Most likely the raw header contains duplicate labels. Rename or remove the duplicate column before munging."
             )
+            problem(f'duplicate column: {field}', message, message)
 
     # check multiple different column names don't map to same data field
-    for head in cname_translation.values():
-        numc = list(cname_translation.values()).count(head)
+    targets = list(cname_translation.values())
+    for head in dict.fromkeys(targets):
+        numc = targets.count(head)
         if numc > 1:
-            raise LDSCInputError(
+            message = (
                 f"munge-sumstats mapped {numc} different input columns to canonical field '{head}' in '{source_path}'. "
                 "Most likely an explicit column hint conflicts with an auto-detected alias. "
                 "Use --ignore for the extra column or remove the conflicting hint."
             )
+            problem(f'conflict: {head}', message, message)
 
     thresholds, conflicts = resolve_qc_thresholds(config, set(cname_translation.values()))
-    if conflicts:
-        raise LDSCInputError(
-            f"munge-sumstats cannot apply the requested QC thresholds to '{source_path}'. "
-            + " ".join(message for _, message in conflicts)
-        )
+    for flag, conflict in conflicts:
+        problem(f"column required by {flag}",
+                f"munge-sumstats cannot apply the requested QC thresholds to '{source_path}'. {conflict}", conflict)
     qc = replace(qc, info_min=thresholds['INFO'], maf_min=thresholds['FRQ'])
 
-    if (not qc.N) and (not (qc.N_cas and qc.N_con)) and ('N' not in cname_translation.values()) and\
-            (any(x not in cname_translation.values() for x in ['N_CAS', 'N_CON'])):
-        raise LDSCInputError(
-            f"munge-sumstats could not determine sample size (N) for '{source_path}'. "
-            "Most likely the input has no recognized N, N_CAS/N_CON, or DANER sample-size columns. "
-            "Provide --N, provide both --N-cas and --N-con, or include an inferable N column."
-            f"{_suggest_n_fix(file_cnames)}"
-        )
     if ('N' in cname_translation.values() or all(x in cname_translation.values() for x in ['N_CAS', 'N_CON']))\
             and 'NSTUDY' in cname_translation.values():
         nstudy = [
@@ -450,33 +636,69 @@ def prepare_munge_input(
         for x in nstudy:
             del cname_translation[x]
     mode = global_config.snp_identifier
-    requires_alleles = is_allele_aware_mode(mode)
-    if requires_alleles and not all(x in cname_translation.values() for x in ['A1', 'A2']):
-        raise LDSCInputError(
+    if is_allele_aware_mode(mode) and not all(x in cname_translation.values() for x in ['A1', 'A2']):
+        problem('A1/A2', (
             f"This run is using snp_identifier={mode!r}, which requires A1/A2 allele columns. "
             f"munge-sumstats could not map usable allele columns from '{source_path}'. "
             "Most likely the file uses REF/ALT or other unrecognized allele headers. "
             f"Pass --a1/--a2 column hints, or rerun with --snp-identifier {identity_base_mode(mode)}."
-            f"{_suggest_allele_fix(file_cnames)}"
+            f"{_suggest_allele_fix(headers)}"
+        ), "REF and ALT are present; pass --a1 REF --a2 ALT only if the signed statistic is relative to REF."
+            if {'REF', 'ALT'}.issubset(clean_set) else None)
+
+    return RawSchema(
+        source_path=source_path,
+        headers=headers,
+        detected_format=detected_format,
+        inferred_hints=inferred_hints,
+        config=config,
+        column_map=cname_translation,
+        field_descriptions=field_descriptions,
+        signed_sumstat_name=sign_cname,
+        signed_sumstat_null=signed_sumstat_null,
+        qc=qc,
+        notes=tuple(notes),
+        issues=tuple(issues),
+    )
+
+
+def prepare_munge_input(
+    schema: RawSchema,
+    global_config: GlobalConfig,
+    liftover_request: SumstatsLiftoverRequest,
+    restriction_path: str | None,
+) -> ResolvedMungeInput:
+    """Turn a resolved raw schema into a kernel request: source coordinates and keep-list.
+
+    Raises every header issue of ``schema`` first. Only build inference
+    performs a streaming coordinate prepass. No output directory or artifact is
+    touched here; the returned request can be executed without a CLI namespace
+    or any further format/build decisions.
+    """
+    schema.raise_issues()
+    if schema.detected_format == 'daner-old':
+        LOGGER.info(
+            f"Inferred that N_cas = {schema.qc.N_cas}, N_con = {schema.qc.N_con} from the FRQ_[A/U] columns."
         )
-
     LOGGER.info('Interpreting column names as follows:')
-    LOGGER.info('\n'.join([x + ':\t' + cname_description[x]
-                       for x in cname_description]) + '\n')
+    LOGGER.info('\n'.join([x + ':\t' + schema.field_descriptions[x]
+                       for x in schema.field_descriptions]) + '\n')
 
-    (openfunc, compression) = get_compression(source_path)
+    source_path, config, mode = schema.source_path, schema.config, global_config.snp_identifier
+    _, compression = get_compression(source_path)
     metadata_skiprows = count_leading_sumstats_comment_lines(source_path)
-    coordinate_metadata = _resolve_source_coordinates(source_path, cname_translation, global_config, compression, metadata_skiprows, restriction_path=restriction_path)
+    coordinate_metadata = resolve_source_coordinates(source_path, schema.column_map, global_config, compression, metadata_skiprows, restriction_path=restriction_path)
     restriction = prepare_sumstats_restriction(restriction_path, mode, coordinate_metadata['genome_build'])
+    info_lists = {clean_header(column) for column in config.info_list_columns}
     return ResolvedMungeInput(
         source_path=source_path,
-        column_map=cname_translation,
+        column_map=schema.column_map,
         compression=compression,
         metadata_skiprows=metadata_skiprows,
         chunk_size=config.chunk_size,
-        info_list_columns=tuple(raw for raw in cname_translation if clean_header(raw) in {clean_header(column) for column in config.info_list_columns}),
-        signed_sumstat_null=signed_sumstat_null,
-        signed_sumstat_name=sign_cname,
+        info_list_columns=tuple(raw for raw in schema.column_map if clean_header(raw) in info_lists),
+        signed_sumstat_null=schema.signed_sumstat_null,
+        signed_sumstat_name=schema.signed_sumstat_name,
         a1_inc=config.a1_inc,
         snp_identifier=mode,
         genome_build=coordinate_metadata['genome_build'],
@@ -484,11 +706,40 @@ def prepare_munge_input(
         coordinate_metadata=coordinate_metadata,
         restriction=restriction,
         liftover_request=liftover_request,
-        qc=qc,
+        qc=schema.qc,
     )
 
 
-def _resolve_source_coordinates(source_path, cname_translation, global_config, compression, metadata_skiprows, *, restriction_path=None):
+def all_missing_columns(schema: RawSchema) -> list[str]:
+    """Return the mapped raw columns that hold no nonmissing value, in header order.
+
+    Reads the mapped columns in chunks of ``schema.config.chunk_size`` and stops
+    once every column has a value. A comma-separated INFO list counts as missing
+    when none of its study values is numeric.
+    """
+    empty = set(schema.column_map)
+    if not empty:
+        return []
+    info_lists = {clean_header(column) for column in schema.config.info_list_columns}
+    _, compression = get_compression(schema.source_path)
+    with pd.read_csv(
+        schema.source_path, sep=r"\s+", compression=compression, na_values=[".", "NA"],
+        skiprows=count_leading_sumstats_comment_lines(schema.source_path),
+        chunksize=schema.config.chunk_size, dtype=str, usecols=list(schema.column_map),
+    ) as reader:
+        for chunk in reader:
+            for column in tuple(empty):
+                values = chunk[column]
+                if clean_header(column) in info_lists:
+                    values = values.map(lambda value: mean_info_list_value(value, column))
+                if values.notna().any():
+                    empty.remove(column)
+            if not empty:
+                break
+    return [column for column in schema.headers if column in empty]
+
+
+def resolve_source_coordinates(source_path, cname_translation, global_config, compression, metadata_skiprows, *, restriction_path=None):
     """Resolve source build and basis jointly with coordinate restriction evidence.
 
     Concrete source builds must agree with declarations and imply one-based coordinates.
@@ -559,5 +810,3 @@ def _coordinate_frames(source_path, cname_translation, *, compression, metadata_
     with reader:
         frames = (chunk.rename(columns={raw_chr[0]: 'CHR', raw_pos[0]: 'POS'}) for chunk in reader)
         yield from frames
-
-

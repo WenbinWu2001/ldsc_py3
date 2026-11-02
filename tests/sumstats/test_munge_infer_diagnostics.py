@@ -5,7 +5,7 @@ import shlex
 import pytest
 
 from ldsc._sumstats import munger as workflow
-from ldsc.errors import LDSCUsageError
+from ldsc.errors import LDSCUsageError, LDSCUserError
 
 
 def test_infer_only_rejects_blank_output_before_reading(capsys):
@@ -172,3 +172,91 @@ def test_suggested_command_round_trips_all_flag_families(tmp_path, capsys, varia
     parser = workflow.build_parser()
     assert vars(parser.parse_args(tokens[2:])) == vars(parser.parse_args(options))
     assert not (tmp_path / 'out').exists()
+
+
+# Each header problem stops the run; --infer-only must report it instead of "Runnable: yes".
+_HEADER_PROBLEMS = {
+    'two signed statistics': ('SNP A1 A2 P BETA Z N\nrs1 A G 0.05 0.1 1.0 1000\n', [], 'conflict: signed statistic'),
+    'two p-value columns': ('SNP A1 A2 P PVAL BETA N\nrs1 A G 0.05 0.05 0.1 1000\n', [], 'conflict: P'),
+    'two sample-size strategies': ('SNP A1 A2 P BETA N N_CAS N_CON\nrs1 A G 0.05 0.1 1000 400 600\n', [],
+                                   'conflict: sample size'),
+    'case column without control column': ('SNP A1 A2 P BETA NCAS NCON\nrs1 A G 0.05 0.1 400 600\n',
+                                           ['--N-cas-col', 'NCAS'], 'sample-size options'),
+    'forced old DANER without counts': ('SNP A1 A2 P BETA N\nrs1 A G 0.05 0.1 1000\n', ['--input-format', 'daner-old'],
+                                        'DANER case/control counts'),
+}
+
+
+@pytest.mark.parametrize('case', list(_HEADER_PROBLEMS))
+def test_infer_only_reports_the_header_problem_the_run_stops_on(tmp_path, capsys, case):
+    text, extra, label = _HEADER_PROBLEMS[case]
+    raw = tmp_path / 'raw.tsv'
+    raw.write_text(text)
+    base = ['--raw-sumstats-file', str(raw), '--snp-identifier', 'rsid', '--no-snp-restriction', *extra]
+    report = workflow.main([*base, '--output-dir', str(tmp_path / 'infer'), '--infer-only'])
+    assert not report.runnable
+    assert label in report.missing_fields
+    assert 'Runnable: no' in capsys.readouterr().out
+    with pytest.raises(LDSCUserError) as caught:
+        workflow.main([*base, '--output-dir', str(tmp_path / 'run')])
+    assert str(caught.value) in report.notes
+
+
+def test_infer_only_honours_ignore_for_the_signed_statistic(tmp_path):
+    raw = tmp_path / 'raw.tsv'
+    raw.write_text('SNP A1 A2 P BETA N\nrs1 A G 0.05 0.1 1000\n')
+    report = workflow.main(['--raw-sumstats-file', str(raw), '--snp-identifier', 'rsid', '--no-snp-restriction',
+                            '--ignore', 'BETA', '--output-dir', str(tmp_path / 'infer'), '--infer-only'])
+    assert report.missing_fields == ('signed statistic',)
+
+
+def test_python_inference_reports_header_problems(tmp_path):
+    from ldsc import GlobalConfig, infer_raw_sumstats
+
+    raw = tmp_path / 'raw.tsv'
+    raw.write_text('SNP A1 A2 P BETA Z N\nrs1 A G 0.05 0.1 1.0 1000\n')
+    report = infer_raw_sumstats(raw, global_config=GlobalConfig(snp_identifier='rsid'))
+    assert report.missing_fields == ('conflict: signed statistic',)
+
+
+def test_run_lists_every_header_problem_in_one_error(tmp_path):
+    raw = tmp_path / 'raw.tsv'
+    raw.write_text('SNP A1 A2 P effect_size\nrs1 A G 0.05 0.1\n')
+    with pytest.raises(LDSCUserError) as caught:
+        workflow.main(['--raw-sumstats-file', str(raw), '--snp-identifier', 'rsid', '--no-snp-restriction',
+                       '--output-dir', str(tmp_path / 'out')])
+    message = str(caught.value)
+    assert message.startswith(f"munge-sumstats found 2 problems with the columns of '{raw}'")
+    assert '\n  1. munge-sumstats could not determine sample size (N)' in message
+    assert '\n  2. munge-sumstats could not find a signed summary statistic column' in message
+
+
+def test_infer_only_does_not_turn_an_internal_build_error_into_a_note(tmp_path, monkeypatch):
+    from ldsc._genome.build_policy import GenomeBuildCheck
+
+    def broken(self):
+        raise RuntimeError('internal failure')
+
+    monkeypatch.setattr(GenomeBuildCheck, 'resolve', broken)
+    raw = tmp_path / 'raw.tsv'
+    raw.write_text('SNP CHR POS A1 A2 P BETA N\nrs1 1 100 A G 0.05 0.1 1000\n')
+    with pytest.raises(RuntimeError, match='internal failure'):
+        workflow.main(['--raw-sumstats-file', str(raw), '--snp-identifier', 'chr_pos', '--source-genome-build', 'hg19',
+                       '--output-genome-build', 'hg19', '--no-snp-restriction',
+                       '--output-dir', str(tmp_path / 'out'), '--infer-only'])
+
+
+def test_loading_does_not_relabel_an_internal_footer_error(tmp_path, monkeypatch):
+    from ldsc import load_sumstats
+
+    raw = tmp_path / 'raw.tsv'
+    raw.write_text('SNP A1 A2 P BETA N\nrs1 A G 0.05 0.1 1000\n')
+    workflow.main(['--raw-sumstats-file', str(raw), '--snp-identifier', 'rsid', '--no-snp-restriction',
+                   '--output-dir', str(tmp_path / 'out')])
+
+    def broken(*args, **kwargs):
+        raise RuntimeError('internal failure')
+
+    monkeypatch.setattr(workflow, 'validate_identity_artifact_metadata', broken)
+    with pytest.raises(RuntimeError, match='internal failure'):
+        load_sumstats(tmp_path / 'out' / 'sumstats.parquet')

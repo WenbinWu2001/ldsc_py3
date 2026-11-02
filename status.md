@@ -349,7 +349,10 @@ The user accepted the round-1 recommendations for architecture review candidate 
 
 - Resolved in `23521eb` (2026-11-02, at the user's request): the `h2`, `partitioned-h2`, `rg`, `quantile-h2`, `query-r2-matrix` and munging writers declare `diagnostics/input_issues.tsv` as owned and never produced, so a table left by a failed run stops a run without `--overwrite`.
   `build-r2-matrix` was left undeclared, against the recommendation the user accepted: its input checks run before its output family is known (whether the run is one chromosome comes from the `.bim` contents), and a passing check deletes the table before any ownership check, as `docs/reference/logs-and-outputs.md` already documented.
-- Open: concurrent per-chromosome `build-r2-matrix` runs into one output directory share `diagnostics/input_issues.tsv` and `diagnostics/plink_input_issues.tsv`, so one run's passing check can delete another's failure table; per-chromosome names would need a design, because the chromosome is not known when the checks run.
+- Resolved in `00073fc` (2026-11-02, at the user's request, minimal design): concurrent per-chromosome `build-r2-matrix` runs into one output directory share `diagnostics/input_issues.tsv` and `diagnostics/plink_input_issues.tsv`, and one run's passing check deleted another's failure table.
+  The build's input gates now keep an existing table when they pass (`InputGate(remove_on_pass=False)`), and only a run that owns the whole panel removes both tables, after its output check.
+  Accepted limitations, recorded in `docs/dev/design/logging.md`: a per-chromosome failure's table outlives a successful retry, and the table holds only the last failure's issues; per-run table names would remove both but need the chromosome before the checks run.
+  Full pytest before the last test edit: 2526 passed, 1 failed (`test_r2_builder_retries_failure_without_touching_other_markers[True]`, which asserted the old removal on a per-chromosome retry and now asserts the accepted limitation); after it, the five test files that cover these tables: 177 passed.
 - Lower-tier readers that spell higher-tier names (`_genome` and `_runtime` reading LD-score, regression, gene-index and munged file names or `files` keys) stay as they are, as for the R² names.
 
 ## Completed: dead-code and redundant-test cleanup (2026-10-29)

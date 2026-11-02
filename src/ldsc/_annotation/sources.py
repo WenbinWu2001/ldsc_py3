@@ -261,7 +261,9 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
     no numeric staging copy is created. Binary eligibility spans every input
     chunk and chromosome and is determined before float32 narrowing.
     INFO records mark input reading, identity/shard preparation, storage column
-    counts and value-file bytes, and successful completion.
+    counts and value-file bytes, and successful completion; in allele-aware
+    modes, one more names the files matched by the base mode because none
+    has ``A1``/``A2``.
     """
     workspace.require_open()
     paths = [*baseline_files, *query_files]
@@ -337,6 +339,10 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
     effective_mode = mode
     if is_allele_aware_mode(mode) and not any("A1" in s.metadata_columns for s in sources):
         effective_mode = identity_base_mode(mode)
+        names = [str(source.path) for source in sources]
+        listed = ", ".join(names[:3]) + (f" and {len(names) - 3} more" if len(names) > 3 else "")
+        LOGGER.info(f"No annotation file has A1/A2 columns, so annotation SNPs are matched by {effective_mode}, "
+                    f"the base mode of {mode}, without checking alleles: {listed}.")
     LOGGER.info("Checking SNP identities and preparing chromosome annotations.")
     input_counts = {}
     with DiskIdentityIndex(workspace.path / "identity.sqlite", effective_mode) as identity:

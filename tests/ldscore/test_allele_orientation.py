@@ -81,3 +81,21 @@ def test_ld_scores_take_alleles_from_the_panel_whatever_the_annotation_alleles(t
         assert table["A1"].tolist() == expected.loc[table["POS"], "A1"].tolist(), name
         assert table["A2"].tolist() == expected.loc[table["POS"], "A2"].tolist(), name
         pd.testing.assert_frame_equal(table, tables["bim_order"], obj=name)
+
+
+@pytest.mark.parametrize(("mode", "alleles", "logged"), [
+    ("chr_pos_allele_aware", False, True), ("chr_pos_allele_aware", True, False), ("chr_pos", False, False)])
+def test_ldscore_log_names_annotation_files_matched_by_base_identity(tmp_path, mode, alleles, logged):
+    annotation = BIM[["CHR", "POS", "SNP"]].assign(base=1)
+    if alleles:
+        annotation = annotation.assign(A1=BIM["A1"], A2=BIM["A2"])
+    path = tmp_path / "baseline.annot"
+    annotation.to_csv(path, sep="\t", index=False)
+
+    output = tmp_path / "out"
+    assert _ldscore(output, "--plink-prefix", str(PLINK), "--baseline-annot-sources", str(path),
+                    "--snp-identifier", mode) == 0
+
+    notice = ("No annotation file has A1/A2 columns, so annotation SNPs are matched by chr_pos, the base mode of "
+              f"chr_pos_allele_aware, without checking alleles: {path}.")
+    assert (notice in (output / "diagnostics" / "ldscore.log").read_text()) == logged

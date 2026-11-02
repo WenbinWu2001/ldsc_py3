@@ -59,6 +59,34 @@ def test_metadata_notice_summarizes_sources_on_each_preparation(tmp_path, caplog
             assert prepared.shards["1"].metadata().CM.isna().all()
 
 
+@pytest.mark.parametrize(("mode", "alleles", "logged"), [
+    ("rsid_allele_aware", False, True), ("rsid_allele_aware", True, False), ("rsid", False, False)])
+def test_annotation_files_without_alleles_log_base_identity_matching(tmp_path, caplog, mode, alleles, logged):
+    path = tmp_path / "baseline.annot"
+    columns = "CHR SNP POS CM A1 A2 base" if alleles else "CHR SNP POS CM base"
+    rows = ["1 rs1 1 0 A G 1", "1 rs2 2 0 C T 1"] if alleles else ["1 rs1 1 0 1", "1 rs2 2 0 1"]
+    path.write_text("\n".join([columns, *rows]) + "\n")
+    with caplog.at_level("INFO", logger="LDSC"), AnnotationWorkspace(tmp_path / "out") as workspace:
+        prepare_annotation_sources(workspace, [path], [], mode=mode)
+
+    notices = [record.getMessage() for record in caplog.records if "without checking alleles" in record.getMessage()]
+    assert notices == ([
+        "No annotation file has A1/A2 columns, so annotation SNPs are matched by rsid, the base mode of "
+        f"rsid_allele_aware, without checking alleles: {path}."] if logged else [])
+
+
+def test_base_identity_notice_names_at_most_three_files(tmp_path, caplog):
+    paths = [tmp_path / f"part{index}.annot" for index in range(5)]
+    for index, path in enumerate(paths):
+        path.write_text(f"CHR SNP POS CM part{index}\n1 rs1 1 0 1\n2 rs2 2 0 0\n")
+    with caplog.at_level("INFO", logger="LDSC"), AnnotationWorkspace(tmp_path / "out") as workspace:
+        prepare_annotation_sources(workspace, paths, [], mode="rsid_allele_aware")
+
+    notices = [record.getMessage() for record in caplog.records if "without checking alleles" in record.getMessage()]
+    assert len(notices) == 1
+    assert notices[0].endswith(f": {paths[0]}, {paths[1]}, {paths[2]} and 2 more.")
+
+
 @pytest.mark.parametrize("declared", [False, True])
 @pytest.mark.parametrize("chunk_rows", [None, 2, 2.0])
 def test_sharded_scan_budget_does_not_shrink_with_chromosome_count(tmp_path, monkeypatch, declared, chunk_rows):

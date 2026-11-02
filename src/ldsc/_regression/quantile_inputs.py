@@ -8,6 +8,7 @@ the cancellation of E[x^2] - E[x]^2 for high-offset annotations.
 
 from dataclasses import dataclass
 import json
+import logging
 
 import numpy as np
 import pandas as pd
@@ -18,6 +19,8 @@ from .quantile_storage import QuantileIdentityStore, reference_chunks, target_ch
 from ..config import AnnotationBuildConfig, GlobalConfig
 from ..errors import LDSCInputError
 from .._runtime.paths import resolve_file_group, split_cli_path_tokens
+
+LOGGER = logging.getLogger("LDSC.quantile_h2")
 
 
 @dataclass(frozen=True)
@@ -128,9 +131,14 @@ def _alignment(args, bundle, metadata, store, diagnostics, reference_paths, targ
     intersection = "EXISTS (SELECT 1 FROM fitted f WHERE f.effective_snp_id=r.effective_snp_id)"
     n_all = store.scalar(f"SELECT count(*) FROM reference r WHERE {intersection}")
     _validate_universe(metadata, "all", n_all)
-    for frame in target_chunks(target_paths, args.target_annot_column, getattr(args, "target_missing_value", None)):
-        frame["effective_snp_id"] = _infer_keys(store, frame, mode, "target annotation", diagnostics, reference_source)
-        store.append("target", frame)
+    for path in target_paths:
+        for chunk, frame in enumerate(target_chunks([path], args.target_annot_column,
+                                                    getattr(args, "target_missing_value", None))):
+            if chunk == 0 and is_allele_aware_mode(mode) and not {"A1", "A2"}.issubset(frame.columns):
+                LOGGER.info(f"quantile-h2 target annotation '{path}' has no A1/A2 columns, so its SNPs are matched "
+                            f"by {identity_base_mode(mode)}, the base mode of {mode}, without checking alleles.")
+            frame["effective_snp_id"] = _infer_keys(store, frame, mode, "target annotation", diagnostics, reference_source)
+            store.append("target", frame)
     if store.duplicates(diagnostics, "target", target_source):
         raise LDSCInputError(
             "quantile-h2 target annotation has duplicate effective SNP identities."

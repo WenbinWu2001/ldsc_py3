@@ -128,6 +128,26 @@ def test_omitted_alleles_require_globally_unique_reference_bases(workflow):
     assert issues.CHR.tolist() == [1, 2]
 
 
+def test_allele_less_annotations_and_target_log_base_identity_matching(workflow):
+    metadata_path = workflow.root / "ldscores/metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["snp_identifier"] = "rsid_allele_aware"
+    metadata_path.write_text(json.dumps(metadata))
+    path = workflow.root / "ref.tsv"
+    frame = pd.read_csv(path, sep="\t")
+    frame["A1"], frame["A2"] = "A", "C"
+    frame.to_csv(path, sep="\t", index=False)
+
+    result = run_quantile_h2_from_args(workflow.args)
+
+    np.testing.assert_allclose(result.quantile_h2.h2_obs, [.45, .35])
+    log = (Path(workflow.args.output_dir) / "diagnostics" / "quantile-h2.log").read_text()
+    assert ("annotation SNPs are matched by rsid, the base mode of rsid_allele_aware, without checking alleles: "
+            f"{workflow.root / 'annotations.tsv'}.") in log
+    assert (f"quantile-h2 target annotation '{workflow.root / 'target.tsv'}' has no A1/A2 columns, so its SNPs "
+            "are matched by rsid, the base mode of rsid_allele_aware, without checking alleles.") in log
+
+
 def test_global_ties_and_sharded_baselines(workflow):
     annotation = pd.read_csv(workflow.root / "annotations.tsv", sep="\t")
     paths = []

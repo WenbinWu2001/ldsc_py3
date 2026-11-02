@@ -2316,9 +2316,10 @@ def _write_one_ref_metadata_sidecar(metadata: pd.DataFrame, chrom: str, output_d
     """Write one opt-in reference-metadata sidecar (PLINK backend).
 
     The format matches the R2 matrix sidecar: a gzip TSV with
-    ``CHR POS SNP A1 A2 CM MAF`` columns, so an exported sidecar can seed a future
-    ``build-r2-matrix`` or a QC diff. Written from inside the per-chromosome
-    worker so the lean cross-process result does not carry per-SNP metadata.
+    ``CHR POS SNP A1 A2 CM MAF`` columns and the minor allele as ``A1``, so an
+    exported sidecar can seed a future ``build-r2-matrix`` or a QC diff.
+    Written from inside the per-chromosome worker so the lean cross-process
+    result does not carry per-SNP metadata.
     """
     columns = [c for c in ("CHR", "POS", "SNP", "A1", "A2", "CM", "MAF") if c in metadata.columns]
     path = Path(output_dir) / ref_metadata_file(chrom)

@@ -297,7 +297,12 @@ class PlinkRefPanel(RefPanel):
         return prefix, bim, fam, metadata, drops, funnel
 
     def _load_genotypes(self, chrom, source, annotations=None, *, keep_indivs=None, maf_min=None):
-        """Open one BED and align its retained rows to annotations without another read."""
+        """Open one BED and align its retained rows to annotations without another read.
+
+        The metadata gives each SNP's minor allele in the retained reference
+        individuals as ``A1``, as ``build-r2-matrix`` does, so ``MAF`` is the
+        frequency of ``A1``; at exactly 0.5 the ``.bim`` order is kept.
+        """
         prefix, bim, fam, reference, drops, funnel = source
         if annotations is None:
             annotations = ChromosomeAnnotations(
@@ -322,14 +327,10 @@ class PlinkRefPanel(RefPanel):
             raise
         _record_genotype_qc(funnel, geno.genotype_qc_removed, geno.maf_removed, maf_min)
         try:
-            metadata = pd.DataFrame(geno.df, columns=geno.colnames).rename(columns={"BP": "POS"})
-            metadata["CHR"] = metadata["CHR"].map(normalize_chromosome)
-            metadata["SNP"] = metadata["SNP"].astype(str)
-            metadata["POS"] = pd.to_numeric(metadata["POS"], errors="raise").astype(np.int64)
-            metadata["CM"] = pd.to_numeric(metadata["CM"], errors="coerce")
-            metadata["MAF"] = pd.to_numeric(metadata["MAF"], errors="coerce")
-            metadata = metadata.merge(reference[["CHR", "SNP", "POS", "A1", "A2"]],
-                                      on=["CHR", "SNP", "POS"], how="left", sort=False)
+            from .build_kernel import build_plink_metadata_frame
+
+            metadata = build_plink_metadata_frame(bim=bim, kept_snps=geno.kept_snps, maf_values=geno.maf,
+                                                  freq_values=geno.freq)
             retained_keys = identifier_keys(metadata, mode)
             indices = pd.Series(np.arange(len(keys)), index=keys).loc[retained_keys].to_numpy(dtype=np.int64)
             values = MappedAnnotations(aligned.annotations, indices, aligned.annotations.columns)
@@ -339,18 +340,15 @@ class PlinkRefPanel(RefPanel):
             raise
 
     def load_metadata(self, chrom: str) -> pd.DataFrame:
-        """Load one chromosome's metadata; the caller owns its lifetime."""
+        """Load one chromosome's genotype-filtered metadata; the caller owns its lifetime.
+
+        The genotypes are read to compute ``MAF`` and orient ``A1`` to the minor
+        allele, so an unreadable BED or a chromosome without usable genotypes is
+        an error.
+        """
         chrom = normalize_chromosome(chrom)
-        source = self._load_source(chrom)
-        try:
-            geno, metadata, _, _, _ = self._load_genotypes(chrom, source)
-        except Exception:
-            if self.spec.maf_min is not None or self.spec.keep_indivs_file is not None:
-                raise
-            # Preserve metadata-only BIM inspection when BED data is unavailable.
-            metadata = source[3].drop(columns="_raw_index").reset_index(drop=True)
-        else:
-            geno.close()
+        geno, metadata, _, _, _ = self._load_genotypes(chrom, self._load_source(chrom))
+        geno.close()
         return metadata
 
     def build_reader(self, chrom: str, keep_snps=None, keep_indivs=None, maf_min=None):

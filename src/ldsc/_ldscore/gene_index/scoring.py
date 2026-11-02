@@ -158,7 +158,8 @@ def load_gene_ldscore_index(
         raise LDSCInputError(
             f"Unsupported gene LD-score index format version {root.get('format_version')!r} "
             f"(this package reads version {_INDEX_FORMAT_VERSION}). Rebuild the complete index with the "
-            "current package; earlier indexes cannot be reused or migrated. Version 4 stores each "
+            "current package; earlier indexes cannot be reused or migrated. Version 5 gives each SNP's "
+            "minor allele as A1, as other PLINK-derived files do; version 4 stores each "
             "chromosome's reference-SNP funnel, which indexed scoring reports; version 3 made PLINK LD "
             "windows exact, and earlier indexes' LD scores differ slightly from current direct ldscore runs."
         )

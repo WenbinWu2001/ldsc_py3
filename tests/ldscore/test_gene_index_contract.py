@@ -12,6 +12,8 @@ from ldsc._ldscore.gene_index import build as index
 from ldsc._ldscore.gene_index.scoring import load_gene_ldscore_index
 from ldsc.config import GeneLDScoreIndexBuildConfig
 from ldsc.errors import LDSCConfigError, LDSCInputError
+from tests.gene_index_helpers import narrow_index_chromosomes
+from tests.ref_panel_helpers import ORIENTATION_PANEL, write_counted_plink
 
 
 def _arguments():
@@ -195,17 +197,38 @@ def test_complete_autosomal_index_build_and_reload(tmp_path, build, mode, unit, 
             dropped = pd.read_csv(path / 'diagnostics' / 'dropped_snps' / f'chr{chrom}_dropped.tsv.gz', sep='\t')
             assert len(dropped) == 1 and dropped.iloc[0].SNP == f'invalid_{chrom}'
     root = json.loads((path / 'metadata.json').read_text())
-    assert root['format_version'] == 4
-    # Version 3 indexes store no reference-SNP funnel.
-    root['format_version'] = 3
+    assert root['format_version'] == 5
+    # Version 4 indexes store the .bim allele order.
+    root['format_version'] = 4
     (path / 'metadata.json').write_text(json.dumps(root))
     with pytest.raises(LDSCInputError, match='Rebuild the complete index') as rejected:
         load_gene_ldscore_index(path)
-    assert 'reference-SNP funnel' in str(rejected.value)
+    assert 'minor allele' in str(rejected.value)
     root.pop('format_version')
     (path / 'metadata.json').write_text(json.dumps(root))
     with pytest.raises(LDSCInputError, match='Rebuild the complete index'):
         load_gene_ldscore_index(path)
+
+
+def test_index_rows_give_the_minor_allele_as_a1(tmp_path, monkeypatch):
+    narrow_index_chromosomes(monkeypatch, ['1'])
+    write_counted_plink(tmp_path / 'panel', ORIENTATION_PANEL)
+    rows = pd.DataFrame({'CHR': '1', 'SNP': [row[0] for row in ORIENTATION_PANEL], 'POS': [10, 20, 30, 40, 50]})
+    rows.assign(base=1).to_csv(tmp_path / 'baseline.annot', sep='\t', index=False)
+    rows.to_csv(tmp_path / 'regression.tsv', sep='\t', index=False)
+    pd.DataFrame({'gene_id': ['G1'], 'gene_name': ['Gene1'], 'chrom': ['1'], 'start': [1], 'end': [5],
+                  'genome_build': ['hg19']}).to_csv(tmp_path / 'genes.tsv', sep='\t', index=False)
+    config = GeneLDScoreIndexBuildConfig(
+        baseline_annot_sources=(str(tmp_path / 'baseline.annot'),), plink_prefix=str(tmp_path / 'panel'),
+        output_dir=str(tmp_path / 'index'), gene_coordinate_file=str(tmp_path / 'genes.tsv'), genome_build='hg19',
+        snp_identifier='rsid', regr_snps_file=str(tmp_path / 'regression.tsv'), regr_snps_exclude_regions='none',
+        gene_exclude_regions='none', ld_wind_snps=1)
+
+    path = index.build_gene_ldscore_index(config)
+
+    stored = pd.read_parquet(path / 'chromosomes' / 'chr1' / 'baseline_rows.parquet', columns=['SNP', 'A1', 'A2'])
+    assert stored.values.tolist() == [['rs1', 'G', 'A'], ['rs2', 'C', 'T'], ['rs3', 'A', 'C'],
+                                      ['rs4', 'T', 'G'], ['rs5', 'A', 'C']]
 
 
 def test_index_records_the_reference_snp_funnel_and_indexed_scoring_reports_it(tmp_path, capsys):

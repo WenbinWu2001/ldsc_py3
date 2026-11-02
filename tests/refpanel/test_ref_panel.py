@@ -8,7 +8,7 @@ import pandas as pd
 
 
 from ldsc.config import GlobalConfig, RefPanelConfig
-from ldsc.errors import LDSCConfigError, LDSCInputError
+from ldsc.errors import EmptyReferenceSNPs, LDSCConfigError, LDSCInputError
 from ldsc._refpanel.adapters import (
     R2MatrixRefPanel,
     PlinkRefPanel,
@@ -16,7 +16,7 @@ from ldsc._refpanel.adapters import (
     _snp_id_series_for_matching,
 )
 from ldsc._refpanel.build_kernel import build_restriction_mask
-from tests.ref_panel_helpers import write_r2_matrix_chromosome
+from tests.ref_panel_helpers import ORIENTATION_PANEL, write_counted_plink, write_r2_matrix_chromosome
 
 import numpy as np
 
@@ -223,6 +223,51 @@ class PlinkRefPanelTest(unittest.TestCase):
         )
         reader = panel.build_reader("22")
         self.assertIsNotNone(reader)
+
+
+@unittest.skipUnless(_has_module("bitarray"), "bitarray is not installed")
+class PlinkAlleleOrientationTest(unittest.TestCase):
+    """PLINK panel metadata gives the minor allele as A1 and MAF as its frequency."""
+
+    def _metadata(self, tmpdir, snp_identifier="rsid", **spec):
+        prefix = write_counted_plink(Path(tmpdir) / "panel", ORIENTATION_PANEL)
+        panel = PlinkRefPanel(GlobalConfig(snp_identifier=snp_identifier),
+                              RefPanelConfig(backend="plink", plink_prefix=str(prefix), **spec))
+        return panel.load_metadata("1")
+
+    def test_a1_is_the_less_frequent_allele_and_a_tie_keeps_the_bim_order(self):
+        for snp_identifier in ("rsid", "rsid_allele_aware"):
+            with self.subTest(snp_identifier=snp_identifier), tempfile.TemporaryDirectory() as tmpdir:
+                metadata = self._metadata(tmpdir, snp_identifier)
+
+                self.assertEqual(metadata["SNP"].tolist(), ["rs1", "rs2", "rs3", "rs4", "rs5"])
+                self.assertEqual(metadata["A1"].tolist(), ["G", "C", "A", "T", "A"])
+                self.assertEqual(metadata["A2"].tolist(), ["A", "T", "C", "G", "C"])
+                np.testing.assert_allclose(metadata["MAF"], [1 / 8, 1 / 8, 1 / 2, 1 / 6, 3 / 8], rtol=1e-12)
+
+    def test_kept_individuals_decide_which_allele_is_minor(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            keep = Path(tmpdir) / "keep.txt"
+            keep.write_text("I2\nI3\n", encoding="utf-8")
+
+            metadata = self._metadata(tmpdir, keep_indivs_file=str(keep))
+
+        # Genotype QC removes rs2 and rs3, monomorphic in I2 and I3, and rs4, whose
+        # two individuals are one missing call and one heterozygote.
+        self.assertEqual(metadata["SNP"].tolist(), ["rs1", "rs5"])
+        self.assertEqual(metadata["A1"].tolist(), ["G", "C"])
+        self.assertEqual(metadata["A2"].tolist(), ["A", "A"])
+        np.testing.assert_allclose(metadata["MAF"], [1 / 4, 1 / 4], rtol=1e-12)
+
+    def test_metadata_without_usable_genotypes_is_an_error_not_bim_rows(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            prefix = write_counted_plink(Path(tmpdir) / "panel", [("rs1", "A", "G", (2, 2, 2, 2)),
+                                                                  ("rs2", "C", "T", (0, 0, 0, 0))])
+            panel = PlinkRefPanel(GlobalConfig(snp_identifier="rsid"),
+                                  RefPanelConfig(backend="plink", plink_prefix=str(prefix)))
+
+            with self.assertRaises(EmptyReferenceSNPs):
+                panel.load_metadata("1")
 
 
 def _r2_panel(chrom="1", positions=(10, 20), maf=None, cm=None, snps=None):
@@ -465,16 +510,7 @@ class ParquetRefPanelTest(unittest.TestCase):
     def test_plink_prefix_accepts_suite_token(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            prefix = tmpdir / "panel.1"
-            (tmpdir / "panel.1.bed").write_bytes(b"\x6c\x1b\x01\x02")
-            (tmpdir / "panel.1.bim").write_text(
-                "1 rs1 0.1 10 A G\n",
-                encoding="utf-8",
-            )
-            (tmpdir / "panel.1.fam").write_text(
-                "f i 0 0 0 -9\n",
-                encoding="utf-8",
-            )
+            write_counted_plink(tmpdir / "panel.1", [("rs1", "A", "G", (2, 0))])
             panel = PlinkRefPanel(
                 GlobalConfig(snp_identifier="rsid"),
                 RefPanelConfig(backend="plink", plink_prefix=str(tmpdir / "panel.@")),

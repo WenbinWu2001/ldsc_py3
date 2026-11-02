@@ -1728,8 +1728,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
             output_dir.mkdir()
             stale = output_dir / "ldscore.query.parquet"
             stale.write_text("stale\n", encoding="utf-8")
-            from tests.ldscore.test_gene_ldscore_index import _write_plink_trio
-            _write_plink_trio(tmpdir / "panel", ["1"])
+            from tests.ref_panel_helpers import write_counted_plink
+            write_counted_plink(tmpdir / "panel", [("rs1", "A", "G", (2, 0))])
             args = Namespace(
                 output_dir=str(output_dir),
                 query_annot_sources=None,

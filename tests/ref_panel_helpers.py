@@ -1,4 +1,6 @@
 """Reference-panel fixtures exercised through the production preparation interface."""
+from pathlib import Path
+
 import numpy as np
 
 from ldsc import GlobalConfig, LDScoreConfig, PlinkRefPanel, RefPanelConfig
@@ -47,6 +49,41 @@ def write_tiny_plink(prefix, metadata):
     ))
     prefix.with_suffix(".fam").write_text("".join(f"F{i} I{i} 0 0 0 -9\n" for i in range(4)))
     prefix.with_suffix(".bed").write_bytes(b"\x6c\x1b\x01" + b"\xf0" * len(metadata))
+    return prefix
+
+
+# Five SNPs on four individuals: (SNP, .bim A1, .bim A2, .bim A1 copies per individual).
+# The less frequent allele in these counts is the A1 that panel preparation reports.
+ORIENTATION_PANEL = (
+    ("rs1", "A", "G", (2, 2, 2, 1)),     # A1 frequency 7/8: the .bim A1 is the major allele
+    ("rs2", "C", "T", (0, 1, 0, 0)),     # 1/8: the .bim A1 is already minor
+    ("rs3", "A", "C", (2, 2, 0, 0)),     # 1/2: a tie keeps the .bim order
+    ("rs4", "G", "T", (2, 2, None, 1)),  # 5/6 among the three individuals with a call
+    ("rs5", "C", "A", (2, 2, 1, 0)),     # 5/8 overall, 1/4 among individuals I2 and I3
+)
+
+
+def write_counted_plink(prefix, rows, *, chrom="1"):
+    """Write a PLINK trio whose genotypes are counts of the ``.bim`` A1 allele.
+
+    ``rows`` are ``(SNP, A1, A2, counts)`` at positions 10, 20, ...; each count
+    is 0, 1 or 2 copies of the ``.bim`` A1, or None for a missing call. The BED
+    uses PLINK's SNP-major two-bit codes (00 two A1 copies, 10 heterozygous,
+    11 two A2 copies, 01 missing), with the first individual in the lowest
+    bits of each byte. Individuals are ``F<i> I<i>``.
+    """
+    code = {2: 0b00, 1: 0b10, 0: 0b11, None: 0b01}
+    n_individuals = len(rows[0][3])
+    bed = bytearray(b"\x6c\x1b\x01")
+    for *_, counts in rows:
+        packed = bytearray((n_individuals + 3) // 4)
+        for individual, count in enumerate(counts):
+            packed[individual // 4] |= code[count] << 2 * (individual % 4)
+        bed += packed
+    Path(f"{prefix}.bim").write_text("".join(
+        f"{chrom} {snp} 0 {10 * (row + 1)} {a1} {a2}\n" for row, (snp, a1, a2, _) in enumerate(rows)))
+    Path(f"{prefix}.fam").write_text("".join(f"F{i} I{i} 0 0 0 -9\n" for i in range(n_individuals)))
+    Path(f"{prefix}.bed").write_bytes(bytes(bed))
     return prefix
 
 

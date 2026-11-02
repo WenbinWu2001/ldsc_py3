@@ -32,10 +32,13 @@ from ...errors import LDSCInputError, LDSCInternalError
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
 
 
-# Version 4: each chromosome stores its reference-SNP funnel, which indexed
-# scoring reports. Version 3 made PLINK LD windows exact; version 2 operators used
-# legacy LDSC's chunk-rounded windows, which depended on --snp-batch-size.
-_INDEX_FORMAT_VERSION = 4
+# Version 5: row A1 is the minor allele in the retained reference individuals,
+# not the .bim A1; index_id hashes only the inputs, so the version marks the
+# change. Version 4: each chromosome stores its reference-SNP funnel, which
+# indexed scoring reports. Version 3 made PLINK LD windows exact; version 2
+# operators used legacy LDSC's chunk-rounded windows, which depended on
+# --snp-batch-size.
+_INDEX_FORMAT_VERSION = 5
 # Chromosomes every published index covers. Callers read it through this
 # module when they run, so small test indexes can narrow it.
 INDEX_CHROMOSOMES = AUTOSOMES

@@ -191,6 +191,9 @@ def build_plink_metadata_frame(
     (``freq(A1) <= 0.5``). ``freq_values`` is the ``.bim`` ``A2`` allele frequency;
     rows with ``freq < 0.5`` have ``A1``/``A2`` swapped. ``maf_values`` is the
     folded ``min(freq, 1-freq)`` and, after the swap, equals ``freq(A1)``.
+    ``build-r2-matrix`` sidecars and PLINK panel preparation for ``ldscore``,
+    ``--export-ref-metadata`` and gene LD-score indexes share this table, so
+    every PLINK-derived artifact gives the same ``A1`` for a SNP.
     """
 
     kept_snps = np.asarray(kept_snps, dtype=int)
@@ -198,7 +201,7 @@ def build_plink_metadata_frame(
     freq_values = np.asarray(freq_values, dtype=float)
     if not (len(kept_snps) == len(maf_values) == len(freq_values)):
         raise LDSCInternalError(
-            "build-r2-matrix metadata assembly failed: kept_snps, maf_values, and "
+            "PLINK metadata assembly failed: kept_snps, maf_values, and "
             f"freq_values have different lengths ({len(kept_snps)} vs "
             f"{len(maf_values)} vs {len(freq_values)}). Most likely PLINK filtering "
             "bookkeeping desynchronized. Re-run with DEBUG logging and report the traceback."

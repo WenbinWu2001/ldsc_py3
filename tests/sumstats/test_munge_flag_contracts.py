@@ -98,3 +98,40 @@ def test_constant_n_bypasses_n_min_as_in_legacy(tmp_path, sample_size):
         "--snp-identifier", "rsid", "--no-snp-restriction", "--N-min", "2000", "--chunksize", "1", *sample_size,
     ])
     assert table.data.N.tolist() == [1000]
+
+
+_BUILD_CONTRACT_CASES = {
+    'rsID with a source build': (['--snp-identifier', 'rsid', '--source-genome-build', 'hg19'],
+                                 {'source_genome_build': 'hg19'}, 'rsid',
+                                 '`--source-genome-build` (`MungeConfig.source_genome_build`)'),
+    'rsID with an output build': (['--snp-identifier', 'rsid', '--output-genome-build', 'hg19'],
+                                  {'output_genome_build': 'hg19'}, 'rsid',
+                                  '`--output-genome-build` (`MungeConfig.output_genome_build`)'),
+    'rsID with a chain file': (['--snp-identifier', 'rsid', '--liftover-chain-file', 'x.chain'],
+                               {'liftover_chain_file': 'x.chain'}, 'rsid',
+                               '`--liftover-chain-file` (`MungeConfig.liftover_chain_file`)'),
+    'chr_pos without an output build': (['--snp-identifier', 'chr_pos'], {}, 'chr_pos',
+                                        '`--output-genome-build` (`MungeConfig.output_genome_build`)'),
+}
+
+
+@pytest.mark.parametrize('case', list(_BUILD_CONTRACT_CASES))
+def test_build_options_are_checked_once_with_flag_and_field_names(tmp_path, case):
+    from ldsc import GlobalConfig, MungeConfig, SumstatsMunger
+    from ldsc.errors import LDSCUsageError
+
+    flags, fields, mode, names = _BUILD_CONTRACT_CASES[case]
+    raw = tmp_path / 'raw.tsv'
+    raw.write_text('SNP CHR POS A1 A2 P BETA N\nrs1 1 100 A G 0.05 0.1 1000\n')
+    base = ['--raw-sumstats-file', str(raw), '--output-dir', str(tmp_path / 'out'), '--no-snp-restriction', *flags]
+    messages = []
+    for argv in (base, [*base, '--infer-only']):
+        with pytest.raises(LDSCUsageError) as caught:
+            main(argv)
+        messages.append(str(caught.value))
+    with pytest.raises(LDSCUsageError) as caught:
+        SumstatsMunger().run(MungeConfig(raw_sumstats_file=raw, output_dir=tmp_path / 'py', no_snp_restriction=True, **fields),
+                             global_config=GlobalConfig(snp_identifier=mode))
+    messages.append(str(caught.value))
+    assert names in messages[0]
+    assert messages[0] == messages[1] == messages[2]

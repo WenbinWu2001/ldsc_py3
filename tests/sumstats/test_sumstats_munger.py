@@ -2241,6 +2241,45 @@ class SumstatsMungerTest(unittest.TestCase):
 
             self.assertEqual(table.data["N"].tolist(), [100.0])
 
+    def test_run_reads_lowercase_old_daner_sample_size_headers(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "daner.tsv"
+            raw_path.write_text(
+                "snp a1 a2 frq_a_40 frq_u_60 or p\n"
+                "rs1 A G 0.2 0.3 1.02 0.05\n",
+                encoding="utf-8",
+            )
+
+            table = SumstatsMunger().run(
+                MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path, trait_name="trait"),
+                MungeConfig(no_snp_restriction=True, output_dir=tmpdir / "munged"),
+                GlobalConfig(snp_identifier="rsid"),
+            )
+
+            self.assertEqual(table.data["N"].tolist(), [100.0])
+            self.assertEqual(table.data["FRQ"].tolist(), [0.3])
+
+    def test_old_daner_format_requires_count_named_frequency_columns(self):
+        cases = {
+            "missing": ("SNP A1 A2 P OR N\nrs1 A G 0.05 1.02 100\n",
+                        r"no FRQ_A_<cases> column(.|\n)*no FRQ_U_<controls> column"),
+            "not a count": ("SNP A1 A2 FRQ_A_cases FRQ_U_60 P OR\nrs1 A G 0.2 0.3 0.05 1.02\n",
+                            r"'cases' in FRQ_A_cases is not a positive count"),
+        }
+        for label, (raw_text, message) in cases.items():
+            with self.subTest(label), tempfile.TemporaryDirectory() as tmpdir:
+                tmpdir = Path(tmpdir)
+                raw_path = tmpdir / "daner.tsv"
+                raw_path.write_text(raw_text, encoding="utf-8")
+
+                with self.assertRaisesRegex(ldsc.LDSCInputError, message):
+                    SumstatsMunger().run(
+                        MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path, trait_name="trait"),
+                        MungeConfig(no_snp_restriction=True, output_dir=tmpdir / "munged", sumstats_format="daner-old"),
+                        GlobalConfig(snp_identifier="rsid"),
+                    )
+
     def test_run_auto_detects_new_daner_frequency_and_sample_sizes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

@@ -263,6 +263,37 @@ def resolve_qc_thresholds(config, mapped_fields):
     return thresholds, conflicts
 
 
+def _old_daner_sample_sizes(file_cnames, source_path):
+    """Return the case count, control count and control-frequency column of an old DANER header.
+
+    The counts are the numeric suffixes of the first ``FRQ_A_<cases>`` and
+    ``FRQ_U_<controls>`` columns, matched after header cleaning as in format
+    detection, so lowercase headers are read too.
+    """
+    columns, counts, problems = {}, {}, []
+    for prefix, role in (('FRQ_A_', 'cases'), ('FRQ_U_', 'controls')):
+        column = next((name for name in file_cnames if clean_header(name).startswith(prefix)), None)
+        if column is None:
+            problems.append(f"the header has no {prefix}<{role}> column")
+            continue
+        suffix = column[len(prefix):]
+        try:
+            count = float(suffix)
+        except ValueError:
+            count = None
+        if count is None or not 0 < count < float('inf'):
+            problems.append(f"{suffix!r} in {column} is not a positive count of {role}")
+        columns[prefix], counts[prefix] = column, count
+    if problems:
+        raise LDSCInputError(
+            f"munge-sumstats reads '{source_path}' as old DANER format, which takes the case and control counts "
+            f"from columns named FRQ_A_<cases> and FRQ_U_<controls>, but {'; '.join(problems)}. "
+            "Most likely the file is not in old DANER format or these columns were renamed. Restore the "
+            "count-named frequency columns, or pass another --input-format with --N-cas/--N-con or --N-col."
+        )
+    return counts['FRQ_A_'], counts['FRQ_U_'], columns['FRQ_U_']
+
+
 def _suggest_allele_fix(file_cnames):
     clean_to_original = {clean_header(column): column for column in file_cnames}
     if 'REF' in clean_to_original and 'ALT' in clean_to_original:
@@ -325,15 +356,12 @@ def prepare_munge_input(
     cname_map = get_cname_map(
         flag_cnames, mod_default_cnames, ignore_cnames)
     if config.sumstats_format == 'daner-old':
-        frq_u = list(filter(lambda x: x.startswith('FRQ_U_'), file_cnames))[0]
-        frq_a = list(filter(lambda x: x.startswith('FRQ_A_'), file_cnames))[0]
-        N_cas = float(frq_a[6:])
-        N_con = float(frq_u[6:])
+        N_cas, N_con, frq_u = _old_daner_sample_sizes(file_cnames, source_path)
         LOGGER.info(
             f"Inferred that N_cas = {N_cas}, N_con = {N_con} from the FRQ_[A/U] columns."
         )
         qc = replace(qc, N_cas=N_cas, N_con=N_con)
-        cname_map[frq_u] = 'FRQ'
+        cname_map[clean_header(frq_u)] = 'FRQ'
 
     cname_translation = {x: cname_map[clean_header(x)] for x in file_cnames if
                          clean_header(x) in cname_map}  # note keys not cleaned

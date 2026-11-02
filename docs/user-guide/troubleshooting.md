@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-10-31
+Last updated on: 2026-11-02
 
 This reference expands run-aborting `ldsc` errors with at least three distinct plausible causes, following the [current logging and error-message guide](../dev/design/logging.md#diagnostics-and-troubleshooting).
 It also retains guidance for failed-run artifacts, documented query omissions, and cleanup warnings that users need to interpret.
@@ -353,7 +353,7 @@ Concrete source/output build options do not apply to rsID-family munging.
 1. Re-run `ldsc munge-sumstats` from the **raw** GWAS file to regenerate the
    artifact with the current schema.
 2. A genuine legacy `.sumstats` or `.sumstats.gz` text artifact is accepted
-   directly by regression when it contains `SNP`, `A1`, `A2`, `Z`, and `N`;
+   directly by regression when it contains `SNP`, `Z`, and `N`, and `A1` and `A2` for `rg`;
    see `docs/reference/formats/legacy-sumstats.md`.
 3. Do not hand-edit curated `.sumstats`/`.parquet` artifacts; treat them as outputs.
 
@@ -947,6 +947,29 @@ The log repeats these details as JSON, with support counts before and after the 
 Do not substitute a pseudoinverse or fabricate uncertainty.
 
 **Developer reference:** `JackknifeIdentifiabilityError` in `_regression/jackknife.py`; `RegressionRunner._fit_h2_dataset()` and `RegressionRunner.estimate_rg()` add the context · **Exception:** `JackknifeIdentifiabilityError`
+
+### `rg`: a trait has no A1/A2 columns
+
+**Symptom:** `rg needs A1 (the effect allele, the allele the signed statistic refers to) and A2 in every summary-statistics input ... but these inputs have no A1/A2 columns: ...` before any fit.
+
+`rg` aligns the second trait's signed statistics to the first trait's `A1`, so every trait needs both allele columns.
+`h2` and `partitioned-h2` accept the same files, because SNP heritability uses only squared statistics.
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | `munge-sumstats` ran in a base mode (`rsid` or `chr_pos`) on raw summary statistics without allele columns it recognizes | The munging summary printed `No A1/A2 columns written: rg cannot use this output.` |
+| 2 | The raw allele columns do not say which allele the signed statistic refers to (`REF`/`ALT`, `ALLELE1`/`ALLELE2`) and were passed to `--ignore` | The munging command line, or the column mapping in `diagnostics/sumstats.log` |
+| 3 | The input is a legacy `.sumstats(.gz)` file written without alleles, for example by legacy LDSC `munge_sumstats.py --no-alleles` | The file's header has no `A1` or `A2` |
+
+**Remedies:**
+
+1. Find out from the source of the summary statistics which allele the signed statistic refers to.
+2. Munge the raw summary statistics again with `--a1 <effect-allele column> --a2 <other column>`.
+3. Keep allele-less files for `h2` and `partitioned-h2` only.
+
+**Developer reference:** `_require_rg_alleles()` in `_regression/runner.py` · **Exception:** `LDSCInputError`
 
 ### `partitioned-h2`: a query regression fails
 

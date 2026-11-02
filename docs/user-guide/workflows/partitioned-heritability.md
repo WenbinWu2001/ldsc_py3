@@ -1,6 +1,6 @@
 # Partitioned heritability
 
-Last updated on: 2026-10-28
+Last updated on: 2026-11-02
 
 Partitioned heritability asks how SNP heritability is distributed across annotations, estimated with stratified LD score regression (S-LDSC; Finucane et al. 2015).
 LDSC3 runs it in two steps: `ldsc ldscore` computes LD scores for baseline annotations and any query annotations, and `ldsc partitioned-h2` fits the regression.
@@ -13,7 +13,7 @@ Testing one query annotation per cell type is [cell-type enrichment](cell-type-e
 
 ## Inputs you need
 
-- **Munged summary statistics** for one trait: the Parquet file written by [`munge-sumstats`](munge-sumstats.md), or a legacy `.sumstats(.gz)` file with `SNP`, `A1`, `A2`, `Z` and `N` (see [legacy summary statistics](../../reference/formats/legacy-sumstats.md)).
+- **Munged summary statistics** for one trait: the Parquet file written by [`munge-sumstats`](munge-sumstats.md), or a legacy `.sumstats(.gz)` file with `SNP`, `Z` and `N`, with or without `A1` and `A2` (see [legacy summary statistics](../../reference/formats/legacy-sumstats.md)).
 - **Baseline annotations**: a chromosome suite of `.annot(.gz)` files, for example a baseline-LD release.
   No baseline annotations are packaged with LDSC3; see [reference data](../reference-data.md).
 - **A reference panel**: an [R² matrix](r2-matrices.md) built by `build-r2-matrix` (`--r2-matrix-dir`), or PLINK files (`--plink-prefix`).

@@ -1,6 +1,6 @@
 # Migrating from legacy LDSC
 
-Last updated on: 2026-10-28
+Last updated on: 2026-11-02
 
 LDSC3 implements the same method as legacy LDSC, LD score regression (LDSC), behind one `ldsc` command with subcommands and new file formats.
 Build new commands from `ldsc COMMAND --help` and the workflow pages rather than translating old ones line by line.
@@ -25,6 +25,7 @@ This page summarizes what changed, which legacy files you can reuse, and how to 
 | Legacy file | Use in LDSC3 |
 | --- | --- |
 | Munged `.sumstats` or `.sumstats.gz` with `SNP`, `A1`, `A2`, `Z` and `N` | Pass directly to `h2`, `partitioned-h2` or `rg` with `--sumstats-file` or `--sumstats-sources`; munging again is optional. LDSC3 matches these files by rsID to the LD-score directory and checks allele orientation; see [legacy summary statistics](../../reference/formats/legacy-sumstats.md). |
+| Munged `.sumstats` or `.sumstats.gz` without `A1` and `A2`, such as the output of `munge_sumstats.py --no-alleles` | Pass directly to `h2` or `partitioned-h2`; LDSC3 matches them by rsID under the base form of the LD-score directory's SNP identifier mode and records the downgrade. `rg` rejects them; munge the raw GWAS file again with `--a1` and `--a2`. |
 | Raw GWAS tables | Munge with [`munge-sumstats`](munge-sumstats.md). |
 | Complete one-column LD-score suite with regression weights | Convert once with `convert-legacy-ldscores` (below); use the result with [`h2`](heritability.md) and [`rg`](genetic-correlation.md). |
 | Complete baseline-only partitioned suite | Convert once with `convert-legacy-ldscores`; use the result with [`partitioned-h2`](partitioned-heritability.md) for the joint baseline model. |

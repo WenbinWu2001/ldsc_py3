@@ -152,6 +152,7 @@ REGRESSION_IDENTITY_KEY_COLUMN = "_ldsc_regression_identity_key"
 _REGRESSION_NO_OVERLAP_DOC = (
     "docs/user-guide/troubleshooting.md#regression-no-snps-remain-after-merging-regression-inputs"
 )
+_RG_ALLELES_DOC = "docs/user-guide/troubleshooting.md#rg-a-trait-has-no-a1a2-columns"
 
 
 @contextmanager
@@ -1494,6 +1495,11 @@ def _has_legacy_sumstats_source(table: SumstatsTable) -> bool:
     return bool(table.provenance.get("legacy_ldsc", False))
 
 
+def _is_allele_less_legacy(table: SumstatsTable) -> bool:
+    """Return whether ``table`` is legacy text without A1/A2, which projects by rsID under the panel's base mode."""
+    return _has_legacy_sumstats_source(table) and not {"A1", "A2"}.intersection(table.data.columns)
+
+
 def _prepare_trait_sumstats(
     table: SumstatsTable,
     ldscore_result: LDScoreSource | LDScoreResult,
@@ -1565,14 +1571,23 @@ def _project_legacy_sumstats_to_panel(
         If required legacy columns or the LD-score directory's SNP identifier metadata are missing,
         or no source row can be projected safely.
     """
-    required = {"SNP", "A1", "A2", "Z", "N"}
-    missing = sorted(required - set(table.data.columns))
+    label = table.source_path or table.trait_name or 'sumstats'
+    missing = sorted({"SNP", "Z", "N"} - set(table.data.columns))
     if missing:
         raise LDSCInputError(
-            f"Cannot use legacy summary-statistics file '{table.source_path or table.trait_name or 'sumstats'}': "
-            f"required columns are missing: {missing}. Legacy regression compatibility requires SNP, A1, A2, Z, "
-            "and N; allele-less legacy inputs are unsupported for h2, partitioned-h2, and rg."
+            f"Cannot use legacy summary-statistics file '{label}': required columns are missing: {missing}. "
+            "Legacy regression compatibility requires SNP, Z and N, and A1 and A2 as a pair when present."
         )
+    allele_columns = [column for column in ("A1", "A2") if column in table.data.columns]
+    if len(allele_columns) == 1:
+        present = allele_columns[0]
+        absent = "A2" if present == "A1" else "A1"
+        raise LDSCInputError(
+            f"Cannot use legacy summary-statistics file '{label}': it has {present} but not {absent}. "
+            "A1 (the effect allele, the allele the signed statistic refers to) and A2 (the other allele) must come "
+            "as a pair. Re-create the file with both allele columns, or without either for h2 and partitioned-h2."
+        )
+    has_alleles = len(allele_columns) == 2
     panel_snapshot = ldscore_result.config_snapshot
     panel_mode = _snapshot_identity_mode(panel_snapshot)
     if panel_snapshot is None or panel_mode is None:
@@ -1587,7 +1602,10 @@ def _project_legacy_sumstats_to_panel(
             f"Legacy summary-statistics projection cannot use the LD-score panel because it is missing {missing_panel}. "
             "Regenerate the LD-score directory."
         )
-    allele_aware = is_allele_aware_mode(panel_mode)
+    # Without alleles, rows project by rsID alone, under the panel's base mode.
+    allele_aware = is_allele_aware_mode(panel_mode) and has_alleles
+    projected_snapshot = panel_snapshot if has_alleles else replace(
+        panel_snapshot, snp_identifier=identity_base_mode(panel_mode))
     if allele_aware and not {"A1", "A2"}.issubset(panel_source.columns):
         raise LDSCInputError(
             f"Legacy summary-statistics projection requires panel A1/A2 for snp_identifier='{panel_mode}', "
@@ -1597,8 +1615,9 @@ def _project_legacy_sumstats_to_panel(
     source = table.data.copy(deep=False)  # normalized columns are replaced, not modified in place
     source.index = pd.RangeIndex(len(source))
     source["SNP"] = source["SNP"].astype("string").str.strip()
-    source["A1"] = source["A1"].astype("string").str.upper().str.strip()
-    source["A2"] = source["A2"].astype("string").str.upper().str.strip()
+    if has_alleles:
+        source["A1"] = source["A1"].astype("string").str.upper().str.strip()
+        source["A2"] = source["A2"].astype("string").str.upper().str.strip()
     source_rsids = set(source["SNP"].dropna().astype(str)) - {""}
     panel_snp = panel_source["SNP"].astype("string").str.strip()
     panel_columns = ["CHR", "POS", "SNP", *(["A1", "A2"] if allele_aware else [])]
@@ -1635,21 +1654,22 @@ def _project_legacy_sumstats_to_panel(
         reasons.loc[reasons.isna() & mask.fillna(False)] = reason
 
     assign_reason(duplicate_source, "duplicate_source_rsid")
-    assign_reason(
-        source["A1"].isna() | source["A2"].isna() | source["A1"].eq("") | source["A2"].eq(""),
-        "missing_allele",
-    )
-    assign_reason(
-        ~source["A1"].isin(valid_bases) | ~source["A2"].isin(valid_bases) | source["A1"].eq(source["A2"]),
-        "invalid_allele",
-    )
-    assign_reason(
-        ((source["A1"] == "A") & (source["A2"] == "T"))
-        | ((source["A1"] == "T") & (source["A2"] == "A"))
-        | ((source["A1"] == "C") & (source["A2"] == "G"))
-        | ((source["A1"] == "G") & (source["A2"] == "C")),
-        "strand_ambiguous",
-    )
+    if has_alleles:
+        assign_reason(
+            source["A1"].isna() | source["A2"].isna() | source["A1"].eq("") | source["A2"].eq(""),
+            "missing_allele",
+        )
+        assign_reason(
+            ~source["A1"].isin(valid_bases) | ~source["A2"].isin(valid_bases) | source["A1"].eq(source["A2"]),
+            "invalid_allele",
+        )
+        assign_reason(
+            ((source["A1"] == "A") & (source["A2"] == "T"))
+            | ((source["A1"] == "T") & (source["A2"] == "A"))
+            | ((source["A1"] == "C") & (source["A2"] == "G"))
+            | ((source["A1"] == "G") & (source["A2"] == "C")),
+            "strand_ambiguous",
+        )
     assign_reason(source_candidate_count.eq(0), "missing_panel_rsid")
 
     eligible = reasons.isna()
@@ -1730,7 +1750,7 @@ def _project_legacy_sumstats_to_panel(
     projected_frame.index = pd.RangeIndex(len(projected_frame))
     projected_frame["POS"] = pd.to_numeric(projected_frame["POS"], errors="raise").astype("int64")
     dropped_mask = reasons.notna()
-    drops = source.loc[dropped_mask, ["SNP", "A1", "A2"]]
+    drops = source.reindex(columns=["SNP", "A1", "A2"]).loc[dropped_mask]
     drops.insert(0, "source_path", table.source_path)
     drops.insert(0, "trait_name", table.trait_name or Path(table.source_path or "sumstats").name)
     drops["reason"] = reasons.loc[dropped_mask].to_numpy()
@@ -1749,10 +1769,10 @@ def _project_legacy_sumstats_to_panel(
         "Projected %d legacy summary-statistics row(s) from '%s' onto panel SNP identifier mode %s; dropped %d.",
         len(projected_frame),
         table.source_path or table.trait_name or "sumstats",
-        panel_mode,
+        projected_snapshot.snp_identifier,
         len(drops),
     )
-    return replace(table, data=projected_frame, has_alleles=True, config_snapshot=panel_snapshot), drops
+    return replace(table, data=projected_frame, has_alleles=has_alleles, config_snapshot=projected_snapshot), drops
 
 
 def _sumstats_identity_mode(
@@ -1786,10 +1806,11 @@ def _resolve_h2_identity(
     """Resolve one summary-statistics table and one LD-score result for h2 merging."""
     ldscore_mode = _ldscore_identity_mode(ldscore_result, runner_config)
     sumstats_mode = _sumstats_identity_mode(sumstats_table, fallback_mode=ldscore_mode)
+    # Allele-less legacy text has no allele-aware alternative, so its projection is downgraded without the flag.
     return resolve_regression_identity_mode(
         sumstats_mode,
         ldscore_mode,
-        allow_identity_downgrade=regression_config.allow_identity_downgrade,
+        allow_identity_downgrade=regression_config.allow_identity_downgrade or _is_allele_less_legacy(sumstats_table),
     )
 
 
@@ -2668,11 +2689,12 @@ def _require_rg_alleles(tables: Sequence[SumstatsTable]) -> None:
     if missing:
         listed = ", ".join(f"{_trait_label(table)} ('{table.source_path or 'in-memory table'}')" for table in missing)
         raise LDSCInputError(
-            "rg needs A1/A2 allele columns in every munged summary statistics input to align the signed "
-            f"statistics of the two traits, but these inputs have none: {listed}. Most likely they were munged "
-            "in a base mode (`rsid` or `chr_pos`) from raw summary statistics without allele columns. Re-run "
-            "`ldsc munge-sumstats` for them with allele columns, adding `--a1`/`--a2` hints if the column names "
-            "are not recognized."
+            "rg needs A1 (the effect allele, the allele the signed statistic refers to) and A2 in every summary-"
+            "statistics input to align the signed statistics of the two traits, but these inputs have no A1/A2 "
+            f"columns: {listed}. Most likely `ldsc munge-sumstats` was not given --a1/--a2 and could not infer "
+            "them, for example because the raw allele columns were REF/ALT. Re-run `ldsc munge-sumstats` for them "
+            "with --a1 <effect-allele column> --a2 <other column>. Other causes & fixes: "
+            f"{_RG_ALLELES_DOC}"
         )
 
 
@@ -2870,7 +2892,11 @@ def _log_effective_regression_identity(
     modes.append(ld_mode)
     sources.append(ld_source)
     for table in sumstats_tables:
-        if _has_legacy_sumstats_source(table):
+        if _is_allele_less_legacy(table):
+            # Without alleles, projection gives a legacy table the base form of the LD-score directory's mode.
+            mode = identity_base_mode(ld_mode)
+            source = f"{_trait_label(table)}={mode} (legacy projection by rsID, without alleles)"
+        elif _has_legacy_sumstats_source(table):
             # Projection gives a legacy table the LD-score directory's mode.
             mode, source = ld_mode, f"{_trait_label(table)}={ld_mode} (legacy projection onto the LD-score panel)"
         else:
@@ -2887,6 +2913,7 @@ def _log_effective_regression_identity(
         for mode in modes[1:]:
             compat = resolve_regression_identity_mode(
                 effective, mode, allow_identity_downgrade=regression_config.allow_identity_downgrade
+                or any(_is_allele_less_legacy(table) for table in sumstats_tables),
             )
             effective = compat.effective_mode
             downgrade = downgrade or compat.downgrade_applied

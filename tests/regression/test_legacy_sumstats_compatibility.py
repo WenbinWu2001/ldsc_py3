@@ -386,23 +386,89 @@ def test_legacy_rg_keeps_missing_frq_and_harmonizes_trait_two_without_panel_alle
     assert pd.isna(dataset.merged.loc[1, "FRQ2"])
 
 
-def test_legacy_sumstats_without_alleles_are_rejected_for_regression() -> None:
+@pytest.mark.parametrize("panel_mode,downgrade", [("rsid_allele_aware", True), ("rsid", False)])
+def test_legacy_sumstats_without_alleles_project_by_rsid(panel_mode: str, downgrade: bool) -> None:
+    frame = {
+        "CHR": ["1", "1", "1"], "POS": [10, 20, 30], "SNP": ["rs1", "rs2", "rs3"],
+        "regression_ld_scores": [1.0, 1.0, 1.0], "base": [1.0, 2.0, 3.0],
+    }
+    if panel_mode.endswith("allele_aware"):
+        frame.update(A1=["A", "A", "C"], A2=["G", "C", "T"])
+    sumstats = _legacy(pd.DataFrame({"SNP": ["rs1", "rs2", "rs3"], "Z": [1.0, -2.0, 0.5], "N": [1000.0] * 3}))
+
+    dataset = RegressionRunner(regression_config=RegressionConfig()).build_dataset(sumstats, _panel(pd.DataFrame(frame), panel_mode))
+
+    assert dataset.merged["SNP"].tolist() == ["rs1", "rs2", "rs3"]
+    np.testing.assert_allclose(dataset.merged["Z"], [1.0, -2.0, 0.5])
+    assert dataset.effective_snp_identifier == "rsid"
+    assert dataset.identity_downgrade_applied is downgrade
+
+
+def test_legacy_sumstats_without_alleles_drop_rsids_shared_by_panel_rows() -> None:
     panel = _panel(
         pd.DataFrame(
             {
-                "CHR": ["1", "1"],
-                "POS": [10, 20],
-                "SNP": ["rs1", "rs2"],
-                "regression_ld_scores": [1.0, 1.0],
-                "base": [1.0, 2.0],
+                "CHR": ["1", "1", "1"], "POS": [10, 10, 20], "SNP": ["multi", "multi", "good"],
+                "A1": ["A", "A", "C"], "A2": ["G", "T", "T"],
+                "regression_ld_scores": [1.0, 1.0, 1.0], "base": [1.0, 2.0, 3.0],
             }
         ),
+        "rsid_allele_aware",
+    )
+    projected, drops = _project_legacy_sumstats_to_panel(
+        _legacy(pd.DataFrame({"SNP": ["multi", "good"], "Z": [1.0, 2.0], "N": [1000.0, 1000.0]})), panel,
+    )
+
+    assert projected.data["SNP"].tolist() == ["good"]
+    assert projected.has_alleles is False
+    assert projected.config_snapshot.snp_identifier == "rsid"
+    assert drops["reason"].tolist() == ["ambiguous_panel_mapping"]
+    assert drops[["A1", "A2"]].isna().all().all()
+
+
+def test_legacy_sumstats_with_one_allele_column_are_rejected() -> None:
+    panel = _panel(
+        pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "regression_ld_scores": [1.0], "base": [1.0]}),
         "rsid",
     )
-    sumstats = _legacy(pd.DataFrame({"SNP": ["rs1"], "Z": [1.0], "N": [1000.0]}))
+    sumstats = _legacy(pd.DataFrame({"SNP": ["rs1"], "A1": ["A"], "Z": [1.0], "N": [1000.0]}))
 
-    with pytest.raises(LDSCInputError, match="legacy summary-statistics file.*A1.*A2"):
+    with pytest.raises(LDSCInputError, match="has A1 but not A2"):
         RegressionRunner(regression_config=RegressionConfig()).build_dataset(sumstats, panel)
+
+
+def test_h2_command_runs_allele_less_legacy_sumstats_and_records_the_downgrade(tmp_path: Path) -> None:
+    from ldsc._regression.runner import run_h2
+
+    n_snps = 60
+    rng = np.random.default_rng(11)
+    snps = [f"rs{index}" for index in range(n_snps)]
+    ldscore_dir = tmp_path / "ldscores"
+    ldscore_dir.mkdir()
+    pd.DataFrame(
+        {
+            "CHR": ["1"] * n_snps, "SNP": snps, "POS": np.arange(1, n_snps + 1) * 100,
+            "A1": ["A"] * n_snps, "A2": ["C"] * n_snps,
+            "regression_ld_scores": rng.uniform(1.0, 5.0, n_snps), "base": rng.uniform(1.0, 5.0, n_snps),
+        }
+    ).to_parquet(ldscore_dir / "ldscore.baseline.parquet", index=False)
+    (ldscore_dir / "metadata.json").write_text(json.dumps({
+        "schema_version": 1, "artifact_type": "ldscore", "files": {"baseline": "ldscore.baseline.parquet"},
+        "snp_identifier": "rsid_allele_aware", "genome_build": "hg38", "chromosomes": ["1"],
+        "baseline_columns": ["base"], "query_columns": [], "query_batches": [],
+        "counts": [{"group": "baseline", "column": "base", "all_reference_snp_count": 100.0,
+                    "common_reference_snp_count": 80.0}],
+    }), encoding="utf-8")
+    sumstats = tmp_path / "trait.sumstats.gz"
+    with gzip.open(sumstats, "wt", encoding="utf-8") as handle:
+        handle.write("SNP\tZ\tN\n")
+        handle.writelines(f"{snp}\t{rng.normal(0.0, 1.5):.4f}\t1000\n" for snp in snps)
+
+    run_h2(sumstats_file=str(sumstats), ldscore_dir=str(ldscore_dir), output_dir=str(tmp_path / "out"), num_blocks=10)
+
+    metadata = json.loads((tmp_path / "out" / "diagnostics" / "metadata.json").read_text())
+    assert metadata["effective_snp_identifier"] == "rsid"
+    assert metadata["identity_downgrade_applied"] is True
 
 
 def test_h2_command_records_legacy_projection_drops_in_its_audit(tmp_path: Path) -> None:

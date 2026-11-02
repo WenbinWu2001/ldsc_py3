@@ -1,6 +1,6 @@
 # Legacy Munged Summary-Statistics Compatibility
 
-Last updated on: 2026-11-01
+Last updated on: 2026-11-02
 
 This document defines the public compatibility boundary for munged summary statistics written by the legacy LDSC Python 2 implementation and consumed by LDSC3 regression workflows.
 
@@ -24,7 +24,9 @@ Whether alleles are also projected from the panel depends on whether that panel 
 
 For each legacy summary-statistics input, LDSC3 performs this boundary conversion before normal regression dataset assembly:
 
-1. Require the legacy artifact to contain `SNP`, `A1`, `A2`, `Z`, and `N`. Allele-less legacy artifacts are unsupported for all three regression commands, including `rg`. Require the LD-score directory to contain `SNP` for its regression SNPs; require its `A1` and `A2` only when the LD-score directory uses an allele-aware mode.
+1. Require the legacy artifact to contain `SNP`, `Z`, and `N`, and `A1` and `A2` together or not at all; a file with only one of them is rejected.
+   `h2` and `partitioned-h2` accept an allele-less file (see [Allele-less legacy files](#allele-less-legacy-files)); `rg` rejects it before fitting.
+   Require the LD-score directory to contain `SNP` for its regression SNPs; require its `A1` and `A2` only when the LD-score directory uses an allele-aware mode.
 2. Normalize allele letter case and apply the LDSC3 drop-all duplicate policy to the source. When an rsID occurs more than once in one legacy input, drop every row in that source duplicate cluster before panel matching.
 3. For an allele-aware panel, find all panel rows with the source rsID, filter those candidates by allele compatibility, and accept the source row only when exactly one compatible panel row remains. A panel rsID need not be unique before allele filtering because panel alleles may safely disambiguate candidates.
 4. For an allele-unaware panel, accept a source row only when its rsID identifies exactly one panel row. Multiple panel rows with that rsID cannot be disambiguated and are dropped.
@@ -40,6 +42,15 @@ Panel frequency metadata is likewise never imputed from summary statistics.
 `FRQ` is not consumed by regression. A missing, nonnumeric, or out-of-range legacy `FRQ` therefore does not drop an otherwise compatible SNP: the compatibility layer preserves it as missing and logs an aggregate warning. The `1 - FRQ` transformation applies only to valid numeric values in `[0, 1]`.
 
 Source duplicate handling and panel candidate handling do not conflict. Source duplicates describe multiple association rows for one rsID within a single legacy trait and are dropped as an unverifiable source cluster. Multiple panel candidates describe possible canonical targets for one otherwise unique source row. They may be retained only when an allele-aware panel allows allele comparison to select exactly one target; an allele-unaware panel cannot resolve them.
+
+### Allele-less legacy files
+
+A legacy file without `A1` and `A2`, such as the output of legacy LDSC `munge_sumstats.py --no-alleles`, is projected by rsID under the allele-unaware rules of steps 4 and 6, even when the LD-score panel is allele-aware.
+Each source row is accepted only when its rsID names exactly one panel row, so rsIDs shared by several panel rows, such as multi-allelic sites, are dropped as `ambiguous_panel_mapping`.
+Regression then runs under the base form of the panel's SNP identifier mode: `rsid` for `rsid_allele_aware` and `chr_pos` for `chr_pos_allele_aware`.
+This identity downgrade needs no `--allow-identity-downgrade`, because the file offers no allele-aware alternative; the result metadata records it as `identity_downgrade_applied` with the `effective_snp_identifier`.
+`rg` rejects allele-less inputs before fitting, because it aligns the two traits' signed statistics by allele.
+In the drop audit, `A1` and `A2` are empty for these rows.
 
 ## Drop and Failure Policy
 

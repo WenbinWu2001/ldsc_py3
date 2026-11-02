@@ -75,8 +75,8 @@ The user answered two rounds of questions on 2026-11-01, wrote the allele policy
   Mentions of `A1` as an identity column or as a panel or annotation allele were left as they are.
   The migration page and the flag map now note that legacy `ALLELE1`/`ALLELE2` and `REFERENCE_ALLELE` aliases are gone and that a base mode writes recognized allele columns unless they are passed to `--ignore`.
 - Resolved after `f2995d9`: when A1 comes from `INC_ALLELE` or A2 from `DEC_ALLELE`, the signed statistic is never negative, so the kernel no longer checks that its median lies near the null value (`ResolvedMungeInput.check_signed_median`); the row-by-row sign check is stricter. `--a1-inc` is unchanged, and other files keep the median check.
-- `ldscore --export-ref-metadata` writes PLINK metadata in the R² sidecar layout with the `.bim` `A1` and a folded `MAF`, which is `freq(A2)` where that `A1` is the major allele; `quantile-h2` accepts it as reference metadata.
-- PLINK-built LD-score directories keep the `.bim` allele order (documented in `900cacf`, not changed).
+- Resolved in `8717cee`: `ldscore --export-ref-metadata` files give the minor allele in the retained reference individuals as `A1`, with `MAF` its frequency, and match the R² matrix sidecar of the same panel; `quantile-h2` accepts them as reference metadata.
+- Resolved in `8717cee` and `10fe30f`: PLINK-built LD-score directories give the minor allele as `A1` instead of the `.bim` order that `900cacf` documented.
 - Resolved after `f2995d9`: an ignored only signed-statistic column is explained (the message names the ignored column), and every `--infer-only` missing field now carries the run's message as its note.
 - Resolved after `f2995d9`: run tables no longer repeat `coordinate_provenance` as `provenance["metadata"]`; that key now only holds a loaded table's decoded footer.
 - Resolved after `f2995d9`: GitHub's renderer drops "²" from heading anchors (checked with its Markdown API), so links that spell it break there.

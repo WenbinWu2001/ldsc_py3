@@ -54,7 +54,9 @@ The user answered two rounds of questions on 2026-11-01, wrote the allele policy
 - PLINK-built LD-score directories keep the `.bim` allele order (documented in `900cacf`, not changed).
 - Resolved after `f2995d9`: an ignored only signed-statistic column is explained (the message names the ignored column), and every `--infer-only` missing field now carries the run's message as its note.
 - Resolved after `f2995d9`: run tables no longer repeat `coordinate_provenance` as `provenance["metadata"]`; that key now only holds a loaded table's decoded footer.
-- Pre-existing anchors that do not match their "R²" headings: `python-usage.md#r2-matrices` (linked from `docs/user-guide/workflows/r2-matrices.md`) and the in-code `ldscore-r2-matrix-is-incompatible` and `query-r2-matrix-r2-matrix-is-incompatible`; not checked against a renderer.
+- Resolved after `f2995d9`: GitHub's renderer drops "²" from heading anchors (checked with its Markdown API), so links that spell it break there.
+  The three anchors listed here earlier were not broken: explicit `<a id>` anchors already serve them.
+  A scan of every docs link and in-code docs anchor found three broken links in `docs/dev/design/memory-and-cpu.md`, now served by explicit anchors in the same style.
 
 ## Completed: regression metadata and results (2026-11-01)
 

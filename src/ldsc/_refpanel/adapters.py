@@ -652,11 +652,15 @@ def _record_genotype_qc(funnel, genotype_qc_removed, maf_removed, maf_min):
 
 
 def _align_annotations(bundle, reference, chrom, global_config, funnel):
-    """Align annotation rows once to retained reference identities and recover alleles.
+    """Align annotation rows once to retained reference identities and take the reference alleles.
 
     The annotation rows are the annotation SNP grid. Panel SNPs without an
     annotation row and annotation rows without a panel SNP are both dropped and
-    counted in ``funnel`` at the ``annotation_snp_grid`` step.
+    counted in ``funnel`` at the ``annotation_snp_grid`` step. Each kept row
+    gets the ``A1``/``A2`` of its reference SNP: the R2 matrix sidecar's
+    minor-allele orientation, or ``.bim`` alleles that PLINK preparation
+    reorients after reading genotypes. Annotation files without alleles match
+    by the base mode, which allele-aware cleanup makes unique in the reference.
     """
     if is_allele_aware_mode(global_config.snp_identifier):
         cleaned = clean_identity_artifact_table(
@@ -686,23 +690,19 @@ def _align_annotations(bundle, reference, chrom, global_config, funnel):
         error.reference_snp_funnel = funnel.frame()
         raise error
     rows = np.flatnonzero(keep.to_numpy())
-    kept_metadata, kept_keys = bundle.metadata.take(rows), annotation_keys.take(rows)
-    kept_metadata.index = kept_keys.index = pd.RangeIndex(len(rows))
-    metadata = _annotation_metadata_with_reference_alleles(
-        annotation_metadata=kept_metadata,
-        annotation_keys=kept_keys,
-        reference_metadata=reference, reference_keys=reference_keys,
-        snp_identifier=global_config.snp_identifier,
-    )
-    if on_grid != len(metadata):
+    if on_grid != len(rows):
         raise LDSCInternalError(
-            f"Reference preparation matched {on_grid} panel SNPs but {len(metadata)} annotation rows on "
+            f"Reference preparation matched {on_grid} panel SNPs but {len(rows)} annotation rows on "
             f"chromosome {chrom}; SNP identities must be unique on both sides of the match. "
             "Report the command, package version, and traceback."
         )
+    # Outputs carry the panel's alleles in every SNP identifier mode; annotation
+    # alleles only take part in the match, which ignores their order.
+    alleles = reference.loc[:, ["A1", "A2"]].set_axis(reference_keys.to_numpy()).loc[annotation_keys.take(rows)]
+    metadata = bundle.metadata.take(rows).assign(A1=alleles["A1"].to_numpy(), A2=alleles["A2"].to_numpy())
+    metadata.index = pd.RangeIndex(len(rows))
     return ChromosomeAnnotations(metadata,
-        MappedAnnotations(bundle.annotations, np.flatnonzero(keep.to_numpy()),
-                          tuple(bundle.baseline_columns + bundle.query_columns)),
+        MappedAnnotations(bundle.annotations, rows, tuple(bundle.baseline_columns + bundle.query_columns)),
         list(bundle.baseline_columns), list(bundle.query_columns))
 
 
@@ -715,52 +715,6 @@ def _annotation_reference_match_mode(
     if is_allele_aware_mode(mode) and not {"A1", "A2"}.issubset(annotation_metadata.columns):
         return identity_base_mode(mode)
     return mode
-
-
-def _annotation_metadata_with_reference_alleles(
-    *,
-    annotation_metadata: pd.DataFrame,
-    annotation_keys: pd.Series,
-    reference_metadata: pd.DataFrame,
-    reference_keys: pd.Series,
-    snp_identifier: str,
-) -> pd.DataFrame:
-    """Fill missing annotation alleles from unambiguous retained reference metadata."""
-    mode = normalize_snp_identifier_mode(snp_identifier)
-    if not is_allele_aware_mode(mode) or {"A1", "A2"}.issubset(annotation_metadata.columns):
-        return annotation_metadata
-    if not {"A1", "A2"}.issubset(reference_metadata.columns):
-        return annotation_metadata
-
-    reference_lookup = reference_metadata.loc[:, ["A1", "A2"]].copy()
-    reference_lookup["_match_key"] = reference_keys.to_numpy()
-    reference_lookup = reference_lookup.loc[reference_lookup["_match_key"].notna()].copy()
-    duplicate_mask = reference_lookup["_match_key"].duplicated(keep=False)
-    if bool(duplicate_mask.any()):
-        duplicate_key = str(reference_lookup.loc[duplicate_mask, "_match_key"].iloc[0])
-        raise LDSCInputError(
-            "ldscore could not infer missing annotation alleles from reference metadata. "
-            f"Base identity {duplicate_key!r} is not unique under SNP identifier mode "
-            f"'{mode}'. Most likely the reference panel contains duplicate base SNP "
-            "identities after dropping alleles. Provide allele-aware annotation columns "
-            "A1/A2, or regenerate the reference panel with unique retained SNP identities."
-        )
-    reference_lookup = reference_lookup.set_index("_match_key")
-    missing = ~annotation_keys.isin(reference_lookup.index)
-    if bool(missing.any()):
-        missing_key = str(annotation_keys.loc[missing].iloc[0])
-        raise LDSCInputError(
-            "ldscore could not infer missing annotation alleles from reference metadata. "
-            f"Retained annotation SNP {missing_key!r} has no matching A1/A2 values in "
-            "the reference metadata. Most likely the annotation and reference panel were "
-            "matched with base chr_pos/rsID identities but the allele metadata is incomplete. "
-            "Provide A1/A2 in the annotation input or regenerate the reference panel with allele columns."
-        )
-
-    enriched = annotation_metadata.copy()
-    enriched["A1"] = annotation_keys.map(reference_lookup["A1"]).astype(str)
-    enriched["A2"] = annotation_keys.map(reference_lookup["A2"]).astype(str)
-    return enriched
 
 
 _LDSCORE_INTERSECTION_DOC = (

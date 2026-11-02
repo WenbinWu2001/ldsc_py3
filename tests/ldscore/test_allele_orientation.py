@@ -59,3 +59,25 @@ def test_both_sidecar_writers_and_plink_ld_scores_give_the_minor_allele_as_a1(tm
     assert len(ldscores) > 0
     assert ldscores["A1"].tolist() == expected.loc[ldscores["POS"], "A1"].tolist()
     assert ldscores["A2"].tolist() == expected.loc[ldscores["POS"], "A2"].tolist()
+
+
+@pytest.mark.parametrize("panel", ["r2_matrix", "plink"])
+def test_ld_scores_take_alleles_from_the_panel_whatever_the_annotation_alleles(tmp_path, r2_matrix, panel):
+    """Annotation alleles only identify SNPs: ``.bim`` order, swapped or absent give one table."""
+    expected = _minor_alleles()
+    reference = ["--r2-matrix-dir", str(r2_matrix)] if panel == "r2_matrix" else ["--plink-prefix", str(PLINK)]
+    annotation = BIM[["CHR", "POS", "SNP"]].assign(base=1)
+    variants = {"bim_order": annotation.assign(A1=BIM["A1"], A2=BIM["A2"]),
+                "swapped": annotation.assign(A1=BIM["A2"], A2=BIM["A1"]), "no_alleles": annotation}
+    tables = {}
+    for name, frame in variants.items():
+        path = tmp_path / f"{name}.annot"
+        frame.to_csv(path, sep="\t", index=False)
+        assert _ldscore(tmp_path / name, *reference, "--baseline-annot-sources", str(path)) == 0
+        tables[name] = pd.read_parquet(tmp_path / name / "ldscore.baseline.parquet")
+
+    for name, table in tables.items():
+        assert {"A1", "A2"} <= set(table.columns), name
+        assert table["A1"].tolist() == expected.loc[table["POS"], "A1"].tolist(), name
+        assert table["A2"].tolist() == expected.loc[table["POS"], "A2"].tolist(), name
+        pd.testing.assert_frame_equal(table, tables["bim_order"], obj=name)

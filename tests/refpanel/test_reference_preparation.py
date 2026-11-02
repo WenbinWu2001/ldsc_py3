@@ -89,6 +89,23 @@ def test_prepared_annotations_share_reference_rows_alleles_cm_maf_and_counts(tmp
     np.testing.assert_array_equal(metadata["CM"], [9.0] * 3)
 
 
+@pytest.mark.parametrize(("mode", "annotation_alleles"), [
+    ("chr_pos_allele_aware", ("C", "A")), ("chr_pos", ("C", "A")), ("chr_pos", None)])
+def test_prepared_metadata_takes_alleles_from_the_sidecar(tmp_path, mode, annotation_alleles):
+    # The sidecar's A1 is the minor allele; the annotation file's order only identifies SNPs.
+    reference = write_panel(tmp_path, mode=mode)
+    metadata = reference[["CHR", "SNP", "POS"]]
+    if annotation_alleles is not None:
+        metadata = metadata.assign(A1=annotation_alleles[0], A2=annotation_alleles[1])
+    config = GlobalConfig(snp_identifier=mode, genome_build="hg19")
+    panel = R2MatrixRefPanel(config, RefPanelConfig(backend="r2_matrix", r2_matrix_dir=tmp_path))
+    bundle = ChromosomeAnnotations(metadata, pd.DataFrame({"base": [1.0, 1.0]}), ["base"], [])
+    with panel.prepare_chromosome("1", bundle, LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True)) as prepared:
+        assert prepared.metadata["SNP"].tolist() == ["rs1", "rs3"]
+        assert prepared.metadata["A1"].tolist() == ["A", "A"]
+        assert prepared.metadata["A2"].tolist() == ["C", "C"]
+
+
 def test_allele_mismatch_is_rejected_before_reader_creation(tmp_path):
     metadata = write_panel(tmp_path, mode="chr_pos_allele_aware").assign(A2="G")
     config = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19")

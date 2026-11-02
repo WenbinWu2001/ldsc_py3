@@ -695,6 +695,12 @@ def _allele_issues(problem, headers, cname_translation, ignore_cnames, source_pa
         ))
 
 
+def _increasing_allele_columns(column_map):
+    """Return ``"<column> as A1"`` or ``"<column> as A2"`` for each INC_ALLELE column read as A1 and DEC_ALLELE column read as A2."""
+    return [f"{raw} as {target}" for raw, target in column_map.items()
+            if _INCREASING_ALLELE_COLUMNS.get(target) == clean_header(raw)]
+
+
 def _check_increasing_allele_signs(schema: RawSchema) -> None:
     """Stop when the signed statistic contradicts an INC_ALLELE or DEC_ALLELE column read as A1 or A2.
 
@@ -703,8 +709,7 @@ def _check_increasing_allele_signs(schema: RawSchema) -> None:
     columns are not oriented as named. Rows with a missing or non-numeric
     statistic are not counted. Reads the signed-statistic column in chunks.
     """
-    named = [f"{raw} as {target}" for raw, target in schema.column_map.items()
-             if _INCREASING_ALLELE_COLUMNS.get(target) == clean_header(raw)]
+    named = _increasing_allele_columns(schema.column_map)
     signed = next((raw for raw, target in schema.column_map.items() if target == 'SIGNED_SUMSTAT'), None)
     if not named or signed is None:
         return
@@ -774,6 +779,9 @@ def prepare_munge_input(
         signed_sumstat_null=schema.signed_sumstat_null,
         signed_sumstat_name=schema.signed_sumstat_name,
         a1_inc=config.a1_inc,
+        # A statistic oriented to the increasing allele is never negative, so its median is far from null by
+        # design; _check_increasing_allele_signs checks every row instead.
+        check_signed_median=not config.a1_inc and not _increasing_allele_columns(schema.column_map),
         snp_identifier=mode,
         genome_build=coordinate_metadata['genome_build'],
         coordinate_basis=coordinate_metadata['coordinate_basis'],

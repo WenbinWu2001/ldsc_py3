@@ -98,15 +98,18 @@ def test_allele_aware_mode_without_allele_columns_names_the_effect_allele(tmp_pa
     assert "REF" not in message
 
 
-# Effects stay small: the kernel's median check rejects a signed statistic whose median is far from null.
-@pytest.mark.parametrize("header,rows,hints", [
-    ("SNP INC_ALLELE DEC_ALLELE P BETA N", "rs1 A G 0.05 0.01 1000\nrs2 C T 0.5 0 1000\n", {}),
-    ("SNP inc_allele dec_allele P OR N", "rs1 A G 0.05 1.01 1000\nrs2 C T 0.5 1 1000\n", {}),
-    ("SNP INC_ALLELE OTHER P Z N", "rs1 A G 0.05 0.05 1000\nrs2 C T 0.5 0.03 1000\n", {"a2": "OTHER"}),
-])
-def test_increasing_allele_columns_that_agree_with_the_signed_statistic_are_used(tmp_path, header, rows, hints):
-    table = _run(_raw(tmp_path, header, rows), tmp_path, "rsid_allele_aware", column_hints=hints)
-    assert table.data.A1.tolist() == ["A", "C"]
+def test_increasing_allele_columns_with_an_ordinary_z_column_munge(tmp_path):
+    # Z oriented to the increasing allele is never negative, so its median (here 1.5) is far from 0.
+    rows = "rs1 A G 0.05 1.96 1000\nrs2 C T 0.13 1.5 1000\nrs3 G T 0.5 0.67 1000\n"
+    table = _run(_raw(tmp_path, "SNP INC_ALLELE DEC_ALLELE P Z N", rows), tmp_path, "rsid_allele_aware")
+    assert table.data.A1.tolist() == ["A", "C", "G"]
+    assert (table.data.Z > 0).all()
+
+
+def test_other_allele_columns_keep_the_median_check(tmp_path):
+    rows = "rs1 A G 0.05 1.96 1000\nrs2 C T 0.13 1.5 1000\nrs3 G T 0.5 0.67 1000\n"
+    with pytest.raises(LDSCInputError, match="rejected signed statistic column 'Z' because its median is 1.5"):
+        _run(_raw(tmp_path, "SNP EA NEA P Z N", rows), tmp_path, "rsid_allele_aware")
 
 
 def test_increasing_allele_columns_that_contradict_the_signed_statistic_stop_the_run(tmp_path):

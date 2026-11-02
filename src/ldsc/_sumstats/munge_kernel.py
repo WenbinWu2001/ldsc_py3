@@ -121,6 +121,8 @@ class ResolvedMungeInput:
     signed_sumstat_null: float | None
     signed_sumstat_name: str
     a1_inc: bool
+    # Whether the signed statistic's median must lie near its null value.
+    check_signed_median: bool
     snp_identifier: str
     genome_build: str | None
     coordinate_basis: str | None
@@ -733,7 +735,7 @@ def munge_sumstats(request: ResolvedMungeInput) -> MungeResult:
     # Parsed chunks are concatenated with a fresh RangeIndex; the parsed
     # result is not used again, so the steps below may change it in place.
     median_msg = None
-    if not request.a1_inc:
+    if request.check_signed_median:
         median_msg = check_median(dat.SIGNED_SUMSTAT, signed_sumstat_null, 0.1, sign_cname)
     coordinate_metadata = _coordinate_metadata(dat, request, parsed.coordinate_counts)
     # filtering on N cannot be done chunkwise

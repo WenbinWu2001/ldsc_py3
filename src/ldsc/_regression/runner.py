@@ -932,8 +932,7 @@ class RegressionRunner:
             artifacts = stage_partitioned_h2_fit(
                 directory, full, delete_values,
                 {"dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
-                 "n_snps": outcome.n_snps, "n_blocks_used": outcome.n_blocks,
-                 "effective_chisq_max": outcome.effective_chisq_max,
+                 **_fit_metadata(outcome),
                  "effective_snp_identifier": dataset.effective_snp_identifier,
                  "identity_downgrade_applied": dataset.identity_downgrade_applied},
             )
@@ -1062,9 +1061,9 @@ class RegressionRunner:
             "enrichment_p_test": "two_sided_t", "coefficient_p_test": "one_sided_greater",
             "annotation_types": dict(ldscore_result.annotation_types),
         }
-        source_metadata = ldscore_result.output_paths.get("metadata")
-        if source_metadata:
-            defaults["ldscore_dir"] = str(Path(source_metadata).resolve().parent)
+        ldscore_dir = _ldscore_dir_of(ldscore_result)
+        if ldscore_dir:
+            defaults["ldscore_dir"] = ldscore_dir
         for name, value in defaults.items():
             metadata.setdefault(name, value)
         if metadata.get("ldscore_dir"):
@@ -1091,8 +1090,7 @@ class RegressionRunner:
                 with _log_phase_timing("output writing"):
                     paths = writer.write(
                         summary, PartitionedH2OutputConfig(output_dir=output_dir, overwrite=overwrite),
-                        metadata={**metadata, "n_snps": outcome.n_snps, "effective_chisq_max": outcome.effective_chisq_max,
-                                  "n_blocks_used": outcome.n_blocks},
+                        metadata={**metadata, **_fit_metadata(outcome)},
                         coefficient_delete_values=_coefficient_delete_frame(outcome.estimator, outcome.dataset.retained_ld_columns),
                     )
                 return PartitionedH2BatchResult(summary, paths, legacy_sumstats_drops=legacy_drops)
@@ -1238,14 +1236,8 @@ class RegressionRunner:
             if isinstance(error, JackknifeIdentifiabilityError) and two_step is None:
                 _add_jackknife_model_context(error, merged, dataset.retained_ld_columns)
             # The pair's rows and settings, for failed-pair reporting.
-            error.fit_summary = {
-                "n_snps": n_snp, "n_blocks": n_blocks, "effective_chisq_max": config.chisq_max,
-                "count_key_used_for_regression": dataset.count_key_used_for_regression,
-                "retained_ld_columns": list(dataset.retained_ld_columns),
-                "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
-                "effective_snp_identifier": dataset.effective_snp_identifier,
-                "identity_downgrade_applied": dataset.identity_downgrade_applied,
-            }
+            error.fit_summary = {"n_snps": n_snp, "n_blocks": n_blocks, "effective_chisq_max": config.chisq_max,
+                                 **_dataset_metadata(dataset)}
             raise
 
         return RegressionFit(
@@ -1381,8 +1373,8 @@ class RegressionRunner:
                         samp_prev_1=prev[i][0], pop_prev_1=prev[i][1],
                         samp_prev_2=prev[j][0], pop_prev_2=prev[j][1],
                     )
-                    metadata = _rg_pair_metadata(tables[i], tables[j], outcome, full_row, config, pair_kind,
-                                                 (prev[i], prev[j]))
+                    metadata = _rg_pair_metadata(tables[i], tables[j], full_row, config, pair_kind, (prev[i], prev[j]),
+                                                 {**_fit_metadata(outcome, "n_snps_used"), **_dataset_metadata(dataset)})
                 except Exception as exc:
                     error = _format_exception(exc)
                     status = "unestimable" if isinstance(exc, JackknifeIdentifiabilityError) else "failed"
@@ -1394,8 +1386,12 @@ class RegressionRunner:
                                                    status=status, n_snps_used=fit_summary["n_snps"] if fit_summary else 0,
                                                    samp_prev_1=prev[i][0], pop_prev_1=prev[i][1],
                                                    samp_prev_2=prev[j][0], pop_prev_2=prev[j][1])
-                    metadata = _failed_rg_pair_metadata(tables[i], tables[j], full_row, config, pair_kind,
-                                                        (prev[i], prev[j]), fit_summary)
+                    fit = None if fit_summary is None else {
+                        "n_snps_used": fit_summary["n_snps"], "n_blocks_used": fit_summary["n_blocks"],
+                        **{key: value for key, value in fit_summary.items() if key not in {"n_snps", "n_blocks"}},
+                    }
+                    metadata = _rg_pair_metadata(tables[i], tables[j], full_row, config, pair_kind, (prev[i], prev[j]),
+                                                 fit)
                 rg_full_rows.append(full_row)
                 rg_rows.append(_concise_rg_row(full_row))
                 per_pair_metadata.append(metadata)
@@ -1404,12 +1400,11 @@ class RegressionRunner:
 
         rg_full = pd.DataFrame(rg_full_rows, columns=RG_FULL_COLUMNS)
         rg = pd.DataFrame(rg_rows, columns=RG_CONCISE_COLUMNS)
-        source_metadata = ldscore_result.output_paths.get("metadata")
         legacy_drops = [trait.legacy_drops for trait in traits if trait.legacy_drops is not None]
         return RgResultFamily(
             rg=rg, rg_full=rg_full, h2_per_trait=h2_per_trait, per_pair_metadata=per_pair_metadata,
             sumstats_files=[table.source_path for table in tables],
-            ldscore_dir=str(Path(source_metadata).resolve().parent) if source_metadata else None,
+            ldscore_dir=_ldscore_dir_of(ldscore_result),
             legacy_sumstats_drops=pd.concat(legacy_drops, ignore_index=True) if legacy_drops else None,
             dropped_nonfinite_statistic_rows=[trait.dropped_nonfinite_statistic_rows for trait in traits],
         )
@@ -2524,35 +2519,50 @@ def _absolute_ldscore_dir(value) -> str | None:
     return None if value is None else str(Path(normalize_path_token(str(value))).resolve())
 
 
-def _h2_metadata(
-    args,
-    sumstats_table: SumstatsTable,
-    outcome: RegressionFit,
-    samp_prev: float | None = None,
-    pop_prev: float | None = None,
-    dropped_nonfinite_statistic_rows: int = 0,
-) -> dict[str, object]:
-    """Build h2 metadata from realized fit selection and validated prevalences."""
-    dataset = outcome.dataset
-    config_snapshot = dataset.config_snapshot
+def _ldscore_dir_of(ldscore_result: LDScoreSource | LDScoreResult) -> str | None:
+    """Return the absolute LD-score directory a result was read from, or ``None`` for one built in memory."""
+    source_metadata = ldscore_result.output_paths.get("metadata")
+    return str(Path(source_metadata).parent.resolve()) if source_metadata else None
+
+
+def _dataset_metadata(dataset: RegressionDataset) -> dict[str, object]:
+    """Record a fitted dataset's SNP identity, count vector and LD-score columns in result metadata."""
     return {
-        "artifact_type": "h2_result",
-        "trait_name": _trait_label(sumstats_table),
-        "sumstats_file": getattr(args, "sumstats_file", None),
-        "ldscore_dir": _absolute_ldscore_dir(getattr(args, "ldscore_dir", None)),
         "effective_snp_identifier": dataset.effective_snp_identifier,
-        "genome_build": None if config_snapshot is None else getattr(config_snapshot, "genome_build", None),
         "identity_downgrade_applied": dataset.identity_downgrade_applied,
         "count_key_used_for_regression": dataset.count_key_used_for_regression,
         "retained_ld_columns": list(dataset.retained_ld_columns),
         "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
+    }
+
+
+def _fit_metadata(fit: RegressionFit, snps_key: str = "n_snps") -> dict[str, object]:
+    """Record a fit's SNP and block counts and chi-square cap; ``rg`` pairs name the SNP count ``n_snps_used``."""
+    return {snps_key: fit.n_snps, "n_blocks_used": fit.n_blocks, "effective_chisq_max": fit.effective_chisq_max}
+
+
+def _h2_metadata(
+    sumstats_table: SumstatsTable,
+    sumstats_file: str | None,
+    ldscore_dir: str | None,
+    outcome: RegressionFit,
+    config: RegressionConfig,
+    dropped_nonfinite_statistic_rows: int = 0,
+) -> dict[str, object]:
+    """Build h2 metadata from the realized fit and the config's checked prevalences."""
+    config_snapshot = outcome.dataset.config_snapshot
+    return {
+        "artifact_type": "h2_result",
+        "trait_name": _trait_label(sumstats_table),
+        "sumstats_file": sumstats_file,
+        "ldscore_dir": ldscore_dir,
+        "genome_build": None if config_snapshot is None else getattr(config_snapshot, "genome_build", None),
+        **_dataset_metadata(outcome.dataset),
         "dropped_nonfinite_statistic_rows": dropped_nonfinite_statistic_rows,
-        "n_snps": outcome.n_snps,
-        "effective_chisq_max": outcome.effective_chisq_max,
-        "n_blocks_used": outcome.n_blocks,
-        "samp_prev": samp_prev,
-        "pop_prev": pop_prev,
-        "scale": _scale_label(samp_prev, pop_prev),
+        **_fit_metadata(outcome),
+        "samp_prev": config.samp_prev,
+        "pop_prev": config.pop_prev,
+        "scale": _scale_label(config.samp_prev, config.pop_prev),
     }
 
 
@@ -2566,49 +2576,18 @@ def _rg_prevalence_metadata(prevalences) -> dict[str, object]:
 def _rg_pair_metadata(
     table_1: SumstatsTable,
     table_2: SumstatsTable,
-    outcome: RegressionFit,
     full_row: dict[str, object],
     config: RegressionConfig,
     pair_kind: str,
     prevalences,
+    fit: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    """Build per-pair metadata for an estimated rg pair; ``prevalences`` holds the two traits' pairs."""
-    dataset = outcome.dataset
-    return {
-        "trait_1": full_row["trait_1"],
-        "trait_2": full_row["trait_2"],
-        "source_1": table_1.source_path,
-        "source_2": table_2.source_path,
-        "pair_kind": pair_kind,
-        "status": full_row["status"],
-        "error": full_row["error"],
-        "n_snps_used": outcome.n_snps,
-        "n_blocks_used": outcome.n_blocks,
-        "effective_chisq_max": outcome.effective_chisq_max,
-        **_rg_prevalence_metadata(prevalences),
-        "count_key_used_for_regression": dataset.count_key_used_for_regression,
-        "retained_ld_columns": list(dataset.retained_ld_columns),
-        "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
-        "effective_snp_identifier": dataset.effective_snp_identifier,
-        "identity_downgrade_applied": dataset.identity_downgrade_applied,
-        **_intercept_policies(config),
-    }
+    """Build the metadata of one rg pair; ``prevalences`` holds the two traits' checked pairs.
 
-
-def _failed_rg_pair_metadata(
-    table_1: SumstatsTable,
-    table_2: SumstatsTable,
-    full_row: dict[str, object],
-    config: RegressionConfig,
-    pair_kind: str,
-    prevalences,
-    fit_summary: dict[str, object] | None = None,
-) -> dict[str, object]:
-    """Build per-pair metadata for a failed or unestimable pair.
-
-    ``fit_summary``, carried by an error raised from ``estimate_rg``, supplies
-    the pair's real counts and dataset settings; without it the pair failed
-    before its dataset was fitted and the counts are 0.
+    ``fit`` holds the pair's SNP and block counts, cap and dataset settings:
+    from its ``RegressionFit``, or for a failed pair from the ``fit_summary``
+    its error carries. Without it the pair failed before its dataset was
+    built, and the counts are 0 with the requested cap.
     """
     metadata = {
         "trait_1": full_row["trait_1"],
@@ -2624,11 +2603,8 @@ def _failed_rg_pair_metadata(
         **_rg_prevalence_metadata(prevalences),
         **_intercept_policies(config),
     }
-    if fit_summary is not None:
-        metadata.update(
-            n_snps_used=fit_summary["n_snps"], n_blocks_used=fit_summary["n_blocks"],
-            **{key: value for key, value in fit_summary.items() if key not in {"n_snps", "n_blocks"}},
-        )
+    if fit is not None:
+        metadata.update(fit)
     return metadata
 
 
@@ -3251,11 +3227,7 @@ def run_h2_from_args(args):
                 overwrite=getattr(args, "overwrite", False),
             ),
             metadata=_h2_metadata(
-                args,
-                sumstats_table,
-                outcome,
-                samp_prev=config.samp_prev,
-                pop_prev=config.pop_prev,
+                sumstats_table, args.sumstats_file, _ldscore_dir_of(ldscore_result), outcome, config,
                 dropped_nonfinite_statistic_rows=nonfinite_rows,
             ),
             diagnostic_bins=outcome.diagnostic_bins,
@@ -3337,15 +3309,6 @@ def run_partitioned_h2_from_args(args):
                 continue_on_query_error=getattr(args, "continue_on_query_error", False),
                 overwrite=getattr(args, "overwrite", False),
                 summary_sort_by=getattr(args, "summary_sort_by", "auto"),
-                metadata={
-                    "trait_name": _trait_label(sumstats_table),
-                    "count_kind": getattr(args, "count_kind", "common"),
-                    "ldscore_dir": getattr(args, "ldscore_dir", None),
-                    "analysis_type": "cell_type_specific" if has_queries else "functional_category",
-                    "headline_metric": "coefficient" if has_queries else "enrichment",
-                    "enrichment_p_test": "two_sided_t", "coefficient_p_test": "one_sided_greater",
-                    "annotation_types": dict(ldscore_result.annotation_types),
-                },
             )
         summary, written = result.summary, dict(result.output_paths)
         audit_path = _write_or_remove_legacy_sumstats_audit(

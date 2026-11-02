@@ -3193,12 +3193,7 @@ def run_h2_from_args(args):
     """
     output_dir, log_path = _preflight_regression_outputs(args, "h2", H2DirectoryWriter)
     with workflow_logging("h2", log_path, log_level=getattr(args, "log_level", "INFO")):
-        from .._runtime.preflight import inspect_declared_inputs, inspect_artifact_paths
-        inspect_declared_inputs(
-            files=[('sumstats', getattr(args, 'sumstats_file', None) or getattr(args, 'sumstats_sources', None)),
-                   ('prevalence manifest', getattr(args, 'prevalence_manifest', None))],
-            checks=[('LD scores', args.ldscore_dir, lambda: inspect_artifact_paths(args.ldscore_dir))],
-            issues_path=Path(output_dir)/'diagnostics/input_issues.tsv')
+        _inspect_regression_inputs(args, output_dir)
         runner, config = _runner_from_args(args)
         print_global_config_banner("run_h2_from_args", runner.global_config)
         log_inputs(sumstats_file=args.sumstats_file, ldscore_dir=args.ldscore_dir, output_dir=output_dir)
@@ -3281,12 +3276,7 @@ def run_partitioned_h2_from_args(args):
         raise ValueError("query_batch_size must be a positive integer.")
     output_dir, log_path = _preflight_regression_outputs(args, "partitioned-h2", PartitionedH2DirectoryWriter)
     with workflow_logging("partitioned-h2", log_path, log_level=getattr(args, "log_level", "INFO")):
-        from .._runtime.preflight import inspect_declared_inputs, inspect_artifact_paths
-        inspect_declared_inputs(
-            files=[('sumstats', getattr(args, 'sumstats_file', None) or getattr(args, 'sumstats_sources', None)),
-                   ('prevalence manifest', getattr(args, 'prevalence_manifest', None))],
-            checks=[('LD scores', args.ldscore_dir, lambda: inspect_artifact_paths(args.ldscore_dir))],
-            issues_path=Path(output_dir)/'diagnostics/input_issues.tsv')
+        _inspect_regression_inputs(args, output_dir)
         runner, config = _runner_from_args(args)
         print_global_config_banner("run_partitioned_h2_from_args", runner.global_config)
         log_inputs(sumstats_file=args.sumstats_file, ldscore_dir=args.ldscore_dir, output_dir=output_dir)
@@ -3360,12 +3350,7 @@ def run_rg_from_args(args):
 
     output_dir, log_path = _preflight_regression_outputs(args, "rg", RgDirectoryWriter)
     with workflow_logging("rg", log_path, log_level=getattr(args, "log_level", "INFO")):
-        from .._runtime.preflight import inspect_declared_inputs, inspect_artifact_paths
-        declared_inputs = inspect_declared_inputs(
-            files=[('sumstats', getattr(args, 'sumstats_file', None) or getattr(args, 'sumstats_sources', None)),
-                   ('prevalence manifest', getattr(args, 'prevalence_manifest', None))],
-            checks=[('LD scores', args.ldscore_dir, lambda: inspect_artifact_paths(args.ldscore_dir))],
-            issues_path=Path(output_dir)/'diagnostics/input_issues.tsv')
+        declared_inputs = _inspect_regression_inputs(args, output_dir)
         sumstats_paths = declared_inputs.files['sumstats']
         if len(sumstats_paths) < 2:
             raise LDSCUserError(
@@ -3774,6 +3759,20 @@ def _preflight_regression_outputs(
     )
     log_path.parent.mkdir(parents=True, exist_ok=True)
     return str(output_dir), log_path
+
+
+def _inspect_regression_inputs(args, output_dir):
+    """Check the declared summary statistics, prevalence manifest and LD-score directory before any fit.
+
+    Every issue found is recorded in ``diagnostics/input_issues.tsv`` before
+    the run stops; otherwise returns the resolved inputs.
+    """
+    from .._runtime.preflight import inspect_artifact_paths, inspect_declared_inputs
+    return inspect_declared_inputs(
+        files=[('sumstats', getattr(args, 'sumstats_file', None) or getattr(args, 'sumstats_sources', None)),
+               ('prevalence manifest', getattr(args, 'prevalence_manifest', None))],
+        checks=[('LD scores', args.ldscore_dir, lambda: inspect_artifact_paths(args.ldscore_dir))],
+        issues_path=Path(output_dir)/'diagnostics/input_issues.tsv')
 
 
 def _legacy_sumstats_audit_path(output_dir: Path) -> Path:

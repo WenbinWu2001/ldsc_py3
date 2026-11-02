@@ -93,12 +93,19 @@ def test_run_h2_saves_the_result_the_h2_command_saves(tmp_path):
     cli.main(["h2", "--ldscore-dir", ldscore_dir, "--sumstats-file", sumstats,
               "--output-dir", str(tmp_path / "cli"), "--num-blocks", "6"])
 
-    summary = ldsc.run_h2(ldscore_dir=ldscore_dir, sumstats_file=sumstats, output_dir=str(tmp_path / "py"), num_blocks=6)
+    result = ldsc.run_h2(ldscore_dir=ldscore_dir, sumstats_file=sumstats, output_dir=str(tmp_path / "py"), num_blocks=6)
 
     for name in ("h2.tsv", "diagnostics/ld_score_regression_bins.tsv"):
         pd.testing.assert_frame_equal(_table(tmp_path / "py" / name), _table(tmp_path / "cli" / name))
     assert _metadata(tmp_path / "py") == _metadata(tmp_path / "cli")
-    assert summary.loc[0, "total_h2_obs"] == _table(tmp_path / "py" / "h2.tsv").loc[0, "total_h2_obs"]
+    assert isinstance(result, ldsc.H2Result)
+    assert result.summary.loc[0, "total_h2_obs"] == _table(tmp_path / "py" / "h2.tsv").loc[0, "total_h2_obs"]
+    root = tmp_path / "py"
+    assert result.output_paths == {
+        "summary": str(root / "h2.tsv"), "metadata": str(root / "diagnostics/metadata.json"),
+        "ld_score_regression_bins": str(root / "diagnostics/ld_score_regression_bins.tsv"),
+    }
+    assert result.legacy_sumstats_drops is None
     assert (tmp_path / "py" / "diagnostics" / "h2.log").is_file()
 
 

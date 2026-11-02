@@ -282,7 +282,7 @@ def _run_h2_cli(tmp_path, *, z_scale, options):
     fixtures.RegressionWorkflowTest().write_footer_sumstats_parquet(
         path, frame=table.data.assign(Z=table.data.Z * z_scale), trait_name="MDD")
     summary = cli.main(["h2", "--ldscore-dir", str(tmp_path / "ld"), "--sumstats-file", str(path),
-                        "--output-dir", str(tmp_path / "out"), "--num-blocks", "6", *options])
+                        "--output-dir", str(tmp_path / "out"), "--num-blocks", "6", *options]).summary
     written = pd.read_csv(tmp_path / "out" / "h2.tsv", sep="\t", keep_default_na=False)
     return summary, written
 
@@ -315,7 +315,7 @@ def _h2(ldscore_dir, trait, output_dir, *options):
 
 def test_h2_with_several_ld_score_columns_writes_no_regression_bins(tmp_path):
     two_baseline_inputs(tmp_path / "ld")
-    summary = _h2(tmp_path / "ld", _h2_trait(tmp_path), tmp_path / "out")
+    summary = _h2(tmp_path / "ld", _h2_trait(tmp_path), tmp_path / "out").summary
 
     metadata = json.loads((tmp_path / "out" / "diagnostics" / "metadata.json").read_text())
     assert metadata["retained_ld_columns"] == ["base", "second"]

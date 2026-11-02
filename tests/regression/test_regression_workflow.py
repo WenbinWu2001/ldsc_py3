@@ -2188,8 +2188,11 @@ class RegressionWorkflowTest(unittest.TestCase):
                     coef=np.array([0.001]),
                 ),
             ) as patched:
-                summary = regression_runner.run_h2_from_args(args)
+                result = regression_runner.run_h2_from_args(args)
 
+            summary = result.summary
+            self.assertEqual(result.output_paths["summary"], str(tmpdir / "h2_out" / "h2.tsv"))
+            self.assertEqual(result.legacy_sumstats_drops.columns.tolist(), regression_runner.LEGACY_SUMSTATS_DROP_COLUMNS)
             patched.assert_called_once()
             self.assertFalse(marker.exists())
             self.assertFalse((tmpdir / "$LDSC_REGRESSION_OUT").exists())
@@ -2287,7 +2290,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             ldscore_dir = self._write_h2_inputs(tmpdir)
             args = self._h2_args(tmpdir, ldscore_dir, samp_prev=0.5, pop_prev=0.01)
             with self._patched_h2():
-                summary = regression_runner.run_h2_from_args(args)
+                summary = regression_runner.run_h2_from_args(args).summary
         c = liability_conversion_factor(0.5, 0.01)
         row = summary.iloc[0]
         self.assertAlmostEqual(row["total_h2_liab"], 0.2 * c, places=12)
@@ -2378,7 +2381,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     coef=np.array([0.001]),
                 ),
             ):
-                summary = regression_runner.run_h2_from_args(args)
+                summary = regression_runner.run_h2_from_args(args).summary
 
         self.assertEqual(summary.loc[0, "trait_name"], "trait.parquet")
 

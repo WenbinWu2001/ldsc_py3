@@ -278,6 +278,26 @@ class RegressionFit:
 
 
 @dataclass(frozen=True)
+class H2Result:
+    """Result of one ``h2`` run: its summary and the files it wrote.
+
+    Returned by :func:`run_h2`. ``summary`` is the one-row table saved as
+    ``h2.tsv``. ``output_paths`` names the written files as
+    ``H2DirectoryWriter.write`` returns them: ``summary``, ``metadata``,
+    ``ld_score_regression_bins`` for a single-annotation fit, and
+    ``legacy_sumstats_drops`` for a legacy input. ``legacy_sumstats_drops``
+    holds the rows the legacy ``.sumstats(.gz)`` projection dropped, with the
+    columns of ``diagnostics/dropped_snps/legacy_sumstats.tsv.gz``; it is
+    ``None`` when the input was not a legacy table. The fitted estimator is
+    available from :meth:`RegressionRunner.estimate_h2`.
+    """
+
+    summary: pd.DataFrame
+    output_paths: dict[str, str] = field(default_factory=dict)
+    legacy_sumstats_drops: pd.DataFrame | None = None
+
+
+@dataclass(frozen=True)
 class PartitionedH2BatchResult:
     """Compact batch summary and valid persistent artifacts for every fitted model.
 
@@ -3215,6 +3235,7 @@ def run_h2_from_args(args):
     LD score regression-bin diagnostic, metadata, and ``diagnostics/h2.log``
     before loading inputs. A successful overwrite removes default plots and
     liability-scale post-processing derived from the superseded h2 result.
+    Returns the :class:`H2Result` of the run.
     """
     output_dir, log_path = _preflight_regression_outputs(args, "h2", H2DirectoryWriter)
     with workflow_logging("h2", log_path, log_level=getattr(args, "log_level", "INFO")):
@@ -3255,7 +3276,7 @@ def run_h2_from_args(args):
         )
         log_outputs(**written)
         LOGGER.info(f"Finished h2 regression with {n_snps_used} regression SNPs.")
-    return summary
+    return H2Result(summary, written, legacy_drops)
 
 
 @materializing_overwrite_guard(
@@ -3439,7 +3460,7 @@ def run_rg_from_args(args):
     return replace(result, output_paths=written)
 
 
-def run_h2(**kwargs) -> pd.DataFrame:
+def run_h2(**kwargs) -> H2Result:
     """Estimate SNP heritability and save the ``h2`` result directory.
 
     This is the Python form of ``ldsc h2`` and writes the same files. Keyword
@@ -3457,8 +3478,9 @@ def run_h2(**kwargs) -> pd.DataFrame:
 
     Returns
     -------
-    pandas.DataFrame
-        One-row summary with the columns of the saved ``h2.tsv``.
+    H2Result
+        ``summary``, the one-row table saved as ``h2.tsv``; ``output_paths``,
+        the files written; and ``legacy_sumstats_drops`` for a legacy input.
 
     Raises
     ------

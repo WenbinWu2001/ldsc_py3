@@ -349,10 +349,15 @@ class R2Matrix:
         ------
         LDSCInputError
             Endpoint columns or the R2 matrix schema, identity, or binding are
-            incompatible with the selected mode.
+            incompatible with the selected mode, including an endpoint without
+            both ``A1`` and ``A2`` in an allele-aware mode.
         """
-        ep1 = _endpoint_frame(pairs, "1", self._mode)
-        ep2 = _endpoint_frame(pairs, "2", self._mode)
+        return self._query_pairs(pairs, source="the pairs table")
+
+    def _query_pairs(self, pairs: pd.DataFrame, *, source: str) -> pd.DataFrame:
+        """Implement :meth:`query_pairs`; ``source`` names the pairs in input errors."""
+        ep1 = _endpoint_frame(pairs, "1", self._mode, source=source)
+        ep2 = _endpoint_frame(pairs, "2", self._mode, source=source)
         c1, i1, qa1_1, _qa2_1, pa1_1, pa2_1 = self._resolve_with_query_alleles(ep1)
         c2, i2, qa1_2, _qa2_2, pa1_2, pa2_2 = self._resolve_with_query_alleles(ep2)
 
@@ -463,13 +468,15 @@ def _endpoint_column_spec(base: ColumnSpec, suffix: str) -> ColumnSpec:
     )
 
 
-def _endpoint_frame(pairs: pd.DataFrame, suffix: str, mode: str) -> pd.DataFrame:
+def _endpoint_frame(pairs: pd.DataFrame, suffix: str, mode: str, *, source: str) -> pd.DataFrame:
     """Extract one endpoint's canonical columns from suffixed pair columns.
 
     Resolves ``<NAME>_<suffix>`` or ``<alias>_<suffix>`` input columns and returns
     canonical ``CHR/POS/SNP/A1/A2`` fields for matching. In base modes
     (``rsid``/``chr_pos``) allele columns are dropped before use, so a base-mode
-    query behaves identically with or without alleles supplied.
+    query behaves identically with or without alleles supplied. Allele-aware
+    modes require both alleles, because the pairs define the SNPs queried;
+    ``source`` names the pairs in that error.
     """
     allele_aware = is_allele_aware_mode(mode)
     suffix_token = normalize_column_token(suffix)
@@ -489,6 +496,13 @@ def _endpoint_frame(pairs: pd.DataFrame, suffix: str, mode: str) -> pd.DataFrame
             f"query-r2-matrix found no endpoint-{suffix} columns. Most likely the pair table is "
             f"missing `CHR_{suffix}/POS_{suffix}` or `SNP_{suffix}`. Provide the columns "
             "required by the R2 matrix's SNP identifier mode."
+        )
+    if allele_aware and not {"A1", "A2"}.issubset(out):
+        raise LDSCInputError(
+            f"query-r2-matrix cannot identify the endpoint-{suffix} SNPs in {source}: --snp-identifier {mode} "
+            f"needs both `A1_{suffix}` and `A2_{suffix}`, and reports sign_r and r for each endpoint's A1. "
+            f"Add both allele columns for each endpoint, or use --snp-identifier {identity_base_mode(mode)} "
+            "to get r2 with empty sign_r and r."
         )
     return pd.DataFrame(out)
 
@@ -622,7 +636,9 @@ def _write_query_r2_matrix_directory(args: argparse.Namespace, pairs: pd.DataFra
         log_inputs(r2_matrix_dir=args.r2_matrix_dir, pairs=args.pairs_file, output_dir=str(output_dir))
         LOGGER.info(f"Querying R2 for pairs from '{args.pairs_file}' against R2 matrix '{args.r2_matrix_dir}'.")
         matrix = R2Matrix.open(args.r2_matrix_dir, snp_identifier=args.snp_identifier, genome_build=args.genome_build)
-        result = matrix.query_pairs(pairs)
+        source = ("the pairs read from standard input" if args.pairs_file == "-"
+                  else f"pair file '{args.pairs_file}'")
+        result = matrix._query_pairs(pairs, source=source)
         written = QueryR2MatrixDirectoryWriter().write(
             result,
             QueryR2MatrixOutputConfig(output_dir=output_dir, overwrite=args.overwrite),

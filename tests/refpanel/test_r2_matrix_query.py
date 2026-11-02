@@ -9,6 +9,7 @@ import pytest
 from ldsc._refpanel.r2_format import write_r2_parquet, write_runtime_metadata_sidecar
 from ldsc._core.snp_identity import sidecar_identity_sha256
 from ldsc._refpanel.query import unbiased_r2_to_pearson_r
+from ldsc.errors import LDSCInputError
 
 
 
@@ -272,6 +273,16 @@ class TestQueryPairs:
         # r is always emitted but all-NaN in base mode (no sign information).
         assert "r" in out_a.columns and pd.isna(out_a["r"].iloc[0])
 
+    def test_allele_aware_mode_requires_both_alleles_and_names_the_base_mode(self, tmp_path):
+        panel = self._panel(tmp_path)
+        without = pd.DataFrame({"CHR_1": [1], "POS_1": [100], "A1_1": ["A"], "A2_1": ["G"],
+                                "CHR_2": [1], "POS_2": [200], "A1_2": ["C"]})
+        with pytest.raises(LDSCInputError) as error:
+            panel.query_pairs(without)
+        message = str(error.value)
+        assert "the pairs table" in message and "`A1_2` and `A2_2`" in message
+        assert "--snp-identifier chr_pos" in message and "empty sign_r and r" in message
+
     def test_rsid_endpoint_aliases_match_canonical_snp_columns(self, tmp_path):
         canonical_panel = self._panel(tmp_path, mode="rsid")
         canonical_pairs = pd.DataFrame({"SNP_1": ["rs1"], "SNP_2": ["rs2"]})
@@ -408,6 +419,20 @@ class TestQueryR2MatrixCLI:
         assert meta["n_samples"] == 1000
         assert meta["n_pairs"] == 1
         assert meta["status_counts"]["resolved"] == 1
+
+    def test_pair_file_without_alleles_is_named_in_the_error(self, tmp_path):
+        from ldsc.cli import main as cli_main
+
+        build_test_panel(tmp_path, snp_identifier="chr_pos_allele_aware")
+        pairs_path = tmp_path / "pairs.tsv"
+        pd.DataFrame({"CHR_1": [1], "POS_1": [100], "CHR_2": [1], "POS_2": [200]}).to_csv(
+            pairs_path, sep="\t", index=False)
+        with pytest.raises(LDSCInputError) as error:
+            cli_main(self._argv(tmp_path, pairs_path, "--output-dir", str(tmp_path / "result")))
+        message = str(error.value)
+        assert f"pair file '{pairs_path}'" in message and "`A1_1` and `A2_1`" in message
+        assert "--snp-identifier chr_pos" in message
+        assert not (tmp_path / "result" / "query_r2_matrix.tsv").exists()
 
     def test_output_dir_refuses_overwrite_without_flag(self, tmp_path):
         from ldsc.cli import main as cli_main

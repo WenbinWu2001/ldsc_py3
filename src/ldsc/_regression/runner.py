@@ -348,7 +348,11 @@ class RgResultFamily:
         deletion left the fit unidentifiable, plus an ``error`` message.
     h2_per_trait : pandas.DataFrame
         One total-heritability summary per input trait, computed once per trait
-        on the trait's single-trait LDSC regression dataset.
+        on the trait's single-trait LDSC regression dataset, with ``status``
+        (``'ok'``, ``'failed'``, or ``'unestimable'`` when a jackknife block
+        deletion left the fit unidentifiable) and an ``error`` message. A
+        failed trait keeps its row with NaN estimates, and its pairs are still
+        fitted.
     per_pair_metadata : list of dict
         Ordered metadata records aligned to ``rg_full`` rows. Writers use these
         records for optional ``diagnostics/pairs/`` detail output.
@@ -1296,7 +1300,9 @@ class RegressionRunner:
         anchor, only anchor-vs-rest pairs are fit, preserving the original input
         order of non-anchor traits. Pair-level failures are recorded as NaN rows
         with ``status='failed'``, or ``status='unestimable'`` for a singular
-        jackknife deletion, and do not stop later pairs.
+        jackknife deletion, and do not stop later pairs. A failure of a trait's
+        own heritability fit is recorded the same way in ``h2_per_trait`` and
+        does not stop the run.
 
         Parameters
         ----------
@@ -1372,19 +1378,30 @@ class RegressionRunner:
         from .._runtime.progress import PhaseProgress
         with suppress_global_config_banner(), PhaseProgress(LOGGER, "computation", "per-trait h2", len(tables)) as progress:
             for trait, (samp_prev, pop_prev) in zip(traits, prev):
-                h2_dataset = self._dataset_from_prepared(
-                    self._prepare_h2_inputs(trait, ldscores, config, build_checked=True), config=config,
-                )
-                outcome = self._fit_h2_dataset(h2_dataset, config=config, log_level=logging.DEBUG)
-                hsq, h2_dataset = outcome.estimator, outcome.dataset
-                n_snps_used = outcome.n_snps
-                h2_rows.append(
-                    summarize_total_h2(
-                        hsq, h2_dataset, trait_name=_trait_label(trait.table), n_snps_used=n_snps_used,
-                        samp_prev=samp_prev, pop_prev=pop_prev,
+                trait_name = _trait_label(trait.table)
+                h2_dataset = None
+                try:
+                    # As for pairs, an error fails only this trait's own fit; its pairs are still fitted.
+                    h2_dataset = self._dataset_from_prepared(
+                        self._prepare_h2_inputs(trait, ldscores, config, build_checked=True), config=config,
                     )
-                )
-                progress.advance()
+                    outcome = self._fit_h2_dataset(h2_dataset, config=config, log_level=logging.DEBUG)
+                    row = summarize_total_h2(
+                        outcome.estimator, outcome.dataset, trait_name=trait_name, n_snps_used=outcome.n_snps,
+                        samp_prev=samp_prev, pop_prev=pop_prev,
+                    ).assign(status="ok", error="")
+                except Exception as exc:
+                    status = "unestimable" if isinstance(exc, JackknifeIdentifiabilityError) else "failed"
+                    LOGGER.warning(f"SNP heritability of trait '{trait_name}' marked {status}: {_format_exception(exc)}",
+                                   exc_info=True)
+                    if status == "unestimable":
+                        LOGGER.error("Trait %r jackknife diagnostics: %s", trait_name, json.dumps(exc.failures))
+                    row = _failed_h2_row(trait_name=trait_name, error=_format_exception(exc), status=status,
+                                         n_snps=0 if h2_dataset is None else len(h2_dataset.merged),
+                                         samp_prev=samp_prev, pop_prev=pop_prev)
+                h2_rows.append(row)
+                progress.advance(outcome=row["status"].iloc[0])
+                h2_dataset = outcome = None  # release this trait before the next is built
         h2_per_trait = pd.concat(h2_rows, axis=0, ignore_index=True) if h2_rows else pd.DataFrame()
 
         rg_full_rows: list[dict[str, object]] = []
@@ -2521,6 +2538,24 @@ def _summarize_rg_pair(
         "status": "ok",
         "error": "",
     }
+
+
+def _failed_h2_row(
+    *, trait_name: str, error: str, status: str, n_snps: int, samp_prev=None, pop_prev=None,
+) -> pd.DataFrame:
+    """Build the ``h2_per_trait`` row of a trait whose own ``rg`` heritability fit failed.
+
+    The columns are those of :func:`summarize_total_h2` plus ``status`` and
+    ``error``. ``n_snps`` is the trait's SNP count when its dataset was built,
+    else 0; the estimates are NaN and the prevalences are the trait's inputs.
+    """
+    estimates = ("total_h2_obs", "total_h2_obs_se", "total_h2_liab", "total_h2_liab_se")
+    diagnostics = ("intercept", "intercept_se", "mean_chisq", "lambda_gc", "ratio", "ratio_se")
+    return pd.DataFrame([{
+        "trait_name": trait_name, "n_snps": n_snps, **dict.fromkeys(estimates, math.nan),
+        "samp_prev": _prev_cell(samp_prev), "pop_prev": _prev_cell(pop_prev),
+        **dict.fromkeys(diagnostics, math.nan), "status": status, "error": error,
+    }])
 
 
 def _failed_rg_full_row(

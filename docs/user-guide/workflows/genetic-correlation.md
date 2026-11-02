@@ -93,8 +93,10 @@ An unestimable pair's error names that fit, the block, its genomic span and the 
 `rg_full.tsv` adds, for each pair, `z`, the two traits' SNP heritability (`h2_1_obs`, `h2_2_obs`) and genetic covariance (`gencov_obs`) with standard errors, their liability-scale versions, the prevalences used, the intercepts, `ratio_1`, `ratio_2`, `lambda_gc_*`, `mean_chisq_*`, `pair_kind` (`all_pairs` or `anchor`) and `status`.
 The heritabilities in `rg_full.tsv` come from each pair's shared SNPs.
 
-`h2_per_trait.tsv` has one row per trait from a separate single-trait fit on that trait's own SNPs, with the same columns as [`h2.tsv`](heritability.md#read-the-outputs).
+`h2_per_trait.tsv` has one row per trait from a separate single-trait fit on that trait's own SNPs, with the columns of [`h2.tsv`](heritability.md#read-the-outputs) followed by `status` and `error`.
 These estimates can differ from the per-pair heritabilities in `rg_full.tsv`.
+A trait whose own fit fails keeps its row with `NaN` estimates, `status` `unestimable` or `failed` as for pairs, and the reason in `error` and in `diagnostics/rg.log`; the run continues, and the trait's pairs are still fitted on their shared SNPs.
+`n_snps` of a failed trait is its SNP count before the chi-square filter, or 0 when its regression dataset could not be built.
 
 `diagnostics/metadata.json` records the trait labels, the number of pairs and the pair kind; see [artifact metadata](../../reference/formats/artifact-metadata.md#rg).
 Add `--write-per-pair-detail` to also write `diagnostics/pairs/`, with a `manifest.tsv` and one folder per pair holding its `rg_full.tsv` and a `metadata.json` that records the two source files, SNP and block counts and the intercept settings.

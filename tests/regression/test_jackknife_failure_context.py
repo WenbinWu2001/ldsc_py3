@@ -92,6 +92,31 @@ def test_rg_marks_a_singular_pair_unestimable_with_its_context(tmp_path):
     assert pair["retained_ld_columns"] == ["base", "confined"]
 
 
+def test_rg_records_an_unestimable_trait_heritability_and_fits_its_pairs(tmp_path):
+    LDScoreDirectoryWriter().write_batches([panel()], LDScoreOutputConfig(output_dir=tmp_path / "ld"))
+    _, _, c = traits()
+    sources = [SumstatsMunger().write_output(table, tmp_path / "sumstats") for table in (c, only_first_region())]
+
+    workflow.run_rg(sumstats_sources=sources, ldscore_dir=str(tmp_path / "ld"), output_dir=str(tmp_path / "out"),
+                    num_blocks=10, samp_prev="nan,0.5", pop_prev="nan,0.1")
+
+    out = tmp_path / "out"
+    h2 = pd.read_csv(out / "h2_per_trait.tsv", sep="\t", keep_default_na=False)
+    assert h2["trait_name"].tolist() == ["C", "D"]
+    assert h2["status"].tolist() == ["ok", "unestimable"]
+    assert h2.loc[0, "error"] == ""
+    assert "no remaining support in confined" in h2.loc[1, "error"]
+    assert h2.loc[1, "total_h2_obs"] == "NaN"
+    assert int(h2.loc[1, "n_snps"]) == N_SNPS - len(SECOND_A) - len(SECOND_B)
+    assert (float(h2.loc[1, "samp_prev"]), float(h2.loc[1, "pop_prev"])) == (0.5, 0.1)
+    # The pair is still fitted on the SNPs both traits share; its own outcome is recorded.
+    full = pd.read_csv(out / "rg_full.tsv", sep="\t", keep_default_na=False)
+    assert full[["trait_1", "trait_2"]].values.tolist() == [["C", "D"]]
+    log = (out / "diagnostics/rg.log").read_text()
+    assert "SNP heritability of trait 'D' marked unestimable" in log
+    assert "Trait 'D' jackknife diagnostics" in log
+
+
 def test_h2_command_prints_the_jackknife_context(tmp_path, caplog):
     LDScoreDirectoryWriter().write_batches([panel()], LDScoreOutputConfig(output_dir=tmp_path / "ld"))
     source = SumstatsMunger().write_output(only_first_region(), tmp_path / "sumstats")

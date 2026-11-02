@@ -952,7 +952,7 @@ Missing or infinite `Z` or `N` values in summary statistics are dropped and coun
 
 ### regression: a block jackknife deletion is unestimable
 
-**Symptom:** `Jackknife regression is unestimable: Singular matrix after deleting block ...` from `h2` or `partitioned-h2`, or an `rg` pair with `status` `unestimable` and that message in the `error` column of `rg_full.tsv`.
+**Symptom:** `Jackknife regression is unestimable: Singular matrix after deleting block ...` from `h2` or `partitioned-h2`, or an `rg` pair or trait with `status` `unestimable` and that message in the `error` column of `rg_full.tsv` or `h2_per_trait.tsv`.
 
 Standard errors come from deleting one block of SNPs at a time and refitting.
 If a deletion leaves too little information to estimate every coefficient, the fit is unidentifiable even though the full-data fit succeeds.
@@ -964,6 +964,7 @@ The log repeats these details as JSON, with support counts before and after the 
 | --- | --- |
 | An annotation's SNPs fall in one jackknife block | Deleting that block removes the annotation's information. Drop or merge the annotation, or use an annotation with wider genomic support; do not change the block count to hide it. |
 | Remaining columns become dependent | Deleting the block makes some LD-score columns linear combinations of others, although each stays nonzero. Inspect the named block and remove the redundant annotation. |
+| `rg`: one trait's own SNPs confine an annotation | The trait's row in `h2_per_trait.tsv` is unestimable, and the run continues; its pairs are fitted on their shared SNPs and record their own outcome. Use summary statistics that cover the annotation's SNPs, or drop or merge the annotation. |
 | `rg`: the pair's shared SNPs confine an annotation | Each trait alone supports the annotation in several blocks, but the SNPs both traits share do not; the other pairs and each trait's own heritability still fit. Use summary statistics that cover the annotation's SNPs in both traits, or treat the pair as unestimable. |
 
 `rg` keeps fitting the other pairs and records the pair as `unestimable`; `h2` stops with exit code 1; `partitioned-h2` follows the query-error policy in [a query regression fails](#partitioned-h2-a-query-regression-fails).

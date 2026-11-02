@@ -396,10 +396,31 @@ def test_r2_successful_retry_clears_stale_input_repair_table(tmp_path):
         '--snp-identifier', 'chr_pos', '--ld-wind-kb', '.05', '--output-dir', str(tmp_path/'out')])
     with pytest.raises(LDSCInputError):
         r2_matrix_builder.run_build_r2_matrix_from_args(args)
-    issue_path = tmp_path/'out/diagnostics/input_issues.tsv'
-    assert issue_path.exists()
+    issue_paths = [tmp_path/'out/diagnostics'/name for name in ('input_issues.tsv', 'plink_input_issues.tsv')]
+    assert all(path.exists() for path in issue_paths)
     bed.write_bytes(original)
     result = r2_matrix_builder.run_build_r2_matrix_from_args(args)
     assert result.chromosomes == ['21', '22']
-    assert not issue_path.exists()
+    assert not any(path.exists() for path in issue_paths)
     assert (tmp_path/'out/hg19/chr22_r2.parquet').exists()
+
+
+def test_r2_chromosome_run_keeps_another_chromosome_input_repair_tables(tmp_path):
+    from ldsc._refpanel import builder as r2_matrix_builder
+    write_inputs(tmp_path)
+    (tmp_path/'1000G.EUR.QC.21.bed').unlink()
+
+    def chromosome_args(chrom):
+        return r2_matrix_builder.build_parser().parse_args([
+            '--plink-prefix', str(tmp_path/f'1000G.EUR.QC.{chrom}'), '--source-genome-build', 'hg19',
+            '--snp-identifier', 'chr_pos', '--ld-wind-kb', '.05', '--output-dir', str(tmp_path/'out')])
+
+    with pytest.raises(LDSCInputError):
+        r2_matrix_builder.run_build_r2_matrix_from_args(chromosome_args('21'))
+    issue_paths = [tmp_path/'out/diagnostics'/name for name in ('input_issues.tsv', 'plink_input_issues.tsv')]
+    tables = [path.read_text() for path in issue_paths]
+    assert all('21.bed' in table for table in tables)
+    # Parallel chromosome runs share the output directory, so a passing run must not remove the failed run's tables.
+    result = r2_matrix_builder.run_build_r2_matrix_from_args(chromosome_args('22'))
+    assert result.chromosomes == ['22']
+    assert [path.read_text() for path in issue_paths] == tables

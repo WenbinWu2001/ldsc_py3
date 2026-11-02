@@ -148,7 +148,8 @@ def test_r2_builder_retries_failure_without_touching_other_markers(tmp_path, sco
     assert len(result.output_paths["r2_hg19"]) == (1 if scoped else 2)
     assert not marker.exists()
     assert other.read_text() == "other attempt"
-    assert not (output / "diagnostics/plink_input_issues.tsv").exists()
+    # Parallel chromosome runs share the repair tables, so only a whole-panel run removes them.
+    assert (output / "diagnostics/plink_input_issues.tsv").exists() == scoped
 
 
 def test_failed_gene_index_build_can_retry_with_its_failure_marker(tmp_path, monkeypatch):

@@ -130,6 +130,9 @@ Writing workflows persist the existing six-column `input_issues.tsv` repair tabl
 Every command that writes `diagnostics/input_issues.tsv`, except `build-r2-matrix`, declares it in its owned output family: a table left by an earlier failed run stops a run without `--overwrite` before its input checks replace it, and a run whose checks pass removes it.
 The regression, `query-r2-matrix` and munging writers own it without producing it; the LD-score and annotation writers also produce it in a diagnostics-only write.
 `build-r2-matrix` does not declare it, nor `diagnostics/plink_input_issues.tsv`, because its input checks run before its output family is known.
+Parallel per-chromosome `build-r2-matrix` runs into one output directory share both tables, so its checks write them when they fail and never remove them when they pass.
+A run whose `--plink-prefix` has no `@` and whose `.bim` files hold one chromosome keeps both tables; any other run removes them after its output check and before its SNP-selection check.
+A table can therefore outlive the failure it records, and holds only the issues of the run that failed last; see [repair tables shared by parallel chromosome runs](../dev/design/logging.md#repair-tables-shared-by-parallel-chromosome-runs).
 Existing PLINK and gene-specific audits remain available.
 The table is a diagnostic, not a new scientific artifact or resumable checkpoint.
 

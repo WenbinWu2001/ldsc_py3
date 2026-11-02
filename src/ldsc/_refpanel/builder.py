@@ -398,7 +398,11 @@ class R2MatrixBuilder:
             owned siblings not produced by the current run. Concrete
             single-chromosome invocations own only that chromosome's package;
             full ``@`` chromosome-suite invocations own the all-chromosome
-            output package. Direct calls through this method do not create a
+            output package. Failed input checks write
+            ``diagnostics/input_issues.tsv`` or
+            ``diagnostics/plink_input_issues.tsv``; only a run that owns the
+            whole panel removes them, because parallel single-chromosome runs
+            share them. Direct calls through this method do not create a
             workflow log; parsed wrappers add a build-r2-matrix workflow log
             through the shared logging context.
 
@@ -426,7 +430,9 @@ class R2MatrixBuilder:
 
         Returns the output directory, the ``(prefix, chromosome)`` sources, and
         the resolved PLINK prefixes. Input issues are written under the output
-        directory's ``diagnostics/`` before the error is raised.
+        directory's ``diagnostics/`` before the error is raised. Passing checks
+        keep existing issue tables, which parallel chromosome runs share; only
+        a whole-panel run removes them, in ``_run``.
         """
         print_global_config_banner(type(self).__name__, self.global_config)
         output_dir = ensure_output_directory(config.output_dir, label="output directory")
@@ -437,7 +443,7 @@ class R2MatrixBuilder:
                 'genetic_map_hg19_sources', 'genetic_map_hg38_sources')],
             scalar_files=[(name, getattr(config, name, None)) for name in ('keep_indivs_file', 'ref_panel_snps_file')],
             issues_path=output_dir/'diagnostics/input_issues.tsv',
-            plink_issues_path=output_dir/'diagnostics/plink_input_issues.tsv')
+            plink_issues_path=output_dir/'diagnostics/plink_input_issues.tsv', remove_on_pass=False)
         plink = inspect_plink_inputs(config.plink_prefix, discovered_members=declared_inputs.files['plink_members'])
         issues_path = output_dir / "diagnostics" / "plink_input_issues.tsv"
         try:
@@ -460,7 +466,6 @@ class R2MatrixBuilder:
         workflow_log_path: Path | None,
     ) -> R2MatrixBuildResult:
         """Build from inspected inputs in one worker; shared by the direct API and the parsed workflow."""
-        issues_path = output_dir / "diagnostics" / "plink_input_issues.tsv"
         workflow_log_path = _resolve_build_ref_panel_log_path(workflow_log_path, config, chrom_sources)
         if workflow_log_path is not None:
             scope = [chrom for _, chrom in chrom_sources] if _is_chromosome_scoped_invocation(config, chrom_sources) else None
@@ -489,7 +494,10 @@ class R2MatrixBuilder:
             label="R2 matrix output artifact",
         )
         (output_dir / "diagnostics").mkdir(parents=True, exist_ok=True)
-        issues_path.unlink(missing_ok=True)
+        if owned_chromosomes is None:
+            # A chromosome run leaves the shared tables to its siblings; a whole-panel run clears them.
+            for name in ("input_issues.tsv", "plink_input_issues.tsv"):
+                (output_dir / "diagnostics" / name).unlink(missing_ok=True)
 
         with workflow_logging("build-r2-matrix", workflow_log_path, log_level=self.global_config.log_level):
             build_state = self._prepare_build_state(config)
@@ -748,7 +756,7 @@ class R2MatrixBuilder:
                         f"{selection.empty_stage}; the R2 matrix will not include this chromosome."
                     )
         InputGate('Reference-panel SNP selection', issues_path, issues,
-                  troubleshooting=_BUILD_REF_PANEL_EMPTY_DOC).finish()
+                  troubleshooting=_BUILD_REF_PANEL_EMPTY_DOC, remove_on_pass=False).finish()
         return buildable
 
     def _select_chromosome_snps(

@@ -29,13 +29,18 @@ def input_issue(role, path, chrom, reason, details):
 
 @dataclass
 class InputGate:
-    """Collect independent input failures with diagnostic rows and original causes."""
+    """Collect independent input failures with diagnostic rows and original causes.
+
+    A passing gate removes ``issues_path`` unless ``remove_on_pass`` is false,
+    for callers whose table another run may share.
+    """
 
     name: str
     issues_path: Path | None = None
     issues: list = field(default_factory=list)
     causes: list[Exception] = field(default_factory=list, repr=False)
     troubleshooting: str = 'docs/user-guide/troubleshooting.md#staged-input-validation'
+    remove_on_pass: bool = True
 
     def check(self, role, source, operation, *, chrom=''):
         """Retain a check's value or record its typed error, repair, and original cause."""
@@ -72,7 +77,7 @@ class InputGate:
     def finish(self):
         """Publish repair status and raise with all captured original causes."""
         if not self.issues:
-            if self.issues_path is not None:
+            if self.issues_path is not None and self.remove_on_pass:
                 self.issues_path.unlink(missing_ok=True)
             return
         frame = pd.DataFrame(self.issues, columns=INPUT_ISSUE_COLUMNS)
@@ -123,7 +128,7 @@ def _inspect_file_header(role, path, header_checks):
 
 def inspect_declared_inputs(*, files=(), scalar_files=(), plink=None, chromosomes=tuple(map(str, range(1, 23))),
                             require_complete_suite=False, issues_path=None, initial_issues=(), plink_issues_path=None,
-                            checks=(), declaration_check=None, header_checks=None):
+                            checks=(), declaration_check=None, header_checks=None, remove_on_pass=True):
     """Check every declared object before large scans and return resolved paths.
 
     ``files`` contains (role, tokens) pairs using the existing group resolver;
@@ -132,10 +137,12 @@ def inspect_declared_inputs(*, files=(), scalar_files=(), plink=None, chromosome
     record its own declarations, such as annotation headers, on the same gate;
     it fills ``resolved`` and returns extra result fields. ``header_checks``
     maps a file role to a header check that runs once the file is readable.
+    ``remove_on_pass`` is passed to the gate; see ``InputGate``.
     PLINK inspection here checks companion presence only; BIM/FAM and BED-size
     validation is the next content gate. No numeric reference data are loaded.
     """
-    gate = InputGate('Input preflight (declarations and headers)', issues_path, list(initial_issues))
+    gate = InputGate('Input preflight (declarations and headers)', issues_path, list(initial_issues),
+                     remove_on_pass=remove_on_pass)
     resolved = {'baseline': [], 'query': []}
     extra = dict(declarations={}, widths={}, columns={})
     header_checks = header_checks or {}

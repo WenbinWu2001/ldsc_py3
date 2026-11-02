@@ -1,6 +1,6 @@
 # Logging Design
 
-Last updated on: 2026-10-30
+Last updated on: 2026-11-02
 
 This page holds the rules for writing log, warning and error messages, and the logging API boundary.
 The runtime behavior users see (log files, console routing, output preflight and failure markers) is in [logs and outputs](../../reference/logs-and-outputs.md).
@@ -145,6 +145,26 @@ Collect every safely discoverable issue before aborting.
 At each validation stage, check all independent inputs (files, chromosomes, queries, and focal/control lists) and raise one error that summarizes every issue found, instead of stopping at the first.
 Use `_runtime.preflight.InputGate`, write the complete repair table to `diagnostics/input_issues.tsv`, and show at most 10 representative issues in the primary message.
 An unreadable structural contract may stop its own stage immediately; issues in other independent inputs at that stage are still collected.
+
+### Repair tables shared by parallel chromosome runs
+
+`build-r2-matrix` is the one writing command whose repair tables, `diagnostics/input_issues.tsv` and `diagnostics/plink_input_issues.tsv`, are not in its owned output family, because its input checks run before the `.bim` contents show which chromosomes the run owns.
+Per-chromosome runs, whose `--plink-prefix` has no `@` and whose `.bim` files hold one chromosome, can run in parallel into one output directory and then share both tables.
+Its two input gates (`R2MatrixBuilder._inspect_inputs()` and `R2MatrixBuilder._check_chromosome_selections()` in [_refpanel/builder.py](../../../src/ldsc/_refpanel/builder.py)) pass `remove_on_pass=False` to `InputGate`, so a passing check keeps an existing table and a failing check still writes it.
+`R2MatrixBuilder._run()` removes both tables only in a run that owns the whole panel, after its output check and before its SNP-selection gate; a per-chromosome run removes neither, so it never deletes a table that another chromosome's run wrote.
+Every other command keeps the default `remove_on_pass=True`.
+`test_r2_chromosome_run_keeps_another_chromosome_input_repair_tables` and `test_r2_successful_retry_clears_stale_input_repair_table` in `tests/runtime/test_staged_input_preflight.py` cover both cases.
+
+Two limitations remain:
+
+- A stale table outlives its fix.
+  When a per-chromosome run fails and its retry succeeds, the table from the failure stays until a whole-panel run into the same output directory, or until the user deletes it.
+  No message of the successful run names the table, but a reader who opens `diagnostics/` can mistake it for a current failure.
+- The table holds only the last failure.
+  When several per-chromosome runs fail, each failure replaces the table, so it lists only the issues of the run that failed last, and the error message of an earlier run points to a table that no longer holds its issues.
+  Each error message still lists its own first 10 issues; for a run with more than 10, the others are lost once another run replaces the table.
+
+Removing either limitation needs a separate table name for each run, which the input checks cannot choose: the chromosome is not known when they run, and a glob `--plink-prefix` gives no reliable name.
 
 ## API Boundary
 

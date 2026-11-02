@@ -78,12 +78,21 @@ def _alignment(args, bundle, metadata, store, diagnostics, reference_paths, targ
     mode = str(metadata.get("snp_identifier"))
     reference_source, target_source = ",".join(reference_paths), ",".join(target_paths)
     invalid_maf = 0
-    for frame in reference_chunks(reference_paths):
-        bad = ~np.isfinite(frame.MAF)
-        invalid_maf += int(bad.sum())
-        diagnostics.append(frame.loc[bad], role="reference_metadata", source=reference_source,
-                           issue="missing_maf", action="fatal", details="MAF must be finite for every intersected reference SNP")
-        store.append("reference", frame)
+    for path in reference_paths:
+        for frame in reference_chunks([path]):
+            if is_allele_aware_mode(mode) and not {"A1", "A2"}.issubset(frame.columns):
+                # The reference metadata defines the SNP universe, so it cannot fall back to base identity.
+                raise LDSCInputError(
+                    f"quantile-h2 reference metadata '{path}' does not have both A1 and A2, but the fit is "
+                    f"allele-aware (snp_identifier {mode}), so each reference SNP is identified by its alleles. "
+                    "Set --ref-metadata-sources to the R2 matrix sidecars (chr<N>_meta.tsv.gz) or the files "
+                    "that ldscore --export-ref-metadata wrote for the panel of the fit; both carry A1 and A2."
+                )
+            bad = ~np.isfinite(frame.MAF)
+            invalid_maf += int(bad.sum())
+            diagnostics.append(frame.loc[bad], role="reference_metadata", source=reference_source, issue="missing_maf",
+                               action="fatal", details="MAF must be finite for every intersected reference SNP")
+            store.append("reference", frame)
     if invalid_maf:
         raise LDSCInputError(
             f"quantile-h2 reference metadata contains missing or nonfinite MAF values in {invalid_maf} SNP rows. "
@@ -143,8 +152,8 @@ def _alignment(args, bundle, metadata, store, diagnostics, reference_paths, targ
         raise LDSCInputError(
             "quantile-h2 target annotation has duplicate effective SNP identities."
             " The selected SNP identifier mode cannot distinguish these rows. Supply the intended target "
-            "source with one value for each fitted SNP identity, matching the original panel's allele "
-            "orientation where required. "
+            "source with one value for each fitted SNP identity, with the original panel's alleles "
+            "where required. "
             f"See {diagnostics.path} for the duplicate identities."
         )
     store.issues(diagnostics, "target", "NOT EXISTS (SELECT 1 FROM reference s WHERE s.effective_snp_id=r.effective_snp_id)",
@@ -159,7 +168,7 @@ def _alignment(args, bundle, metadata, store, diagnostics, reference_paths, targ
             "quantile-h2 target annotation does not cover the common reference SNPs; "
             f"missing SNP rows={missing}. "
             "Supply target values for the full common-SNP population used for this fit and check SNP "
-            "identifiers and allele orientation; do not fill absent SNP values with zero. "
+            "identifiers and alleles; do not fill absent SNP values with zero. "
             f"See {diagnostics.path} for the missing SNP identities. "
             "Other causes & fixes: "
             "docs/user-guide/troubleshooting.md#quantile-h2-fitted-model-or-resupplied-sources-do-not-verify."

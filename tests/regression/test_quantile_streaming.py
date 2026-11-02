@@ -148,6 +148,20 @@ def test_allele_less_annotations_and_target_log_base_identity_matching(workflow)
             "are matched by rsid, the base mode of rsid_allele_aware, without checking alleles.") in log
 
 
+def test_allele_aware_fit_names_reference_metadata_without_alleles(workflow):
+    metadata_path = workflow.root / "ldscores/metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["snp_identifier"] = "rsid_allele_aware"
+    metadata_path.write_text(json.dumps(metadata))
+
+    with pytest.raises(LDSCInputError) as error:
+        run_quantile_h2_from_args(workflow.args)
+
+    message = str(error.value)
+    assert f"reference metadata '{workflow.root / 'ref.tsv'}'" in message and "rsid_allele_aware" in message
+    assert "chr<N>_meta.tsv.gz" in message and "ldscore --export-ref-metadata" in message
+
+
 def test_global_ties_and_sharded_baselines(workflow):
     annotation = pd.read_csv(workflow.root / "annotations.tsv", sep="\t")
     paths = []

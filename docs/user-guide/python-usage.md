@@ -1,6 +1,6 @@
 # Using LDSC3 from Python
 
-Last updated on: 2026-10-30
+Last updated on: 2026-11-01
 
 This page collects the Python API for each workflow in the user guide.
 Each section below assumes the setup described here and links back to the workflow page that explains the analysis.
@@ -99,6 +99,7 @@ To reopen a saved directory in a later session, use `load_ldscore_from_dir(ldsco
 It writes `partitioned_h2.tsv`, the per-query results and `diagnostics/partitioned-h2.log`, which `plot_result()` and `run_quantile_h2` read later.
 It returns a `PartitionedH2BatchResult` with `summary`, `output_paths`, `per_query_artifacts`, `query_status` and `legacy_sumstats_drops`.
 `legacy_sumstats_drops` lists the rows the projection of a legacy `.sumstats(.gz)` input dropped, as in `diagnostics/dropped_snps/legacy_sumstats.tsv.gz`, and is `None` for other inputs.
+For a legacy input, `output_paths["legacy_sumstats_drops"]` names that file.
 The in-memory `summary` has the scientific columns only; the saved `partitioned_h2.tsv` adds `query_result_dir`.
 
 ### Fit loaded inputs
@@ -808,12 +809,13 @@ def main():
         ld_wind_cm=1.0,
     )
 
-    summary = run_h2(
+    result = run_h2(
         sumstats_file="results/trait_sumstats/trait.parquet",
         ldscore_dir="results/unpartitioned_ldscores",
         output_dir="results/trait_h2",
     )
-    print(summary[["trait_name", "total_h2_obs", "total_h2_obs_se", "intercept"]])
+    print(result.summary[["trait_name", "total_h2_obs", "total_h2_obs_se", "intercept"]])
+    print(result.output_paths["metadata"])
 
     plot_result("results/trait_h2")
     convert_h2_scale("results/trait_h2", samp_prev=0.5, pop_prev=0.01)
@@ -823,7 +825,8 @@ if __name__ == "__main__":
 ```
 
 `run_h2` accepts the `h2` option names without the leading `--`, for example `trait_name`, `count_kind`, `intercept_h2`, `two_step_cutoff`, `chisq_max`, `num_blocks`, `samp_prev`, `pop_prev` and `overwrite`; see [regression options](../reference/regression-options.md).
-It writes `h2.tsv`, the regression-bin diagnostic, `diagnostics/metadata.json` and `diagnostics/h2.log`, and returns the one-row summary saved in `h2.tsv`.
+It writes `h2.tsv`, the regression-bin diagnostic, `diagnostics/metadata.json` and `diagnostics/h2.log`, and returns an `H2Result`.
+`result.summary` is the one-row table saved in `h2.tsv`, `result.output_paths` names the files written, and `result.legacy_sumstats_drops` lists the rows the projection of a legacy `.sumstats(.gz)` input dropped (`None` for other inputs).
 `plot_result()` and `convert_h2_scale()` read that directory; the conversion above writes the liability-scale table under `results/trait_h2/postprocessing/liability-scale/`.
 `run_ldscore()` without annotations computes the all-ones `base` annotation.
 LD-score directories from older versions that lack the `query_batches` manifest in `metadata.json` must be regenerated.
@@ -862,7 +865,7 @@ The LD-score table includes a `regression_ld_scores` column (legacy LDSC's `w_ld
 
 **Saved results.**
 `estimate_h2()` returns a `RegressionFit` and writes nothing.
-Its `estimator` holds the estimates; `dataset`, `n_snps`, `n_blocks`, `effective_chisq_max` and `diagnostic_bins` describe the rows of the final fit, the same values `ldsc h2` records.
+Its `estimator` holds the estimates; `dataset`, `n_snps`, `n_blocks`, `effective_chisq_max`, `effective_two_step_cutoff` and `diagnostic_bins` describe the rows and settings of the final fit, the same values `ldsc h2` records.
 `plot_result()` and `convert_h2_scale()` need a result directory written by `run_h2` or `ldsc h2`.
 
 ## Genetic correlation
@@ -894,7 +897,7 @@ if __name__ == "__main__":
 ```
 
 `run_rg` accepts the `rg` option names without the leading `--`; `sumstats_sources` takes a list of paths or quoted `*` patterns.
-The result has four parts: `result.rg`, `result.rg_full` and `result.h2_per_trait` match `rg.tsv`, `rg_full.tsv` and `h2_per_trait.tsv`, and `result.per_pair_metadata` holds one record per pair.
+The result has five parts: `result.rg`, `result.rg_full` and `result.h2_per_trait` match `rg.tsv`, `rg_full.tsv` and `h2_per_trait.tsv`, `result.per_pair_metadata` holds one record per pair, and `result.output_paths` names the files written.
 A pair whose fit fails is recorded with `NaN` estimates and `status="failed"`, or `status="unestimable"` when deleting a jackknife block left the fit unidentifiable, and the other pairs are still fitted.
 Every trait needs `A1` and `A2`; inputs without them stop the call before any fit.
 Inputs that share a trait label are relabeled `label@<suffix>` from their paths, as in [inputs that share a trait label](workflows/genetic-correlation.md#inputs-that-share-a-trait-label).
@@ -926,6 +929,8 @@ RgDirectoryWriter().write(result, RgOutputConfig(output_dir="results/trait_1_tra
 ```
 
 `anchor_index` is the input position of the anchor trait.
+For liability-scale columns, pass `prevalences=[(0.5, 0.01), (None, None)]`, one `(samp_prev, pop_prev)` pair per table in input order, with `(None, None)` or `nan` for a quantitative trait; half a pair, a value outside (0, 1) or a list of the wrong length stops the call before any fit, as it does for `RegressionConfig(samp_prev=..., pop_prev=...)` in `h2` and `partitioned-h2`.
+The family that `estimate_rg_pairs()` returns has empty `output_paths`; `RgDirectoryWriter().write()` returns the paths it writes.
 Tables that share a trait label are relabeled from their `source_path`; tables loaded with `load_sumstats()` carry their path, and tables that share a label without a path must be given distinct `trait_name` values.
 Exporting the tables with `to_csv()` does not create a plotting input; `plot_result()` needs the directory and metadata written by `RgDirectoryWriter` or `run_rg`.
 `SumstatsMunger().run(MungeConfig(...))` returns a `SumstatsTable` that can be passed to `estimate_rg_pairs()` directly; see [Munge summary statistics](#munge-summary-statistics).

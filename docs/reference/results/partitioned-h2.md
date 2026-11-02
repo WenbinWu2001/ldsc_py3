@@ -1,6 +1,6 @@
 # Partitioned-Heritability Result Columns
 
-Last updated on: 2026-10-30
+Last updated on: 2026-11-01
 
 TODO: add an example output file str.
 
@@ -155,10 +155,12 @@ table.
 `RegressionRunner.estimate_partitioned_h2_batch(..., output_dir=..., query_batch_size=100)` shares trait/baseline preparation, fits each query separately, and stages completed details immediately.
 After stable summary sorting, the writer publishes the canonical per-query tree.
 The returned `PartitionedH2BatchResult` contains `summary`, `output_paths`, persistent `per_query_artifacts` paths, `query_status`, and `legacy_sumstats_drops`, the legacy projection's dropped rows (`None` unless the input was a legacy `.sumstats(.gz)` table).
+For a legacy input the writer also writes those rows to `diagnostics/dropped_snps/legacy_sumstats.tsv.gz`, named `legacy_sumstats_drops` in `output_paths`.
 The old annotation-bundle argument, retained-detail dictionaries, and `include_full_partitioned_h2` option are removed.
 Low-level writer callers pass `PartitionedH2FitArtifacts` through `per_query_artifacts`; `PartitionedH2OutputConfig.write_per_query_results` remains its publication control.
 
 Run-level provenance, including the annotation-type dictionary, is stored once in `diagnostics/metadata.json`.
+It names the summary statistics (`sumstats_file`), genome build, effective SNP identifier mode, count vector and `intercept_h2_policy` of the run, as `h2` metadata does; see [artifact metadata](../formats/artifact-metadata.md#partitioned-h2).
 Each query's `metadata.json` stores model-specific fields and `global_metadata: "../../metadata.json"`, resolved relative to that query directory.
 `load_fitted_partitioned_model()` merges shared and model metadata, with model fields taking precedence, including the retained columns and actual SNP/block counts.
 Keep the complete result directory when copying fitted queries; a query folder alone is incomplete for `quantile-h2`.

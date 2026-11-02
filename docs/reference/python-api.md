@@ -1,8 +1,8 @@
 # Python API reference
 
-Last updated on: 2026-10-31
+Last updated on: 2026-11-01
 
-The supported Python interface is the set of names exported by the `ldsc` package (`ldsc.__all__`, 82 names on 2026-10-30).
+The supported Python interface is the set of names exported by the `ldsc` package (`ldsc.__all__`, 83 names on 2026-11-01).
 Modules whose names start with an underscore, including the domain packages such as `ldsc._ldscore`, are private even when a name defined there is re-exported.
 This page lists every exported name with the first paragraph of its docstring, taken from the installed package; `help(ldsc.<name>)` shows the full docstring, and a future documentation build will generate this page.
 Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and the command-line equivalents in the [command-line reference](cli.md).
@@ -81,6 +81,7 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | `AnnotationBundle` | Complete annotation dataset represented by on-demand chromosome shards. |
 | `ChrPosBuildInference` | Resolved build and coordinate-basis decision for one ``chr_pos`` table. |
 | `ChromLDScoreResult` | Normalized per-chromosome LD-score output in split baseline/query form. |
+| `H2Result` | Result of one `h2` run: its summary and the files it wrote. |
 | `H2ScaleConversionArtifact` | Files written by one liability-scale conversion. |
 | `LDScoreResult` | Materialized LD scores for one cross-chromosome calculation batch. |
 | `LDScoreSource` | Saved LD scores with resident baseline values and selective query reads. |

@@ -1,6 +1,6 @@
 # Regression Configuration Reference (Advanced)
 
-Last updated on: 2026-10-30
+Last updated on: 2026-11-01
 
 This document describes the tunable configuration of the regression module (`ldsc h2`, `ldsc rg`, `ldsc partitioned-h2`).
 **You do not need any of this for a standard run.**
@@ -108,7 +108,7 @@ instead of the two-step estimator.
 | `--intercept-gencov` / `intercept_gencov` (`rg` only) | Fixes the genetic-covariance intercept (sample-overlap term) | Use a fixed value only when justified by the analysis; `0` requests the standard fixed covariance intercept. Single-annotation fits also require a fixed `--intercept-h2`, because automatic two-step estimation otherwise conflicts. Leave unset to estimate it. |
 | `--two-step-cutoff` / `two_step_cutoff` | Step-1 `χ²` ceiling for two-step intercept estimation | Default `30` is the published value. Lower it if moderate-`χ²` SNPs still carry polygenic signal that inflates the intercept. Applies to single-annotation `h2` and single-annotation `rg` only. |
 | `--chisq-max` / `chisq_max` | Excludes SNPs with `χ²` above the cap (for `rg`, on the product `Z₁²·Z₂²`) | Set explicitly to be more aggressive about large-effect loci (e.g. when the MHC or a single locus dominates). See per-command defaults below. |
-| `--samp-prev` / `samp_prev`, `--pop-prev` / `pop_prev` | Observed→liability-scale conversion inputs for binary (case-control) traits. `samp_prev` = case fraction in the GWAS sample (`P`); `pop_prev` = disease prevalence in the population (`K`). Output tables report both `*_obs` and `*_liab` columns plus the applied prevalences; the `rg` ratio is scale-invariant and unchanged. | Required only for binary traits; supply both or neither. Each is a probability in the open interval `(0, 1)`, or `nan` for a quantitative trait. For `h2` / `partitioned-h2` these are scalars; for `rg` they are comma-separated per-trait lists, or an `rg` `--prevalence-manifest` TSV (see below). Default (no prevalence) reports observed scale with `*_liab` columns `NaN`. See `docs/user-guide/workflows/liability-scale.md` for worked examples. |
+| `--samp-prev` / `samp_prev`, `--pop-prev` / `pop_prev` | Observed→liability-scale conversion inputs for binary (case-control) traits. `samp_prev` = case fraction in the GWAS sample (`P`); `pop_prev` = disease prevalence in the population (`K`). Output tables report both `*_obs` and `*_liab` columns plus the applied prevalences; the `rg` ratio is scale-invariant and unchanged. | Required only for binary traits; supply both or neither. Each is a probability in the open interval `(0, 1)`, or `nan` for a quantitative trait. For `h2` / `partitioned-h2` these are scalars; for `rg` they are comma-separated per-trait lists, or an `rg` `--prevalence-manifest` TSV (see below). Default (no prevalence) reports observed scale with `*_liab` columns `NaN`. In Python, `RegressionConfig` and the `prevalences` of `RegressionRunner.estimate_rg_pairs()` apply the same rule and raise `LDSCConfigError` before any fit. See `docs/user-guide/workflows/liability-scale.md` for worked examples. |
 | `--prevalence-manifest` (`rg` only) | TSV of per-trait prevalences looked up by exact munged trait name, as an alternative to the positional `--samp-prev`/`--pop-prev` lists (mutually exclusive). | Use for multi-trait/glob runs where positional alignment is error-prone. Columns `trait_name`, `samp_prev`, `pop_prev` (whitespace/tab-delimited; `#` comment lines ignored). May contain extra traits (a standing repository); every resolved trait must have a row. Duplicate resolved munged names abort the run (use the positional list, or re-munge with distinct names). |
 | `--allow-identity-downgrade` / `allow_identity_downgrade` | SNP-identity compatibility override (not a statistical knob) | Mechanical/compatibility only; see [regression provenance and downgrade](snp-identity-and-genome-build.md#regression-provenance-hierarchy-and-downgrade). |
 
@@ -138,7 +138,8 @@ Explicit `--two-step-cutoff` also remains incompatible with fixed intercepts and
 
 The public Python `RegressionConfig.use_intercept=False` option remains supported.
 It selects a heritability intercept of 1 and a covariance intercept of 0; the CLI now uses only `intercept_h2` and `intercept_gencov` for fixed values.
-Sources: `RegressionRunner._fit_h2_dataset`, `estimate_rg`, and `_runner_from_args` in [`_regression/runner.py`](../../src/ldsc/_regression/runner.py).
+Sources: `_fit_policy()` and `_FitPolicy.two_step_cutoff()`, which `RegressionRunner._fit_h2_dataset` and `estimate_rg` use, and `_runner_from_args` in [`_regression/runner.py`](../../src/ldsc/_regression/runner.py).
+Result metadata records the policy applied: `intercept_h2_policy` (`free` or `fixed:<value>`) for `h2` and `partitioned-h2`, both intercept policies for each `rg` pair, and `effective_two_step_cutoff` beside `effective_chisq_max`.
 
 > **Boundary convention.** Every `χ²` threshold in this module is **inclusive**
 > (`χ² ≤ cutoff` / `χ² ≤ cap` / `Z₁²·Z₂² ≤ chisq_max²`), a deliberate deviation
@@ -178,7 +179,7 @@ annotations equals the number of retained baseline LD-score columns
 | Counts | Common-SNP counts (`--count-kind common`). |
 | Jackknife | `num_blocks = 200`. |
 
-Reported diagnostics (`diagnostics/metadata.json`) include the **post-filter** SNP count (`n_snps`), the `effective_chisq_max` actually applied (`null` when uncapped), and `n_blocks_used`.
+Reported diagnostics (`diagnostics/metadata.json`) include the **post-filter** SNP count (`n_snps`), the `effective_chisq_max` actually applied (`null` when uncapped), the `effective_two_step_cutoff` actually used (`null` without the two-step estimator), the `intercept_h2_policy`, and `n_blocks_used`.
 These values come from the regression fit, `RegressionFit`, which retains the ordered final SNP population and annotation columns.
 Single-annotation diagnostic bins use this same population, including SNPs outside the two-step estimator’s first-stage subset.
 `partitioned-h2` model metadata and `rg` pair metadata likewise consume their actual regression fits; reporting never reapplies a filter.
@@ -202,9 +203,8 @@ scores.
 | `chisq_max` | **No default cap** (matches legacy LDSC `_rg`). The filter is opt-in: when `--chisq-max` is given, SNPs are dropped on the **product** `Z₁²·Z₂² ≤ chisq_max²`. |
 | Counts / Jackknife | Common-SNP counts; `num_blocks = 200`. |
 
-Per-pair metadata reports the post-filter `n_snps_used` / `n_blocks_used` and an
-`effective_chisq_max` field. Because `rg` has no default cap, that field simply
-**echoes** `config.chisq_max` (or `null`); there is no hidden default to reveal.
+Per-pair metadata reports the post-filter `n_snps_used` / `n_blocks_used`, an `effective_chisq_max` field and the `effective_two_step_cutoff` of the genetic-correlation fit.
+Because `rg` has no default cap, `effective_chisq_max` simply **echoes** `config.chisq_max` (or `null`); there is no hidden default to reveal.
 
 *Mechanism:* `RegressionRunner.estimate_rg` and `estimate_rg_pairs` in
 `_regression/runner.py`.
@@ -266,10 +266,9 @@ The earlier [query-worker benchmark](../dev/validation/performance.md#partitione
 | Counts | Common-SNP counts. `N.max()` for the cap is taken **before** filtering. |
 | Jackknife | `num_blocks = 200`. |
 
-Reported diagnostics: the cell-type regime records per-query `n_snps` +
-`effective_chisq_max`; the functional regime records the same pair in the
-aggregate `metadata.json`. In both, `effective_chisq_max` reveals the silent
-default cap when `--chisq-max` was not passed.
+Reported diagnostics: the cell-type regime records per-query `n_snps`, `effective_chisq_max` and `effective_two_step_cutoff` (always `null`); the functional regime records them in the aggregate `metadata.json`.
+In both, `effective_chisq_max` reveals the silent default cap when `--chisq-max` was not passed.
+The aggregate `metadata.json` also records the `intercept_h2_policy`.
 
 > The policy above assumes the genuine multi-annotation case (`n_annot > 1`),
 > which holds for any real partitioning. A degenerate functional run over a
@@ -294,7 +293,7 @@ estimator state.
 
 | Constant | Value | Where | Role |
 |---|---|---|---|
-| Default two-step cutoff | `30` | `estimate_h2`, `estimate_rg` | Step-1 `χ²` ceiling when two-step is enabled and `--two-step-cutoff` is unset. |
+| Default two-step cutoff | `30` | `_FitPolicy.two_step_cutoff` | Step-1 `χ²` ceiling when two-step is enabled and `--two-step-cutoff` is unset; recorded as `effective_two_step_cutoff`. |
 | Default partitioned cap | `max(0.001 · N.max(), 80)` | `_resolve_default_chisq_max` | Outlier cap for multi-annotation `h2` when `--chisq-max` is unset. |
 | Constrained heritability intercept | `1` | `Hsq.__null_intercept__` | Standard fixed heritability intercept, requested with `--intercept-h2 1`. |
 | Constrained genetic-covariance intercept | `0` | `RG`/`Gencov.__null_intercept__` | Standard fixed covariance intercept, requested with `--intercept-gencov 0`. |

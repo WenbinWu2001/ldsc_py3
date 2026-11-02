@@ -1,9 +1,51 @@
 # Status
 
-Last updated on: 2026-10-31
+Last updated on: 2026-11-01
 
-Branch `restructure`; checked on 2026-10-31.
+Branch `restructure`; checked on 2026-11-01.
 Nothing below is in progress; each open item needs the user's go-ahead.
+
+## Completed: regression metadata and results (2026-11-01)
+
+Architecture review candidate 7.
+Re-checked at `fe47ed3`, its pipeline rewrite was no longer needed: candidate 3 had removed the runner's reach into the writer (`daede5d`) and `e43ca63` the `ldscore_dir` disagreement, while duplicated metadata, scattered fit-policy and prevalence rules, a writer-external legacy audit and a latent prevalence defect remained.
+The user accepted three rounds of recommendations on 2026-11-01, changed one answer (both Python return values, below), and authorized the implementation; the question record and evidence are outside the repository.
+
+- `2f5fb28`: an unused import is removed from `_regression/outputs.py` before the refactor.
+- `c69a7ea`: `normalize_prevalence_pair()` in `src/ldsc/config.py` is the one prevalence rule; `RegressionConfig`, the `rg` prevalence parsers and `RegressionRunner.estimate_rg_pairs()` apply it before any fit, and `parse_scalar_prevalence()` is gone.
+  Before, `RegressionConfig(samp_prev=0.5)` silently stayed on the observed scale, and an `rg` prevalence list of the wrong length failed every pair with an `IndexError`.
+  Breaking: `RegressionConfig.samp_prev` and `pop_prev` are `float | None`, and half a pair raises `LDSCConfigError` instead of `LDSCUsageError`; CLI messages and exit codes are unchanged.
+- `e71680f`: a failed or unestimable `rg` pair keeps the traits' input prevalences in `rg_full.tsv` and in its pair metadata, whose `scale` then names the requested scale.
+- No output changes: `c46d88c` (`_fit_policy()` resolves the intercepts and the two-step default of 30 once), `16bc0b4` (`None` is the runner's only missing-prevalence marker), `61cdbcb` (the `partitioned-h2` CLI's duplicate metadata dictionary is gone; `_ldscore_dir_of()`, `_dataset_metadata()`, `_fit_metadata()` and one `_rg_pair_metadata()` build metadata; `_h2_metadata()` no longer reads `args`), `3dac297` (`RgDirectoryWriter.write()` takes an `RgResultFamily` instead of any object read through `getattr`, a breaking change) and `0963849` (`_inspect_regression_inputs()`).
+- `b847c88`: the `h2`, `partitioned-h2` and `rg` writers declare, stage and list `diagnostics/dropped_snps/legacy_sumstats.tsv.gz` (`legacy_sumstats_drops` in `files` and `output_paths`), before `metadata.json`; a direct `estimate_partitioned_h2_batch()` call now writes it too.
+  Its decompressed content is unchanged; the compressed stream is 7 bytes shorter, without the sync flush of the pandas writer used before.
+- `0fabda5`: the `partitioned-h2` root metadata records `sumstats_file`, `genome_build`, `effective_snp_identifier`, `identity_downgrade_applied` and `count_key_used_for_regression`, as `h2` does; `h2` records `sumstats_file` as the resolved path.
+- `1c6b47e`: `RegressionFit.effective_two_step_cutoff`, recorded as `effective_two_step_cutoff` beside every `effective_chisq_max`, and `intercept_h2_policy` in `h2` and `partitioned-h2` root metadata.
+- `f55bc9c`: `RgResultFamily.output_paths`, returned by `run_rg()`; `e2e1a59`: `run_h2()` returns the new exported `H2Result` (`summary`, `output_paths`, `legacy_sumstats_drops`) instead of the summary table (breaking).
+- This commit: `docs/reference/formats/artifact-metadata.md` (including the Regression Output Rule), `regression-options.md`, `formats/legacy-sumstats.md`, `results/partitioned-h2.md`, `index.md`, `python-api.md` (83 exports), `docs/user-guide/python-usage.md`, `docs/dev/architecture.md` and `code-structure.md`; `lessons.md` gains "A rule stated in a docstring is not a check".
+- Evidence: a before/after harness ran exported copies of `fe47ed3` and of each commit on 30 runs: seven `h2` (single and multi-annotation, legacy, downgrade, prevalences, fixed intercept, requested two-step cutoff), five `partitioned-h2` (query, functional, legacy, prevalences, fixed intercept with a cap), four `rg` (mixed modes with a legacy trait, anchor, prevalences with a failed pair, fixed intercepts), a real `partitioned-h2` to `quantile-h2` chain on the chromosome-22 PLINK fixture, four plots, one `convert-h2-scale`, and `infer-genome-build` on seven result directories.
+  Logs were excluded, gzip files compared decompressed and the `created_at` timestamps of plot and conversion metadata ignored; two runs of `fe47ed3` were otherwise identical.
+  All 140 files were identical after `c69a7ea` (with the cleanup), `c46d88c`, `16bc0b4`, `61cdbcb`, `3dac297`, `0963849`, `f55bc9c` and `e2e1a59`; `e71680f`, `b847c88`, `0fabda5` and `1c6b47e` changed only the designed fields.
+  Against `fe47ed3`, every result table, the `quantile-h2` and liability-scale tables and the plots are identical; only 36 `metadata.json` files, the failed pair's `rg_full.tsv` rows and three `infer-genome-build` reports (a `partitioned-h2` result now declares hg38) differ.
+  The CLI's prevalence errors (half a pair and an out-of-range value for `h2`, half a pair for `rg`) print the same message with exit code 1 before and after.
+- Tests: each code commit first ran its focused tests (between 174 and 730); full pytest on exported copies with the workspace `resources/` linked into their parent folder: 2,436 passed at `0963849` and 2,449 at the final tree, none skipped.
+  The first full run of the final tree failed three tests in `tests/regression/test_regression_streaming.py` that still read the `h2` return value as a table; the fix is folded into `e2e1a59`.
+
+### Decisions taken during implementation
+
+- Only the input check is shared (`0963849`); a shared closing step was not extracted, because `b847c88` removed the repeated audit step it would have held.
+- `normalize_prevalence_pair()` also rejects a prevalence that is not a number, and `estimate_rg_pairs()` rejects a prevalence list whose length differs from the number of traits (`LDSCUsageError`), both before any fit.
+- The LD-score directory is resolved as a directory (`Path(metadata).parent.resolve()`), so `rg` and the Python batch default differ from before only when `metadata.json` itself is a symlink.
+- `RegressionFit` gains the public field `effective_two_step_cutoff`; the default is recorded as the integer `30` the kernel receives, and a requested cutoff as given (`20.0`).
+- `estimate_rg()`'s `fit_summary` keeps its keys (`n_snps`, `n_blocks`) and gains `effective_two_step_cutoff`.
+- `_regression/outputs.py` names `RgResultFamily` under `TYPE_CHECKING`, as `_ldscore/outputs.py` names `LDScoreResult`; `LEGACY_SUMSTATS_DROP_COLUMNS` moved to `_regression/outputs.py`, and `runner.py` imports it.
+- The `partitioned-h2` provenance fields come from the run and override caller `metadata` keys of the same name; per-query metadata keeps its own `effective_snp_identifier` and `identity_downgrade_applied`.
+- Tests that asserted `run_rg_from_args()` returned the estimated object itself now check its tables and `output_paths`; `test_prevalence.py` now tests the scalar rule through `RegressionConfig`.
+
+### Left open from candidate 7
+
+- The per-trait `h2` fits inside `rg` record no two-step cutoff, since `h2_per_trait.tsv` has no metadata of its own.
+- `estimate_partitioned_h2_batch()` still publishes from the runner, by design; `h2` and `rg` publish from their `*_from_args()` functions.
 
 ## Completed: typed LD-score writer inputs and published reference metadata (2026-10-31)
 

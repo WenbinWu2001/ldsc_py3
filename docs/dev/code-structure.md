@@ -1,6 +1,6 @@
 # Code Structure
 
-Last updated on: 2026-10-31
+Last updated on: 2026-11-01
 
 This is the authoritative contributor entry for LDSC3.
 Start here to locate a change.
@@ -74,7 +74,7 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 | Module | Responsibility |
 | --- | --- |
 | `ldsc.cli` | unified `ldsc` command; the `_COMMANDS` table maps each subcommand to its workflow module and entry functions |
-| `ldsc.config` | frozen public config dataclasses and basic validation |
+| `ldsc.config` | frozen public config dataclasses and basic validation, including the one binary-trait prevalence rule (`normalize_prevalence_pair()`) |
 | `ldsc._core.chromosomes` | canonical chromosome normalization and ordering |
 | `ldsc._core.columns` | resolve header aliases and normalize identifier/build tokens |
 | `ldsc._core.coordinates` | `CHR:POS` keys and coordinate-frame normalization |
@@ -146,10 +146,10 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 | `ldsc._regression.estimators` | LDSC estimators for `Hsq` and `RG` |
 | `ldsc._regression.jackknife`, `ldsc._regression.irwls` | supporting numerical routines used by regression |
 | `ldsc._regression.overlap_model` | per-model overlap assembly, the overlap-aware annotation table (ported `_overlap_output` with augmentation) and the collinearity check (`model_collinearity_error`) |
-| `ldsc._regression.prevalence` | parse and validate binary-trait prevalence inputs (scalar `--samp-prev`/`--pop-prev` for `h2`/`partitioned-h2`; comma-separated lists or a `--prevalence-manifest` TSV for `rg`) into a normalized per-trait `(samp_prev, pop_prev)` structure for observed-to-liability conversion |
+| `ldsc._regression.prevalence` | parse the `rg` prevalence inputs (comma-separated `--samp-prev`/`--pop-prev` lists or a `--prevalence-manifest` TSV) into a normalized per-trait `(samp_prev, pop_prev)` structure for observed-to-liability conversion, checking each pair with `ldsc.config.normalize_prevalence_pair()`; `RegressionConfig` checks the scalar `h2`/`partitioned-h2` pair |
 | `ldsc._regression.h2_scale` | strict post-fit observed-to-liability conversion from a canonical `h2` result, including exact and prevalence-range modes and the fixed nested derived-result family |
 | `ldsc._regression.quantile_h2`, `ldsc._regression.quantile_inputs`, `ldsc._regression.quantile_storage` | post-fit continuous-target quantile assignment, reconstruction and verification of the fitted sources and common reference SNPs, vectorized coefficient/delete-value projection, standardized `tau_star`, and streamed alignment diagnostics |
-| `ldsc._regression.outputs` | writers for the `h2`, `partitioned-h2` (per-query layout), `rg` (result family) and `quantile-h2` result directories, with their column constants and the fitted-model file names and locators (`fitted_model_files()`, `published_query_artifacts()`) |
+| `ldsc._regression.outputs` | writers for the `h2`, `partitioned-h2` (per-query layout), `rg` (result family) and `quantile-h2` result directories, including the legacy summary-statistics audit, with their column constants and the fitted-model file names and locators (`fitted_model_files()`, `published_query_artifacts()`) |
 | `ldsc._plotting.dispatch` | sole public metadata-driven plotting dispatcher, lazy plotting-runtime boundary, fixed plot-family output, and live `PlotArtifact` return object |
 | `ldsc._plotting.builders` | private Matplotlib-only headless builders for the approved `h2`, `rg`, `partitioned-h2`, and `quantile-h2` plots |
 
@@ -182,7 +182,7 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 | change annotation-name validation or continuous-annotation classification | `src/ldsc/_annotation/semantics.py`, then `src/ldsc/_ldscore/calculator.py` and `src/ldsc/_ldscore/outputs.py` |
 | change target quantiles, standardized coefficients, or post-fit alignment | `src/ldsc/_regression/quantile_h2.py`, then `src/ldsc/_regression/outputs.py` and `docs/reference/results/quantile-h2.md` |
 | change LDSC estimators | `src/ldsc/_regression/estimators.py` |
-| change binary-trait prevalence parsing or observed-to-liability conversion | `src/ldsc/_regression/prevalence.py` (input parsing/validation), then `src/ldsc/_regression/runner.py` (summary/metadata wiring) and `src/ldsc/_regression/estimators.py` (`liability_conversion_factor`) |
+| change binary-trait prevalence parsing or observed-to-liability conversion | `src/ldsc/config.py` (`normalize_prevalence_pair()`, the per-trait rule) and `src/ldsc/_regression/prevalence.py` (`rg` list and manifest parsing), then `src/ldsc/_regression/runner.py` (summary/metadata wiring) and `src/ldsc/_regression/estimators.py` (`liability_conversion_factor`) |
 | change post-fit heritability scale conversion or sensitivity output | `src/ldsc/_regression/h2_scale.py`, then `src/ldsc/_regression/estimators.py` only if the shared numerical primitive itself changes |
 | change plot dispatch, supported result contracts, or visual semantics | `src/ldsc/_plotting/dispatch.py`, `src/ldsc/_plotting/builders.py`, then `docs/dev/design/plotting.md` and `docs/user-guide/workflows/plotting.md` |
 | change owned artifact declarations | `src/ldsc/_runtime/artifacts.py`, then the domain writer: `src/ldsc/_annotation/outputs.py`, `src/ldsc/_refpanel/outputs.py`, `src/ldsc/_ldscore/outputs.py` or `src/ldsc/_regression/outputs.py` |

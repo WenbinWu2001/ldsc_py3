@@ -1,6 +1,6 @@
 # Artifact Metadata Field Inventory
 
-Last updated on: 2026-10-31
+Last updated on: 2026-11-01
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](../munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -105,12 +105,12 @@ only the final downstream compatibility build.
 
 ### Regression legacy summary-statistics audit
 
-When any regression input is legacy text and an output directory is
-supplied, `h2`, `partitioned-h2`, and `rg` write
-`diagnostics/dropped_snps/legacy_sumstats.tsv.gz`, including a header-only file
-for a clean projection. Its fixed fields are `trait_name`, `source_path`,
-`SNP`, `A1`, `A2`, `reason`, and `panel_candidate_count`. It is diagnostic only;
-the in-memory projected table, not this sidecar, enters regression.
+When any regression input is legacy text, the `h2`, `partitioned-h2` and `rg` writers write `diagnostics/dropped_snps/legacy_sumstats.tsv.gz`, including a header-only file for a clean projection.
+They write it before `metadata.json` and list it as `legacy_sumstats_drops` in the metadata `files` map and in the returned `output_paths`; `RegressionRunner.estimate_partitioned_h2_batch()` writes it too.
+An overwrite by a run without a legacy input removes an earlier audit.
+Its fixed fields are `trait_name`, `source_path`, `SNP`, `A1`, `A2`, `reason`, and `panel_candidate_count`.
+It is diagnostic only; the in-memory projected table, not this sidecar, enters regression.
+Sources: `H2DirectoryWriter`, `PartitionedH2DirectoryWriter` and `RgDirectoryWriter` in [_regression/outputs.py](../../../src/ldsc/_regression/outputs.py).
 
 ### `build-r2-matrix`
 
@@ -317,9 +317,9 @@ for a fit on a single LD-score column and absent for a fit on several columns.
 | Field | Explanation | Downstream usage |
 | --- | --- | --- |
 | `artifact_type` | Must be `h2_result`. | Selects `h2` plotting and conversion contracts. |
-| `files` | Relative map with `summary: "h2.tsv"` and, for a fit on a single LD-score column, `ld_score_regression_bins: "diagnostics/ld_score_regression_bins.tsv"`. | Conversion follows `summary`; plotting follows `ld_score_regression_bins`. |
+| `files` | Relative map with `summary: "h2.tsv"`; for a fit on a single LD-score column, `ld_score_regression_bins: "diagnostics/ld_score_regression_bins.tsv"`; for a legacy input, `legacy_sumstats_drops: "diagnostics/dropped_snps/legacy_sumstats.tsv.gz"`. | Conversion follows `summary`; plotting follows `ld_score_regression_bins`. |
 | `trait_name` | Trait label resolved from CLI input or summary-statistics metadata. | None. |
-| `sumstats_file` | Source summary-statistics path. | None. |
+| `sumstats_file` | Path the summary statistics were read from, after `~`, environment variables and globs are resolved. | None. |
 | `ldscore_dir` | Source LD-score directory. | None. |
 | `effective_snp_identifier` | SNP identifier mode actually used after any allowed identity downgrade. | None. |
 | `genome_build` | Regression dataset genome build when available. | None. |
@@ -330,6 +330,8 @@ for a fit on a single LD-score column and absent for a fit on several columns.
 | `dropped_nonfinite_statistic_rows` | Summary-statistics rows dropped because `Z` or `N` was missing or infinite; see [missing or infinite statistics](../regression-options.md#16-missing-or-infinite-statistics). | None. |
 | `n_snps` | Number of SNPs retained after the effective chi-square filter. | None. |
 | `effective_chisq_max` | Chi-square cap actually applied (`null` when uncapped). | None. |
+| `effective_two_step_cutoff` | Step-1 chi-square cutoff of the two-step estimator: the requested `--two-step-cutoff`, or 30 for a single-annotation fit with an estimated intercept; `null` when the fit used no two-step estimator. | None. |
+| `intercept_h2_policy` | `free` when the intercept was estimated, or `fixed:<value>`, for example `fixed:1` for `--intercept-h2 1`. | None. |
 | `n_blocks_used` | Realized jackknife block count from the regression fit. | None. |
 | `samp_prev` | Sample (case) prevalence applied for liability conversion, or `null` for an observed-scale run. | None. |
 | `pop_prev` | Population prevalence applied, or `null`. | None. |
@@ -366,7 +368,9 @@ The post-fit `quantile-h2` reader requires the enclosing shared metadata when th
 Keep the complete result directory when copying fitted queries.
 Sources: `PartitionedH2DirectoryWriter` in [_regression/outputs.py](../../../src/ldsc/_regression/outputs.py) and `load_fitted_partitioned_model` in [_regression/quantile_h2.py](../../../src/ldsc/_regression/quantile_h2.py).
 
-Model metadata records `n_snps`, `effective_chisq_max`, and `n_blocks_used` from the fitted population: at the root for a baseline-only model and in each per-query metadata file for query models.
+Model metadata records `n_snps`, `effective_chisq_max`, `effective_two_step_cutoff` and `n_blocks_used` from the fitted population: at the root for a baseline-only model and in each per-query metadata file for query models.
+`effective_two_step_cutoff` is `null` for every query model, which has several annotations; see the [`h2` fields](#h2) for its meaning.
+Root metadata also records the trait's provenance, the same fields as `h2` metadata: `sumstats_file`, `genome_build`, `effective_snp_identifier`, `identity_downgrade_applied`, `count_key_used_for_regression` and `intercept_h2_policy`.
 Root metadata also records `dropped_nonfinite_statistic_rows`, the trait's summary-statistics rows dropped because `Z` or `N` was missing or infinite.
 
 Completed query scans write `diagnostics/query_status.tsv` in requested order, including failed queries; strict failures publish this ledger without new scientific results.
@@ -423,7 +427,9 @@ multiple-testing correction appropriate for their analysis.
 Root `diagnostics/metadata.json` records `trait_names` (the labels after any `label@<suffix>` relabeling, in input order; plotting reads them), `sumstats_files` (each trait's source path, aligned with `trait_names`), `ldscore_dir`, `pair_kind`, `n_pairs`, `n_traits` and `dropped_nonfinite_statistic_rows` (each trait's rows dropped because `Z` or `N` was missing or infinite, aligned with `trait_names`).
 
 Root and per-pair `diagnostics/metadata.json` files are provenance only.
-Per-pair metadata records the prevalences applied to each trait (`samp_prev_1`, `pop_prev_1`, `samp_prev_2`, `pop_prev_2`, each `null` when unset) and a `scale` (`observed` | `liability`) field; the genetic correlation itself is scale-invariant.
+Per-pair metadata records the prevalences supplied for each trait (`samp_prev_1`, `pop_prev_1`, `samp_prev_2`, `pop_prev_2`, each `null` when unset) and a `scale` (`observed` | `liability`) field; the genetic correlation itself is scale-invariant.
+A failed or unestimable pair keeps these inputs, in its metadata and in its `rg_full.tsv` row, although its estimates are missing; `scale` then names the scale the prevalences request.
+Per-pair metadata also records `effective_two_step_cutoff` (as for [`h2`](#h2); `null` for a pair that failed before its fit) and the `intercept_h2_policy` and `intercept_gencov_policy` of the run.
 
 ### Plot result
 
@@ -480,9 +486,9 @@ The `rg` heritability source is optional for plotting; absent sources or unusabl
 
 ## Regression Output Rule
 
-`h2`, `partitioned-h2`, and `rg` require `--output-dir` and write their public
-result files plus diagnostics. Their numerical `RegressionRunner` methods remain
-in-memory APIs.
+`h2`, `partitioned-h2`, and `rg` require `--output-dir` and write their public result files plus diagnostics.
+`RegressionRunner.estimate_h2()`, `estimate_rg()` and `estimate_rg_pairs()` are in-memory APIs; `run_h2()` and `run_rg()` write their results.
+`RegressionRunner.estimate_partitioned_h2_batch()` requires an output directory and publishes the result directory itself, because its query workers stage each fitted model inside that directory.
 
 ## Compatibility-Critical Fields
 

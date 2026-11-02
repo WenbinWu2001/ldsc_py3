@@ -336,3 +336,11 @@ Last updated on: 2026-10-31
   An authorized overwrite that failed while writing `ldscore.overlap.parquet` left the new baseline beside the earlier `metadata.json`, and loading the directory raised `LDSCInternalError`.
   The converter now publishes through `write_batches()` as a one-item batch, and `write()` is gone.
   Route every producer of one artifact family through one publication path, and test a failed overwrite for each producer, not only the main workflow; see `test_failed_overwrite_keeps_the_earlier_converted_directory` in `tests/ldscore/test_legacy_ldscore_converter.py`.
+
+## A rule stated in a docstring is not a check
+
+- Summary/root cause/correction: The `RegressionConfig` docstring said both prevalences "must be supplied together", but no code checked it; only the CLI parser did, so `RegressionConfig(samp_prev=0.5)` reached the fit, which silently stayed on the observed scale.
+  `estimate_rg_pairs(prevalences=...)` checked nothing either: a list of the wrong length failed every pair with an `IndexError`, recorded as ordinary failed pairs.
+  Every test of the rule went through the CLI parser, the one route that enforced it.
+  `normalize_prevalence_pair()` in `src/ldsc/config.py` now holds the rule, and `RegressionConfig`, the `rg` prevalence parsers and `estimate_rg_pairs()` apply it before any fit.
+  When a docstring states a constraint, find the code that enforces it on every public route and test the Python seams, not only the command; see `tests/regression/test_prevalence.py`.

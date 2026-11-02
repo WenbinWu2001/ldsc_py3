@@ -1,6 +1,6 @@
 # Reference
 
-Last updated on: 2026-10-30
+Last updated on: 2026-11-01
 
 This section is the exact reference for LDSC3: commands, the Python API, file formats, result columns and methods.
 Task guides are in the [user guide](../user-guide/index.md), and the package internals are in the [developer guide](../dev/index.md).
@@ -17,7 +17,7 @@ Task guides are in the [user guide](../user-guide/index.md), and the package int
 | Compute LD scores | `ldsc ldscore` | `run_ldscore()`, `LDScoreCalculator`, `load_ldscore_from_dir()` returning `LDScoreSource` | A reference panel; optional baseline annotations; query annotations, BED files, gene lists or a gene LD-score index | An LD-score directory ([artifact metadata](formats/artifact-metadata.md#ldscore)) |
 | Convert legacy LD scores | `ldsc convert-legacy-ldscores` | `convert_legacy_ldscores()`, `LegacyLDScoreConverter` | Complete chromosome 1 to 22 legacy reference and weight suites | An LD-score directory and `diagnostics/conversion_issues.tsv.gz` ([legacy LD scores](formats/legacy-ldscores.md)) |
 | Munge summary statistics | `ldsc munge-sumstats` | `SumstatsMunger`, `infer_raw_sumstats()`, `load_sumstats()` | Raw summary statistics | Munged summary statistics as Parquet, optionally also `.sumstats.gz` ([`munge-sumstats`](munge-sumstats.md)) |
-| Estimate SNP heritability | `ldsc h2` | `run_h2()`, `RegressionRunner.estimate_h2()` | Munged summary statistics and an LD-score directory | `h2.tsv` ([regression options](regression-options.md)) |
+| Estimate SNP heritability | `ldsc h2` | `run_h2()` returning `H2Result`, `RegressionRunner.estimate_h2()` | Munged summary statistics and an LD-score directory | `h2.tsv` ([regression options](regression-options.md)) |
 | Estimate partitioned heritability | `ldsc partitioned-h2` | `run_partitioned_h2()`, `RegressionRunner.estimate_partitioned_h2()`, `RegressionRunner.estimate_partitioned_h2_batch()` | Munged summary statistics and an LD-score directory with its overlap file | `partitioned_h2.tsv` and `partitioned_h2_full.tsv` ([result columns](results/partitioned-h2.md)) |
 | Summarize heritability across annotation quantiles | `ldsc quantile-h2` | `run_quantile_h2()`, `compute_quantile_h2()`, `compute_standardized_coefficients()`, `load_fitted_partitioned_model()` | A fitted `partitioned-h2` result, its annotation sources and a target annotation | `quantile_h2.tsv` and `standardized_coefficients.tsv` ([`quantile-h2`](results/quantile-h2.md)) |
 | Estimate genetic correlation | `ldsc rg` | `run_rg()`, `RegressionRunner.build_rg_dataset()` with `RegressionRunner.estimate_rg()`, `RegressionRunner.estimate_rg_pairs()` | Two or more munged summary statistics files and an LD-score directory | `rg.tsv`, `rg_full.tsv` and `h2_per_trait.tsv` ([artifact metadata](formats/artifact-metadata.md#rg)) |

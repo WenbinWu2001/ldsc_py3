@@ -1389,22 +1389,15 @@ def infer_raw_sumstats(
 
 
 def _inference_from_schema(schema: munge_input.RawSchema) -> RawSumstatsInference:
-    """Report a raw schema: detected format, inferred hints, and each issue as a missing field with its note."""
+    """Report a raw schema: detected format, inferred hints, and each issue as a missing field noted with the run's message."""
     suggested_args = ["--input-format", schema.detected_format]
-    notes = list(schema.notes)
+    notes = [*schema.notes, *(issue.message for issue in schema.issues)]
     signed_sumstats_spec = None
-    for issue in schema.issues:
-        if issue.note is not None:
-            notes.append(issue.note)
-        if issue.label == "signed statistic" and schema.config.signed_sumstats_spec is None:
-            signed_column = munge_input.likely_signed_sumstat_column(schema.headers)
-            if signed_column is not None:
-                signed_sumstats_spec = f"{signed_column},0"
-                suggested_args.extend(["--signed-sumstats", signed_sumstats_spec])
-                notes.append(
-                    f"{signed_column} may be a signed effect column; pass --signed-sumstats {signed_sumstats_spec} "
-                    "if its null value is 0 and it is oriented relative to A1."
-                )
+    if "signed statistic" in {issue.label for issue in schema.issues} and schema.config.signed_sumstats_spec is None:
+        signed_column = munge_input.likely_signed_sumstat_column(schema.headers)
+        if signed_column is not None:
+            signed_sumstats_spec = f"{signed_column},0"
+            suggested_args.extend(["--signed-sumstats", signed_sumstats_spec])
     return RawSumstatsInference(
         detected_format=schema.detected_format,
         column_hints=dict(schema.inferred_hints),

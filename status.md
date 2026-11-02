@@ -25,7 +25,7 @@ The user answered two rounds of questions on 2026-11-01, wrote the allele policy
 
 ### Decisions taken during implementation
 
-- Labels for `--infer-only`: `conflict: <field>`, `conflict: signed statistic`, `conflict: sample size`, `sample-size options`, `DANER case/control counts`, `duplicate column: <name>`, `--signed-sumstats`, `A1/A2 orientation`, `A1/A2 pair`; the existing `N`, `signed statistic` and `A1/A2` labels keep their earlier notes, so reports for inputs that were already diagnosed do not change.
+- Labels for `--infer-only`: `conflict: <field>`, `conflict: signed statistic`, `conflict: sample size`, `sample-size options`, `DANER case/control counts`, `duplicate column: <name>`, `--signed-sumstats`, `A1/A2 orientation`, `A1/A2 pair`. Every missing field's note is the message the run would raise; until the follow-up after `f2995d9`, the `N`, `signed statistic` and `A1/A2` labels kept their earlier, partial notes.
 - Sample-size inference is skipped while the explicit sample-size options are invalid, so an incomplete `--N-cas-col`/`--N-con-col` pair is not also reported as an ambiguous strategy.
 - A multi-issue error is `LDSCInputError` with numbered self-contained messages; all user errors keep exit code 1.
 - Footer decoding validates the trait name even when the caller passes its own label.
@@ -52,7 +52,7 @@ The user answered two rounds of questions on 2026-11-01, wrote the allele policy
 - Resolved after `f2995d9`: when A1 comes from `INC_ALLELE` or A2 from `DEC_ALLELE`, the signed statistic is never negative, so the kernel no longer checks that its median lies near the null value (`ResolvedMungeInput.check_signed_median`); the row-by-row sign check is stricter. `--a1-inc` is unchanged, and other files keep the median check.
 - `ldscore --export-ref-metadata` writes PLINK metadata in the R² sidecar layout with the `.bim` `A1` and a folded `MAF`, which is `freq(A2)` where that `A1` is the major allele; `quantile-h2` accepts it as reference metadata.
 - PLINK-built LD-score directories keep the `.bim` allele order (documented in `900cacf`, not changed).
-- An ignored only signed column is reported as `signed statistic` without a note, as before.
+- Resolved after `f2995d9`: an ignored only signed-statistic column is explained (the message names the ignored column), and every `--infer-only` missing field now carries the run's message as its note.
 - `provenance["metadata"]` still duplicates `coordinate_provenance` for run tables; nothing reads it.
 - Pre-existing anchors that do not match their "R²" headings: `python-usage.md#r2-matrices` (linked from `docs/user-guide/workflows/r2-matrices.md`) and the in-code `ldscore-r2-matrix-is-incompatible` and `query-r2-matrix-r2-matrix-is-incompatible`; not checked against a renderer.
 

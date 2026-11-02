@@ -208,6 +208,30 @@ def test_infer_only_honours_ignore_for_the_signed_statistic(tmp_path):
     report = workflow.main(['--raw-sumstats-file', str(raw), '--snp-identifier', 'rsid', '--no-snp-restriction',
                             '--ignore', 'BETA', '--output-dir', str(tmp_path / 'infer'), '--infer-only'])
     assert report.missing_fields == ('signed statistic',)
+    assert any('BETA is passed to --ignore' in note for note in report.notes)
+
+
+# Before, --infer-only named these fields without saying why the run would stop.
+_MISSING_FIELDS = {
+    'no signed statistic': ('SNP A1 A2 P N\nrs1 A G 0.05 1000\n', 'rsid', [], 'signed statistic'),
+    'ignored signed statistic': ('SNP A1 A2 P BETA N\nrs1 A G 0.05 0.1 1000\n', 'rsid', ['--ignore', 'BETA'],
+                                 'signed statistic'),
+    'no sample size': ('SNP A1 A2 P BETA\nrs1 A G 0.05 0.1\n', 'rsid', [], 'N'),
+    'no alleles in an allele-aware mode': ('SNP P BETA N\nrs1 0.05 0.1 1000\n', 'rsid_allele_aware', [], 'A1/A2'),
+}
+
+
+@pytest.mark.parametrize('case', list(_MISSING_FIELDS))
+def test_infer_only_explains_every_missing_field_with_the_runs_message(tmp_path, case):
+    text, mode, extra, label = _MISSING_FIELDS[case]
+    raw = tmp_path / 'raw.tsv'
+    raw.write_text(text)
+    base = ['--raw-sumstats-file', str(raw), '--snp-identifier', mode, '--no-snp-restriction', *extra]
+    report = workflow.main([*base, '--output-dir', str(tmp_path / 'infer'), '--infer-only'])
+    assert report.missing_fields == (label,)
+    with pytest.raises(LDSCUserError) as caught:
+        workflow.main([*base, '--output-dir', str(tmp_path / 'run')])
+    assert str(caught.value) in report.notes
 
 
 def test_python_inference_reports_header_problems(tmp_path):

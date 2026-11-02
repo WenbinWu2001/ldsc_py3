@@ -92,15 +92,13 @@ _ALLELE_TROUBLESHOOTING = "docs/user-guide/troubleshooting.md#munge-sumstats-a1-
 class RawSchemaIssue:
     """One header-level problem that stops a munging run.
 
-    ``message`` is the self-contained error the run raises, of class ``error``.
-    ``label`` names the problem under ``Missing fields`` in the ``--infer-only``
-    report, and ``note`` is the report's explanation, or ``None`` when the
-    report explains the problem in its own words.
+    ``message`` is the self-contained error the run raises, of class
+    ``error``; the ``--infer-only`` report prints it as a note. ``label``
+    names the problem under ``Missing fields`` in that report.
     """
 
     label: str
     message: str
-    note: str | None
     error: type[LDSCUserError] = LDSCInputError
 
 
@@ -514,15 +512,15 @@ def resolve_raw_schema(
                  N_min=config.N_min, nstudy_min=config.nstudy_min)
     issues = []
 
-    def problem(label, message, note=None, error=LDSCInputError):
-        issues.append(RawSchemaIssue(label, message, note, error))
+    def problem(label, message, error=LDSCInputError):
+        issues.append(RawSchemaIssue(label, message, error))
 
     explicit_n_problem = _explicit_sample_size_problem(columns)
     if explicit_n_problem is not None:
-        problem('sample-size options', explicit_n_problem, explicit_n_problem, LDSCUsageError)
+        problem('sample-size options', explicit_n_problem, LDSCUsageError)
     flag_cnames, signed_sumstat_null, signed_spec_problem = _column_hints(columns, config)
     if signed_spec_problem is not None:
-        problem('--signed-sumstats', signed_spec_problem, signed_spec_problem, LDSCUsageError)
+        problem('--signed-sumstats', signed_spec_problem, LDSCUsageError)
     ignore_cnames = [clean_header(x) for x in config.ignore_columns]
 
     # remove LOG_ODDS, BETA, Z, OR from the default list
@@ -535,7 +533,7 @@ def resolve_raw_schema(
     if detected_format == 'daner-old':
         N_cas, N_con, frq_u, daner_problem = _old_daner_sample_sizes(headers, source_path)
         if daner_problem is not None:
-            problem('DANER case/control counts', daner_problem, daner_problem)
+            problem('DANER case/control counts', daner_problem)
         else:
             qc = replace(qc, N_cas=N_cas, N_con=N_con)
             cname_map[clean_header(frq_u)] = 'FRQ'
@@ -546,7 +544,7 @@ def resolve_raw_schema(
     if explicit_n_problem is None:
         ambiguous_n = _resolve_sample_size_column_strategy(columns, cname_translation, source_path)
         if ambiguous_n is not None:
-            problem('conflict: sample size', ambiguous_n, ambiguous_n)
+            problem('conflict: sample size', ambiguous_n)
     field_descriptions = {x: describe_cname[cname_translation[x]] for x in cname_translation}
     mapped = set(cname_translation.values())
     if explicit_n_problem is None and daner_problem is None and not (
@@ -556,7 +554,7 @@ def resolve_raw_schema(
             "Most likely the input has no recognized N, N_CAS/N_CON, or DANER sample-size columns. "
             "Provide --N, provide both --N-cas and --N-con, or include an inferable N column."
             f"{_suggest_n_fix(headers)}"
-        ), "NEFF is not treated as N automatically; pass --N-col NEFF only if appropriate." if 'NEFF' in clean_set else None)
+        ))
 
     sign_cname = 'SIGNED_SUMSTATS'
     signed_problem = signed_spec_problem is not None
@@ -569,17 +567,26 @@ def resolve_raw_schema(
                 "Most likely more than one effect column is present. Pass --signed-sumstats <column>,<null_value> "
                 "or use --ignore for the extra signed-statistic columns."
             )
-            problem('conflict: signed statistic', message, message)
+            problem('conflict: signed statistic', message)
             signed_problem = True
         elif not sign_cnames:
-            available = ', '.join(headers)
-            accepted = ', '.join(sorted(null_values))
-            problem('signed statistic', (
-                f"munge-sumstats could not find a signed summary statistic column in '{source_path}'. "
-                f"Available columns: {available}. Most likely the effect column has an unrecognized name. "
-                f"Expected one of: {accepted}, or pass --signed-sumstats <column>,<null_value>."
-                f"{_suggest_signed_sumstat_fix(headers)}"
-            ))
+            ignored = [column for column in headers if clean_header(column) in ignore_cnames
+                       and default_cnames.get(clean_header(column)) in null_values]
+            if ignored:
+                message = (
+                    f"munge-sumstats could not find a signed summary statistic column in '{source_path}': "
+                    f"{', '.join(ignored)} {'is' if len(ignored) == 1 else 'are'} passed to --ignore, and no other "
+                    f"column has a recognized signed-statistic name. Remove {'it' if len(ignored) == 1 else 'them'} "
+                    "from --ignore, or pass --signed-sumstats <column>,<null_value> for the signed statistic to use."
+                )
+            else:
+                message = (
+                    f"munge-sumstats could not find a signed summary statistic column in '{source_path}'. "
+                    f"Available columns: {', '.join(headers)}. Most likely the effect column has an unrecognized "
+                    f"name. Expected one of: {', '.join(sorted(null_values))}, or pass --signed-sumstats "
+                    f"<column>,<null_value>.{_suggest_signed_sumstat_fix(headers)}"
+                )
+            problem('signed statistic', message)
             signed_problem = True
         else:
             sign_cname = sign_cnames[0]
@@ -598,7 +605,7 @@ def resolve_raw_schema(
             "Pass the matching column flag or rename the column. Other causes & fixes: "
             "docs/user-guide/troubleshooting.md#munge-sumstats-could-not-map-a-required-column"
         )
-        problem('signed statistic' if c == 'SIGNED_SUMSTAT' else c, message, message)
+        problem('signed statistic' if c == 'SIGNED_SUMSTAT' else c, message)
 
     # check aren't any duplicated column names in mapping
     for field in cname_translation:
@@ -608,7 +615,7 @@ def resolve_raw_schema(
                 f"munge-sumstats found {numk} columns named '{field}' in '{source_path}'. "
                 "Most likely the raw header contains duplicate labels. Rename or remove the duplicate column before munging."
             )
-            problem(f'duplicate column: {field}', message, message)
+            problem(f'duplicate column: {field}', message)
 
     # check multiple different column names don't map to same data field
     targets = list(cname_translation.values())
@@ -620,12 +627,12 @@ def resolve_raw_schema(
                 "Most likely an explicit column hint conflicts with an auto-detected alias. "
                 "Use --ignore for the extra column or remove the conflicting hint."
             )
-            problem(f'conflict: {head}', message, message)
+            problem(f'conflict: {head}', message)
 
     thresholds, conflicts = resolve_qc_thresholds(config, set(cname_translation.values()))
     for flag, conflict in conflicts:
         problem(f"column required by {flag}",
-                f"munge-sumstats cannot apply the requested QC thresholds to '{source_path}'. {conflict}", conflict)
+                f"munge-sumstats cannot apply the requested QC thresholds to '{source_path}'. {conflict}")
     qc = replace(qc, info_min=thresholds['INFO'], maf_min=thresholds['FRQ'])
 
     if ('N' in cname_translation.values() or all(x in cname_translation.values() for x in ['N_CAS', 'N_CON']))\
@@ -675,7 +682,7 @@ def _allele_issues(problem, headers, cname_translation, ignore_cnames, source_pa
             + (f", or pass --ignore {lone} to munge without alleles, which rg cannot use." if base else ".")
             + f" Other causes & fixes: {_ALLELE_TROUBLESHOOTING}"
         )
-        problem('A1/A2 pair', message, message)
+        problem('A1/A2 pair', message)
     elif not alleles and ambiguous:
         message = (
             f"munge-sumstats cannot tell which allele column of '{source_path}' is {effect_allele}: "
@@ -685,7 +692,7 @@ def _allele_issues(problem, headers, cname_translation, ignore_cnames, source_pa
             + (f"; or pass --ignore {','.join(ambiguous)} to munge without alleles, which rg cannot use." if base else ".")
             + f" Other causes & fixes: {_ALLELE_TROUBLESHOOTING}"
         )
-        problem('A1/A2 orientation', message, message)
+        problem('A1/A2 orientation', message)
     elif not alleles and not base:
         problem('A1/A2', (
             f"This run is using snp_identifier={mode!r}, which requires A1/A2 allele columns. "

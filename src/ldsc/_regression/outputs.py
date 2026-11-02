@@ -50,6 +50,7 @@ layer persists the table but never imports a plotting library.
 
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import re
@@ -91,6 +92,18 @@ QUERY_METADATA_FILE = "metadata.json"
 # A query folder's link to the run metadata, relative to that folder: the
 # folder sits two levels below RESULT_METADATA_FILE's directory.
 QUERY_GLOBAL_METADATA = "../../metadata.json"
+# Rows the projection of legacy .sumstats(.gz) inputs dropped, written by every
+# regression result directory with a legacy input.
+LEGACY_SUMSTATS_AUDIT_FILE = "diagnostics/dropped_snps/legacy_sumstats.tsv.gz"
+LEGACY_SUMSTATS_DROP_COLUMNS = [
+    "trait_name",
+    "source_path",
+    "SNP",
+    "A1",
+    "A2",
+    "reason",
+    "panel_candidate_count",
+]
 
 H2_REGRESSION_BIN_COLUMNS = [
     "bin",
@@ -222,16 +235,18 @@ class H2DirectoryWriter:
     """Write the unpartitioned h2 summary, exact fitted-bin diagnostic, and metadata."""
 
     @staticmethod
-    def artifact_family(output_dir, *, regression_bins: bool = True) -> ArtifactFamily:
+    def artifact_family(output_dir, *, regression_bins: bool = True, legacy_sumstats_drops: bool = False) -> ArtifactFamily:
         """Declare h2 outputs and derived roots invalidated by a successful rewrite.
 
         ``regression_bins=False`` (a fit with several LD-score columns) keeps
         the bin diagnostic owned but not produced, so a replacement removes
-        a stale one.
+        a stale one; the legacy audit is likewise owned and produced only for
+        a legacy input.
         """
         return declare_artifacts(output_dir, {
             "summary": ("h2.tsv", True),
             "ld_score_regression_bins": ("diagnostics/ld_score_regression_bins.tsv", regression_bins),
+            "legacy_sumstats_drops": (LEGACY_SUMSTATS_AUDIT_FILE, legacy_sumstats_drops),
             "metadata": ("diagnostics/metadata.json", True),
             "plots": ("plots", False),
             "postprocessing": ("postprocessing", False),
@@ -244,8 +259,9 @@ class H2DirectoryWriter:
         *,
         metadata: dict[str, object],
         diagnostic_bins: pd.DataFrame | None,
+        legacy_sumstats_drops: pd.DataFrame | None = None,
     ) -> dict[str, str]:
-        """Write the h2 summary, regression bins, and metadata.
+        """Write the h2 summary, regression bins, legacy audit and metadata.
 
         Parameters
         ----------
@@ -260,11 +276,17 @@ class H2DirectoryWriter:
             :data:`H2_REGRESSION_BIN_COLUMNS` order. ``None`` for a fit with
             several LD-score columns, which has no single LD score to bin;
             the bin diagnostic is then not written.
+        legacy_sumstats_drops : pandas.DataFrame or None, optional
+            Rows the projection of a legacy ``.sumstats(.gz)`` input dropped,
+            written to ``diagnostics/dropped_snps/legacy_sumstats.tsv.gz``
+            (header only when empty). ``None``, the default, for any other
+            input: no audit is written and an overwrite removes a stale one.
 
         Returns
         -------
         dict of str to str
-            Written summary, bin-diagnostic (when written), and metadata paths.
+            Written summary, bin-diagnostic and audit (when written), and
+            metadata paths.
 
         Raises
         ------
@@ -281,7 +303,8 @@ class H2DirectoryWriter:
         roots derived from the superseded h2 result.
         """
         output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
-        family = self.artifact_family(output_dir, regression_bins=diagnostic_bins is not None)
+        family = self.artifact_family(output_dir, regression_bins=diagnostic_bins is not None,
+                                      legacy_sumstats_drops=legacy_sumstats_drops is not None)
         paths = family.paths
         summary_path = paths["summary"]
         metadata_path = paths["metadata"]
@@ -295,6 +318,8 @@ class H2DirectoryWriter:
                 paths["ld_score_regression_bins"],
                 na_rep="NaN",
             )
+        if legacy_sumstats_drops is not None:
+            _write_legacy_sumstats_audit(legacy_sumstats_drops, paths["legacy_sumstats_drops"])
         atomic_write_json(
             result_metadata(
                 metadata,
@@ -553,14 +578,15 @@ class PartitionedH2DirectoryWriter:
 
     @staticmethod
     def artifact_family(output_dir, *, write_per_query_results=False, coefficient_delete_values=False,
-                        query_status=False) -> ArtifactFamily:
-        """Declare summaries, model artifacts, and an optional attempted-query ledger."""
+                        query_status=False, legacy_sumstats_drops=False) -> ArtifactFamily:
+        """Declare summaries, model artifacts, an optional attempted-query ledger and the legacy audit."""
         return declare_artifacts(output_dir, {
             "summary": (PARTITIONED_H2_SUMMARY_FILE, True),
             "metadata": (RESULT_METADATA_FILE, True),
             "coefficient_delete_values": (f"diagnostics/{COEFFICIENT_DELETE_VALUES_FILE}", coefficient_delete_values),
             "query_annotations": (QUERY_RESULT_ROOT, write_per_query_results),
             "query_status": ("diagnostics/query_status.tsv", query_status),
+            "legacy_sumstats_drops": (LEGACY_SUMSTATS_AUDIT_FILE, legacy_sumstats_drops),
             "plots": ("plots", False),
         }, label="partitioned-h2 output artifact")
 
@@ -598,6 +624,7 @@ class PartitionedH2DirectoryWriter:
         metadata: dict[str, object] | None = None,
         coefficient_delete_values: pd.DataFrame | None = None,
         query_status: pd.DataFrame | None = None,
+        legacy_sumstats_drops: pd.DataFrame | None = None,
     ) -> dict[str, str]:
         """Write partitioned-h2 summary artifacts.
 
@@ -631,14 +658,20 @@ class PartitionedH2DirectoryWriter:
         query_status : pandas.DataFrame, optional
             One diagnostic row per attempted query, including failures absent
             from the scientific summary and per-query artifact tree.
+        legacy_sumstats_drops : pandas.DataFrame, optional
+            Rows the projection of a legacy ``.sumstats(.gz)`` input dropped,
+            written to ``diagnostics/dropped_snps/legacy_sumstats.tsv.gz``;
+            ``None`` for any other input, and an overwrite then removes a
+            stale audit.
 
         Returns
         -------
         dict of str to str
             Written path map. Always includes ``"summary"`` and additionally
             includes ``"per_query_root"`` and ``"per_query_manifest"`` when
-            per-query output is enabled, and ``"query_status"`` when the
-            attempted-query table is supplied.
+            per-query output is enabled, ``"query_status"`` when the
+            attempted-query table is supplied, and ``"legacy_sumstats_drops"``
+            when the audit is written.
 
         Raises
         ------
@@ -655,6 +688,7 @@ class PartitionedH2DirectoryWriter:
             output_dir, write_per_query_results=output_config.write_per_query_results,
             coefficient_delete_values=coefficient_delete_values is not None,
             query_status=query_status is not None,
+            legacy_sumstats_drops=legacy_sumstats_drops is not None,
         )
         summary_path = family.paths["summary"]
         metadata_path = family.paths["metadata"]
@@ -681,6 +715,8 @@ class PartitionedH2DirectoryWriter:
             )
             if coefficient_delete_values is not None:
                 coefficient_delete_values.to_parquet(coefficient_delete_path, index=False)
+            if legacy_sumstats_drops is not None:
+                _write_legacy_sumstats_audit(legacy_sumstats_drops, family.paths["legacy_sumstats_drops"])
             atomic_write_json(
                 result_metadata(metadata_payload, artifact_type="partitioned_h2_result", files=root_files),
                 metadata_path,
@@ -705,6 +741,8 @@ class PartitionedH2DirectoryWriter:
                 summary_path,
                 na_rep="NaN",
             )
+            if legacy_sumstats_drops is not None:
+                _write_legacy_sumstats_audit(legacy_sumstats_drops, family.paths["legacy_sumstats_drops"])
             atomic_write_json(
                 result_metadata(metadata_payload, artifact_type="partitioned_h2_result", files=root_files),
                 metadata_path,
@@ -840,14 +878,15 @@ class RgDirectoryWriter:
     """
 
     @staticmethod
-    def artifact_family(output_dir, *, include_pairs=False) -> ArtifactFamily:
-        """Declare rg summaries, optional pair details, and the derived plot root."""
+    def artifact_family(output_dir, *, include_pairs=False, legacy_sumstats_drops=False) -> ArtifactFamily:
+        """Declare rg summaries, optional pair details, the legacy audit, and the derived plot root."""
         return declare_artifacts(output_dir, {
             "metadata": ("diagnostics/metadata.json", True),
             "rg": ("rg.tsv", True),
             "rg_full": ("rg_full.tsv", True),
             "h2_per_trait": ("h2_per_trait.tsv", True),
             "pairs": ("diagnostics/pairs", include_pairs),
+            "legacy_sumstats_drops": (LEGACY_SUMSTATS_AUDIT_FILE, legacy_sumstats_drops),
             "plots": ("plots", False),
         }, label="rg output artifact")
 
@@ -860,7 +899,9 @@ class RgDirectoryWriter:
             The family ``estimate_rg_pairs`` returns. ``rg`` and ``rg_full``
             must contain the canonical rg concise and full schemas; the root
             metadata also records its ``sumstats_files``, ``ldscore_dir`` and
-            ``dropped_nonfinite_statistic_rows`` when they are set.
+            ``dropped_nonfinite_statistic_rows`` when they are set, and its
+            ``legacy_sumstats_drops`` are written to
+            ``diagnostics/dropped_snps/legacy_sumstats.tsv.gz``.
         output_config : RgOutputConfig
             Output directory, overwrite policy, and optional per-pair detail
             setting.
@@ -870,7 +911,8 @@ class RgDirectoryWriter:
         dict of str to str
             Written path map. Always includes ``rg``, ``rg_full``, and
             ``h2_per_trait``; also includes ``pairs_root`` and
-            ``pairs_manifest`` when per-pair detail is enabled.
+            ``pairs_manifest`` when per-pair detail is enabled, and
+            ``legacy_sumstats_drops`` when a trait was a legacy input.
 
         Raises
         ------
@@ -892,7 +934,9 @@ class RgDirectoryWriter:
             )
 
         output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
-        family = self.artifact_family(output_dir, include_pairs=output_config.write_per_pair_detail)
+        legacy_drops = result.legacy_sumstats_drops
+        family = self.artifact_family(output_dir, include_pairs=output_config.write_per_pair_detail,
+                                      legacy_sumstats_drops=legacy_drops is not None)
         metadata_path = family.paths["metadata"]
         diagnostics_dir = metadata_path.parent
         rg_path = family.paths["rg"]
@@ -906,6 +950,8 @@ class RgDirectoryWriter:
             atomic_write_dataframe(rg, rg_path, na_rep="NaN")
             atomic_write_dataframe(rg_full, full_path, na_rep="NaN")
             atomic_write_dataframe(h2_per_trait, h2_path, na_rep="NaN")
+            if legacy_drops is not None:
+                _write_legacy_sumstats_audit(legacy_drops, family.paths["legacy_sumstats_drops"])
             atomic_write_json(_rg_root_metadata(result, files=family.metadata_files()), metadata_path)
             remove_output_artifacts(stale_paths)
             return paths
@@ -919,6 +965,8 @@ class RgDirectoryWriter:
             atomic_write_dataframe(rg, rg_path, na_rep="NaN")
             atomic_write_dataframe(rg_full, full_path, na_rep="NaN")
             atomic_write_dataframe(h2_per_trait, h2_path, na_rep="NaN")
+            if legacy_drops is not None:
+                _write_legacy_sumstats_audit(legacy_drops, family.paths["legacy_sumstats_drops"])
             atomic_write_json(_rg_root_metadata(result, files=family.metadata_files()), metadata_path)
             if output_config.overwrite and pairs_root.exists():
                 backup_dir = Path(tempfile.mkdtemp(prefix=".pairs.backup.", dir=str(diagnostics_dir)))
@@ -1001,6 +1049,25 @@ class RgDirectoryWriter:
                 }
             )
         return manifest_rows
+
+
+def _write_legacy_sumstats_audit(drops: pd.DataFrame, path: Path) -> None:
+    """Write the legacy projection audit through a temporary sibling, then replace ``path``.
+
+    The gzip header names the final file and carries no timestamp, so equal
+    drops give equal bytes.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = drops.reindex(columns=LEGACY_SUMSTATS_DROP_COLUMNS).to_csv(sep="\t", index=False, na_rep="")
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as handle, gzip.GzipFile(str(path), "wb", fileobj=handle, mtime=0) as archive:
+            archive.write(text.encode("utf-8"))
+        os.replace(tmp_path, path)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def _rg_root_metadata(result: RgResultFamily, *, files: dict[str, str]) -> dict[str, object]:

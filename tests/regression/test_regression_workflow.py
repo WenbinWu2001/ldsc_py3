@@ -2205,6 +2205,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "files": {
                         "summary": "h2.tsv",
                         "ld_score_regression_bins": "diagnostics/ld_score_regression_bins.tsv",
+                        "legacy_sumstats_drops": "diagnostics/dropped_snps/legacy_sumstats.tsv.gz",
                     },
                     "trait_name": "trait",
                     "sumstats_file": str(tmpdir / "trait.sumstats.gz"),

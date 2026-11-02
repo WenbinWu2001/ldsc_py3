@@ -100,6 +100,7 @@ from .outputs import (
     H2DirectoryWriter,
     H2OutputConfig,
     H2_REGRESSION_BIN_COLUMNS,
+    LEGACY_SUMSTATS_DROP_COLUMNS,
     PARTITIONED_H2_COLUMNS,
     PartitionedH2DirectoryWriter,
     PartitionedH2OutputConfig,
@@ -148,15 +149,6 @@ UNESTIMABLE_RG_NOTE = (
     "see the rg_full.tsv error column and diagnostics/rg.log."
 )
 REGRESSION_IDENTITY_KEY_COLUMN = "_ldsc_regression_identity_key"
-LEGACY_SUMSTATS_DROP_COLUMNS = [
-    "trait_name",
-    "source_path",
-    "SNP",
-    "A1",
-    "A2",
-    "reason",
-    "panel_candidate_count",
-]
 _REGRESSION_NO_OVERLAP_DOC = (
     "docs/user-guide/troubleshooting.md#regression-no-snps-remain-after-merging-regression-inputs"
 )
@@ -1092,6 +1084,7 @@ class RegressionRunner:
                         summary, PartitionedH2OutputConfig(output_dir=output_dir, overwrite=overwrite),
                         metadata={**metadata, **_fit_metadata(outcome)},
                         coefficient_delete_values=_coefficient_delete_frame(outcome.estimator, outcome.dataset.retained_ld_columns),
+                        legacy_sumstats_drops=legacy_drops,
                     )
                 return PartitionedH2BatchResult(summary, paths, legacy_sumstats_drops=legacy_drops)
 
@@ -1161,7 +1154,8 @@ class RegressionRunner:
             with _log_phase_timing("output writing"):
                 paths = writer.write(summary, PartitionedH2OutputConfig(output_dir=output_dir, overwrite=overwrite,
                                                                        write_per_query_results=True),
-                                     per_query_artifacts=private_artifacts, metadata=metadata, query_status=query_status)
+                                     per_query_artifacts=private_artifacts, metadata=metadata, query_status=query_status,
+                                     legacy_sumstats_drops=legacy_drops)
             return PartitionedH2BatchResult(summary, paths, published_query_artifacts(output_dir, summary), query_status,
                                             legacy_drops)
 
@@ -3226,15 +3220,8 @@ def run_h2_from_args(args):
                 dropped_nonfinite_statistic_rows=nonfinite_rows,
             ),
             diagnostic_bins=outcome.diagnostic_bins,
+            legacy_sumstats_drops=legacy_drops,
         )
-        audit_path = _write_or_remove_legacy_sumstats_audit(
-            Path(output_dir),
-            legacy_used=_has_legacy_sumstats_source(sumstats_table),
-            drops=legacy_drops,
-            overwrite=getattr(args, "overwrite", False),
-        )
-        if audit_path is not None:
-            written["legacy_sumstats_drops"] = str(audit_path)
         log_outputs(**written)
         LOGGER.info(f"Finished h2 regression with {n_snps_used} regression SNPs.")
     return summary
@@ -3300,19 +3287,12 @@ def run_partitioned_h2_from_args(args):
                 overwrite=getattr(args, "overwrite", False),
                 summary_sort_by=getattr(args, "summary_sort_by", "auto"),
             )
-        summary, written = result.summary, dict(result.output_paths)
-        audit_path = _write_or_remove_legacy_sumstats_audit(
-            Path(output_dir), legacy_used=_has_legacy_sumstats_source(sumstats_table),
-            drops=result.legacy_sumstats_drops, overwrite=getattr(args, "overwrite", False),
-        )
-        if audit_path is not None:
-            written["legacy_sumstats_drops"] = str(audit_path)
-        log_outputs(**written)
+        log_outputs(**result.output_paths)
         LOGGER.info(
             f"Finished partitioned-h2 regression for {len(ldscore_result.query_columns)} query annotations "
-            f"and {len(summary)} summary rows."
+            f"and {len(result.summary)} summary rows."
         )
-    return replace(result, output_paths=written)
+    return result
 
 
 @materializing_overwrite_guard(
@@ -3419,14 +3399,6 @@ def run_rg_from_args(args):
                 write_per_pair_detail=getattr(args, "write_per_pair_detail", False),
             ),
         )
-        audit_path = _write_or_remove_legacy_sumstats_audit(
-            Path(output_dir),
-            legacy_used=any(_has_legacy_sumstats_source(table) for table in sumstats_tables),
-            drops=result.legacy_sumstats_drops,
-            overwrite=getattr(args, "overwrite", False),
-        )
-        if audit_path is not None:
-            written["legacy_sumstats_drops"] = str(audit_path)
         log_outputs(**written)
         LOGGER.info(
             f"Finished rg regression for {len(result.rg)} trait pairs "
@@ -3755,7 +3727,7 @@ def _preflight_regression_outputs(
     log_path = output_dir / "diagnostics" / f"{workflow_name}.log"
     writer.artifact_family(output_dir).preflight(
         overwrite=getattr(args, "overwrite", False),
-        additional_paths=[log_path, _legacy_sumstats_audit_path(output_dir)],
+        additional_paths=[log_path],
     )
     log_path.parent.mkdir(parents=True, exist_ok=True)
     return str(output_dir), log_path
@@ -3773,35 +3745,6 @@ def _inspect_regression_inputs(args, output_dir):
                ('prevalence manifest', getattr(args, 'prevalence_manifest', None))],
         checks=[('LD scores', args.ldscore_dir, lambda: inspect_artifact_paths(args.ldscore_dir))],
         issues_path=Path(output_dir)/'diagnostics/input_issues.tsv')
-
-
-def _legacy_sumstats_audit_path(output_dir: Path) -> Path:
-    """Declare the workflow-owned legacy projection audit shared by h2 and rg."""
-    return output_dir / "diagnostics" / "dropped_snps" / "legacy_sumstats.tsv.gz"
-
-
-def _write_or_remove_legacy_sumstats_audit(
-    output_dir: Path,
-    *,
-    legacy_used: bool,
-    drops: pd.DataFrame | None,
-    overwrite: bool,
-) -> Path | None:
-    """Write the stable legacy projection audit, or remove a stale owned copy."""
-    path = _legacy_sumstats_audit_path(output_dir)
-    if not legacy_used:
-        if overwrite and path.exists():
-            path.unlink()
-        return None
-    path.parent.mkdir(parents=True, exist_ok=True)
-    drops.reindex(columns=LEGACY_SUMSTATS_DROP_COLUMNS).to_csv(
-        path,
-        sep="\t",
-        index=False,
-        na_rep="",
-        compression={"method": "gzip", "mtime": 0},
-    )
-    return path
 
 
 def _distinguishing_path_suffixes(paths: Sequence[Path]) -> list[str]:

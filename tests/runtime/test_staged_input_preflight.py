@@ -278,6 +278,32 @@ def test_early_failure_preserves_science_and_output_contract(tmp_path, monkeypat
         assert 'already exists' in str(failure.value)
 
 
+@pytest.mark.parametrize('command', [
+    ['h2', '--sumstats-file', 'missing.sumstats.gz', '--ldscore-dir', 'missing_ld'],
+    ['partitioned-h2', '--sumstats-file', 'missing.sumstats.gz', '--ldscore-dir', 'missing_ld'],
+    ['rg', '--sumstats-sources', 'a.sumstats.gz', 'b.sumstats.gz', '--ldscore-dir', 'missing_ld'],
+    ['quantile-h2', '--partitioned-h2-result-dir', 'missing_fit', '--target-annot-sources', 'missing.annot',
+     '--target-annot-column', 'score', '--baseline-annot-sources', 'missing.annot',
+     '--ref-metadata-sources', 'missing_meta.tsv'],
+    ['query-r2-matrix', '--r2-matrix-dir', 'missing_r2', '--pairs-file', 'missing_pairs.tsv'],
+    ['munge-sumstats', '--raw-sumstats-file', 'missing.txt', '--output-genome-build', 'hg19'],
+], ids=lambda command: command[0])
+def test_input_issue_table_is_owned_by_the_writing_command(tmp_path, monkeypatch, caplog, command):
+    # A table left by an earlier failed run is the command's own output, so a
+    # run without --overwrite stops before its input checks replace it.
+    from ldsc import cli
+    monkeypatch.chdir(tmp_path)
+    issues = tmp_path/'out/diagnostics/input_issues.tsv'
+    issues.parent.mkdir(parents=True)
+    issues.write_text('earlier run\n')
+
+    assert cli.run_cli([*command, '--output-dir', str(tmp_path/'out')]) == 1
+
+    errors = [record.getMessage() for record in caplog.records if record.getMessage().startswith('Error:')]
+    assert len(errors) == 1 and 'already exists' in errors[0] and 'input_issues.tsv' in errors[0]
+    assert issues.read_text() == 'earlier run\n'
+
+
 def test_direct_reuses_discovery_and_reference_validation_with_phase_records(tmp_path, monkeypatch, caplog):
     import logging
     from unittest.mock import Mock

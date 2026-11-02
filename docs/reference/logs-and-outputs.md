@@ -1,6 +1,6 @@
 # Logs and Outputs
 
-Last updated on: 2026-10-31
+Last updated on: 2026-11-02
 
 This page describes what a logged workflow writes besides its scientific results: logs, console messages, output preflight and failure markers.
 The rules for writing log and error messages, and the logging API boundary, are in [logging design](../dev/design/logging.md).
@@ -127,6 +127,9 @@ R² matrix builds derive their chromosome-specific output family from validated 
 
 [`_runtime.preflight.InputGate`](../../src/ldsc/_runtime/preflight.py) collects independent input errors across objects at a stage and retains `input_issues` on the exception.
 Writing workflows persist the existing six-column `input_issues.tsv` repair table under diagnostics; gene LD-score index builds use the index directory's hidden `.build/` directory.
+Every command that writes `diagnostics/input_issues.tsv`, except `build-r2-matrix`, declares it in its owned output family: a table left by an earlier failed run stops a run without `--overwrite` before its input checks replace it, and a run whose checks pass removes it.
+The regression, `query-r2-matrix` and munging writers own it without producing it; the LD-score and annotation writers also produce it in a diagnostics-only write.
+`build-r2-matrix` does not declare it, nor `diagnostics/plink_input_issues.tsv`, because its input checks run before its output family is known.
 Existing PLINK and gene-specific audits remain available.
 The table is a diagnostic, not a new scientific artifact or resumable checkpoint.
 

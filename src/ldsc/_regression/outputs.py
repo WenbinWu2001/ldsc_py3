@@ -250,6 +250,7 @@ class H2DirectoryWriter:
             "metadata": ("diagnostics/metadata.json", True),
             "plots": ("plots", False),
             "postprocessing": ("postprocessing", False),
+            "input_issues": ("diagnostics/input_issues.tsv", False),
         }, label="h2 output artifact")
 
     def write(
@@ -369,6 +370,7 @@ class QuantileH2DirectoryWriter:
             "metadata": ("diagnostics/metadata.json", True),
             "snp_alignment_issues": ("diagnostics/snp_alignment_issues.tsv.gz", True),
             "plots": ("plots", False),
+            "input_issues": ("diagnostics/input_issues.tsv", False),
         }, label="quantile-h2 output artifact")
 
     def write(
@@ -588,6 +590,7 @@ class PartitionedH2DirectoryWriter:
             "query_status": ("diagnostics/query_status.tsv", query_status),
             "legacy_sumstats_drops": (LEGACY_SUMSTATS_AUDIT_FILE, legacy_sumstats_drops),
             "plots": ("plots", False),
+            "input_issues": ("diagnostics/input_issues.tsv", False),
         }, label="partitioned-h2 output artifact")
 
     @staticmethod
@@ -888,6 +891,7 @@ class RgDirectoryWriter:
             "pairs": ("diagnostics/pairs", include_pairs),
             "legacy_sumstats_drops": (LEGACY_SUMSTATS_AUDIT_FILE, legacy_sumstats_drops),
             "plots": ("plots", False),
+            "input_issues": ("diagnostics/input_issues.tsv", False),
         }, label="rg output artifact")
 
     def write(self, result: RgResultFamily, output_config: RgOutputConfig) -> dict[str, str]:

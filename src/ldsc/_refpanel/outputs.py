@@ -58,6 +58,7 @@ class QueryR2MatrixDirectoryWriter:
         return declare_artifacts(output_dir, {
             "result": ("query_r2_matrix.tsv", True),
             "metadata": ("diagnostics/metadata.json", True),
+            "input_issues": ("diagnostics/input_issues.tsv", False),
         }, label="query-r2-matrix output artifact")
 
     def write(

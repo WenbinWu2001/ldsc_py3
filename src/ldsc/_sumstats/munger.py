@@ -494,6 +494,7 @@ class SumstatsMunger:
         output_files = _sumstats_output_files(output_dir, munge_config.output_format, raw_sumstats_config.trait_name)
         log_path = str(diagnostics_dir / "sumstats.log")
         dropped_snps_path = diagnostics_dir / "dropped_snps" / "dropped.tsv.gz"
+        input_issues_path = diagnostics_dir / "input_issues.tsv"
         sumstats_snps_path = _sumstats_snps_file_from_config(munge_config)
         sumstats_snps_label = "none" if sumstats_snps_path is None else str(sumstats_snps_path)
         produced_paths = [*output_files.values(), log_path, dropped_snps_path]
@@ -501,10 +502,12 @@ class SumstatsMunger:
             *_sumstats_output_files(output_dir, "both", raw_sumstats_config.trait_name).values(),
             log_path,
             dropped_snps_path,
+            input_issues_path,
         ]
         # See _runtime.paths.preflight_output_artifact_family for the
         # owned_paths/produced_paths split. The dropped-SNP sidecar is in both
-        # lists because it is always written, including clean header-only runs.
+        # lists because it is always written, including clean header-only runs;
+        # the input-issue table is owned only, since a passing check removes it.
         stale_paths = preflight_output_artifact_family(
             produced_paths,
             owned_paths,
@@ -516,7 +519,7 @@ class SumstatsMunger:
             from .._runtime.preflight import inspect_declared_inputs
             inspect_declared_inputs(files=[('raw summary statistics', raw_sumstats_config.raw_sumstats_file),
                 ('SNP restriction', sumstats_snps_path), ('liftover chain', liftover_request.liftover_chain_file)],
-                issues_path=diagnostics_dir/'input_issues.tsv')
+                issues_path=input_issues_path)
             source_path = resolve_scalar_path(raw_sumstats_config.raw_sumstats_file, label="raw sumstats")
             schema = munge_input.resolve_raw_schema(source_path, raw_sumstats_config, munge_config, config_snapshot)
             column_hints = {**schema.inferred_hints, **raw_sumstats_config.column_hints}

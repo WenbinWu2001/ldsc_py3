@@ -9,6 +9,7 @@ This document defines the public compatibility boundary for munged summary stati
 The compatibility input is a legacy whitespace-delimited `.sumstats` or `.sumstats.gz` artifact with no LDSC3 identity metadata. The no-label munging output `sumstats.gz` uses this same compatibility pathway. Footerless Parquet is not part of the legacy compatibility contract.
 
 Legacy munged summary statistics are treated as rsID-based source inputs.
+As in every summary-statistics file, `A1` is the effect allele, the allele the signed statistic refers to (see [What A1 means in each file type](column-schema.md#what-a1-means-in-each-file-type)).
 Their `SNP` values are compatibility lookup keys, not assertions of the canonical LDSC3 regression identity.
 The LDSC3 LD-score directory remains authoritative for its recorded SNP identifier mode and for its own identity metadata.
 

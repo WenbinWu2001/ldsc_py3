@@ -277,6 +277,29 @@ Inference uses bounded samples from every relevant file/chromosome and retains t
 
 **Developer reference:** `_sumstats.munge_kernel` column resolution · `SumstatsTable.validate()` · **Exception:** `LDSCInputError`
 
+### `munge-sumstats`: A1 cannot be identified
+
+**Symptom:** `munge-sumstats cannot tell which allele column of '...' is A1 (the effect allele, the allele the signed statistic refers to)`, `munge-sumstats found only one allele column`, or `munge-sumstats reads INC_ALLELE as A1 ... but N rows ... have BETA below its null value`.
+
+`A1` must be the allele the signed statistic refers to; `munge-sumstats` takes it only from a column whose name says so or from `--a1`, and never guesses.
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | The file names its alleles `REF` and `ALT`, as GWAS-VCF-style tables do, where effects usually refer to `ALT` | The header and the documentation of the file's source |
+| 2 | The file names its alleles `ALLELE0`/`ALLELE1` or `ALLELE1`/`ALLELE2`, whose effect allele differs between programs (BOLT-LMM, REGENIE, METAL, SAIGE) | The program that produced the file and its documentation |
+| 3 | Only one allele column has a recognized name, for example `EA` beside an unrecognized other-allele column | The column mapping that `--infer-only` prints |
+| 4 | Columns named `INC_ALLELE`/`DEC_ALLELE` do not hold the increasing and decreasing alleles | The examples in the error: rows with a negative `BETA` or an `OR` below 1 |
+
+**Remedies:**
+
+1. Find out from the source of the summary statistics which allele the signed statistic refers to.
+2. Pass `--a1 <effect-allele column> --a2 <other column>`.
+3. For `h2` or `partitioned-h2` only, a base mode (`rsid`, `chr_pos`) can munge without alleles: pass `--ignore` on the allele columns; `rg` cannot use that output.
+
+**Developer reference:** `resolve_raw_schema()` and `_check_increasing_allele_signs()` in `_sumstats/munge_input.py` · **Exception:** `LDSCInputError`
+
 ### `munge-sumstats`: multiple or conflicting sample-size column strategies
 
 **Symptom:** `munge-sumstats found multiple sample-size strategies...`, an incomplete `--N-cas-col`/`--N-con-col` pair, or a conflict with `--N-col`.

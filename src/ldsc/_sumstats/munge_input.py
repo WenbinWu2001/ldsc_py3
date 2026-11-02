@@ -60,8 +60,8 @@ describe_cname = {
     'CHR': 'Chromosome',
     'POS': 'Base-pair position',
     'P': 'p-Value',
-    'A1': 'Allele 1; the allele that the signed statistic is relative to, usually the effect/increasing allele.',
-    'A2': 'Allele 2; the counterpart allele to A1.',
+    'A1': 'A1, the effect allele: the allele the signed statistic refers to.',
+    'A2': 'A2, the other allele.',
     'N': 'Sample size',
     'N_CAS': 'Number of cases',
     'N_CON': 'Number of controls',
@@ -85,6 +85,7 @@ ORIENTATION_AMBIGUOUS_ALLELE_COLUMNS = (
 )
 # Allele column names that say A1 increases the trait, checked against the signed statistic.
 _INCREASING_ALLELE_COLUMNS = {'A1': 'INC_ALLELE', 'A2': 'DEC_ALLELE'}
+_ALLELE_TROUBLESHOOTING = "docs/user-guide/troubleshooting.md#munge-sumstats-a1-cannot-be-identified"
 
 
 @dataclass(frozen=True)
@@ -672,6 +673,7 @@ def _allele_issues(problem, headers, cname_translation, ignore_cnames, source_pa
             + (f" Columns that may hold the other allele: {', '.join(ambiguous)}." if ambiguous else "")
             + f" Name the {other} column with --{other.lower()} <column>"
             + (f", or pass --ignore {lone} to munge without alleles, which rg cannot use." if base else ".")
+            + f" Other causes & fixes: {_ALLELE_TROUBLESHOOTING}"
         )
         problem('A1/A2 pair', message, message)
     elif not alleles and ambiguous:
@@ -681,6 +683,7 @@ def _allele_issues(problem, headers, cname_translation, ignore_cnames, source_pa
             "Check in the source of these summary statistics which allele the signed statistic refers to, then pass "
             "--a1 <effect-allele column> --a2 <other column>"
             + (f"; or pass --ignore {','.join(ambiguous)} to munge without alleles, which rg cannot use." if base else ".")
+            + f" Other causes & fixes: {_ALLELE_TROUBLESHOOTING}"
         )
         problem('A1/A2 orientation', message, message)
     elif not alleles and not base:
@@ -728,7 +731,7 @@ def _check_increasing_allele_signs(schema: RawSchema) -> None:
             f"have {signed} below its null value {null:g}, which says A1 decreases it; for example "
             f"{', '.join(examples)}. Most likely these columns do not hold the increasing and decreasing alleles. "
             "Check in the source of these summary statistics which allele the signed statistic refers to, then pass "
-            "--a1 <effect-allele column> --a2 <other column>."
+            f"--a1 <effect-allele column> --a2 <other column>. Other causes & fixes: {_ALLELE_TROUBLESHOOTING}"
         )
 
 

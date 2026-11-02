@@ -1,6 +1,6 @@
 # Column Schema: Canonical Names, Data Types, and Ordering
 
-Last updated on: 2026-11-01
+Last updated on: 2026-11-02
 
 This document is the single source of truth for column conventions across all
 Python-written artifacts in this package. It governs `_core/columns.py`, all
@@ -53,8 +53,8 @@ SNP restriction files in coordinate-family modes also accept a build-specific po
 | `POS` | `POS`, `BP`, `POSITION`, `BASE_PAIR`, `BASEPAIR` |
 | `NSTUDY` | `NSTUDY`, `N_STUDY`, `NSTUDIES`, `N_STUDIES` |
 | `P` | `P`, `PVALUE`, `P_VALUE`, `PVAL`, `P_VAL`, `GC_PVALUE` |
-| `A1` | `A1`, `ALLELE1`, `ALLELE_1`, `EFFECT_ALLELE`, `REFERENCE_ALLELE`, `INC_ALLELE`, `EA` |
-| `A2` | `A2`, `ALLELE2`, `ALLELE_2`, `OTHER_ALLELE`, `NON_EFFECT_ALLELE`, `DEC_ALLELE`, `NEA` |
+| `A1` | `A1`, `EFFECT_ALLELE`, `INC_ALLELE`, `EA` |
+| `A2` | `A2`, `OTHER_ALLELE`, `NON_EFFECT_ALLELE`, `DEC_ALLELE`, `NEA` |
 | `N` | `N`, `WEIGHT` |
 | `N_CAS` | `NCASE`, `CASES_N`, `N_CASE`, `N_CASES`, `N_CAS`, `NCAS`, `Nca` |
 | `N_CON` | `N_CONTROLS`, `N_CON`, `NCONTROL`, `CONTROLS_N`, `N_CONTROL`, `N_CTRL`, `NCON`, `Nco` |
@@ -71,7 +71,7 @@ Signed statistics:
 | `LOG_ODDS` | `LOG_ODDS` |
 | `SIGNED_SUMSTAT` | `SIGNED_SUMSTAT` |
 
-In raw summary statistics, `A1` and `A2` keep their signed-statistic meaning, so genome `REF` and `ALT` columns are not aliases there (see [What A1 means in each file type](#what-a1-means-in-each-file-type)).
+In raw summary statistics, `A1` is the effect allele, so only names that say which allele the signed statistic refers to are aliases; `REF`, `ALT`, `REFERENCE_ALLELE`, `ALLELE0`, `ALLELE1` and `ALLELE2` never map to `A1` or `A2` (see [What A1 means in each file type](#what-a1-means-in-each-file-type)).
 `NEFF` is not an alias for `N`.
 Sample-size selection, INFO-list columns and `--infer-only` are described in the [`munge-sumstats` reference](../munge-sumstats.md).
 
@@ -235,10 +235,9 @@ a sign flip at alignment).
 
 **R² matrix and query correlation signs:** stored `SIGN_R` is boolean and describes correlation between R² matrix A1 (minor-allele) dosages. In allele-aware `query-r2-matrix` results, nullable `sign_r` (+1/-1) and Pearson `r` are harmonized to query A1 dosages, which need not be minor alleles. Swapping one endpoint's allele order reverses the returned sign but leaves R² unchanged. Base modes return missing `sign_r` and `r`.
 
-Aliases such as `REFERENCE_ALLELE` are interpreted in the signed-statistic sense
-only. They do not claim that `A1` is the genome reference allele.
-In raw summary statistics, genome `REF`/`ALT` columns are therefore not aliases; they are applied only by format-aware inference when the workflow can make the semantics explicit.
-SNP restriction files and sidecars accept `REF` and `ALT` as `A1` and `A2`, because matching there ignores allele order.
+In raw summary statistics, allele aliases are only names that say which allele the signed statistic refers to.
+`REF`, `ALT`, `REFERENCE_ALLELE`, `ALLELE0`, `ALLELE1`, `ALLELE2` and their underscore forms are never mapped there, and a file whose only allele columns have these names stops munging until `--a1` and `--a2` name the effect allele (see [allele columns](../munge-sumstats.md#allele-columns)).
+SNP restriction files and sidecars accept `REF`, `ALT`, `REFERENCE_ALLELE`, `ALLELE1` and `ALLELE2` as `A1` and `A2`, because matching there ignores allele order.
 
 ### SNP identifier modes
 

@@ -1,9 +1,58 @@
 # Status
 
-Last updated on: 2026-11-01
+Last updated on: 2026-11-02
 
-Branch `restructure`; checked on 2026-11-01.
+Branch `restructure`; checked on 2026-11-02.
 Nothing below is in progress; each open item needs the user's go-ahead.
+
+## Completed: munging raw schema, footer codec and allele policy (2026-11-02)
+
+Architecture review candidate 8, extended by the user's allele policy for munged summary statistics.
+Re-checked at `49ace97`: the footer defects the review named were already fixed (`63a9ac5`), but header mapping happened in four places, `--infer-only` printed "Runnable: yes" for six inputs the run rejected, lowercase old DANER headers crashed the run, and plain files with `REF`/`ALT` got `a1=REF` silently.
+The user answered two rounds of questions on 2026-11-01, wrote the allele policy and the commit series, and authorized the implementation on 2026-11-02; the question record and evidence are in the shared side-session notes, outside the repository.
+
+- `900cacf`: documentation only; `column-schema.md` gains "What A1 means in each file type" and the approved `A1, A2` vocabulary row records that only R² matrix sidecars, and LD-score directories built from them, orient `A1` to the minor allele (the user chose to document current PLINK behavior).
+- `5e60cb6`: `_sumstats/munger.py` imports the six `munge_input` helpers directly (the `status.md` leftover of candidate 3) and merges its two `workflow_logging` imports.
+- `f5e2869`: old DANER `FRQ_A_`/`FRQ_U_` counts are read from cleaned headers; a missing column or a non-count suffix is one `LDSCInputError` instead of an internal error.
+- `af66f5e`: `munge_input.resolve_raw_schema()` reads a raw header once for the run, `--infer-only` and `infer_raw_sumstats()`, returning a `RawSchema` with every header issue; the run raises them together (a single issue keeps its message and class), `--infer-only` lists them as `Missing fields` with the run's message as a note, the run passes its own `GlobalConfig`, `--infer-only` checks the build against the run's restriction file, and both `except Exception` handlers catch only `LDSCUserError`.
+  `_resolve_source_coordinates` became `resolve_source_coordinates` and the kernel's `_mean_info_list_value` became `mean_info_list_value`.
+- `a61f7b2`: `_validate_munge_build_contract()` is the only build-option check, used by the run and `--infer-only`, and names both the flag and the `MungeConfig` field; the unreachable rsID branch of `_validate_liftover_request_before_io()` is gone.
+- `da658de`: `_encode_sumstats_footer()`/`_decode_sumstats_footer()` replace four footer functions; decoding rejects footers the encoder cannot write (a chr_pos-family build other than hg19/hg38, an rsID-family build, a missing `ldsc:trait_name`).
+- `d5eeb5b` (breaking): A1 is the effect allele and is never guessed; `REFERENCE_ALLELE` and `ALLELE1`/`ALLELE_1`/`ALLELE2`/`ALLELE_2` are no longer aliases and the `REF`/`ALT` rule is gone; orientation-ambiguous allele columns or a single allele column stop the run in every mode; `INC_ALLELE`/`DEC_ALLELE` must agree with the signed statistic; allele-less base-mode runs print `No A1/A2 columns written: rg cannot use this output.`
+- `9454990`: `h2` and `partitioned-h2` accept allele-less legacy `.sumstats(.gz)`, projected by rsID under the base form of the panel's mode with the downgrade recorded and no `--allow-identity-downgrade`; `rg` keeps rejecting allele-less inputs with a new message and troubleshooting entry.
+- This commit: effect-allele wording in `--a1`/`--a2` help, field descriptions and messages; `munge-sumstats.md` gains "Allele columns" and describes the shared header check and footer decoding; the workflow page, `column-schema.md`, `legacy-sumstats.md`, `cli.md`, `legacy-flag-map.md`, `architecture.md`, `data-flow.md` and `code-structure.md` follow; `troubleshooting.md` gains "`munge-sumstats`: A1 cannot be identified", linked from the three allele errors.
+- Scope extension: `9454990` changes regression (`_regression/runner.py`), as the user's plan specified; nothing else outside the munging area changed.
+
+### Decisions taken during implementation
+
+- Labels for `--infer-only`: `conflict: <field>`, `conflict: signed statistic`, `conflict: sample size`, `sample-size options`, `DANER case/control counts`, `duplicate column: <name>`, `--signed-sumstats`, `A1/A2 orientation`, `A1/A2 pair`; the existing `N`, `signed statistic` and `A1/A2` labels keep their earlier notes, so reports for inputs that were already diagnosed do not change.
+- Sample-size inference is skipped while the explicit sample-size options are invalid, so an incomplete `--N-cas-col`/`--N-con-col` pair is not also reported as an ambiguous strategy.
+- A multi-issue error is `LDSCInputError` with numbered self-contained messages; all user errors keep exit code 1.
+- Footer decoding validates the trait name even when the caller passes its own label.
+- The `INC_ALLELE`/`DEC_ALLELE` check reads only the signed-statistic and SNP columns, once, before munging, and only when those names are mapped.
+- An allele-less legacy table records `has_alleles=False` and the base mode in its config snapshot; `_is_allele_less_legacy()` allows only that downgrade without the flag.
+
+### Evidence
+
+- A before/after harness ran exported copies of `900cacf` (code identical to `49ace97`) and of each commit on 44 scenarios.
+  There were 41 `munge-sumstats` inputs, each run normally and, except two output-format runs, with `--infer-only`: rsID with HM3 in base and allele-aware modes, coordinate inputs with build inference, HM3 quick liftover and a chain file, a custom keep-list, no restriction, three output formats, VCF-style, `ALLELE1`/`ALLELE2`, BOLT-style, old and new DANER, INFO lists, the six probe files, the allele scenarios and the build-option errors.
+  The Python `infer_raw_sumstats()` report was also captured for each input, and three chains ran `munge-sumstats` then `h2` or `rg` on the chromosome-22 PLINK fixture.
+  Logs were excluded and gzip files compared decompressed; two runs of the base copy were identical (206 items).
+- `5e60cb6` and `da658de` were identical to their predecessors.
+  Every other commit changed only its designed items: `f5e2869` 2 (the lowercase old DANER file munges with N = 100 + 200; a forced old DANER file gets the curated error, exit 1 instead of 2), `af66f5e` 9 (the six probe reports and three Python reports), `a61f7b2` 6 (the wording of three build-option errors, run and report), `d5eeb5b` 48, `9454990` 12 (the allele-less legacy `h2` runs now finish, against allele-aware and base panels; the `rg` wording), and this commit 27 (message text and report notes only).
+- At `d5eeb5b`, explicit `--a1 REF --a2 ALT` and `--a1 ALLELE1 --a2 ALLELE2` reproduce the earlier automatic output exactly: 4,000 rows, footer, dropped-SNP file and printed summary.
+- Against the base copy, every output of a run that succeeds in both is identical: plain, coordinate, liftover, keep-list, output-format, DANER, INFO-list, explicit-flag and `h2` with alleles.
+- Tests: each commit ran its focused tests (between 283 and 1,037); the full suite on an exported copy of the final tree, with the workspace `resources/` linked into its parent folder, passed 2,490 tests with none skipped.
+
+### Left open from candidate 8
+
+- The effect-allele wording outside the munging area (regression and `rg` documentation and messages other than the `rg` allele error) is a separate follow-up, as decided on 2026-11-01.
+- Signed statistics oriented to `INC_ALLELE` are non-negative, so the kernel's median check (as in legacy LDSC) rejects them unless effects are small; a `Z` column almost always fails.
+- `ldscore --export-ref-metadata` writes PLINK metadata in the R² sidecar layout with the `.bim` `A1` and a folded `MAF`, which is `freq(A2)` where that `A1` is the major allele; `quantile-h2` accepts it as reference metadata.
+- PLINK-built LD-score directories keep the `.bim` allele order (documented in `900cacf`, not changed).
+- An ignored only signed column is reported as `signed statistic` without a note, as before.
+- `provenance["metadata"]` still duplicates `coordinate_provenance` for run tables; nothing reads it.
+- Pre-existing anchors that do not match their "R²" headings: `python-usage.md#r2-matrices` (linked from `docs/user-guide/workflows/r2-matrices.md`) and the in-code `ldscore-r2-matrix-is-incompatible` and `query-r2-matrix-r2-matrix-is-incompatible`; not checked against a renderer.
 
 ## Completed: regression metadata and results (2026-11-01)
 

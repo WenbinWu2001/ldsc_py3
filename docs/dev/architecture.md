@@ -1,6 +1,6 @@
 # Architecture
 
-Last updated on: 2026-11-01
+Last updated on: 2026-11-02
 
 LDSC3 (distribution `ldsc`) is the Python 3 package that replaces legacy LDSC.
 It reads optional SNP-level annotations, PLINK reference panels or R² matrices, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to the computation modules of its private domain packages; and writes LDSC3 artifacts that can be chained into later runs.
@@ -305,13 +305,15 @@ In `chr_pos`-family modes, chunk filtering uses source-build coordinates and com
 HM3 quick liftover requires the packaged HM3 restriction flag.
 Liftover preserves `SNP` labels, drops missing or invalid coordinates before mapping, drops duplicate source-coordinate groups before mapping, drops unmapped/cross-chromosome rows, and removes duplicate target-coordinate groups after mapping.
 The `sumstats.parquet` footer persists `ldsc:artifact_type`, `ldsc:snp_identifier`, final output `ldsc:genome_build`, and optional `ldsc:trait_name`; rsID-family summary statistics store an empty `genome_build`.
+`_encode_sumstats_footer()` and `_decode_sumstats_footer()` form one pair, and loading rejects a footer in any form the encoder cannot write.
 When the run's QC thresholds are known, the footer also records `ldsc:qc_info_min` and `ldsc:qc_maf_min` as provenance that readers ignore (see `docs/reference/formats/artifact-metadata.md`).
 Row-level identity and liftover drops are audited in `diagnostics/dropped_snps/dropped.tsv.gz`; detailed coordinate provenance, liftover reports, HM3 provenance, output files, and row-group layout are readable audit log entries in `diagnostics/sumstats.log`.
 DANER-specific schema handling can be inferred or requested explicitly: old DANER reads case/control sample sizes from `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers, while new DANER reads per-SNP case/control counts from `Nca` and `Nco` columns.
 `MungeRunSummary.output_paths` lists munged data files and the dropped-SNP audit sidecar, not `diagnostics/sumstats.log`.
 Public interface: downstream workflows should consume `SumstatsTable` or the self-describing munged `sumstats.parquet` (or `.sumstats.gz`), not raw heterogeneous GWAS tables.
 
-`_sumstats.munge_input.prepare_munge_input()` owns raw header interpretation, DANER/sample-size selection, source-build inference and keep-list preparation. It supplies `ResolvedMungeInput` to `_sumstats.munge_kernel.munge_sumstats()`, which returns `MungeResult` with data, exclusive stage counts, coordinate provenance and separate drop tables. The sole CLI parser is `_sumstats.munger.build_parser()`. Production and tests use the same preparation path; results never travel through added namespace attributes. `tests/sumstats/test_munge_results.py` covers count conservation, chunk independence, bounded build inference before QC, request reuse, and liftover/identity accounting.
+`_sumstats.munge_input.resolve_raw_schema()` owns raw header interpretation for the run and `--infer-only` alike: format detection, column aliases and hints, DANER/sample-size selection, the signed statistic, QC thresholds, allele orientation and every header-level issue, returned as a `RawSchema`.
+`_sumstats.munge_input.prepare_munge_input()` raises the schema's issues, checks `INC_ALLELE`/`DEC_ALLELE` orientation against the signed statistic, and adds source-build inference and keep-list preparation. It supplies `ResolvedMungeInput` to `_sumstats.munge_kernel.munge_sumstats()`, which returns `MungeResult` with data, exclusive stage counts, coordinate provenance and separate drop tables. The sole CLI parser is `_sumstats.munger.build_parser()`. Production and tests use the same preparation path; results never travel through added namespace attributes. `tests/sumstats/test_munge_results.py` covers count conservation, chunk independence, bounded build inference before QC, request reuse, and liftover/identity accounting; `tests/sumstats/test_munge_infer_diagnostics.py` and `tests/sumstats/test_munge_allele_policy.py` cover the shared header problems and the allele policy.
 
 ### `ldsc._ldscore.source`
 
@@ -461,7 +463,7 @@ Private boundary: these modules are not the supported import surface; numerical 
   Output paths are normalized but remain literal destinations.
 - **Column and identifier normalization**: `_core/columns.py` is the single source of truth for raw-input aliases, including `#CHROM`/`CHROM` as `CHR`, internal artifact headers, SNP identifier modes, and genome-build aliases.
   The munging workflow owns higher-level raw-format inference and conservative repair suggestions before the kernel runs.
-  `A1` means the allele that the signed statistic is relative to, not necessarily the genome reference allele; `NEFF` is not inferred as `N`.
+  In summary statistics `A1` is the effect allele, the allele the signed statistic refers to, not necessarily the genome reference allele; it is never inferred from `REF`/`ALT` or `ALLELE0`/`ALLELE1`/`ALLELE2` names, and `NEFF` is not inferred as `N`.
   `_genome/build_inference.py` owns automatic hg19/hg38 and zero-based/one-based inference for `chr_pos` tables.
 - **SNP identity policy**: public `snp_identifier` values are exactly `rsid`, `rsid_allele_aware`, `chr_pos`, and `chr_pos_allele_aware`; the default is `chr_pos_allele_aware`.
   Mode names are exact, while column aliases such as `RSID`, `BP`, and `POSITION` apply only to input headers.

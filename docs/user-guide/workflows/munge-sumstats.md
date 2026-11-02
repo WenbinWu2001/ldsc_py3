@@ -1,6 +1,6 @@
 # Munge summary statistics
 
-Last updated on: 2026-11-01
+Last updated on: 2026-11-02
 
 `ldsc munge-sumstats` converts raw summary statistics into munged summary statistics for LDSC3.
 See the [`munge-sumstats` reference](../../reference/munge-sumstats.md) for the full workflow and output contract.
@@ -173,7 +173,7 @@ Standard errors are not required because this workflow derives Z from P and the 
 Legacy munged `SNP A1 A2 Z N` files can be passed directly to regression; the raw munging route still requires P.
 See [legacy summary-statistics compatibility](../../reference/formats/legacy-sumstats.md).
 
-Sources: `prepare_munge_input` in [_sumstats/munge_input.py](../../../src/ldsc/_sumstats/munge_input.py) validates required fields and sample-size choices; `munge_sumstats` in [_sumstats/munge_kernel.py](../../../src/ldsc/_sumstats/munge_kernel.py) converts P to signed Z.
+Sources: `resolve_raw_schema` in [_sumstats/munge_input.py](../../../src/ldsc/_sumstats/munge_input.py) validates required fields and sample-size choices; `munge_sumstats` in [_sumstats/munge_kernel.py](../../../src/ldsc/_sumstats/munge_kernel.py) converts P to signed Z.
 
 ## Automatically inferred column aliases
 
@@ -190,8 +190,8 @@ For example, `p.value` matches `P_VALUE`. This reader uses cleaned exact aliases
 | `POS` | `POS`, `BP`, `POSITION`, `BASE_PAIR`, `BASEPAIR` | `--pos COLUMN` |
 | `NSTUDY` | `NSTUDY`, `N_STUDY`, `NSTUDIES`, `N_STUDIES` | `--nstudy COLUMN`; optional study-count filtering |
 | `P` | `P`, `PVALUE`, `P_VALUE`, `PVAL`, `P_VAL`, `GC_PVALUE` | `--p COLUMN` |
-| `A1` | `A1`, `ALLELE1`, `ALLELE_1`, `EFFECT_ALLELE`, `REFERENCE_ALLELE`, `INC_ALLELE`, `EA` | `--a1 COLUMN`; signed-statistic allele |
-| `A2` | `A2`, `ALLELE2`, `ALLELE_2`, `OTHER_ALLELE`, `NON_EFFECT_ALLELE`, `DEC_ALLELE`, `NEA` | `--a2 COLUMN`; other allele |
+| `A1` | `A1`, `EFFECT_ALLELE`, `INC_ALLELE`, `EA` | `--a1 COLUMN`; the effect allele, the allele the signed statistic refers to |
+| `A2` | `A2`, `OTHER_ALLELE`, `NON_EFFECT_ALLELE`, `DEC_ALLELE`, `NEA` | `--a2 COLUMN`; the other allele |
 | `N` | `N`, `WEIGHT` | `--N-col COLUMN` |
 | `N_CAS` | `N_CAS`, `NCASE`, `CASES_N`, `N_CASE`, `N_CASES`, `NCAS`, `Nca` | `--N-cas-col COLUMN`; pair with control count |
 | `N_CON` | `N_CON`, `N_CONTROLS`, `NCONTROL`, `CONTROLS_N`, `N_CONTROL`, `N_CTRL`, `NCON`, `Nco` | `--N-con-col COLUMN`; pair with case count |
@@ -203,9 +203,12 @@ For example, `p.value` matches `P_VALUE`. This reader uses cleaned exact aliases
 | `LOG_ODDS` | `LOG_ODDS` | `--signed-sumstats COLUMN,0` |
 | `SIGNED_SUMSTAT` | `SIGNED_SUMSTAT` | Recognized field name, but its null is not inferred; specify `--signed-sumstats SIGNED_SUMSTAT,NULL` |
 
-`NEFF` is deliberately not an automatic alias for N. Use `--N-col NEFF` only when its scientific meaning matches the intended sample-size input. A separate plain-format heuristic maps `REF` to A1 and `ALT` to A2 when both are present and none of `A1`, `A2`, `EA`, or `NEA` is present. Those hints are applied automatically unless overridden, although REF/ALT are not entries in the raw alias registry. Verify the effect orientation and use explicit `--a1`/`--a2` flags if the statistic refers to a different allele. Names such as `EFFECT_SIZE`, `LOGOR`, and `BETA_HAT` can produce suggestions rather than automatic mappings; supply `--signed-sumstats COLUMN,NULL` after checking their meaning. Frequency aliases do not establish allele orientation: a source field named `MAF` remains folded minor-allele frequency, not necessarily A1 frequency.
+`NEFF` is deliberately not an automatic alias for N. Use `--N-col NEFF` only when its scientific meaning matches the intended sample-size input.
+`REF`, `ALT`, `REFERENCE_ALLELE`, `ALLELE0`, `ALLELE1` and `ALLELE2` are never mapped to A1 or A2, because which of them the signed statistic refers to depends on the program that wrote the file.
+If they are the only allele columns, the run stops; check the source of the summary statistics and name the effect allele with `--a1` and the other allele with `--a2` (see [allele columns](../../reference/munge-sumstats.md#allele-columns)).
+Names such as `EFFECT_SIZE`, `LOGOR`, and `BETA_HAT` can produce suggestions rather than automatic mappings; supply `--signed-sumstats COLUMN,NULL` after checking their meaning. Frequency aliases do not establish allele orientation: a source field named `MAF` remains folded minor-allele frequency, not necessarily A1 frequency.
 
-For DANER inputs, format-specific header handling additionally recognizes encoded count/frequency fields. The table describes ordinary raw-column aliases, not every DANER header convention. `--infer-only` previews mappings and suggestions; it does not replace the full run's required-field and QC checks.
+For DANER inputs, format-specific header handling additionally recognizes encoded count/frequency fields. The table describes ordinary raw-column aliases, not every DANER header convention. `--infer-only` reads the header as the run does and reports every header problem the run would stop on; it does not replace the run's QC checks, which need the data.
 
 Source: `RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS`, `RAW_SUMSTATS_SIGNED_STAT_SPECS`, and `clean_header` in [_core/columns.py](../../../src/ldsc/_core/columns.py); `get_cname_map` in [_sumstats/munge_input.py](../../../src/ldsc/_sumstats/munge_input.py); `infer_raw_sumstats` in [_sumstats/munger.py](../../../src/ldsc/_sumstats/munger.py).
 

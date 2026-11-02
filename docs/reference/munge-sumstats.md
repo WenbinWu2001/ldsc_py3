@@ -1,6 +1,6 @@
 # `munge-sumstats`
 
-Last updated on: 2026-11-01
+Last updated on: 2026-11-02
 
 This document explains the public shape of `ldsc munge-sumstats`: what it does,
 what it writes, how genome builds are handled, and how to use `--infer-only`
@@ -35,9 +35,29 @@ The default SNP identifier mode is `chr_pos_allele_aware`, so `A1/A2` are requir
 In summary statistics, `A1` is the effect allele, the allele the signed statistic refers to, and `A2` is the other allele (see [What A1 means in each file type](formats/column-schema.md#what-a1-means-in-each-file-type)).
 Use `--snp-identifier chr_pos` for coordinate identity without allele-aware matching, or `--snp-identifier rsid` for rsID-only identity.
 
+## Allele columns
+
+In summary statistics, `A1` is the effect allele, the allele the signed statistic refers to, and `A2` is the other allele; neither is necessarily the genome reference allele (see [What A1 means in each file type](formats/column-schema.md#what-a1-means-in-each-file-type)).
+`munge-sumstats` maps a raw column to `A1` or `A2` automatically only when its name says so: `A1`, `EA`, `EFFECT_ALLELE` or `INC_ALLELE` for `A1`, and `A2`, `NEA`, `OTHER_ALLELE`, `NON_EFFECT_ALLELE` or `DEC_ALLELE` for `A2`.
+Name any other allele column with `--a1` and `--a2`.
+
+| Situation | Outcome |
+| --- | --- |
+| No `A1`/`A2` pair is resolved, and the header has `REF`, `ALT`, `REFERENCE_ALLELE`, `ALLELE0`, `ALLELE1`, `ALLELE_1`, `ALLELE2` or `ALLELE_2` (matched case-insensitively, columns passed to `--ignore` excepted) | The run stops before munging and names those columns, because which of them the signed statistic refers to depends on the program that wrote the file. It asks for `--a1 <effect-allele column> --a2 <other column>`; in a base mode (`rsid`, `chr_pos`) it also offers `--ignore` on those columns. |
+| Only one allele column is resolved | The run stops in every mode; name the partner with `--a1`/`--a2`, or in a base mode pass `--ignore` on the lone column. |
+| `A1` comes from `INC_ALLELE` or `A2` from `DEC_ALLELE` | The run reads the signed statistic first and stops if any row is below its null value (a negative `BETA`, `Z` or `LOG_ODDS`, or an `OR` below 1), naming the row count and examples. Missing values are not counted; `--a1-inc` uses no signed statistic. |
+| A base mode, with no allele column and none of the names above | The run munges without alleles and writes no `A1`/`A2` columns, so an absent column always means the orientation is unknown. The printed summary says `No A1/A2 columns written: rg cannot use this output.` `h2` and `partitioned-h2` accept the output; `rg` rejects it. |
+| An allele-aware mode, with no allele column | The run stops and asks for `--a1`/`--a2` or a base mode. |
+
+`--infer-only` reports these cases as `A1/A2 orientation`, `A1/A2 pair` or `A1/A2` under `Missing fields`, explains them, and never puts `--a1`, `--a2` or `--ignore` into its suggested command.
+The `INC_ALLELE`/`DEC_ALLELE` check reads data, so only the run performs it.
+Remedies are collected in [troubleshooting](../user-guide/troubleshooting.md#munge-sumstats-a1-cannot-be-identified).
+
 ## Preparation and Run Accounting
 
-The public workflow and tests use `_sumstats.munge_input.prepare_munge_input()` to resolve column aliases and hints, DANER sample-size settings, the raw coordinate build/basis, and the optional keep-list.
+`_sumstats.munge_input.resolve_raw_schema()` reads the raw header once for both the run and `--infer-only`: it detects the format and resolves column aliases and hints, DANER sample-size settings, the signed statistic, QC thresholds and allele columns.
+It collects every header problem; the run raises them together in one error, and a single problem keeps its own message.
+`_sumstats.munge_input.prepare_munge_input()` then resolves the raw coordinate build/basis and the optional keep-list.
 The kernel accepts a `ResolvedMungeInput` and returns a `MungeResult` containing the munged table, counts, coordinate provenance, and separate identity/liftover drop records.
 CLI parsing and artifact ownership stay in `_sumstats/munger.py`; the kernel neither parses CLI flags nor mutates configuration to return results.
 
@@ -68,7 +88,7 @@ Supported values are `auto`, `plain`, `daner-old`, and `daner-new`.
 | `--input-format` value | Use when | `auto` inference criterion | Special handling |
 | --- | --- | --- | --- |
 | `auto` | Let the workflow inspect the header and choose a profile. | Not applicable; this is the default dispatcher. | Checks old DANER first, then new DANER, then falls back to `plain`. |
-| `plain` | The file is an ordinary whitespace-delimited summary-statistics table. This includes VCF-style summary-statistics tables with leading `##` metadata and a `#CHROM` header. | Fallback when DANER-specific case/control headers are not detected. | Leading `##` metadata lines are skipped before reading the header. Common aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, `BP`, `ID`, and `PVAL` are accepted. If `REF` and `ALT` are present and no clearer `A1/A2` or `EA/NEA` columns exist, inference sets `a1=REF` and `a2=ALT`. |
+| `plain` | The file is an ordinary whitespace-delimited summary-statistics table. This includes VCF-style summary-statistics tables with leading `##` metadata and a `#CHROM` header. | Fallback when DANER-specific case/control headers are not detected. | Leading `##` metadata lines are skipped before reading the header. Common aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, `BP`, `ID`, and `PVAL` are accepted. Allele columns are mapped only by name, never from `REF`/`ALT`; see [Allele columns](#allele-columns). |
 | `daner-old` | The file uses old DANER case/control counts encoded in frequency headers. | Header contains at least one `FRQ_A_*` column and at least one `FRQ_U_*` column. | Reads case/control sample sizes from the `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` header names. Select with `--input-format daner-old`. |
 | `daner-new` | The file carries per-SNP case/control count columns. | Header contains `Nca`/`Nco` aliases after header normalization: either `NCA` and `NCO`, or `NCAS` and `NCON`. | Computes per-row sample size from case/control counts. If an old-style `FRQ_U_*` column is also present, inference can use it as the frequency column. Select with `--input-format daner-new`. |
 
@@ -192,6 +212,9 @@ sidecar is written.
 | `ldsc:trait_name` | Optional biological trait label supplied by the user; empty otherwise. |
 | `ldsc:qc_info_min`, `ldsc:qc_maf_min` | Effective INFO and MAF thresholds of the munge run; empty when that filter was not applied because its column was absent. Readers ignore them. `SumstatsMunger.write_output` copies them from a table returned by `run` and omits them for a table built by hand or loaded from disk, whose thresholds are unknown. |
 
+The loader accepts a footer only in the form `munge-sumstats` writes: all four identity keys present, an empty `ldsc:genome_build` in rsID-family modes, `hg19` or `hg38` in coordinate-family modes, and a trait name that is empty or not blank.
+It rejects any other footer and asks for the summary statistics to be munged again.
+
 The same compatibility state is attached to in-memory results as
 `SumstatsTable.config_snapshot`.
 
@@ -216,6 +239,10 @@ The audit table uses fields such as `CHR`, `SNP`, `source_pos`, `target_pos`,
 values are available. Downstream LDSC3 commands do not consume this file.
 
 ## `--infer-only`
+
+`--infer-only` reads the header through the same schema as the run, so it lists every header problem the run would stop on: missing or conflicting columns, ambiguous sample-size or signed-statistic columns, unusable old DANER counts and missing allele orientation.
+Each appears under `Missing fields` with the run's message as a note, and the report says `Runnable: no`.
+It also checks the build and liftover options against the SNP identifier mode with the run's own check.
 
 `--infer-only` diagnoses the input without writing artifacts. It requires nonempty `--raw-sumstats-file` and `--output-dir` values, but does not create the output directory. Suggested commands preserve column overrides, sample-size constants, filters, and other effective CLI options alongside resolved format/build choices.
 

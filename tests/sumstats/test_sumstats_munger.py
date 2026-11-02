@@ -2380,8 +2380,8 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(output.columns.tolist(), ["SNP", "CHR", "POS", "A1", "A2", "Z", "N"])
 
     def test_a1_a2_descriptions_explain_signed_statistic_orientation(self):
-        self.assertIn("signed statistic", munge_input.describe_cname["A1"])
-        self.assertIn("counterpart", munge_input.describe_cname["A2"])
+        self.assertIn("effect allele: the allele the signed statistic refers to", munge_input.describe_cname["A1"])
+        self.assertIn("other allele", munge_input.describe_cname["A2"])
         self.assertNotIn("ref allele", munge_input.describe_cname["A1"].lower())
         self.assertNotIn("non-ref allele", munge_input.describe_cname["A2"].lower())
 

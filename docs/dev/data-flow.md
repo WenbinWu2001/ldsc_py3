@@ -1,6 +1,6 @@
 # Data Flow
 
-Last updated on: 2026-10-31
+Last updated on: 2026-11-02
 
 Examples below use the munged file names written without a trait label (`sumstats.parquet`, `sumstats.gz`); naming rules are in [artifact metadata](../reference/formats/artifact-metadata.md).
 
@@ -448,7 +448,7 @@ workflow runs format and column inference:
 VCF-style headers, old DANER, and new DANER. `--infer-only` runs that inference
 pass, still requires `--output-dir` for the uniform CLI contract, creates no
 output directory, and prints missing fields plus exact repair suggestions.
-`_sumstats.munge_input.prepare_munge_input()` resolves the raw schema, sample-size settings, source build/basis and keep-list into `ResolvedMungeInput`. The kernel returns a `MungeResult` with parsed row counts, exclusive per-stage drop counts, coordinate provenance and separate identity/liftover drop records. Row counting occurs during chunk parsing; there is no post-run full-file count pass. Source-build inference uses the shared bounded coordinate evidence reader before chunk QC, including when those informative rows will later be filtered out.
+`_sumstats.munge_input.resolve_raw_schema()` resolves the raw schema and sample-size settings, shared with `--infer-only`, and `_sumstats.munge_input.prepare_munge_input()` adds the source build/basis and keep-list into `ResolvedMungeInput`. The kernel returns a `MungeResult` with parsed row counts, exclusive per-stage drop counts, coordinate provenance and separate identity/liftover drop records. Row counting occurs during chunk parsing; there is no post-run full-file count pass. Source-build inference uses the shared bounded coordinate evidence reader before chunk QC, including when those informative rows will later be filtered out.
 
 Default output is `sumstats.parquet`; `--output-format tsv.gz` or `both`
 also supports the legacy `sumstats.gz` artifact. With overwrite

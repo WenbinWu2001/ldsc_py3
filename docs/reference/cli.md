@@ -1,6 +1,6 @@
 # Command-line reference
 
-Last updated on: 2026-10-29
+Last updated on: 2026-11-02
 
 LDSC3 provides one command, `ldsc`, with one subcommand per workflow; `python -m ldsc` is equivalent.
 This page lists every option of every subcommand, taken on 2026-10-28 from the parsers that `ldsc.cli._command_parser()` returns.
@@ -206,8 +206,8 @@ Munge GWAS summary statistics.
 | `--snp` | Input column containing SNP identifiers; matched case-insensitively. If omitted, detect from headers. SNP identifiers are required for rsid and rsid_allele_aware identity. |
 | `--chr` | Input chromosome column; matched case-insensitively. If omitted, detect from headers. Required in the input for coordinate-family modes; pair with a position column. |
 | `--pos` | Input base-pair position column; matched case-insensitively. If omitted, detect from headers. Required in the input for coordinate-family modes; pair with a chromosome column. |
-| `--a1` | Input effect-allele column, relative to which the signed statistic is defined; matched case-insensitively. If omitted, detect from headers. Allele-aware identity requires both A1 and A2 in the input. |
-| `--a2` | Input other-allele column; matched case-insensitively. If omitted, detect from headers. Allele-aware identity requires both A1 and A2 in the input. |
+| `--a1` | Input column of A1, the effect allele (the allele the signed statistic refers to); matched case-insensitively. If omitted, only A1, EA, EFFECT_ALLELE or INC_ALLELE is detected; REF/ALT and ALLELE0/1/2 never are. Allele-aware identity requires both A1 and A2 in the input. |
+| `--a2` | Input column of A2, the other allele; matched case-insensitively. If omitted, only A2, NEA, OTHER_ALLELE, NON_EFFECT_ALLELE or DEC_ALLELE is detected. Allele-aware identity requires both A1 and A2 in the input. |
 | `--p` | Input p-value column used to calculate Z; matched case-insensitively. If omitted, detect from headers. Input p-values must be in (0, 1]. |
 | `--signed-sumstats` | Signed-statistic column and null value, separated by a comma; for example Z,0 or OR,1. Column names are case-insensitive and effects are relative to A1. If omitted, detect from headers; --a1-inc bypasses signed-statistic use. |
 | `--a1-inc` | Assert that A1 increases the trait for every SNP and derive positive Z from p-values, bypassing signed statistics. Default: off; use the detected or --signed-sumstats column to determine direction. |

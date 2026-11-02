@@ -203,7 +203,8 @@ class SumstatsTable:
                 f"munge-sumstats expected A1/A2 allele columns in "
                 f"'{self.source_path or self.trait_name or 'sumstats'}' because this table is allele-aware. "
                 "Most likely the artifact was produced without allele columns. Re-run munge-sumstats "
-                "with A1/A2 column hints or use a base --snp-identifier mode (rsid or chr_pos)."
+                "with --a1 <effect-allele column> --a2 <other column> or use a base --snp-identifier mode "
+                "(rsid or chr_pos)."
             )
 
     def summary(self) -> dict[str, Any]:
@@ -1264,16 +1265,17 @@ def build_parser() -> argparse.ArgumentParser:
     columns.add_argument(
         '--a1', default=None, type=str, metavar='COLUMN',
         help=(
-            'Input effect-allele column, relative to which the signed statistic is defined; matched '
-            'case-insensitively. If omitted, detect from headers. Allele-aware identity requires both A1 '
-            'and A2 in the input.'
+            'Input column of A1, the effect allele (the allele the signed statistic refers to); matched '
+            'case-insensitively. If omitted, only A1, EA, EFFECT_ALLELE or INC_ALLELE is detected; REF/ALT and '
+            'ALLELE0/1/2 never are. Allele-aware identity requires both A1 and A2 in the input.'
         ),
     )
     columns.add_argument(
         '--a2', default=None, type=str, metavar='COLUMN',
         help=(
-            'Input other-allele column; matched case-insensitively. If omitted, detect from headers. '
-            'Allele-aware identity requires both A1 and A2 in the input.'
+            'Input column of A2, the other allele; matched case-insensitively. If omitted, only A2, NEA, '
+            'OTHER_ALLELE, NON_EFFECT_ALLELE or DEC_ALLELE is detected. Allele-aware identity requires both A1 and '
+            'A2 in the input.'
         ),
     )
     columns.add_argument(

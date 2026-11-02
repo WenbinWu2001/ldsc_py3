@@ -123,12 +123,12 @@ RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS = (
     ColumnSpec(
         "A1",
         ("A1", "EFFECT_ALLELE", "INC_ALLELE", "EA"),
-        "signed-statistic allele",
+        "effect allele (A1), the allele the signed statistic refers to",
     ),
     ColumnSpec(
         "A2",
         ("A2", "OTHER_ALLELE", "NON_EFFECT_ALLELE", "DEC_ALLELE", "NEA"),
-        "counterpart allele",
+        "other allele (A2)",
     ),
     ColumnSpec("N", ("N", "WEIGHT"), "summary-stat sample size"),
     ColumnSpec("N_CAS", ("NCASE", "CASES_N", "N_CASE", "N_CASES", "N_CAS", "NCAS", "Nca"), "summary-stat case count"),

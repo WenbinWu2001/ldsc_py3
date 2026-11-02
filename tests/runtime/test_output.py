@@ -6,7 +6,6 @@ from pathlib import Path
 import json
 import tempfile
 import unittest
-from types import SimpleNamespace
 
 import pandas as pd
 import numpy as np
@@ -32,6 +31,7 @@ from ldsc._regression.outputs import (
     RgOutputConfig,
 )
 from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
+from ldsc._regression.runner import RgResultFamily
 from ldsc import load_ldscore_from_dir
 
 
@@ -1014,7 +1014,7 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
 
 
 class RgDirectoryWriterTest(unittest.TestCase):
-    def make_result(self) -> SimpleNamespace:
+    def make_result(self) -> RgResultFamily:
         rg = pd.DataFrame(
             [
                 {
@@ -1149,7 +1149,7 @@ class RgDirectoryWriterTest(unittest.TestCase):
                 "error": "RuntimeError: pair exploded",
             },
         ]
-        return SimpleNamespace(rg=rg, rg_full=rg_full, h2_per_trait=h2_per_trait, per_pair_metadata=metadata)
+        return RgResultFamily(rg=rg, rg_full=rg_full, h2_per_trait=h2_per_trait, per_pair_metadata=metadata)
 
     def test_writes_rg_family_and_optional_pair_tree_with_nan_literals(self):
         with tempfile.TemporaryDirectory() as tmpdir:

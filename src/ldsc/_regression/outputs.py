@@ -59,7 +59,7 @@ import unicodedata
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
@@ -76,6 +76,9 @@ from .._runtime.paths import (
     ensure_output_directory,
     remove_output_artifacts,
 )
+
+if TYPE_CHECKING:
+    from .runner import RgResultFamily
 
 
 # Fitted-model files of a partitioned-h2 result that other modules locate.
@@ -848,15 +851,16 @@ class RgDirectoryWriter:
             "plots": ("plots", False),
         }, label="rg output artifact")
 
-    def write(self, result: Any, output_config: RgOutputConfig) -> dict[str, str]:
-        """Write an ``RgResultFamily``-like object to a result directory.
+    def write(self, result: RgResultFamily, output_config: RgOutputConfig) -> dict[str, str]:
+        """Write an ``rg`` result family to a result directory.
 
         Parameters
         ----------
-        result : object
-            Object exposing ``rg``, ``rg_full``, ``h2_per_trait``, and
-            ``per_pair_metadata`` attributes. The first two tables must contain
-            the canonical rg concise and full schemas.
+        result : RgResultFamily
+            The family ``estimate_rg_pairs`` returns. ``rg`` and ``rg_full``
+            must contain the canonical rg concise and full schemas; the root
+            metadata also records its ``sumstats_files``, ``ldscore_dir`` and
+            ``dropped_nonfinite_statistic_rows`` when they are set.
         output_config : RgOutputConfig
             Output directory, overwrite policy, and optional per-pair detail
             setting.
@@ -876,10 +880,10 @@ class RgDirectoryWriter:
         FileExistsError
             If an owned rg artifact already exists and overwrite is disabled.
         """
-        rg = _select_columns(getattr(result, "rg"), RG_CONCISE_COLUMNS, label="rg summary")
-        rg_full = _select_columns(getattr(result, "rg_full"), RG_FULL_COLUMNS, label="full rg summary")
-        h2_per_trait = getattr(result, "h2_per_trait")
-        per_pair_metadata = list(getattr(result, "per_pair_metadata", []))
+        rg = _select_columns(result.rg, RG_CONCISE_COLUMNS, label="rg summary")
+        rg_full = _select_columns(result.rg_full, RG_FULL_COLUMNS, label="full rg summary")
+        h2_per_trait = result.h2_per_trait
+        per_pair_metadata = list(result.per_pair_metadata)
         if output_config.write_per_pair_detail and len(per_pair_metadata) != len(rg_full):
             raise LDSCInternalError(
                 "rg output writer could not write per-pair diagnostics because per_pair_metadata does not contain "
@@ -999,10 +1003,9 @@ class RgDirectoryWriter:
         return manifest_rows
 
 
-def _rg_root_metadata(result: Any, *, files: dict[str, str]) -> dict[str, object]:
+def _rg_root_metadata(result: RgResultFamily, *, files: dict[str, str]) -> dict[str, object]:
     """Build diagnostic metadata for an rg result directory from result tables."""
-    rg_full = getattr(result, "rg_full", pd.DataFrame())
-    h2_per_trait = getattr(result, "h2_per_trait", pd.DataFrame())
+    rg_full, h2_per_trait = result.rg_full, result.h2_per_trait
     trait_names: list[str] = []
     if "trait_name" in h2_per_trait.columns:
         trait_names = [str(value) for value in h2_per_trait["trait_name"].dropna().tolist()]
@@ -1020,15 +1023,12 @@ def _rg_root_metadata(result: Any, *, files: dict[str, str]) -> dict[str, object
         artifact_type="rg_result",
         files=files,
     )
-    ldscore_dir = getattr(result, "ldscore_dir", None)
-    if ldscore_dir is not None:
-        payload["ldscore_dir"] = ldscore_dir
-    sumstats_files = getattr(result, "sumstats_files", None)
-    if sumstats_files is not None:
-        payload["sumstats_files"] = list(sumstats_files)
-    nonfinite_rows = getattr(result, "dropped_nonfinite_statistic_rows", None)
-    if nonfinite_rows is not None:
-        payload["dropped_nonfinite_statistic_rows"] = list(nonfinite_rows)
+    if result.ldscore_dir is not None:
+        payload["ldscore_dir"] = result.ldscore_dir
+    if result.sumstats_files is not None:
+        payload["sumstats_files"] = list(result.sumstats_files)
+    if result.dropped_nonfinite_statistic_rows is not None:
+        payload["dropped_nonfinite_statistic_rows"] = list(result.dropped_nonfinite_statistic_rows)
     return payload
 
 

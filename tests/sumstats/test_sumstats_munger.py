@@ -1439,17 +1439,6 @@ class SumstatsMungerTest(unittest.TestCase):
                 ]
             )
 
-    def test_workflow_infers_ref_alt_allele_columns(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            raw_path = Path(tmpdir) / "raw.tsv"
-            raw_path.write_text("SNP REF ALT P OR N\nrs1 A G 0.05 1.0 1000\n")
-            table = SumstatsMunger().run(
-                MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path, output_dir=Path(tmpdir) / "out"),
-                global_config=GlobalConfig(snp_identifier="rsid_allele_aware"),
-            )
-            self.assertEqual(table.data.A1.tolist(), ["A"])
-            self.assertEqual(table.data.A2.tolist(), ["G"])
-
     def test_rsid_allele_aware_requires_alleles(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -2696,7 +2685,7 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertFalse(result.column_hints)
             self.assertTrue(result.runnable)
 
-    def test_infer_auto_treats_vcf_style_header_as_plain_with_ref_alt_hints(self):
+    def test_infer_auto_treats_vcf_style_header_as_plain_without_allele_hints(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             raw_path = tmpdir / "plain_vcf_style.tsv"
@@ -2712,8 +2701,8 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(result.detected_format, "plain")
             self.assertIn("--input-format", result.suggested_args)
             self.assertIn("plain", result.suggested_args)
-            self.assertEqual(result.column_hints, {"a1": "REF", "a2": "ALT"})
-            self.assertTrue(result.runnable)
+            self.assertEqual(result.column_hints, {})
+            self.assertIn("A1/A2 orientation", result.missing_fields)
 
     def test_infer_only_suggests_likely_signed_sumstats_flag(self):
         with tempfile.TemporaryDirectory() as tmpdir:

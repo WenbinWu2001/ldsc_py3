@@ -107,7 +107,9 @@ A2_COLUMN_SPEC = ColumnSpec(
 
 
 # Raw summary-stat alias families preserve legacy behavior and add current
-# non-conflicting aliases where semantics match.
+# non-conflicting aliases where semantics match. Allele aliases are only names
+# that say which allele the signed statistic refers to; see ORIENTATION_AMBIGUOUS_ALLELE_COLUMNS
+# in _sumstats/munge_input.py for allele names that are never mapped.
 RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS = (
     ColumnSpec(
         "SNP",
@@ -120,12 +122,12 @@ RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS = (
     ColumnSpec("P", ("P", "PVALUE", "P_VALUE", "PVAL", "P_VAL", "GC_PVALUE"), "summary-stat p-value"),
     ColumnSpec(
         "A1",
-        ("A1", "ALLELE1", "ALLELE_1", "EFFECT_ALLELE", "REFERENCE_ALLELE", "INC_ALLELE", "EA"),
+        ("A1", "EFFECT_ALLELE", "INC_ALLELE", "EA"),
         "signed-statistic allele",
     ),
     ColumnSpec(
         "A2",
-        ("A2", "ALLELE2", "ALLELE_2", "OTHER_ALLELE", "NON_EFFECT_ALLELE", "DEC_ALLELE", "NEA"),
+        ("A2", "OTHER_ALLELE", "NON_EFFECT_ALLELE", "DEC_ALLELE", "NEA"),
         "counterpart allele",
     ),
     ColumnSpec("N", ("N", "WEIGHT"), "summary-stat sample size"),

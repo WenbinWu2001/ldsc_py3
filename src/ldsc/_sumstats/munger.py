@@ -626,7 +626,7 @@ class SumstatsMunger:
                 output_paths=run_output_paths,
                 qc_thresholds={"INFO": request.qc.info_min, "FRQ": request.qc.maf_min},
             )
-            log_summary(_render_munge_summary(self._last_summary, coordinate_metadata, munge_config))
+            log_summary(_render_munge_summary(self._last_summary, coordinate_metadata, munge_config, table.has_alleles))
             log_outputs(**run_output_paths)
             LOGGER.info(
                 f"Munged {self._last_summary.n_input_rows} input rows to {self._last_summary.n_retained_rows} retained rows; "
@@ -762,7 +762,9 @@ def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable | Ra
     """
     if not getattr(args, "infer_only", False):
         munger, table, munge_config = _munge_from_args(args)
-        print(_render_munge_summary(munger.build_run_summary(), table.provenance["coordinate_provenance"], munge_config))
+        print(_render_munge_summary(
+            munger.build_run_summary(), table.provenance["coordinate_provenance"], munge_config, table.has_alleles,
+        ))
         return table
     raw_config, munge_config = _checked_munge_configs(args)
     base_config = _resolve_main_global_config(args)
@@ -799,8 +801,10 @@ def _checked_munge_configs(args: argparse.Namespace) -> tuple[MungeConfig, Munge
     return _munge_configs_from_args(args)
 
 
-def _render_munge_summary(summary: MungeRunSummary, metadata: dict[str, Any], config: MungeConfig) -> str:
-    """Render resolved liftover outcomes and exclusive whole-run drop counts."""
+def _render_munge_summary(
+    summary: MungeRunSummary, metadata: dict[str, Any], config: MungeConfig, has_alleles: bool,
+) -> str:
+    """Render resolved liftover outcomes, exclusive whole-run drop counts and a missing-allele warning."""
     restriction = "packaged HM3 (default)" if _uses_packaged_hm3(config) else "none" if config.no_snp_restriction else "custom list"
     liftover = metadata["liftover"]
     lines = ["Munge-sumstats summary:", f"  SNP restriction: {restriction}"]
@@ -839,6 +843,8 @@ def _render_munge_summary(summary: MungeRunSummary, metadata: dict[str, Any], co
                if summary.qc_thresholds[field] is None]
     if skipped:
         lines.append("  QC filters not applied: " + "; ".join(skipped))
+    if not has_alleles:
+        lines.append("  No A1/A2 columns written: rg cannot use this output.")
     return "\n".join(lines)
 
 

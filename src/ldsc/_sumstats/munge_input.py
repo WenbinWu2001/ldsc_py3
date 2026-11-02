@@ -77,6 +77,15 @@ describe_cname = {
 
 _LIKELY_SIGNED_SUMSTAT_NAMES = {'EFFECT_SIZE', 'EFFECTSIZE', 'LOGOR', 'LOG_OR', 'BETA_HAT'}
 
+# Allele column names whose effect orientation depends on the upstream tool: genome
+# REF/ALT, and ALLELE0/1/2, whose effect allele differs between GWAS programs. They
+# are never mapped to A1/A2; a file whose only allele columns are these stops the run.
+ORIENTATION_AMBIGUOUS_ALLELE_COLUMNS = (
+    'REF', 'ALT', 'REFERENCE_ALLELE', 'ALLELE0', 'ALLELE1', 'ALLELE_1', 'ALLELE2', 'ALLELE_2',
+)
+# Allele column names that say A1 increases the trait, checked against the signed statistic.
+_INCREASING_ALLELE_COLUMNS = {'A1': 'INC_ALLELE', 'A2': 'DEC_ALLELE'}
+
 
 @dataclass(frozen=True)
 class RawSchemaIssue:
@@ -245,14 +254,10 @@ def _detect_format(clean_headers, requested_format):
     return 'plain'
 
 
-def _format_hints(headers, clean_headers, detected_format):
-    """Return the column hints a raw format implies."""
+def _format_hints(headers, detected_format):
+    """Return the column hints a raw format implies; allele orientation is never inferred."""
     hints = {}
-    if detected_format == 'plain':
-        if 'REF' in clean_headers and 'ALT' in clean_headers and not {'A1', 'A2', 'EA', 'NEA'} & clean_headers:
-            hints['a1'] = next(column for column in headers if clean_header(column) == 'REF')
-            hints['a2'] = next(column for column in headers if clean_header(column) == 'ALT')
-    elif detected_format == 'daner-new':
+    if detected_format == 'daner-new':
         frq_u = next((column for column in headers if clean_header(column).startswith('FRQ_U_')), None)
         if frq_u is not None:
             hints['frq'] = frq_u
@@ -440,13 +445,6 @@ def _old_daner_sample_sizes(file_cnames, source_path):
     return counts['FRQ_A_'], counts['FRQ_U_'], columns['FRQ_U_'], None
 
 
-def _suggest_allele_fix(file_cnames):
-    clean_to_original = {clean_header(column): column for column in file_cnames}
-    if 'REF' in clean_to_original and 'ALT' in clean_to_original:
-        return f" Try --a1 {clean_to_original['REF']} --a2 {clean_to_original['ALT']} if the signed statistic is relative to REF."
-    return ""
-
-
 def _suggest_signed_sumstat_fix(file_cnames):
     column = likely_signed_sumstat_column(file_cnames)
     if column is not None:
@@ -499,7 +497,7 @@ def resolve_raw_schema(
     headers = tuple(read_header(source_path))
     clean_set = {clean_header(column) for column in headers}
     detected_format = _detect_format(clean_set, config.sumstats_format)
-    inferred_hints = _format_hints(headers, clean_set, detected_format)
+    inferred_hints = _format_hints(headers, detected_format)
     info_lists, notes = _first_row_info_lists(source_path, headers)
     hints = {**inferred_hints, **raw_config.column_hints}
     config = replace(
@@ -635,16 +633,7 @@ def resolve_raw_schema(
             x for x in cname_translation if cname_translation[x] == 'NSTUDY']
         for x in nstudy:
             del cname_translation[x]
-    mode = global_config.snp_identifier
-    if is_allele_aware_mode(mode) and not all(x in cname_translation.values() for x in ['A1', 'A2']):
-        problem('A1/A2', (
-            f"This run is using snp_identifier={mode!r}, which requires A1/A2 allele columns. "
-            f"munge-sumstats could not map usable allele columns from '{source_path}'. "
-            "Most likely the file uses REF/ALT or other unrecognized allele headers. "
-            f"Pass --a1/--a2 column hints, or rerun with --snp-identifier {identity_base_mode(mode)}."
-            f"{_suggest_allele_fix(headers)}"
-        ), "REF and ALT are present; pass --a1 REF --a2 ALT only if the signed statistic is relative to REF."
-            if {'REF', 'ALT'}.issubset(clean_set) else None)
+    _allele_issues(problem, headers, cname_translation, ignore_cnames, source_path, global_config.snp_identifier)
 
     return RawSchema(
         source_path=source_path,
@@ -662,6 +651,87 @@ def resolve_raw_schema(
     )
 
 
+def _allele_issues(problem, headers, cname_translation, ignore_cnames, source_path, mode):
+    """Record allele problems: an unpaired allele column, unknown orientation, or no alleles in an allele-aware mode.
+
+    Without alleles, a base mode munges without them unless an orientation-ambiguous
+    column shows that the file has alleles whose orientation is unknown.
+    """
+    alleles = {target: raw for raw, target in cname_translation.items() if target in ('A1', 'A2')}
+    ambiguous = [column for column in headers
+                 if clean_header(column) in ORIENTATION_AMBIGUOUS_ALLELE_COLUMNS
+                 and clean_header(column) not in ignore_cnames and column not in cname_translation]
+    base = not is_allele_aware_mode(mode)
+    effect_allele = "A1 (the effect allele, the allele the signed statistic refers to)"
+    if len(alleles) == 1:
+        ((target, lone),) = alleles.items()
+        other = 'A2' if target == 'A1' else 'A1'
+        message = (
+            f"munge-sumstats found only one allele column in '{source_path}': {lone} is read as {target}, but no "
+            f"column is read as {other}. {effect_allele} and A2 (the other allele) must come as a pair."
+            + (f" Columns that may hold the other allele: {', '.join(ambiguous)}." if ambiguous else "")
+            + f" Name the {other} column with --{other.lower()} <column>"
+            + (f", or pass --ignore {lone} to munge without alleles, which rg cannot use." if base else ".")
+        )
+        problem('A1/A2 pair', message, message)
+    elif not alleles and ambiguous:
+        message = (
+            f"munge-sumstats cannot tell which allele column of '{source_path}' is {effect_allele}: "
+            f"{', '.join(ambiguous)} do not say which allele the signed statistic refers to, and LDSC3 does not guess. "
+            "Check in the source of these summary statistics which allele the signed statistic refers to, then pass "
+            "--a1 <effect-allele column> --a2 <other column>"
+            + (f"; or pass --ignore {','.join(ambiguous)} to munge without alleles, which rg cannot use." if base else ".")
+        )
+        problem('A1/A2 orientation', message, message)
+    elif not alleles and not base:
+        problem('A1/A2', (
+            f"This run is using snp_identifier={mode!r}, which requires A1/A2 allele columns. "
+            f"munge-sumstats could not map usable allele columns from '{source_path}'. "
+            "Most likely the file has no allele columns or names them in a way LDSC3 does not recognize. "
+            f"Pass --a1 <effect-allele column> --a2 <other column>, or rerun with --snp-identifier {identity_base_mode(mode)}."
+        ))
+
+
+def _check_increasing_allele_signs(schema: RawSchema) -> None:
+    """Stop when the signed statistic contradicts an INC_ALLELE or DEC_ALLELE column read as A1 or A2.
+
+    Those names say A1 increases the trait, so a signed statistic below its null
+    value (a negative BETA, Z or LOG_ODDS, or an OR below 1) means the allele
+    columns are not oriented as named. Rows with a missing or non-numeric
+    statistic are not counted. Reads the signed-statistic column in chunks.
+    """
+    named = [f"{raw} as {target}" for raw, target in schema.column_map.items()
+             if _INCREASING_ALLELE_COLUMNS.get(target) == clean_header(raw)]
+    signed = next((raw for raw, target in schema.column_map.items() if target == 'SIGNED_SUMSTAT'), None)
+    if not named or signed is None:
+        return
+    snp = next(raw for raw, target in schema.column_map.items() if target == 'SNP')
+    null = schema.signed_sumstat_null
+    contradicting, examples = 0, []
+    _, compression = get_compression(schema.source_path)
+    with pd.read_csv(
+        schema.source_path, sep=r"\s+", compression=compression, na_values=[".", "NA"],
+        skiprows=count_leading_sumstats_comment_lines(schema.source_path),
+        chunksize=schema.config.chunk_size, dtype=str, usecols=[snp, signed],
+    ) as reader:
+        for chunk in reader:
+            values = pd.to_numeric(chunk[signed], errors='coerce')
+            below = values < null
+            contradicting += int(below.sum())
+            examples.extend(f"{name} ({signed} = {value})" for name, value in
+                            zip(chunk.loc[below, snp], chunk.loc[below, signed]))
+            del examples[5:]
+    if contradicting:
+        raise LDSCInputError(
+            f"munge-sumstats reads {' and '.join(named)} because these names say A1 (the effect allele, the allele "
+            f"the signed statistic refers to) increases the trait, but {contradicting} rows of '{schema.source_path}' "
+            f"have {signed} below its null value {null:g}, which says A1 decreases it; for example "
+            f"{', '.join(examples)}. Most likely these columns do not hold the increasing and decreasing alleles. "
+            "Check in the source of these summary statistics which allele the signed statistic refers to, then pass "
+            "--a1 <effect-allele column> --a2 <other column>."
+        )
+
+
 def prepare_munge_input(
     schema: RawSchema,
     global_config: GlobalConfig,
@@ -676,6 +746,7 @@ def prepare_munge_input(
     or any further format/build decisions.
     """
     schema.raise_issues()
+    _check_increasing_allele_signs(schema)
     if schema.detected_format == 'daner-old':
         LOGGER.info(
             f"Inferred that N_cas = {schema.qc.N_cas}, N_con = {schema.qc.N_con} from the FRQ_[A/U] columns."

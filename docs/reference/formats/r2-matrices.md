@@ -1,6 +1,6 @@
 # R² Matrix: Format Specification and Read Pipeline
 
-Last updated on: 2026-10-30
+Last updated on: 2026-11-01
 
 This document defines the canonical **index** format for R² matrices and describes how the read pipeline validates, binds, and streams them into the LD-score accumulation.
 
@@ -182,6 +182,7 @@ The sidecar (`chrN_meta.tsv.gz`) is the per-SNP table for the whole R² matrix a
 **defines the index space**: parquet `IDX_k` is a 0-based row number into it. It
 is a gzip TSV with `# ldsc:*` identity-provenance comments followed by columns
 `CHR, POS, SNP, A1, A2, CM, MAF` (one row per SNP, in build/position order).
+`A1` is the minor allele in the retained reference individuals (`MAF = freq(A1) ≤ 0.5`) and orients `SIGN_R`; it is not the effect allele of summary statistics (see [What A1 means in each file type](column-schema.md#what-a1-means-in-each-file-type)).
 `CM` and `MAF` are written with 9 significant digits (`SIDECAR_FLOAT_FORMAT` in `_refpanel/r2_format.py`).
 `build-r2-matrix` computes its cM window from `CM` rounded to that precision, so the stored pairs match the window `ldscore` rebuilds from the sidecar.
 

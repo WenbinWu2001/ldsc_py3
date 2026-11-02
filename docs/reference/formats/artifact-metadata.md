@@ -254,6 +254,7 @@ Its storage grows as $O(B(B+Q))$ for $B$ baseline and $Q$ query columns.
 Only the baseline-row block $A_B^\top A$ and each query's self-overlap are stored, which is enough to rebuild the overlap matrix of every baseline-plus-one-query model; `overlap_config.stored_block` is `baseline_rows_plus_query_diagonal` with queries and `baseline_by_baseline` without.
 `partitioned-h2` requires the file; the collinearity check of `h2` and of each `rg` trait pair reads it when present.
 Query files repeat the SNP identity columns (`CHR`, `SNP`, `POS`, and `A1` and `A2` when available).
+These `A1` and `A2` are the reference panel's alleles: `A1` is the minor allele for LD scores computed from an R² matrix and the `.bim` `A1` for LD scores computed from a PLINK reference panel, not the effect allele of summary statistics (see [What A1 means in each file type](column-schema.md#what-a1-means-in-each-file-type)).
 Opening an LD-score directory validates every declared schema and allele column, and `LDScoreSource.read_queries` checks that the selected query files share the same SNP rows (`src/ldsc/_ldscore/source.py`).
 The name-keyed long format survives zero-variance column drops and reordering, because regression assembles each model's overlap matrix by annotation name.
 Embedding the matrix in `metadata.json` was rejected because it would reach tens of MB for cell-type panels; `.npz` or position-aligned records were rejected as fragile.

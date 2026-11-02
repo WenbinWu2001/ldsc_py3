@@ -1,6 +1,6 @@
 # Calculate LD scores
 
-Last updated on: 2026-10-28
+Last updated on: 2026-11-01
 
 `ldsc ldscore` computes LD scores from a reference panel and writes them to an LD-score directory.
 The regression commands `h2`, `rg` and `partitioned-h2` read that directory through `--ldscore-dir` and never recompute LD scores, so one LD-score directory serves every trait you analyze with the same reference panel and annotations.
@@ -63,6 +63,7 @@ The plain stem `1000G.EUR.QC.` finds the complete per-chromosome trios `1000G.EU
 
 The rows of the baseline and query files are the regression SNPs, by default the HM3 map after MHC and centromere exclusion.
 Each of these files covers all computed chromosomes, with one Parquet row group per chromosome.
+The baseline and query files also carry the reference panel's `A1` and `A2` for SNP identity: `A1` is the minor allele when the LD scores were computed from an R² matrix and the `.bim` `A1` when they were computed from a PLINK reference panel, and it is not the effect allele of summary statistics (see [What A1 means in each file type](../../reference/formats/column-schema.md#what-a1-means-in-each-file-type)).
 `regression_ld_scores` is the LD score computed over the regression SNPs only, which legacy LDSC wrote as the separate `.w.l2.ldscore` weight file.
 Annotation counts are stored in `metadata.json` rather than as `.M` and `.M_5_50` files.
 Pass the whole directory to the regression commands with `--ldscore-dir`; you never pass count vectors or weight files separately.
@@ -88,6 +89,7 @@ The `@` in the path is a chromosome suite: it stands for chromosomes 1 to 22 and
 Quote paths that contain `@` or `*` so the shell passes them unchanged; the path forms are described in [input paths](../../reference/input-paths.md).
 Annotation values may be binary or continuous.
 Annotation files may omit both allele columns even in allele-aware modes; when they contain `A1` and `A2`, the alleles take part in matching, and supplying only one of them is an error.
+These alleles keep the order of the annotation source and only identify SNPs, so `A1` need not be the minor allele or the effect allele of summary statistics.
 To build baseline annotations from BED files, follow [Build baseline annotations from BED files](annotations.md#build-baseline-annotations-from-bed-files).
 
 ### Query annotations

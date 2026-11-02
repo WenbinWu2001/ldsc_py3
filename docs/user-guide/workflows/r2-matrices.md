@@ -1,6 +1,6 @@
 # Build and query R² matrices
 
-Last updated on: 2026-10-28
+Last updated on: 2026-11-01
 
 `ldsc build-r2-matrix` computes the unbiased R² between pairs of SNPs within an LD window from the genotypes of a PLINK reference panel and saves them as an R² matrix.
 An R² matrix is a reusable reference panel: build it once, then use it with `ldsc ldscore --r2-matrix-dir` to compute LD scores for any annotations and traits, or with `ldsc query-r2-matrix` to look up the LD between specific SNP pairs.
@@ -142,6 +142,7 @@ How much the rounding moves an LD score depends on the number of pairs and the a
 **Sidecar (`chr<N>_meta.tsv.gz`).**
 A gzip TSV with `# ldsc:*` comment lines and the columns `CHR`, `POS`, `SNP`, `A1`, `A2`, `CM`, `MAF`, one row per SNP in position order.
 Positions are one-based; `A1` is the minor allele and `MAF` is computed in the retained reference individuals.
+This `A1` only identifies the SNP and orients the correlation signs; it is not the effect allele of summary statistics (see [What A1 means in each file type](../../reference/formats/column-schema.md#what-a1-means-in-each-file-type)).
 `SNP` keeps the `.bim` label, which need not be an rsID.
 The sidecar defines the pair indices and is bound to its pair table by an identity hash, so keep the two files together and never sort, filter or edit either one.
 A pair table without its sidecar cannot be used.

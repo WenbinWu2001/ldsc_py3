@@ -1,6 +1,6 @@
 # `munge-sumstats`
 
-Last updated on: 2026-10-28
+Last updated on: 2026-11-01
 
 This document explains the public shape of `ldsc munge-sumstats`: what it does,
 what it writes, how genome builds are handled, and how to use `--infer-only`
@@ -32,6 +32,7 @@ The normal workflow is:
     Report the selected mapping method and counts in stdout and the log after a successful CLI run.
 
 The default SNP identifier mode is `chr_pos_allele_aware`, so `A1/A2` are required by default.
+In summary statistics, `A1` is the effect allele, the allele the signed statistic refers to, and `A2` is the other allele (see [What A1 means in each file type](formats/column-schema.md#what-a1-means-in-each-file-type)).
 Use `--snp-identifier chr_pos` for coordinate identity without allele-aware matching, or `--snp-identifier rsid` for rsID-only identity.
 
 ## Preparation and Run Accounting

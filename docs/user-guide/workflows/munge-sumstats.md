@@ -1,6 +1,6 @@
 # Munge summary statistics
 
-Last updated on: 2026-10-28
+Last updated on: 2026-11-01
 
 `ldsc munge-sumstats` converts raw summary statistics into munged summary statistics for LDSC3.
 See the [`munge-sumstats` reference](../../reference/munge-sumstats.md) for the full workflow and output contract.
@@ -156,7 +156,7 @@ For an ordinary headered, whitespace-delimited raw GWAS table, supply the fields
 | --- | --- | --- |
 | `SNP` | Required by the current raw-input reader in every SNP identifier mode. | A variant label. In rsID-family modes it supplies the matching identifier; coordinate-family modes still require this column even though matching uses coordinates. |
 | `CHR`, `POS` | Required for `chr_pos` and `chr_pos_allele_aware`. | Chromosome and positive, one-based base-pair position in the source build. Optional for rsID-family modes. Choose the output build separately with `--output-genome-build`. |
-| `A1`, `A2` | Required for allele-aware modes, including the default `chr_pos_allele_aware`. | `A1` is the allele relative to which the signed statistic is defined; `A2` is the other allele. Base `chr_pos` and `rsid` modes can munge without allele columns. |
+| `A1`, `A2` | Required for allele-aware modes, including the default `chr_pos_allele_aware`. | `A1` is the effect allele, the allele the signed statistic refers to, and `A2` is the other allele (see [What A1 means in each file type](../../reference/formats/column-schema.md#what-a1-means-in-each-file-type)). Base `chr_pos` and `rsid` modes can munge without allele columns. |
 | `P` | Required, including when input `Z` is available. | Association p-value in `(0, 1]`. LDSC3 derives the output Z magnitude from P; it does not compute P from a supplied effect or Z column. |
 | One signed statistic: `Z`, `BETA`, `LOG_ODDS`, or `OR` | Required unless `--a1-inc` is explicitly used. | Supplies the direction relative to A1. The null is `0` for Z/beta/log odds and `1` for OR. Choose one explicitly with `--signed-sumstats COLUMN,NULL` if several are present. `--a1-inc` asserts that A1 is always the increasing allele and produces positive Z; use it only when that assertion is justified. |
 | `N`, or both `N_CAS` and `N_CON` | Required unless sample size is supplied as a constant. | Use per-variant N or a case/control pair as described in [Sample-size columns](#sample-size-columns). Alternatively, use `--N VALUE` or both `--N-cas VALUE --N-con VALUE`. Input sample-size columns take precedence over these fallback constants. |

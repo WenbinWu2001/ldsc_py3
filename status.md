@@ -53,7 +53,7 @@ The user answered two rounds of questions on 2026-11-01, wrote the allele policy
 - `ldscore --export-ref-metadata` writes PLINK metadata in the R² sidecar layout with the `.bim` `A1` and a folded `MAF`, which is `freq(A2)` where that `A1` is the major allele; `quantile-h2` accepts it as reference metadata.
 - PLINK-built LD-score directories keep the `.bim` allele order (documented in `900cacf`, not changed).
 - Resolved after `f2995d9`: an ignored only signed-statistic column is explained (the message names the ignored column), and every `--infer-only` missing field now carries the run's message as its note.
-- `provenance["metadata"]` still duplicates `coordinate_provenance` for run tables; nothing reads it.
+- Resolved after `f2995d9`: run tables no longer repeat `coordinate_provenance` as `provenance["metadata"]`; that key now only holds a loaded table's decoded footer.
 - Pre-existing anchors that do not match their "R²" headings: `python-usage.md#r2-matrices` (linked from `docs/user-guide/workflows/r2-matrices.md`) and the in-code `ldscore-r2-matrix-is-incompatible` and `query-r2-matrix-r2-matrix-is-incompatible`; not checked against a renderer.
 
 ## Completed: regression metadata and results (2026-11-01)

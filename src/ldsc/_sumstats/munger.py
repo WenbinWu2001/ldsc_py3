@@ -166,10 +166,13 @@ class SumstatsTable:
         by the ``source_path`` filename.
     provenance : dict, optional
         Lightweight run metadata retained for debugging and output summaries.
-        Tables from :meth:`SumstatsMunger.run` record ``qc_thresholds``, the
-        effective ``info_min`` and ``maf_min`` (``None`` for a filter not
-        applied), which :meth:`SumstatsMunger.write_output` writes to the Parquet
-        footer. Default is an empty dict.
+        Tables from :meth:`SumstatsMunger.run` record ``coordinate_provenance``
+        (source build, coordinate basis and liftover counts) and
+        ``qc_thresholds``, the effective ``info_min`` and ``maf_min`` (``None``
+        for a filter not applied), which :meth:`SumstatsMunger.write_output`
+        writes to the Parquet footer. Tables loaded from Parquet record the
+        decoded footer as ``metadata``, and legacy text tables set
+        ``legacy_ldsc``. Default is an empty dict.
     config_snapshot : GlobalConfig or None, optional
         Shared configuration captured when the table was produced in-process or
         recovered from the ``sumstats.parquet`` footer. It is ``None`` for a
@@ -607,7 +610,6 @@ class SumstatsMunger:
                     "output_files": dict(output_files),
                     "column_hints": dict(column_hints),
                     "coordinate_provenance": coordinate_metadata,
-                    "metadata": coordinate_metadata,
                     "qc_thresholds": qc_thresholds,
                 },
                 config_snapshot=table_config_snapshot,

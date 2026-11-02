@@ -252,6 +252,10 @@ class RegressionFit:
     diagnostic_bins : pandas.DataFrame or None
         LD score regression bins of a single-annotation h2 fit, over the same
         rows; ``None`` for rg and partitioned models.
+    effective_two_step_cutoff : float or None
+        Step-1 chi-square cutoff of the two-step estimator, requested or the
+        single-annotation default of 30; ``None`` when the fit used no
+        two-step estimator.
 
     Notes
     -----
@@ -265,6 +269,7 @@ class RegressionFit:
     n_blocks: int
     effective_chisq_max: float | None
     diagnostic_bins: pd.DataFrame | None = None
+    effective_two_step_cutoff: float | None = None
 
     @property
     def n_snps(self) -> int:
@@ -830,7 +835,7 @@ class RegressionRunner:
         merged = _kept_rows(merged, keep) if retain_rows else pd.DataFrame(index=pd.RangeIndex(n_snp))
         return RegressionFit(
             estimator=hsq, dataset=replace(dataset, merged=merged), n_blocks=n_blocks,
-            effective_chisq_max=chisq_max, diagnostic_bins=diagnostic_bins,
+            effective_chisq_max=chisq_max, diagnostic_bins=diagnostic_bins, effective_two_step_cutoff=two_step,
         )
 
     @serial_calculation
@@ -1071,6 +1076,7 @@ class RegressionRunner:
                     identity_downgrade_applied=prepared.dataset.identity_downgrade_applied,
                     count_key_used_for_regression=count_key,
                     dropped_nonfinite_statistic_rows=trait.dropped_nonfinite_statistic_rows,
+                    intercept_h2_policy=_intercept_policies(config)["intercept_h2_policy"],
                 )
                 # Fits need only the aligned rows; release the trait's keyed copy.
                 legacy_drops, trait = trait.legacy_drops, None
@@ -1238,12 +1244,12 @@ class RegressionRunner:
                 _add_jackknife_model_context(error, merged, dataset.retained_ld_columns)
             # The pair's rows and settings, for failed-pair reporting.
             error.fit_summary = {"n_snps": n_snp, "n_blocks": n_blocks, "effective_chisq_max": config.chisq_max,
-                                 **_dataset_metadata(dataset)}
+                                 "effective_two_step_cutoff": two_step, **_dataset_metadata(dataset)}
             raise
 
         return RegressionFit(
             estimator=fitted, dataset=replace(dataset, merged=merged), n_blocks=n_blocks,
-            effective_chisq_max=config.chisq_max,
+            effective_chisq_max=config.chisq_max, effective_two_step_cutoff=two_step,
         )
 
     @serial_calculation
@@ -2543,8 +2549,12 @@ def _dataset_metadata(dataset: RegressionDataset) -> dict[str, object]:
 
 
 def _fit_metadata(fit: RegressionFit, snps_key: str = "n_snps") -> dict[str, object]:
-    """Record a fit's SNP and block counts and chi-square cap; ``rg`` pairs name the SNP count ``n_snps_used``."""
-    return {snps_key: fit.n_snps, "n_blocks_used": fit.n_blocks, "effective_chisq_max": fit.effective_chisq_max}
+    """Record a fit's SNP and block counts, chi-square cap and two-step cutoff.
+
+    ``rg`` pairs name the SNP count ``n_snps_used``.
+    """
+    return {snps_key: fit.n_snps, "n_blocks_used": fit.n_blocks, "effective_chisq_max": fit.effective_chisq_max,
+            "effective_two_step_cutoff": fit.effective_two_step_cutoff}
 
 
 def _h2_metadata(
@@ -2568,6 +2578,7 @@ def _h2_metadata(
         **_dataset_metadata(outcome.dataset),
         "dropped_nonfinite_statistic_rows": dropped_nonfinite_statistic_rows,
         **_fit_metadata(outcome),
+        "intercept_h2_policy": _intercept_policies(config)["intercept_h2_policy"],
         "samp_prev": config.samp_prev,
         "pop_prev": config.pop_prev,
         "scale": _scale_label(config.samp_prev, config.pop_prev),
@@ -2608,6 +2619,7 @@ def _rg_pair_metadata(
         "n_snps_used": 0,
         "n_blocks_used": 0,
         "effective_chisq_max": config.chisq_max,
+        "effective_two_step_cutoff": None,
         **_rg_prevalence_metadata(prevalences),
         **_intercept_policies(config),
     }

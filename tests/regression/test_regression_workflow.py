@@ -2220,6 +2220,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "n_snps": 1,
                     "n_blocks_used": 1,
                     "effective_chisq_max": None,
+                    "effective_two_step_cutoff": 30,
+                    "intercept_h2_policy": "free",
                     "samp_prev": None,
                     "pop_prev": None,
                     "scale": "observed",

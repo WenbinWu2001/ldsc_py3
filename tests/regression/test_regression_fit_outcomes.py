@@ -40,6 +40,10 @@ def _intercept_cli_config(command, flags):
 
 
 def _intercept_fit(command, config):
+    return _regression_fit(command, config).estimator
+
+
+def _regression_fit(command, config):
     from dataclasses import replace
 
     dataset = h2_dataset()
@@ -51,7 +55,7 @@ def _intercept_fit(command, config):
             reference_snp_count_totals={"common_reference_snp_counts": np.array([1000., 100.])},
         )
     if command != "rg":
-        return runner.estimate_h2(dataset).estimator
+        return runner.estimate_h2(dataset)
     merged = dataset.merged.rename(columns={"Z": "Z1", "N": "N1"}).copy()
     merged["Z1"] = np.sqrt(1.2 + .01 * merged.base + .02 * np.sin(merged.base))
     merged["Z2"] = np.sqrt(1.1 + .015 * merged.base + .03 * np.cos(merged.base))
@@ -61,7 +65,7 @@ def _intercept_fit(command, config):
         "reference_snp_count_totals", "count_key_used_for_regression", "chromosomes_aggregated", "config_snapshot",
     )}
     rg_dataset = workflow.RegressionDataset(merged=merged, trait_names=["one", "two"], **fields)
-    return runner.estimate_rg(rg_dataset).estimator
+    return runner.estimate_rg(rg_dataset)
 
 
 @pytest.mark.parametrize("command", ["h2", "partitioned-h2", "rg"])
@@ -90,6 +94,22 @@ def test_omitted_cli_intercepts_preserve_free_fit_and_two_step_defaults(command)
     for fitted in fits:
         assert not fitted.constrain_intercept
         assert (fitted.twostep_filtered is None) == (command == "partitioned-h2")
+
+
+# Expected cutoffs follow the documented defaults (docs/reference/regression-options.md, sections 2 to 4).
+@pytest.mark.parametrize("command, settings, cutoff", [
+    ("h2", {}, 30),
+    ("h2", {"two_step_cutoff": 20}, 20),
+    ("h2", {"intercept_h2": 1}, None),
+    ("partitioned-h2", {}, None),
+    ("rg", {}, 30),
+    ("rg", {"intercept_h2": 1, "intercept_gencov": 0}, None),
+])
+def test_a_fit_reports_the_two_step_cutoff_it_used(command, settings, cutoff):
+    fit = _regression_fit(command, RegressionConfig(num_blocks=6, **settings))
+    assert fit.effective_two_step_cutoff == cutoff
+    estimators = [fit.estimator.hsq1, fit.estimator.hsq2, fit.estimator.gencov] if command == "rg" else [fit.estimator]
+    assert all((estimator.twostep_filtered is None) == (cutoff is None) for estimator in estimators)
 
 
 @pytest.mark.parametrize("command, flags, error, message", [

@@ -197,3 +197,27 @@ def test_h2_and_partitioned_h2_record_the_same_summary_statistics_provenance(tmp
     assert {name: partitioned[name] for name in fields} == {name: h2[name] for name in fields}
     assert h2["sumstats_file"] == sumstats
     assert h2["count_key_used_for_regression"] == "common_reference_snp_counts"
+
+
+def test_results_record_the_intercept_policy_and_the_two_step_cutoff(tmp_path):
+    ldscore_dir, sumstats = _inputs(tmp_path)
+    _, traits = _rg_inputs(tmp_path / "rg_inputs")
+    ldsc.run_h2(ldscore_dir=ldscore_dir, sumstats_file=sumstats, output_dir=str(tmp_path / "free"), num_blocks=6)
+    ldsc.run_h2(ldscore_dir=ldscore_dir, sumstats_file=sumstats, output_dir=str(tmp_path / "fixed"), num_blocks=6,
+                intercept_h2=1.0)
+    ldsc.run_partitioned_h2(ldscore_dir=ldscore_dir, sumstats_file=sumstats, output_dir=str(tmp_path / "ph2"),
+                            num_blocks=6)
+    ldsc.run_rg(ldscore_dir=ldscore_dir, sumstats_sources=traits, output_dir=str(tmp_path / "rg"), num_blocks=6,
+                write_per_pair_detail=True)
+
+    # A single-annotation h2 fit with an estimated intercept uses the two-step cutoff 30; a fixed one does not.
+    free, fixed = _metadata(tmp_path / "free"), _metadata(tmp_path / "fixed")
+    assert (free["intercept_h2_policy"], free["effective_two_step_cutoff"]) == ("free", 30)
+    assert (fixed["intercept_h2_policy"], fixed["effective_two_step_cutoff"]) == ("fixed:1", None)
+    # Query models have several annotations, so none uses the two-step estimator.
+    assert _metadata(tmp_path / "ph2")["intercept_h2_policy"] == "free"
+    queries = sorted((tmp_path / "ph2/diagnostics/query_annotations").glob("*/metadata.json"))
+    assert len(queries) == 3
+    assert [json.loads(path.read_text())["effective_two_step_cutoff"] for path in queries] == [None] * 3
+    pair = json.loads(next((tmp_path / "rg/diagnostics/pairs").glob("*/metadata.json")).read_text())
+    assert (pair["intercept_h2_policy"], pair["effective_two_step_cutoff"]) == ("free", 30)

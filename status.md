@@ -320,7 +320,9 @@ The user answered two rounds of design questions on 2026-10-30, confirmed the de
 ### Left open from candidate 3
 
 - The user approved "regression fit" (`RegressionFit`) and "prepared trait summary statistics" on 2026-10-30 (`0c78a59`), and the older "fit outcome" wordings were reworded.
-- `rg` still stops the whole run when one trait's own heritability fit fails in its per-trait `h2` phase (`RegressionRunner.estimate_rg_pairs()` in `src/ldsc/_regression/runner.py`), even for an unestimable jackknife; only pair-level errors are recorded per pair.
+- Resolved in `8ad75c7` (2026-11-02, at the user's request): a failure of one trait's own heritability fit in `rg` no longer stops the run.
+  `h2_per_trait.tsv` gains `status` (`ok`, `unestimable` or `failed`) and `error`; a failed trait keeps its row with NaN estimates, and its pairs are still fitted on their shared SNPs.
+  Full pytest at `23521eb`: 2526 passed, 0 failed, 0 skipped.
 - `tests/regression/test_regression_streaming.py::test_public_directory_reader_does_not_import_regression` hung twice at interpreter exit inside Arrow's thread-pool shutdown, once blocking a full run for about 30 minutes.
   Its child now has a 120-second timeout, so a hang fails the test; the Arrow shutdown deadlock itself is not investigated.
 
@@ -345,7 +347,9 @@ The user accepted the round-1 recommendations for architecture review candidate 
 
 ### Left open from the naming audit
 
-- `diagnostics/input_issues.tsv` is declared only by the LD-score and annotation directory writers; the regression, `query-r2-matrix`, `build-r2-matrix` and munging writers pass it to `InputGate` without declaring it.
+- Resolved in `23521eb` (2026-11-02, at the user's request): the `h2`, `partitioned-h2`, `rg`, `quantile-h2`, `query-r2-matrix` and munging writers declare `diagnostics/input_issues.tsv` as owned and never produced, so a table left by a failed run stops a run without `--overwrite`.
+  `build-r2-matrix` was left undeclared, against the recommendation the user accepted: its input checks run before its output family is known (whether the run is one chromosome comes from the `.bim` contents), and a passing check deletes the table before any ownership check, as `docs/reference/logs-and-outputs.md` already documented.
+- Open: concurrent per-chromosome `build-r2-matrix` runs into one output directory share `diagnostics/input_issues.tsv` and `diagnostics/plink_input_issues.tsv`, so one run's passing check can delete another's failure table; per-chromosome names would need a design, because the chromosome is not known when the checks run.
 - Lower-tier readers that spell higher-tier names (`_genome` and `_runtime` reading LD-score, regression, gene-index and munged file names or `files` keys) stay as they are, as for the R² names.
 
 ## Completed: dead-code and redundant-test cleanup (2026-10-29)

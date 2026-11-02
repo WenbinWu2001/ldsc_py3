@@ -166,8 +166,8 @@ INTERNAL_SUMSTATS_ARTIFACT_SPECS = (
     _canonical_only_spec("SNP", "munged summary-statistics SNP identifier"),
     _canonical_only_spec("N", "munged summary-statistics sample size"),
     _canonical_only_spec("Z", "munged summary-statistics Z-score"),
-    _canonical_only_spec("A1", "munged summary-statistics allele 1"),
-    _canonical_only_spec("A2", "munged summary-statistics allele 2"),
+    _canonical_only_spec("A1", "munged summary-statistics A1 (effect allele)"),
+    _canonical_only_spec("A2", "munged summary-statistics A2 (other allele)"),
     _canonical_only_spec("FRQ", "munged summary-statistics allele frequency"),
 )
 INTERNAL_SUMSTATS_ARTIFACT_SPEC_MAP = {

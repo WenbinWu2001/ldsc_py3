@@ -1,6 +1,6 @@
 # Using LDSC3 from Python
 
-Last updated on: 2026-11-01
+Last updated on: 2026-11-02
 
 This page collects the Python API for each workflow in the user guide.
 Each section below assumes the setup described here and links back to the workflow page that explains the analysis.
@@ -899,7 +899,7 @@ if __name__ == "__main__":
 `run_rg` accepts the `rg` option names without the leading `--`; `sumstats_sources` takes a list of paths or quoted `*` patterns.
 The result has five parts: `result.rg`, `result.rg_full` and `result.h2_per_trait` match `rg.tsv`, `rg_full.tsv` and `h2_per_trait.tsv`, `result.per_pair_metadata` holds one record per pair, and `result.output_paths` names the files written.
 A pair whose fit fails is recorded with `NaN` estimates and `status="failed"`, or `status="unestimable"` when deleting a jackknife block left the fit unidentifiable, and the other pairs are still fitted.
-Every trait needs `A1` and `A2`; inputs without them stop the call before any fit.
+Every trait needs `A1`, the effect allele (the allele the signed statistic refers to), and `A2`; inputs without them stop the call before any fit.
 Inputs that share a trait label are relabeled `label@<suffix>` from their paths, as in [inputs that share a trait label](workflows/genetic-correlation.md#inputs-that-share-a-trait-label).
 The `h2_per_trait` columns `total_h2_obs` and `total_h2_obs_se` are the values the plot shows on the heatmap diagonal or beside the anchor plot.
 

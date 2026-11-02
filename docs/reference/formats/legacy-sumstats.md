@@ -35,6 +35,7 @@ For each legacy summary-statistics input, LDSC3 performs this boundary conversio
 6. With an allele-unaware panel, retain the source `A1`, `A2`, `Z`, and `FRQ` orientation. No panel allele exists to justify changing them. This is sufficient for `h2`, which consumes `Z` through `Z` squared. For `rg`, project each trait independently to panel SNP rows, then harmonize the two traits to one another; negate `Z` and transform a valid `FRQ` to `1 - FRQ` for the swapped trait as required.
 7. In both cases, replace the matched row's `CHR`, `POS`, and `SNP` with the panel values and run regression using the panel's recorded SNP identifier mode.
    With an allele-aware panel, also replace `A1` and `A2` with the panel alleles.
+   Because step 5 negates `Z` where the alleles swap, `A1` remains the allele the signed statistic refers to.
 
 If the legacy row carries `FRQ`, it remains a value owned by the summary statistics and is never imputed from panel frequency metadata.
 For a row whose allele orientation is swapped against an allele-aware panel, or for a trait swapped during pairwise `rg` harmonization under an allele-unaware panel, transform the legacy value to `1 - FRQ` so it remains the frequency of the oriented `A1`; otherwise retain it unchanged.

@@ -643,10 +643,11 @@ class RegressionRunner:
         """Build the complete genetic-correlation preprocessing dataset.
 
         This helper merges trait 1, trait 2, and baseline LD scores on the
-        resolved SNP identifier, drops missing rows, aligns trait 2's alleles
-        and signed statistic to trait 1, and only then removes zero-variance
+        resolved SNP identifier, drops missing rows, aligns trait 2's signed
+        statistic to trait 1's ``A1``, and only then removes zero-variance
         LD-score columns on the final RG SNP set. Both traits must carry
-        ``A1``/``A2``; otherwise ``LDSCInputError`` is raised.
+        ``A1`` (the effect allele, the allele the signed statistic refers to)
+        and ``A2``; otherwise ``LDSCInputError`` is raised.
         """
         _require_rg_alleles([sumstats_table_1, sumstats_table_2])
         return self._rg_dataset(
@@ -725,9 +726,10 @@ class RegressionRunner:
         if merged.empty:
             raise LDSCInputError(
                 "rg regression retained no allele-compatible SNPs after harmonizing the two summary-statistics tables. "
-                "Most likely the traits use different effect-allele conventions or one input was not allele "
-                "harmonized during munging. Regenerate both munged summary statistics with A1/A2 columns and matching "
-                "SNP identifier mode."
+                "Most likely the two traits' A1/A2 columns (A1 is the effect allele, the allele the signed statistic "
+                "refers to) hold different allele pairs for the shared SNPs, for example because one trait was munged "
+                "from columns that are not its alleles. Re-run `ldsc munge-sumstats` for both traits with "
+                "--a1 <effect-allele column> --a2 <other column> and the same SNP identifier mode."
             )
         # The integer signs keep the legacy result dtype (float32 Z widens to float64).
         merged["Z2"] = merged["Z2"].to_numpy() * np.where(flip, -1, 1)
@@ -1300,7 +1302,7 @@ class RegressionRunner:
         ----------
         sumstats_tables : sequence of SumstatsTable
             Munged summary-statistic tables for two or more traits, each with
-            ``A1``/``A2``. Inputs sharing a trait label are relabeled
+            ``A1`` (the effect allele) and ``A2``. Inputs sharing a trait label are relabeled
             ``label@<path suffix>`` with the shortest source-path suffix that
             separates them, as in ``ldsc rg``; a shared label without source
             paths raises ``LDSCInputError``.
@@ -3599,7 +3601,8 @@ def run_rg(**kwargs) -> RgResultFamily:
     ``sumstats_sources`` order, as a list such as ``[0.5, float("nan")]``
     (``nan`` for a quantitative trait) or as the command's comma-separated
     string; ``prevalence_manifest`` matches prevalences by trait name instead.
-    Every trait needs ``A1`` and ``A2``. Traits that share a label are
+    Every trait needs ``A1`` (the effect allele, the allele the signed
+    statistic refers to) and ``A2``. Traits that share a label are
     relabeled ``label@<path suffix>``. The SNP identifier mode and genome
     build come from the inputs; the registered ``GlobalConfig`` supplies only
     the level of ``diagnostics/rg.log``.

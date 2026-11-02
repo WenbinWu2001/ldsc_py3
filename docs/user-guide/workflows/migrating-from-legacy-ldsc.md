@@ -18,6 +18,7 @@ This page summarizes what changed, which legacy files you can reuse, and how to 
 | Query annotations | Supply prebuilt annotation files, BED files or gene lists as mutually exclusive routes. `ldscore` projects BED files and gene lists directly; `annotate` optionally writes reusable query annotation files. |
 | LD scores | Regression reads one LD-score directory with `metadata.json`, `ldscore.baseline.parquet` and any query and overlap Parquet files, through `--ldscore-dir`. It never recomputes LD scores. |
 | Regression SNPs | New LD scores default to the packaged HM3 map as regression SNPs, followed by MHC and centromere exclusion. This does not restrict the reference SNPs or the annotation counts. Munging separately restricts summary statistics to the HM3 map by default. |
+| Allele columns | `munge-sumstats` reads `A1`, the effect allele (the allele the signed statistic refers to), and `A2` only from `A1`/`A2`, `EA`/`NEA`, `EFFECT_ALLELE`/`OTHER_ALLELE`/`NON_EFFECT_ALLELE` and `INC_ALLELE`/`DEC_ALLELE`, or from `--a1`/`--a2`. Unlike legacy LDSC, it does not read `ALLELE1`/`ALLELE2` or `REFERENCE_ALLELE` as alleles, and it stops when the only allele columns do not say which allele the signed statistic refers to; see [allele columns](../../reference/munge-sumstats.md#allele-columns). |
 | Per-query results | `partitioned-h2` always writes one complete baseline-plus-query result per query; the removed `--write-per-query-results` flag is rejected. |
 
 ## Reuse legacy files

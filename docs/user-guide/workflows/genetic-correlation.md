@@ -10,7 +10,7 @@ Use it to ask which traits share genetic effects, and in which direction.
 
 - **Munged summary statistics for two or more traits**, written by [`ldsc munge-sumstats`](munge-sumstats.md) as `<trait>.parquet`.
   Legacy `.sumstats` or `.sumstats.gz` files with `SNP`, `A1`, `A2`, `Z` and `N` are also accepted and can be mixed with Parquet files; see [legacy summary statistics](../../reference/formats/legacy-sumstats.md).
-  Every trait needs `A1` and `A2`: `rg` aligns the second trait's signed statistics to the first trait's alleles and drops strand-ambiguous or mismatched SNPs.
+  Every trait needs `A1`, the effect allele (the allele the signed statistic refers to), and `A2`: `rg` aligns the second trait's signed statistics to the first trait's `A1` and drops strand-ambiguous or mismatched SNPs (see [What A1 means in each file type](../../reference/formats/column-schema.md#what-a1-means-in-each-file-type)).
   Munged summary statistics written in a base mode without allele columns lack them, and `rg` stops before fitting and names those inputs.
   Munge them again with `--a1 <effect-allele column> --a2 <other column>`; see [a trait has no A1/A2 columns](../troubleshooting.md#rg-a-trait-has-no-a1a2-columns).
 - **One unpartitioned LD-score directory**, usually the one you use for [SNP heritability](heritability.md).

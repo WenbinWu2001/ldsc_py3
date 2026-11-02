@@ -518,11 +518,10 @@ flowchart LR
 - Kernel: `ldsc._sumstats.munge_kernel`, `ldsc._genome.liftover`
 - Postprocessing: workflow-owned Parquet/TSV writing, log, and metadata writing
 
-Allele columns keep the legacy LDSC names `A1` and `A2`. `A1` means the
-allele that the signed statistic is relative to; `A2` is the counterpart
-allele. This is a signed-statistic convention, not a genome reference-allele
-claim. Positive `Z`, positive `BETA`, positive `LOG_ODDS`, and `OR > 1` are
-interpreted relative to `A1`.
+Allele columns keep the legacy LDSC names `A1` and `A2`.
+`A1` is the effect allele, the allele the signed statistic refers to, and `A2` is the other allele; neither is necessarily the genome reference allele.
+Positive `Z`, positive `BETA`, positive `LOG_ODDS`, and `OR > 1` mean that `A1` increases the trait or the risk.
+`munge-sumstats` takes these columns only from names that say so or from `--a1`/`--a2` (see [allele columns](../reference/munge-sumstats.md#allele-columns)).
 
 ## 6. `h2`, `partitioned-h2`, and `rg`: Curated Artifacts To Regression Summaries
 

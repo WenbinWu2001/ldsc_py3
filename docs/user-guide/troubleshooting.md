@@ -918,7 +918,7 @@ with decisive evidence is rejected. See
 | 2 | Coordinate-family inputs are on different genome builds | Compare `genome_build` metadata for the summary statistics and the LD-score directory |
 | 3 | One input was generated allele-aware and another was generated allele-blind | Check whether each artifact has A1/A2 columns and allele-aware provenance |
 | 4 | The regression SNPs or filters removed all shared SNPs | Inspect the retained SNP counts and any dropped-SNP sidecars from upstream commands |
-| 5 | For `rg`, the two traits use incompatible allele conventions | Confirm both munged summary statistics were generated with harmonized A1/A2 columns |
+| 5 | For `rg`, one trait's `A1`/`A2` columns do not hold the alleles of the other trait's SNPs | Confirm both traits were munged with `A1` as the effect allele (the allele the signed statistic refers to), passing `--a1`/`--a2` where the column names do not say so |
 
 **Remedies:**
 

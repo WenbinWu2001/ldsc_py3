@@ -46,7 +46,9 @@ The user answered two rounds of questions on 2026-11-01, wrote the allele policy
 
 ### Left open from candidate 8
 
-- The effect-allele wording outside the munging area (regression and `rg` documentation and messages other than the `rg` allele error) is a separate follow-up, as decided on 2026-11-01.
+- The effect-allele wording outside the munging area, a follow-up the user started on 2026-11-02, is in the commit after `24b1e25`: the `rg` allele-compatibility error, four regression docstrings, the munged-artifact `A1`/`A2` column labels, and the `rg`, Python-usage, troubleshooting, data-flow, legacy-format, migration and legacy-flag-map pages.
+  Mentions of `A1` as an identity column or as a panel or annotation allele were left as they are.
+  The migration page and the flag map now note that legacy `ALLELE1`/`ALLELE2` and `REFERENCE_ALLELE` aliases are gone and that a base mode writes recognized allele columns unless they are passed to `--ignore`.
 - Signed statistics oriented to `INC_ALLELE` are non-negative, so the kernel's median check (as in legacy LDSC) rejects them unless effects are small; a `Z` column almost always fails.
 - `ldscore --export-ref-metadata` writes PLINK metadata in the R² sidecar layout with the `.bim` `A1` and a folded `MAF`, which is `freq(A2)` where that `A1` is the major allele; `quantile-h2` accepts it as reference metadata.
 - PLINK-built LD-score directories keep the `.bim` allele order (documented in `900cacf`, not changed).

@@ -2614,7 +2614,11 @@ class RegressionWorkflowTest(unittest.TestCase):
             self.assertTrue((tmpdir / "out/rg.tsv").is_file())
             self.assertTrue((tmpdir / "out/diagnostics/dropped_snps/legacy_sumstats.tsv.gz").is_file())
 
-        self.assertIs(result, expected)
+        # The returned family is the estimated one plus the paths the writer reports.
+        self.assertIs(result.rg_full, expected.rg_full)
+        self.assertEqual(result.output_paths["rg"], str(tmpdir / "out/rg.tsv"))
+        self.assertEqual(result.output_paths["legacy_sumstats_drops"],
+                         str(tmpdir / "out/diagnostics/dropped_snps/legacy_sumstats.tsv.gz"))
         writer.assert_called_once()
         self.assertEqual(stdout.getvalue(), "")
 
@@ -2659,7 +2663,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             with mock.patch.object(RegressionRunner, "estimate_rg_pairs", return_value=expected) as patched:
                 result = regression_runner.run_rg_from_args(args)
 
-        self.assertIs(result, expected)
+        self.assertIs(result.rg, expected.rg)
         tables = patched.call_args.args[0]
         self.assertEqual([table.trait_name for table in tables], ["MDD", "SCZ"])
         self.assertEqual(patched.call_args.kwargs["anchor_index"], 1)

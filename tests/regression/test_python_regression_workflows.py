@@ -221,3 +221,18 @@ def test_results_record_the_intercept_policy_and_the_two_step_cutoff(tmp_path):
     assert [json.loads(path.read_text())["effective_two_step_cutoff"] for path in queries] == [None] * 3
     pair = json.loads(next((tmp_path / "rg/diagnostics/pairs").glob("*/metadata.json")).read_text())
     assert (pair["intercept_h2_policy"], pair["effective_two_step_cutoff"]) == ("free", 30)
+
+
+def test_run_rg_returns_the_paths_it_wrote(tmp_path):
+    ldscore_dir, sumstats = _rg_inputs(tmp_path)
+
+    result = ldsc.run_rg(ldscore_dir=ldscore_dir, sumstats_sources=sumstats, output_dir=str(tmp_path / "rg"),
+                         num_blocks=6, write_per_pair_detail=True)
+
+    root = tmp_path / "rg"
+    assert result.output_paths == {
+        "metadata": str(root / "diagnostics/metadata.json"), "rg": str(root / "rg.tsv"),
+        "rg_full": str(root / "rg_full.tsv"), "h2_per_trait": str(root / "h2_per_trait.tsv"),
+        "pairs_root": str(root / "diagnostics/pairs"), "pairs_manifest": str(root / "diagnostics/pairs/manifest.tsv"),
+    }
+    assert all(Path(path).exists() for path in result.output_paths.values())

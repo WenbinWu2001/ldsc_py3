@@ -345,6 +345,10 @@ class RgResultFamily:
         Each trait's rows dropped because ``Z`` or ``N`` was missing or
         infinite, aligned with ``h2_per_trait`` rows. Recorded in the root
         ``metadata.json``.
+    output_paths : dict of str to str, optional
+        Files the run wrote, keyed as ``RgDirectoryWriter.write`` returns
+        them, including ``legacy_sumstats_drops`` for a legacy input. Empty
+        for a family that ``estimate_rg_pairs`` returns without writing.
     """
 
     rg: pd.DataFrame
@@ -355,6 +359,7 @@ class RgResultFamily:
     ldscore_dir: str | None = None
     legacy_sumstats_drops: pd.DataFrame | None = None
     dropped_nonfinite_statistic_rows: list[int] | None = None
+    output_paths: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -3345,7 +3350,8 @@ def run_rg_from_args(args):
     Returns
     -------
     RgResultFamily
-        Complete in-memory result family. The function itself never prints.
+        Complete in-memory result family, with ``output_paths`` naming the
+        files written. The function itself never prints.
 
     Raises
     ------
@@ -3430,7 +3436,7 @@ def run_rg_from_args(args):
             f"Finished rg regression for {len(result.rg)} trait pairs "
             f"and {len(result.h2_per_trait)} traits."
         )
-    return result
+    return replace(result, output_paths=written)
 
 
 def run_h2(**kwargs) -> pd.DataFrame:
@@ -3553,8 +3559,9 @@ def run_rg(**kwargs) -> RgResultFamily:
     -------
     RgResultFamily
         ``rg``, ``rg_full`` and ``h2_per_trait`` with the contents of the
-        saved ``rg.tsv``, ``rg_full.tsv`` and ``h2_per_trait.tsv``, and one
-        ``per_pair_metadata`` record per pair.
+        saved ``rg.tsv``, ``rg_full.tsv`` and ``h2_per_trait.tsv``, one
+        ``per_pair_metadata`` record per pair, and ``output_paths`` naming
+        the files written.
 
     Raises
     ------

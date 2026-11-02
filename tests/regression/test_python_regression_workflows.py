@@ -180,3 +180,20 @@ def test_caller_metadata_records_the_absolute_ldscore_directory(tmp_path, monkey
     ldsc.RegressionRunner(source.config_snapshot, ldsc.RegressionConfig(num_blocks=6)).estimate_partitioned_h2_batch(
         table, source, output_dir=tmp_path / "out", metadata={"ldscore_dir": "ld", "trait_name": "trait"})
     assert _metadata(tmp_path / "out")["ldscore_dir"] == str((tmp_path / "ld").resolve())
+
+
+def test_h2_and_partitioned_h2_record_the_same_summary_statistics_provenance(tmp_path):
+    # partitioned-h2 recorded none of these fields, and h2 recorded the path as typed.
+    ldscore_dir, sumstats = _inputs(tmp_path)
+    typed = str(tmp_path / "trait.parq*")
+
+    ldsc.run_h2(ldscore_dir=ldscore_dir, sumstats_file=typed, output_dir=str(tmp_path / "h2"), num_blocks=6)
+    ldsc.run_partitioned_h2(ldscore_dir=ldscore_dir, sumstats_file=typed, output_dir=str(tmp_path / "ph2"),
+                            num_blocks=6)
+
+    fields = ("sumstats_file", "genome_build", "effective_snp_identifier", "identity_downgrade_applied",
+              "count_key_used_for_regression")
+    h2, partitioned = _metadata(tmp_path / "h2"), _metadata(tmp_path / "ph2")
+    assert {name: partitioned[name] for name in fields} == {name: h2[name] for name in fields}
+    assert h2["sumstats_file"] == sumstats
+    assert h2["count_key_used_for_regression"] == "common_reference_snp_counts"

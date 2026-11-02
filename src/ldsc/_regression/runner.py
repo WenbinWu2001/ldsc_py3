@@ -1035,8 +1035,8 @@ class RegressionRunner:
         # every model; query counts too unless continuation was requested, which
         # records a query lacking its counts as a failed query instead.
         model_columns = [*ldscore_result.baseline_columns, *([] if continue_on_query_error else queries)]
-        _select_count_key(_count_totals_for_columns(ldscore_result.count_records, model_columns),
-                          config.use_common_counts, model_columns)
+        count_key = _select_count_key(_count_totals_for_columns(ldscore_result.count_records, model_columns),
+                                      config.use_common_counts, model_columns)
         worker_count = resolve_worker_count(workers, max(1, len(queries)),
                                              task_unit="query-plus-baseline model", batch_size=query_batch_size)
         sort_by = _resolve_summary_sort(summary_sort_by, has_queries=bool(queries))
@@ -1064,7 +1064,14 @@ class RegressionRunner:
             with _log_phase_timing("shared regression preparation"):
                 trait = _prepare_trait_sumstats(sumstats_table, ldscore_result)
                 prepared = self._prepare_h2_inputs(trait, _PreparedLDScores(ldscore_result), config)
-                metadata["dropped_nonfinite_statistic_rows"] = trait.dropped_nonfinite_statistic_rows
+                # The trait's provenance, which h2 metadata records as well.
+                metadata.update(
+                    sumstats_file=sumstats_table.source_path, genome_build=_genome_build_of(prepared.dataset),
+                    effective_snp_identifier=prepared.dataset.effective_snp_identifier,
+                    identity_downgrade_applied=prepared.dataset.identity_downgrade_applied,
+                    count_key_used_for_regression=count_key,
+                    dropped_nonfinite_statistic_rows=trait.dropped_nonfinite_statistic_rows,
+                )
                 # Fits need only the aligned rows; release the trait's keyed copy.
                 legacy_drops, trait = trait.legacy_drops, None
             if not queries:
@@ -2519,6 +2526,11 @@ def _ldscore_dir_of(ldscore_result: LDScoreSource | LDScoreResult) -> str | None
     return str(Path(source_metadata).parent.resolve()) if source_metadata else None
 
 
+def _genome_build_of(dataset: RegressionDataset) -> str | None:
+    """Return the genome build of a dataset's LD scores, or ``None`` when they record none."""
+    return None if dataset.config_snapshot is None else getattr(dataset.config_snapshot, "genome_build", None)
+
+
 def _dataset_metadata(dataset: RegressionDataset) -> dict[str, object]:
     """Record a fitted dataset's SNP identity, count vector and LD-score columns in result metadata."""
     return {
@@ -2537,20 +2549,22 @@ def _fit_metadata(fit: RegressionFit, snps_key: str = "n_snps") -> dict[str, obj
 
 def _h2_metadata(
     sumstats_table: SumstatsTable,
-    sumstats_file: str | None,
     ldscore_dir: str | None,
     outcome: RegressionFit,
     config: RegressionConfig,
     dropped_nonfinite_statistic_rows: int = 0,
 ) -> dict[str, object]:
-    """Build h2 metadata from the realized fit and the config's checked prevalences."""
-    config_snapshot = outcome.dataset.config_snapshot
+    """Build h2 metadata from the realized fit and the config's checked prevalences.
+
+    ``sumstats_file`` is the resolved path the table was read from, as in
+    ``partitioned-h2`` and ``rg`` metadata.
+    """
     return {
         "artifact_type": "h2_result",
         "trait_name": _trait_label(sumstats_table),
-        "sumstats_file": sumstats_file,
+        "sumstats_file": sumstats_table.source_path,
         "ldscore_dir": ldscore_dir,
-        "genome_build": None if config_snapshot is None else getattr(config_snapshot, "genome_build", None),
+        "genome_build": _genome_build_of(outcome.dataset),
         **_dataset_metadata(outcome.dataset),
         "dropped_nonfinite_statistic_rows": dropped_nonfinite_statistic_rows,
         **_fit_metadata(outcome),
@@ -3216,7 +3230,7 @@ def run_h2_from_args(args):
                 overwrite=getattr(args, "overwrite", False),
             ),
             metadata=_h2_metadata(
-                sumstats_table, args.sumstats_file, _ldscore_dir_of(ldscore_result), outcome, config,
+                sumstats_table, _ldscore_dir_of(ldscore_result), outcome, config,
                 dropped_nonfinite_statistic_rows=nonfinite_rows,
             ),
             diagnostic_bins=outcome.diagnostic_bins,

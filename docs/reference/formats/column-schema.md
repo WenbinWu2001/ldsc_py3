@@ -178,36 +178,32 @@ convention. float32 is unsafe here: it can only represent integers exactly up to
 
 ### Allele orientation and frequency (`A1`, `A2`, `MAF`, `FRQ`)
 
+The rules behind these columns, and how each command applies them, are collected in [allele orientation](../../user-guide/concepts/allele-orientation.md).
+
 **Why orientation is enforced.**
 PLINK's usual convention (`A1` minor, `A2` major) is common but not guaranteed.
 On chromosome 22 of a 1000 Genomes 30x panel (438,232 SNPs, 3,202 samples), the `.bim` `A2` allele was the major allele for 94.74% of SNPs, so the package enforces the orientation rather than assuming it.
 For a biallelic SNP, `A1` dosage is `2 - A2` dosage and $\mathrm{corr}(2-x, 2-y) = \mathrm{corr}(x, y)$.
 Orienting both SNPs of a pair consistently therefore fixes the sign of $r$, and the builder needs to negate only the standardized columns whose `.bim` `A2` is the minor allele.
 Orientation is applied in the builder between genotype reading and correlation, not inside `nextSNPs`, because it is a build policy rather than a read primitive.
+PLINK panel preparation for `ldscore`, `--export-ref-metadata` and `build-gene-ldscore-index` builds its SNP metadata with the same function (`build_plink_metadata_frame` in `src/ldsc/_refpanel/build_kernel.py`); it negates no genotype column, because LD scores use only R².
 
-**Unifying rule:** the frequency column means **frequency of `A1`**, except in PLINK metadata exported by `ldscore --export-ref-metadata` (below). The
-two regimes differ only in what `A1` *is* and what that implies:
+**Unifying rule:** the frequency column means **frequency of `A1`**.
+The two regimes differ only in what `A1` *is* and what that implies:
 
-- **R² matrix sidecars:**
-  `A1 ≡ minor allele`, so `MAF = freq(A1)` and is **guaranteed ≤ 0.5**.
-- **In summary statistics**: `A1 ≡ effect allele`, so `FRQ = freq(A1)` is **unconstrained**
-  (may exceed 0.5), and is **never folded or reoriented**.
+- **Files derived from reference-panel genotypes** (R² matrix sidecars, LD-score directories written by `ldscore`, gene LD-score indexes and exported reference metadata): `A1 ≡ minor allele`, so `MAF = freq(A1)` and is **guaranteed ≤ 0.5**.
+- **In summary statistics**: `A1 ≡ effect allele`, so `FRQ = freq(A1)` is **unconstrained** (may exceed 0.5), and is **never folded or reoriented**.
 
-The PLINK association case (`A1` = minor = effect) is just the point where the
-two regimes coincide.
+The PLINK association case (`A1` = minor = effect) is just the point where the two regimes coincide.
 
 #### Is the frequency always the MAF (≤ 0.5)?
 
-- **R² matrix sidecar `MAF`:** yes — `A1` is the minor
-  allele, so `MAF = freq(A1) ≤ 0.5` by construction. (Numerically this equals the
-  folded `min(p, 1−p)`; the guarantee added by canonicalization is that the value
-  belongs to `A1`.)
-- **PLINK reference panels:** yes, but it need not belong to `A1` — the package computes the folded `min(p, 1−p)` for its MAF filter and common-SNP counts (`src/ldsc/_refpanel/plink.py`) without reorienting `A1`.
-  The sidecar written by `ldscore --export-ref-metadata` therefore pairs the `.bim` `A1` with that folded value, which is `freq(A2)` wherever the `.bim` `A1` is the major allele.
-- **Summary-statistics `FRQ`:** no — `FRQ = freq(A1=effect)`, not folded; `--maf-min` folds
-  only a local mask for the threshold and never mutates the column or the alleles.
-  When a raw summary-statistics file provides a column named `MAF`, the munger renames it to
-  `FRQ` on output.
+- **R² matrix sidecar `MAF`:** yes — `A1` is the minor allele, so `MAF = freq(A1) ≤ 0.5` by construction.
+  (Numerically this equals the folded `min(p, 1−p)`; the guarantee added by canonicalization is that the value belongs to `A1`.)
+- **PLINK reference panels:** yes — the package computes the folded `min(p, 1−p)` for its MAF filter and common-SNP counts (`src/ldsc/_refpanel/plink.py`) and gives the minor allele as `A1`, so the value belongs to `A1`.
+  The sidecar written by `ldscore --export-ref-metadata` therefore matches the R² matrix sidecar that `build-r2-matrix` writes for the same panel and individuals.
+- **Summary-statistics `FRQ`:** no — `FRQ = freq(A1=effect)`, not folded; `--maf-min` folds only a local mask for the threshold and never mutates the column or the alleles.
+  When a raw summary-statistics file provides a column named `MAF`, the munger renames it to `FRQ` on output.
 
 ### What A1 means in each file type
 
@@ -218,14 +214,16 @@ Their meaning depends on the file type:
 | --- | --- | --- | --- |
 | Raw and munged summary statistics | The effect allele: the allele the signed statistic (`Z`, `BETA`, `OR`, `LOG_ODDS`) refers to | The other allele, the baseline of the comparison | The raw summary statistics; `munge-sumstats` never folds or reorients it |
 | R² matrix sidecar (`chr<N>_meta.tsv.gz`) | The minor allele in the retained reference individuals, so `MAF = freq(A1) ≤ 0.5`; a tie at 0.5 keeps the `.bim` order | The major allele | `build-r2-matrix` swaps `A1` and `A2` where the `.bim` `A2` is the minor allele (see [allele orientation](#allele-orientation-and-frequency-a1-a2-maf-frq)) |
-| PLINK reference panel (`.bim`) | The `.bim` `A1` as PLINK wrote it: usually, but not always, the minor allele | The `.bim` `A2` | PLINK; LDSC3 reads it without reorienting (`src/ldsc/_refpanel/adapters.py`) |
-| Exported reference metadata (`ref_metadata/chr<N>_meta.tsv.gz` from `ldscore --export-ref-metadata`) | The `.bim` `A1`; its `MAF` is the folded frequency, so it is `freq(A2)` where `A1` is the major allele | The `.bim` `A2` | The PLINK reference panel |
-| LD-score directory | The reference panel's `A1`: the minor allele when the LD scores were computed from an R² matrix, the `.bim` `A1` when they were computed from a PLINK reference panel | The reference panel's `A2` | The reference panel |
-| Annotation files | The allele in the source file's `A1` column; `annotate` writes no allele columns | The allele in the source file's `A2` column | The annotation source |
+| Exported reference metadata (`ref_metadata/chr<N>_meta.tsv.gz` from `ldscore --export-ref-metadata`) | The minor allele in the retained reference individuals, as in the R² matrix sidecar | The major allele | PLINK panel preparation, with the rule of `build-r2-matrix` |
+| LD-score directory written by `ldscore` | The reference panel's minor allele, whether the LD scores come from a PLINK reference panel, an R² matrix or a gene LD-score index, in every SNP identifier mode | The major allele | The prepared reference panel; the alleles of annotation files take part only in matching |
+| Gene LD-score index rows | The minor allele in the retained reference individuals | The major allele | PLINK panel preparation during `build-gene-ldscore-index` (format version 5) |
+| PLINK reference panel (`.bim`) | The `.bim` `A1` as PLINK wrote it: usually, but not always, the minor allele | The `.bim` `A2` | PLINK; LDSC3 orients the files it derives from the panel and never rewrites the `.bim` |
+| Annotation files | The allele in the source file's `A1` column; `annotate` writes the alleles of its annotation SNP grid in their source order | The allele in the source file's `A2` column | The annotation source |
 
+LD-score directories written by `convert-legacy-ldscores` have no `A1` or `A2`, because their identity is allele-unaware.
 In summary statistics, a positive `Z`, `BETA` or `LOG_ODDS`, or an `OR` above 1, means that each additional copy of `A1`, relative to `A2`, increases the trait or the risk.
 That `A1` is not necessarily the genome reference allele (REF) and not necessarily the minor allele, so its frequency `FRQ` may exceed 0.5.
-Outside summary statistics, `A1` and `A2` only identify SNPs and carry no effect orientation; the minor-allele guarantee holds only for R² matrix sidecars and the LD-score directories computed from them.
+Outside summary statistics, `A1` and `A2` only identify SNPs and carry no effect orientation; the minor-allele guarantee holds for every file derived from reference-panel genotypes and not for inputs or `annotate` output.
 REF and ALT are properties of the genome reference sequence, a third concept separate from both meanings, and which allele is minor depends on the population.
 
 For **matching**, even in allele-aware modes, `{A1, A2}` is treated as an
@@ -237,7 +235,8 @@ a sign flip at alignment).
 
 In raw summary statistics, allele aliases are only names that say which allele the signed statistic refers to.
 `REF`, `ALT`, `REFERENCE_ALLELE`, `ALLELE0`, `ALLELE1`, `ALLELE2` and their underscore forms are never mapped there, and a file whose only allele columns have these names stops munging until `--a1` and `--a2` name the effect allele (see [allele columns](../munge-sumstats.md#allele-columns)).
-SNP restriction files and sidecars accept `REF`, `ALT`, `REFERENCE_ALLELE`, `ALLELE1` and `ALLELE2` as `A1` and `A2`, because matching there ignores allele order.
+SNP restriction files accept `REF`, `ALT`, `REFERENCE_ALLELE`, `ALLELE1` and `ALLELE2` as `A1` and `A2`, because matching there ignores allele order.
+R² matrix sidecars must carry the exact header that `build-r2-matrix` writes (`src/ldsc/_refpanel/r2_format.py`).
 
 ### SNP identifier modes
 

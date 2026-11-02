@@ -1,6 +1,6 @@
 # Continuous-Annotation Quantile Heritability: Technical Contract
 
-Last updated on: 2026-10-30
+Last updated on: 2026-11-02
 
 Quantile calculation runs in one worker with **1 BLAS thread**, including input overlap products and post-fit projection.
 See [parallel execution](../parallel-execution.md) for native-limit verification and Python process startup.
@@ -63,7 +63,8 @@ The command deliberately does not copy original annotation matrices into regress
 Path arguments accept exact files, globs, `@` chromosome placeholders, and existing path-token conventions.
 R² matrix users can supply the existing `chr*_meta.tsv.gz` sidecars.
 PLINK users should supply metadata previously produced with `ldscore --export-ref-metadata`.
-Reference metadata requires `CHR`, `POS` (or `BP`), `SNP`, and `MAF`; allele-aware identity also uses `A1/A2`, with inference allowed only when the base identity is unique.
+Reference metadata requires `CHR`, `POS` (or `BP`), `SNP`, and `MAF`, and `A1/A2` when the fit is allele-aware: it defines the reference SNPs, so a file without both alleles stops the run with an error that names it.
+Fitted and target annotations without alleles are matched by base identity instead, which requires a unique base identity in the reference metadata, and the log names each such file.
 
 Annotation names must be globally unique within one LD-score directory.
 The annotation classifier labels a column `binary` only when all finite values are exactly `0` or `1`; every other finite numeric column is `quantitative`.

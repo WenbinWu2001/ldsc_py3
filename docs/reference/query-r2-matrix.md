@@ -1,6 +1,6 @@
 # R² Matrix Pair Query
 
-Last updated on: 2026-10-28
+Last updated on: 2026-11-02
 
 Query the unbiased R² stored in an R² matrix built by `ldsc build-r2-matrix` for a list of SNP pairs, and convert it to a signed Pearson correlation `r`.
 This is the random-access counterpart to the LD-score read path: the LD-score workflow streams every stored pair once, while this tool looks up specific pairs by SNP identity.
@@ -63,6 +63,10 @@ The SNP identifier mode defaults to the R² matrix's recorded `ldsc:snp_identifi
 columns are read; any `A1_*`/`A2_*` columns are dropped before resolution and
 never used. A base-mode query behaves identically with or without alleles
 supplied. Allele columns are read only in allele-aware modes.
+
+**Allele-aware modes require both alleles.**
+The pairs define the SNPs queried, so they never fall back to base identity.
+A pair table without both `A1_<n>` and `A2_<n>` for an endpoint stops the query with an error that names the pair file (the pairs table in Python) and says that `--snp-identifier chr_pos` or `rsid` returns `r2` with empty `sign_r` and `r`.
 
 ## Output schema
 

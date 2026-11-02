@@ -1,6 +1,6 @@
 # User Guide
 
-Last updated on: 2026-10-28
+Last updated on: 2026-11-02
 
 This guide is for scientists running analyses with LDSC3.
 It explains what each analysis does, which inputs it needs, how to run it from the command line, and how to read the results.
@@ -37,6 +37,7 @@ All Python API usage is collected in [Python usage](python-usage.md); the workfl
 
 - [SNP identity and genome build](concepts/snp-identity-and-genome-build.md)
 - [Inputs and outputs](concepts/inputs-and-outputs.md)
+- [Allele orientation](concepts/allele-orientation.md): what `A1` means in each file and how missing alleles are handled
 - [SNP heritability from LDSC versus partitioned heritability](concepts/ldsc-vs-partitioned-h2.md)
 - [Glossary](../dev/DOCS_VOCABULARY.md): the meaning of each term used in these pages
 

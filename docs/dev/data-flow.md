@@ -213,15 +213,12 @@ flowchart LR
 | diagnostic metadata | JSON provenance | `diagnostics/metadata.json` for full-suite runs or `diagnostics/metadata.chr<chrom>.json` for concrete single-chromosome runs; not consumed downstream |
 | workflow log | plain-text lifecycle and package records | `diagnostics/build-r2-matrix.log` for full-suite runs or `diagnostics/build-r2-matrix.chr<chrom>.log` for concrete single-chromosome runs; not included in `R2MatrixBuildResult.output_paths` |
 
-**Allele-orientation canonicalization.** The builder orients every SNP so `A1`
-is the minor allele (`freq(A1) ≤ 0.5`): where the `.bim` `A2` allele is the minor
-allele (`freq < 0.5`) it swaps `A1`/`A2` in the sidecar **and** negates that
-SNP's standardized genotype column before the correlation, so `SIGN_R` is computed
-in the same orientation as the swapped labels. This happens at the standardized-
-SNP getter inside the builder; `nextSNPs` itself stays orientation-free, and the
-R²-based in-PLINK LD-score path is unaffected (R² is sign-invariant). A frequency
-tie at exactly 0.5 keeps PLINK order. See
-[allele orientation](../reference/formats/column-schema.md#allele-orientation-and-frequency-a1-a2-maf-frq).
+**Allele-orientation canonicalization.**
+The builder orients every SNP so `A1` is the minor allele (`freq(A1) ≤ 0.5`): where the `.bim` `A2` allele is the minor allele (`freq < 0.5`) it swaps `A1`/`A2` in the sidecar **and** negates that SNP's standardized genotype column before the correlation, so `SIGN_R` is computed in the same orientation as the swapped labels.
+This happens at the standardized-SNP getter inside the builder; `nextSNPs` itself stays orientation-free.
+PLINK panel preparation for `ldscore` and `build-gene-ldscore-index` swaps the same labels through the shared `build_plink_metadata_frame` but negates no genotype column, because LD scores use only R², which is sign-invariant.
+A frequency tie at exactly 0.5 keeps PLINK order.
+See [allele orientation](../reference/formats/column-schema.md#allele-orientation-and-frequency-a1-a2-maf-frq).
 
 ### Modules used
 

@@ -1,6 +1,6 @@
 # Calculate LD scores
 
-Last updated on: 2026-11-01
+Last updated on: 2026-11-02
 
 `ldsc ldscore` computes LD scores from a reference panel and writes them to an LD-score directory.
 The regression commands `h2`, `rg` and `partitioned-h2` read that directory through `--ldscore-dir` and never recompute LD scores, so one LD-score directory serves every trait you analyze with the same reference panel and annotations.
@@ -63,7 +63,7 @@ The plain stem `1000G.EUR.QC.` finds the complete per-chromosome trios `1000G.EU
 
 The rows of the baseline and query files are the regression SNPs, by default the HM3 map after MHC and centromere exclusion.
 Each of these files covers all computed chromosomes, with one Parquet row group per chromosome.
-The baseline and query files also carry the reference panel's `A1` and `A2` for SNP identity: `A1` is the minor allele when the LD scores were computed from an R² matrix and the `.bim` `A1` when they were computed from a PLINK reference panel, and it is not the effect allele of summary statistics (see [What A1 means in each file type](../../reference/formats/column-schema.md#what-a1-means-in-each-file-type)).
+The baseline and query files also carry the reference panel's `A1` and `A2` for SNP identity, whatever alleles the annotation files list: `A1` is the minor allele in the retained reference individuals for LD scores computed from a PLINK reference panel, an R² matrix or a gene LD-score index, and it is not the effect allele of summary statistics (see [allele orientation](../concepts/allele-orientation.md)).
 `regression_ld_scores` is the LD score computed over the regression SNPs only, which legacy LDSC wrote as the separate `.w.l2.ldscore` weight file.
 Annotation counts are stored in `metadata.json` rather than as `.M` and `.M_5_50` files.
 Pass the whole directory to the regression commands with `--ldscore-dir`; you never pass count vectors or weight files separately.
@@ -178,7 +178,7 @@ The measured difference from published legacy LD scores is in the [legacy LDSC f
 Every selected prefix needs a complete `.bed/.bim/.fam` trio, and the chromosome of each trio comes from its `.bim` contents, not its file name ([PLINK prefix resolution](../../reference/input-paths.md#plink-prefix-resolution)).
 `--snp-batch-size` (default 512) sets how many SNPs each genotype batch processes; it changes speed and memory but never the LD scores, and larger batches are not faster beyond about 512 to 1024 ([measurements](../../dev/design/memory-and-cpu.md#direct-ld-score-computation)).
 It is ignored with `--r2-matrix-dir`.
-`--export-ref-metadata` also writes `ref_metadata/chrN_meta.tsv.gz` with the effective `CM` and other reference metadata, without changing the `.bim` files.
+`--export-ref-metadata` also writes `ref_metadata/chrN_meta.tsv.gz` with the effective `CM` and other reference metadata, with the minor allele as `A1` as in an R² matrix sidecar, without changing the `.bim` files.
 
 ## Genome build
 

@@ -1,6 +1,6 @@
 # `annotate`
 
-Last updated on: 2026-10-28
+Last updated on: 2026-11-02
 
 `ldsc annotate` projects BED intervals or gene lists onto an annotation SNP grid and writes reusable query annotation files.
 This page is the exact contract; the task guide is [Create reusable SNP annotations](../user-guide/workflows/annotations.md), and every option is listed by `ldsc annotate --help`.
@@ -15,7 +15,7 @@ A run takes exactly one query route, exactly one annotation SNP grid, and `--out
 | `--query-annot-bed-sources` | BED query route; one query annotation per BED file. Mutually exclusive with gene lists. |
 | `--query-annot-gene-list-sources` | Gene-list query route; one query annotation per gene list, named after its file. |
 | `--ref-snp-annot-sources` | Annotation grid: existing annotation files define the SNP rows, and their baseline values are exported aligned with the query columns. |
-| `--ref-snp-bim-sources` | BIM grid: PLINK `.bim` or `.bim.gz` files define the SNP rows from `CHR`, `SNP`, one-based `BP` and, under allele-aware modes, `A1` and `A2`; `CM` is ignored, no `.bed` or `.fam` files are read, and no baseline values are created. |
+| `--ref-snp-bim-sources` | BIM grid: PLINK `.bim` or `.bim.gz` files define the SNP rows from `CHR`, `SNP`, one-based `BP`, `A1` and `A2`; the alleles keep the `.bim` order and take part in matching only under allele-aware modes; `CM` is ignored, no `.bed` or `.fam` files are read, and no baseline values are created. |
 | `--gene-coordinate-file` | Required for gene lists; the gene coordinate catalog is the only authority for gene identifiers and intervals. |
 | `--padding-bp` | Required for gene lists as an explicit non-negative integer (`0` means gene bodies only); defaults to 0 for BED files. |
 | `--allow-unresolved-genes` | Gene lists only. Without it, resolution is strict; with it, allowlisted rejected rows are omitted and the resolved subset is used. Python: `gene_list_resolution_policy=None` (strict) or `"resolved-only"`. |

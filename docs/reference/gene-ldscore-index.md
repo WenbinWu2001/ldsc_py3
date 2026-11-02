@@ -1,6 +1,6 @@
 # Exact gene LD-score indexes
 
-Last updated on: 2026-10-31
+Last updated on: 2026-11-02
 
 `--workers` sets the number of workers (default one, each with one BLAS thread); CPU budgets, limits and failure handling are in [parallel execution](parallel-execution.md).
 
@@ -95,13 +95,12 @@ Ordinary unmatched SNPs remain an inner intersection; rsID matching alone does n
 
 `rsid` uses `SNP` as the effective join key. `chr_pos` uses exactly normalized
 `(CHR, POS)` with positive one-based positions; a baseline `SNP` column is
-optional and never participates in coordinate matching. After either join,
-PLINK supplies the published `CHR`, `POS`, `SNP`, `A1`, and `A2`. Thus differing
-labels at one matched coordinate are allowed and reported, and the PLINK label
-is authoritative.
+optional and never participates in coordinate matching.
+After either join, PLINK supplies the published `CHR`, `POS`, `SNP`, `A1`, and `A2`, with `A1` the minor allele in the retained reference individuals, as in an R² matrix sidecar.
+Thus differing labels at one matched coordinate are allowed and reported, and the PLINK label is authoritative.
 `rsid_allele_aware` and `chr_pos_allele_aware` additionally use shared unordered, strand-complement-normalized allele pairs.
 Missing, invalid/non-SNP, identical, or palindromic A/T and C/G pairs are removed with diagnostics; multiallelic base-key groups and duplicate effective identities are dropped in full.
-Baseline annotations may omit both allele columns, in which case base-key matching recovers unambiguous alleles from the reference panel.
+Baseline annotations may omit both allele columns, in which case they are matched by base identity and the build log names the files and the base mode; the published alleles come from the reference panel either way.
 These rules can change the reference SNPs, counts, and SNP-count windows.
 
 The completed `index_id` binds the literal mode and explicit hg19/hg38 build.
@@ -207,8 +206,9 @@ Batching, workers, logging, output path, and overwrite are resource or publicati
 The input fingerprints behind `index_id` (normalized baseline content, whole PLINK BED file bytes, parsed BIM metadata, selected individual IDs, sorted regression keys, and the genetic map) only define the identity; indexed scoring never re-reads those inputs to check them again.
 Identical inputs and settings must produce identical fingerprints and the same `index_id`; changing what a fingerprint covers changes the identity of every index.
 
-Root and chromosome metadata record `format_version: 4` and repeat the immutable SNP identifier mode and hg19/hg38 build.
-Version 4 adds each chromosome's reference-SNP funnel, `reference_snp_funnel.parquet`, which indexed `ldscore` reports; version 3 introduced exact PLINK LD windows, and version 2 operators used legacy LDSC's batch-rounded windows.
+Root and chromosome metadata record `format_version: 5` and repeat the immutable SNP identifier mode and hg19/hg38 build.
+Version 5 gives each row's minor allele as `A1`, as other files derived from PLINK genotypes do; `index_id` hashes only the inputs, so the version is what separates it from version 4.
+Version 4 added each chromosome's reference-SNP funnel, `reference_snp_funnel.parquet`, which indexed `ldscore` reports; version 3 introduced exact PLINK LD windows, and version 2 operators used legacy LDSC's batch-rounded windows.
 The loader rejects every earlier version and asks for a rebuild.
 Each chromosome records `published_row_metadata_sha256` over ordered `CHR SNP POS A1 A2` metadata for regression SNPs only.
 Both allele columns are required.

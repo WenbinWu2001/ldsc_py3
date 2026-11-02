@@ -45,7 +45,7 @@ The meaning in each file type is listed in [What A1 means in each file type](../
   - When no annotation file has `A1` and `A2` (in `ldscore`, `annotate --ref-snp-annot-sources`, `build-gene-ldscore-index` baselines and `quantile-h2` resupplied annotations), annotation SNPs are matched by the base mode, and the workflow log names the files and the base mode.
     When at least one of the annotation files read together has both columns, the shared annotation SNP grid takes its alleles and matching stays allele-aware.
   - A `quantile-h2` target annotation file without alleles is matched the same way, with a log line naming it.
-  - SNP restriction files (`--ref-panel-snps-file`, `--regr-snps-file`, munging keep-lists and gene-index restrictions) without allele columns filter by base identity; a single allele column is an error.
+  - SNP restriction files (`--ref-panel-snps-file`, `--regr-snps-file`, munging keep-lists and gene-index restrictions) without allele columns filter by base identity, and the log names each such file and the base mode; a single allele column is an error.
 - Inputs that define the query or the SNP universe must carry alleles in allele-aware modes:
   - A `query-r2-matrix` pair file without `A1` and `A2` for both endpoints stops the run; `--snp-identifier chr_pos` or `rsid` returns `r2` with empty `sign_r` and `r` instead.
   - `quantile-h2` reference metadata without `A1` and `A2` stops the run for an allele-aware fit; the R² matrix sidecars and the `--export-ref-metadata` files carry both.

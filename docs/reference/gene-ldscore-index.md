@@ -62,7 +62,7 @@ identities**. Its required columns depend on the builder's explicit
 | `rsid_allele_aware` | `SNP` | both `A1` and `A2`, or neither |
 | `chr_pos_allele_aware` | `CHR`, `POS` | both `A1` and `A2`, or neither |
 
-Restriction files without allele columns select by base identity in allele-aware modes.
+Restriction files without allele columns select by base identity in allele-aware modes, and the build log names each such file.
 With both allele columns, they use the shared allele-aware restriction rules; supplying only one is invalid.
 Duplicate restriction keys collapse, and columns outside the active identity schema are ignored.
 For coordinate restrictions, a matching build-specific position column takes precedence over generic `POS`.

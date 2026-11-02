@@ -69,6 +69,7 @@ from .snp_identity import (
     collapse_restriction_identity_keys,
     effective_merge_key_series,
     empty_identity_drop_frame,
+    identity_base_mode,
     identity_mode_family,
     is_allele_aware_mode,
     normalize_snp_identifier_mode,
@@ -257,6 +258,8 @@ def read_snp_restriction_keys(
     Coordinate builds must already be resolved by the workflow. A concrete
     ``genome_build`` selects its matching build-specific position column ahead
     of generic POS; this reader does not re-infer or reject that declaration.
+    In allele-aware modes a file without ``A1``/``A2`` selects by the base
+    mode, and one INFO record names the file and that mode.
 
     Results are memoized by file identity (path, mtime, size) and identifier
     mode/build, so loading the same map twice in one run -- e.g. the packaged HM3
@@ -308,12 +311,16 @@ def _compute_snp_restriction_keys(
         genome_build=genome_build,
         context=str(path),
     )
+    logger = LOGGER if logger is None else logger
+    if is_allele_aware_mode(mode) and not has_allele_columns:
+        logger.info(f"SNP restriction file '{path}' has no A1/A2 columns, so it selects SNPs by "
+                    f"{identity_base_mode(mode)}, the base mode of {mode}, without checking alleles.")
     return collapse_restriction_identity_keys(
         canonical_frame,
         mode,
         context=f"SNP restriction file {path}",
         has_allele_columns=has_allele_columns,
-        logger=LOGGER if logger is None else logger,
+        logger=logger,
     )
 
 

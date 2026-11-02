@@ -7,6 +7,8 @@ still returning equal keys. The cache must invalidate when the file content,
 identifier mode, or genome build changes.
 """
 
+import pytest
+
 import ldsc._core.identifiers as identifiers
 from ldsc._core.identifiers import (
     clear_snp_restriction_keys_cache,
@@ -71,3 +73,21 @@ def test_modified_file_recomputes(tmp_path, monkeypatch):
     assert calls["n"] == 2, "a changed file must be reparsed"
     assert second.keys != first.keys
     assert "2:300:A:G" in second.keys
+
+
+@pytest.mark.parametrize(("mode", "alleles", "logged"), [
+    ("chr_pos_allele_aware", False, True), ("chr_pos_allele_aware", True, False), ("chr_pos", False, False)])
+def test_allele_less_restriction_logs_base_identity_matching_once(tmp_path, caplog, mode, alleles, logged):
+    clear_snp_restriction_keys_cache()
+    path = tmp_path / "restr.tsv"
+    if alleles:
+        _write_restriction(path, [("1", "100", "A", "C"), ("1", "200", "G", "T")])
+    else:
+        path.write_text("CHR\tPOS\n1\t100\n1\t200\n")
+    with caplog.at_level("INFO", logger="LDSC"):
+        keys = [read_snp_restriction_keys(path, mode, genome_build="hg19") for _ in range(2)]
+
+    notices = [record.getMessage() for record in caplog.records if "without checking alleles" in record.getMessage()]
+    assert notices == ([f"SNP restriction file '{path}' has no A1/A2 columns, so it selects SNPs by chr_pos, "
+                        "the base mode of chr_pos_allele_aware, without checking alleles."] if logged else [])
+    assert keys[0].match_kind == ("identity" if alleles else "base")

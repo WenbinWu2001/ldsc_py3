@@ -1,6 +1,6 @@
 # Build and query R² matrices
 
-Last updated on: 2026-11-01
+Last updated on: 2026-11-02
 
 `ldsc build-r2-matrix` computes the unbiased R² between pairs of SNPs within an LD window from the genotypes of a PLINK reference panel and saves them as an R² matrix.
 An R² matrix is a reusable reference panel: build it once, then use it with `ldsc ldscore --r2-matrix-dir` to compute LD scores for any annotations and traits, or with `ldsc query-r2-matrix` to look up the LD between specific SNP pairs.
@@ -79,7 +79,7 @@ Three options restrict the R² matrix:
 - `--maf-min` keeps SNPs with MAF at or above the value, in [0, 0.5].
 - `--ref-panel-snps-file` is a headered SNP table in the PLINK source genome build.
   Use a `SNP` column in rsID-family modes, or `CHR` and `POS` columns in coordinate-family modes, with `A1` and `A2` when available.
-  A restriction without alleles matches by base identity even in an allele-aware mode; duplicate keys collapse and extra columns are ignored.
+  A restriction without alleles matches by base identity even in an allele-aware mode, and the log names the file and the base mode; duplicate keys collapse and extra columns are ignored.
 
 `--snp-identifier` (default `chr_pos_allele_aware`) sets the SNP identifier mode used for duplicate removal, for matching the restriction file, and for the SNP identity written into the R² matrix.
 In coordinate-family modes, SNPs that share a position are all dropped; there is no option to keep one of them.

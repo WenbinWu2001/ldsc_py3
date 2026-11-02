@@ -32,7 +32,7 @@ These aliases apply to annotation files, SNP restriction files and coordinate in
 
 `MAF` accepts only the name `MAF`, a folded minor-allele frequency.
 
-Allele columns in SNP restriction files and sidecars also accept genome-oriented names, because SNP identity treats the two alleles as an unordered set:
+Allele columns in SNP restriction files also accept genome-oriented names, because SNP identity treats the two alleles as an unordered set:
 
 | Canonical | Accepted aliases |
 | --- | --- |

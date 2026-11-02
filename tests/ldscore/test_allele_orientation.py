@@ -99,3 +99,16 @@ def test_ldscore_log_names_annotation_files_matched_by_base_identity(tmp_path, m
     notice = ("No annotation file has A1/A2 columns, so annotation SNPs are matched by chr_pos, the base mode of "
               f"chr_pos_allele_aware, without checking alleles: {path}.")
     assert (notice in (output / "diagnostics" / "ldscore.log").read_text()) == logged
+
+
+def test_ldscore_log_names_a_regression_snp_file_matched_by_base_identity(tmp_path):
+    path = tmp_path / "regression.tsv"
+    BIM[["CHR", "POS", "SNP"]].to_csv(path, sep="\t", index=False)
+
+    output = tmp_path / "out"
+    assert _ldscore(output, "--plink-prefix", str(PLINK), "--regr-snps-file", str(path),
+                    "--snp-identifier", "chr_pos_allele_aware") == 0
+
+    notice = (f"SNP restriction file '{path}' has no A1/A2 columns, so it selects SNPs by chr_pos, the base mode of "
+              "chr_pos_allele_aware, without checking alleles.")
+    assert notice in (output / "diagnostics" / "ldscore.log").read_text()

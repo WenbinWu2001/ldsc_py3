@@ -5,6 +5,31 @@ Last updated on: 2026-11-02
 Branch `restructure`; checked on 2026-11-02.
 Nothing below is in progress; each open item needs the user's go-ahead.
 
+## Completed: allele orientation outside summary statistics (2026-11-02)
+
+Outside summary statistics, files derived from PLINK reference-panel genotypes now give the minor allele in the retained reference individuals as `A1` (a tie at 0.5 keeps the `.bim` order); inputs and `annotate` output keep source order.
+The user confirmed the four-principle policy and the commit series in two rounds of questions and authorized the implementation on 2026-11-02; the question record and evidence are in the shared side-session note `allele-orientation-design.md`, outside the repository.
+The policy is documented in `docs/user-guide/concepts/allele-orientation.md`.
+
+- `8717cee` (breaking): PLINK panel preparation uses `build_plink_metadata_frame`, the function `build-r2-matrix` uses, so PLINK LD-score directories, `--export-ref-metadata` files and gene LD-score index rows match the R² matrix sidecar; `PlinkRefPanel.load_metadata()` lost its `.bim`-only fallback; the gene LD-score index format version is 5.
+- `10fe30f`: LD-score directories take `A1`/`A2` from the prepared reference panel in every SNP identifier mode; annotation alleles only take part in matching.
+- `1498099`: one INFO line names annotation files matched by the base mode because none has `A1`/`A2`, and one line per allele-less `quantile-h2` target file.
+- `6f831fa`: a `query-r2-matrix` pair file without both alleles in an allele-aware mode stops with an error naming the file and the base-mode alternative.
+- `003aa10`: `quantile-h2` reference metadata without `A1`/`A2` stops an allele-aware fit when the file is read, naming it and the sidecars or `--export-ref-metadata` files.
+- `2354544`: `--export-ref-metadata` with `--r2-matrix-dir` is rejected before computation instead of writing nothing.
+- `0d81dbf`: documentation and the approved `A1, A2` vocabulary row.
+- `ddbbb8a`: one INFO line names SNP restriction files matched by the base mode because they have no `A1`/`A2`.
+
+### Evidence
+
+- Full suite at `ddbbb8a`: 2519 passed, 0 failed, 0 skipped.
+- A before/after probe on the 32-SNP chromosome-22 fixture (from `e0901f8`) gave identical non-allele LD-score columns in 16 directories, no major-allele `A1` afterwards (10 or 21 rows per directory before), and byte-identical `h2` and `rg` result tables in 10 comparisons.
+
+### Open items
+
+- Gene LD-score indexes built before `8717cee` (format version 4) are rejected and must be rebuilt, including any on the HPC.
+- The commits are local and not pushed; the HPC package copy does not have them.
+
 ## Completed: munging raw schema, footer codec and allele policy (2026-11-02)
 
 Architecture review candidate 8, extended by the user's allele policy for munged summary statistics.

@@ -1,6 +1,6 @@
 # Using LDSC3 from Python
 
-Last updated on: 2026-11-02
+Last updated on: 2026-11-03
 
 This page collects the Python API for each workflow in the user guide.
 Each section below assumes the setup described here and links back to the workflow page that explains the analysis.
@@ -652,6 +652,8 @@ The resulting directory opens with `load_ldscore_from_dir()` like any other LD-s
 Its keyword arguments carry the command-line option names with underscores: exactly one of `ref_snp_annot_sources` or `ref_snp_bim_sources`, exactly one of `query_annot_bed_sources` or `query_annot_gene_list_sources`, and `output_dir`.
 The SNP identifier mode and genome build come from `global_config=GlobalConfig(...)` or the registered global configuration, and `genome_build=` overrides the genome build for one call.
 The former keyword `baseline_annot_sources` is not accepted; use `ref_snp_annot_sources` for an annotation grid.
+An unsupported option mix raises `LDSCUsageError` before anything is written: both or neither grid, both or neither query route, no `output_dir`, gene-list options without gene lists, or gene lists without `padding_bp`.
+Invalid inputs, query names or gene identifiers raise `LDSCInputError`.
 
 ### Project BED files onto an annotation SNP grid
 

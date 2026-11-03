@@ -23,7 +23,7 @@ from .._runtime.preflight import InputGate, input_issue, inspect_declared_inputs
 from .._runtime.paths import (
     normalize_path_token, normalize_path_tokens, resolve_file_group, split_cli_path_tokens,
 )
-from ..errors import LDSCInputError, LDSCUserError
+from ..errors import LDSCInputError, LDSCUsageError, LDSCUserError
 
 LOGGER = logging.getLogger('LDSC.annotation')
 
@@ -187,7 +187,7 @@ def resolve_projection_build(requested, mode, catalog, *, context, baseline_opti
     if catalog is not None and requested is None:
         requested = 'auto'
     if requested is None:
-        raise LDSCInputError('Coordinate-family SNP identifier modes require a genome build: supply auto, hg19 or hg38 '
+        raise LDSCUsageError('Coordinate-family SNP identifier modes require a genome build: supply auto, hg19 or hg38 '
                              '(--genome-build, or genome_build in Python).')
     check = GenomeBuildCheck(requested, context=context, logger=LOGGER)
     check.paths(baseline_option, baseline_tokens)

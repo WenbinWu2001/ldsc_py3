@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from ldsc.config import GlobalConfig
-from ldsc.errors import LDSCInputError
+from ldsc.errors import LDSCInputError, LDSCUsageError
 
 
 def inputs(tmp_path, sharded=False):
@@ -55,13 +55,33 @@ def test_gene_and_bed_membership_boundaries_reload_and_lifetime(tmp_path, sharde
     assert metadata['genome_build'] is None
 
 
-def test_gene_input_requires_explicit_padding(tmp_path):
+@pytest.mark.parametrize('case,match', [
+    ('two_grids', 'exactly one of --ref-snp-annot-sources'),
+    ('no_grid', 'exactly one of --ref-snp-annot-sources'),
+    ('two_query_types', 'exactly one of --query-annot-bed-sources'),
+    ('no_query', 'exactly one of --query-annot-bed-sources'),
+    ('no_output_dir', '--output-dir'),
+    ('genes_without_padding', 'padding-bp'),
+    ('gene_option_with_bed', 'require --query-annot-gene-list-sources'),
+])
+def test_unsupported_option_mixes_are_usage_errors(tmp_path, case, match):
     from ldsc._annotation.builder import run_annotate
 
-    baseline, genes, _, catalog=inputs(tmp_path)
-    with pytest.raises(LDSCInputError, match='padding-bp'):
-        run_annotate(ref_snp_annot_sources=baseline, query_annot_gene_list_sources=[genes], gene_coordinate_file=catalog,
-                     genome_build='hg19', global_config=GlobalConfig(snp_identifier='rsid'), output_dir=tmp_path/'out')
+    baseline, genes, bed, catalog=inputs(tmp_path)
+    grid=dict(ref_snp_annot_sources=baseline)
+    options={
+        'two_grids': dict(**grid, ref_snp_bim_sources=baseline, query_annot_bed_sources=[bed]),
+        'no_grid': dict(query_annot_bed_sources=[bed]),
+        'two_query_types': dict(**grid, query_annot_bed_sources=[bed], query_annot_gene_list_sources=[genes]),
+        'no_query': grid,
+        'no_output_dir': dict(**grid, query_annot_bed_sources=[bed]),
+        'genes_without_padding': dict(**grid, query_annot_gene_list_sources=[genes], gene_coordinate_file=catalog),
+        'gene_option_with_bed': dict(**grid, query_annot_bed_sources=[bed], gene_exclude_regions='none'),
+    }[case]
+    output=None if case == 'no_output_dir' else tmp_path/'out'
+    with pytest.raises(LDSCUsageError, match=match):
+        run_annotate(**options, genome_build='hg19', global_config=GlobalConfig(snp_identifier='rsid'), output_dir=output)
+    assert not (tmp_path/'out').exists()
 
 
 @pytest.mark.parametrize('compressed', [False, True])

@@ -10,7 +10,7 @@ import pytest
 from ldsc import GlobalConfig, run_annotate
 from ldsc._annotation.sources import prepare_annotation_sources
 from ldsc._annotation.storage import AnnotationWorkspace
-from ldsc.errors import LDSCInputError
+from ldsc.errors import LDSCInputError, LDSCUsageError
 
 
 def test_exported_baseline_query_pair_survives_cleanup_and_input_removal(tmp_path):
@@ -93,7 +93,7 @@ def test_bim_only_grid_is_query_only_and_ignores_cm_without_companions(tmp_path)
     "ref_snp_annot_sources": ["grid.annot"],
 }])
 def test_grid_sources_are_required_and_mutually_exclusive(tmp_path, sources):
-    with pytest.raises(LDSCInputError, match="exactly one"):
+    with pytest.raises(LDSCUsageError, match="exactly one"):
         run_annotate(**sources, query_annot_bed_sources=["focal.bed"], output_dir=tmp_path / "out")
     assert not (tmp_path / "out").exists()
 

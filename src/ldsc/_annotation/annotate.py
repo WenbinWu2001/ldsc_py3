@@ -22,7 +22,7 @@ from .preflight import (
     resolve_projection_build, validate_gene_query_names,
 )
 from ..config import AnnotationBuildConfig, GlobalConfig, get_global_config, print_global_config_banner
-from ..errors import LDSCInputError
+from ..errors import LDSCInputError, LDSCUsageError
 from .gene_lists import GeneCatalog, GeneCatalogValidationError
 from .outputs import AnnotationDirectoryWriter
 from .._runtime.paths import ensure_output_directory, split_cli_path_tokens
@@ -87,6 +87,15 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
         on demand under the output directory. Use a context manager or ``close()``;
         closure preserves public outputs. No genotype QC or LD scoring occurs.
 
+    Raises
+    ------
+    LDSCUsageError
+        Both or neither grid source, both or neither query route, no
+        ``output_dir``, gene-list options without gene lists, or gene lists
+        without ``padding_bp``. Nothing is written.
+    LDSCInputError
+        Invalid inputs, query names, gene identifiers or chromosome coverage.
+
     Notes
     -----
     After input-header and catalog validation, gene identifier and query-name
@@ -101,15 +110,15 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
     baseline = split_cli_path_tokens(ref_snp_annot_sources)
     bim = split_cli_path_tokens(ref_snp_bim_sources)
     if bool(baseline) == bool(bim):
-        raise LDSCInputError('annotate requires exactly one of --ref-snp-annot-sources or --ref-snp-bim-sources.')
+        raise LDSCUsageError('annotate requires exactly one of --ref-snp-annot-sources or --ref-snp-bim-sources.')
     if bool(bed) == bool(genes):
-        raise LDSCInputError('annotate requires exactly one of --query-annot-bed-sources or --query-annot-gene-list-sources.')
+        raise LDSCUsageError('annotate requires exactly one of --query-annot-bed-sources or --query-annot-gene-list-sources.')
     if output_dir is None:
-        raise LDSCInputError('annotate requires --output-dir.')
+        raise LDSCUsageError('annotate requires --output-dir.')
     if genes and padding_bp is None:
-        raise LDSCInputError('Gene-list annotate requires explicit nonnegative --padding-bp; use 0 for gene bodies.')
+        raise LDSCUsageError('Gene-list annotate requires explicit nonnegative --padding-bp; use 0 for gene bodies.')
     if not genes and (gene_coordinate_file is not None or gene_list_resolution_policy is not None or gene_exclude_regions is not None):
-        raise LDSCInputError('Gene coordinate catalog, resolution, and exclusion options require --query-annot-gene-list-sources.')
+        raise LDSCUsageError('Gene coordinate catalog, resolution, and exclusion options require --query-annot-gene-list-sources.')
     config = global_config or get_global_config()
     requested = genome_build if genome_build is not None else config.genome_build
     print_global_config_banner('run_annotate', config)

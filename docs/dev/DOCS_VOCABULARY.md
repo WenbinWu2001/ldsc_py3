@@ -85,6 +85,7 @@ On each page that names S-LDSC, the first mention gives the full name and citati
 | control gene list | A gene list added to the baseline as column `gene_control`. | "background genes" | `--control-gene-list-file` | |
 | padding | Base pairs added on both sides of each gene interval. | "flank", "window" | `--padding-bp` | |
 | query batch | The query annotations computed together in one LD-score pass. | "chunk" | `--query-batch-size` | |
+| annotation result | The Python object `run_annotate()` returns: a record of the files one `annotate` run wrote. It owns no files and needs no closing; `prepared_in(directory)` prepares those files for reading as an `AnnotationBundle`. | "live shard handle", "returned bundle", "persistent output/source references", "saved `run_annotate` result"; "bundle" for this object | `AnnotationResult`; `AnnotationResult.prepared_in` | |
 
 ### Summary statistics
 
@@ -171,4 +172,3 @@ Add a row when a concept appears under several names: the concept, the proposed 
 
 | Concept | Proposed term | Variants and locations |
 | --- | --- | --- |
-| The Python object `run_annotate()` returns: a record of the files one `annotate` run wrote, which owns no files and is read through `prepared_in(directory)` | annotation result (`AnnotationResult`) | Before `AnnotationResult` existed: "live shard handle" (`docs/reference/python-api.md`, `src/ldsc/_annotation/annotate.py`), "returned bundle" (`docs/user-guide/python-usage.md`, `docs/dev/data-flow.md`) and "persistent output/source references" (`docs/dev/architecture.md`); the change that added `AnnotationResult` replaced them |

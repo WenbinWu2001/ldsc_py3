@@ -35,7 +35,7 @@ The user accepted fourteen recommendations in two rounds of questions and author
 - `prepared_in()` accepts any directory, including the annotate output directory, and creates it when missing.
 - BED names are checked before BED contents, so a run with a reserved name and a malformed BED file reports the name first.
 - A closed file-backed bundle reports "Annotation workspace is closed."; the in-memory owner keeps "Annotation bundle is closed.".
-- The run-annotate result is recorded in `docs/dev/DOCS_VOCABULARY.md` only as a proposed term, "annotation result" (`AnnotationResult`).
+- The user approved "annotation result" (`AnnotationResult`) as a vocabulary term; it is in the Annotations table of `docs/dev/DOCS_VOCABULARY.md`.
 
 ### Evidence
 
@@ -47,7 +47,8 @@ The user accepted fourteen recommendations in two rounds of questions and author
 
 ### Open items
 
-- The user has not yet approved "annotation result" as a vocabulary term or `AnnotationResult` as the public name.
+- Six lines still use the avoided wording "saved `run_annotate` result": `src/ldsc/_ldscore/calculator.py` lines 395, 429, 464, 2329 and 2330 (docstrings and the error-message helper) and `docs/reference/logs-and-outputs.md` line 22.
+  Rewriting them needs the user's authorization.
 - The commits are local and not pushed; the HPC package copy does not have them.
 
 ## Completed: allele orientation outside summary statistics (2026-11-02)

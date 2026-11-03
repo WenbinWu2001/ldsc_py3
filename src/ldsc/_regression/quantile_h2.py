@@ -620,6 +620,7 @@ def _run_quantile_h2(args) -> QuantileH2Result:
     writer.artifact_family(output_dir).preflight(overwrite=args.overwrite, additional_paths=[log_path])
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     issues_path = diagnostics_dir / "snp_alignment_issues.tsv.gz"
+    input_issues_path = diagnostics_dir / "input_issues.tsv"
     with workflow_logging("quantile-h2", log_path, log_level=args.log_level):
         from .._runtime.preflight import inspect_declared_inputs, inspect_artifact_paths
         fitted_dir = Path(args.partitioned_h2_result_dir).resolve()
@@ -631,7 +632,7 @@ def _run_quantile_h2(args) -> QuantileH2Result:
             'baseline_annot_sources', 'query_annot_sources', 'query_annot_bed_sources', 'ref_metadata_sources')],
             checks=[('fitted model', args.partitioned_h2_result_dir,
                      lambda: inspect_artifact_paths(artifact_root, metadata_file=metadata_file))],
-            issues_path=diagnostics_dir/'input_issues.tsv')
+            issues_path=input_issues_path)
         log_inputs(
             partitioned_h2_result_dir=args.partitioned_h2_result_dir,
             target_annotation=args.target_annot_column,
@@ -639,7 +640,7 @@ def _run_quantile_h2(args) -> QuantileH2Result:
         )
         with AnnotationWorkspace(output_dir) as workspace, AlignmentDiagnostics(issues_path) as diagnostics:
             model = load_fitted_partitioned_model(args.partitioned_h2_result_dir)
-            inputs = prepare_quantile_statistics(args, model, workspace, diagnostics)
+            inputs = prepare_quantile_statistics(args, model, workspace, diagnostics, input_issues_path)
         ldscore_metadata = inputs.ldscore_metadata
         common_maf_min = inputs.common_maf_min
         samp_prev = pd.to_numeric(model.summary.get("samp_prev", pd.Series([np.nan])), errors="coerce").iloc[0]

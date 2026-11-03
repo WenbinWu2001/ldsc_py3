@@ -15,7 +15,7 @@ The user accepted fourteen recommendations in two rounds of questions and author
 
 - `0c88856`: direct gene-list Gate B returns the chromosomes whose reference preparation failed next to the bundle instead of storing them on it.
 - `9d45535`: `_annotation/preflight.py` owns `RESERVED_QUERY_NAMES` and `require_usable_bed_query_names()`, which checks BED query names from the resolved paths before any BED file is read or the grid is prepared, in `annotate`, `ldscore`, `AnnotationBuilder` and `quantile-h2`.
-  A reserved name, an annotation column of the supplied files or a name shared by two BED files is one `BED query name validation failed` error; `annotation_name_collision` rows go to `diagnostics/input_issues.tsv`, except in `quantile-h2`, which writes no input-issue table.
+  A reserved name, an annotation column of the supplied files or a name shared by two BED files is one `BED query name validation failed` error; `annotation_name_collision` rows go to `diagnostics/input_issues.tsv` in all four (in `quantile-h2` only since the fix below).
   `validate_gene_query_names()` moved there and now also guards `AnnotationBuilder` and `quantile-h2`; the Gate A message names the colliding gene-list queries in every command.
   New troubleshooting entry "Common: a BED query name is not usable".
 - `54fd054`: `resolve_projection_build()` and `gene_list_gate_a_error()` in `_annotation/preflight.py` replace annotate's private `_projection_build` and `_gate_a_error`, which `build_annotation_shards()` imported; build reports from `AnnotationBuilder` and `quantile-h2` name "annotation preparation" and `--baseline-annot-sources`.
@@ -25,7 +25,9 @@ The user accepted fourteen recommendations in two rounds of questions and author
   `LDScoreCalculator.run()` accepts the result only with `output_config` and prepares it in its own output directory; without one, and in `compute_chromosome()`, it raises `LDSCUsageError`.
   This fixes P1 and the confinement leftover recorded under output-directory confinement.
 - `bcc56a6`: `AnnotationBundle` is a frozen dataclass; producers return new bundles through `dataclasses.replace`, closing belongs to the owner the bundles share (`AnnotationWorkspace` or the new `MemoryOwner`), and `diagnostics_in_memory` is the only in-memory marker.
-- This commit: this record.
+- `a286245`: this record; `d62183f` and `60eb5a2` approve the term "annotation result" and use it.
+- This commit: `quantile-h2` writes the BED query name issues to its `diagnostics/input_issues.tsv`; `build_annotation_shards()` takes a keyword-only `issues_path` for it.
+  Round-2 decision 4 required the table in every path, and `9d45535` had left `quantile-h2` out without asking the user.
 
 ### Decisions taken during implementation
 
@@ -48,6 +50,8 @@ The user accepted fourteen recommendations in two rounds of questions and author
 
 ### Open items
 
+- A `quantile-h2` gene-list Gate A failure writes neither `diagnostics/gene_list_audit.tsv.gz` nor `diagnostics/gene_list_resolution_summary.tsv`, although its error names both as the complete diagnostics; `AnnotationBuilder` writes them.
+  This predates candidate 9; fixing it needs the user's go-ahead.
 - The commits are local and not pushed; the HPC package copy does not have them.
 
 ## Completed: allele orientation outside summary statistics (2026-11-02)

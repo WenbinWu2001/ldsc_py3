@@ -15,20 +15,25 @@ from .._core.snp_identity import identity_mode_family
 from ..errors import LDSCInputError
 
 
-def build_annotation_shards(spec, config, workspace, *, projection_genome_build=None):
+def build_annotation_shards(spec, config, workspace, *, projection_genome_build=None, issues_path=None):
     """Prepare aligned sources and construct optional interval queries.
 
     The caller owns ``workspace`` and the returned bundle borrows that same
     owner. This preparation API writes no canonical artifacts. Standalone
     annotate and direct LD-score workflows own their additional validation
     gates and publication policies.
+
+    When ``issues_path`` is given, unusable BED query names are written there
+    as ``annotation_name_collision`` rows before the error is raised, and a
+    passing check removes the file. Either way, the error carries the rows as
+    ``input_issues`` for callers that write their own diagnostics.
     """
     declared = inspect_annotation_inputs(baseline=spec.baseline_annot_sources, query=spec.query_annot_sources,
         files=[('BED', spec.query_annot_bed_sources), ('gene lists', spec.query_annot_gene_list_sources)],
         scalar_files=[('gene catalog', spec.gene_coordinate_file), ('control genes', spec.control_gene_list_file)],
         mode=config.snp_identifier, strict_annotations=False)
     baseline, query = declared.baseline, declared.query
-    require_usable_bed_query_names(declared.files['BED'], annotation_columns(declared))
+    require_usable_bed_query_names(declared.files['BED'], annotation_columns(declared), issues_path)
 
     catalog = GeneCatalog.load(spec.gene_coordinate_file) if spec.query_annot_gene_list_sources else None
     requested = projection_genome_build or config.genome_build

@@ -41,7 +41,7 @@ class QuantileInputStatistics:
     common_maf_min: float
 
 
-def _model_annotations(args, model, metadata, workspace):
+def _model_annotations(args, model, metadata, workspace, issues_path):
     spec = AnnotationBuildConfig(
         **{name: tuple(split_cli_path_tokens(getattr(args, name, None))) for name in (
             "baseline_annot_sources", "query_annot_sources", "query_annot_bed_sources", "query_annot_gene_list_sources")},
@@ -51,7 +51,7 @@ def _model_annotations(args, model, metadata, workspace):
     )
     mode, build = str(metadata.get("snp_identifier")), metadata.get("genome_build")
     bundle = build_annotation_shards(spec, GlobalConfig(snp_identifier=mode, genome_build=build), workspace,
-                                     projection_genome_build=build)
+                                     projection_genome_build=build, issues_path=issues_path)
     missing = [name for name in model.annotation_names if name not in bundle.baseline_columns + bundle.query_columns]
     if missing:
         raise LDSCInputError(f"quantile-h2 resupplied annotation sources are missing fitted annotation(s): {missing}. Resupply every original baseline/query source for this fitted model.")
@@ -205,8 +205,12 @@ def _validate_aggregates(model, metadata, sums, products):
             raise LDSCInputError("quantile-h2 reconstructed fitted-annotation cross-products that disagree with the linked LD-score overlap artifact. Resupply the exact original annotations and reference metadata.")
 
 
-def prepare_quantile_statistics(args, model, workspace, diagnostics):
-    """Validate sources and reduce chromosome artifacts using exact global bounds."""
+def prepare_quantile_statistics(args, model, workspace, diagnostics, input_issues_path):
+    """Validate sources and reduce chromosome artifacts using exact global bounds.
+
+    Unusable BED query names are written to ``input_issues_path`` before the
+    run stops.
+    """
     metadata = json.loads((model.ldscore_dir / "metadata.json").read_text(encoding="utf-8"))
     if str(metadata.get('snp_identifier', '')).startswith('chr_pos'):
         from .._genome.build_policy import GenomeBuildCheck
@@ -216,7 +220,7 @@ def prepare_quantile_statistics(args, model, workspace, diagnostics):
             check.paths('--' + role.replace('_', '-'), getattr(args, role, None))
         check.unchecked('--query-annot-bed-sources', getattr(args, 'query_annot_bed_sources', None), 'ordinary BED; inherits saved build')
         check.resolve()
-    bundle = _model_annotations(args, model, metadata, workspace)
+    bundle = _model_annotations(args, model, metadata, workspace, input_issues_path)
     references = resolve_file_group(split_cli_path_tokens(args.ref_metadata_sources),
         label="reference metadata", allow_chromosome_suite=True)
     targets = resolve_file_group(split_cli_path_tokens(args.target_annot_sources),

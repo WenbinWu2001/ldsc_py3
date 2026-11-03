@@ -256,7 +256,7 @@ Inference uses bounded samples from every relevant file/chromosome and retains t
 
 `annotate`, `ldscore`, `quantile-h2` and the Python `AnnotationBuilder` name each BED query after its file name without the last suffix: `/data/beds/SNP.bed` becomes the query `SNP`, and `genes.bed.gz` becomes `genes.bed`.
 The names are checked before any BED file is read, and every affected file is listed in the error.
-`annotate`, `ldscore` and `AnnotationBuilder` also write each file to `diagnostics/input_issues.tsv` with reason `annotation_name_collision`.
+All four also write each affected file to `diagnostics/input_issues.tsv` in the output directory, with reason `annotation_name_collision`.
 
 **Likely causes & how to check:**
 

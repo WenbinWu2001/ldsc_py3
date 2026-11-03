@@ -315,6 +315,18 @@ class QuantileH2WorkflowTest(unittest.TestCase):
         with self.assertRaisesRegex(LDSCInputError, "empty quantile"):
             run_quantile_h2_from_args(self.args)
 
+    def test_unusable_bed_query_name_writes_the_input_issue_table(self):
+        bed = self.root / "SNP.bed"
+        bed.write_text("chr1\t5\t15\n", encoding="utf-8")
+        self.args.query_annot_bed_sources = [str(bed)]
+
+        with self.assertRaisesRegex(LDSCInputError, "BED query name validation failed"):
+            run_quantile_h2_from_args(self.args)
+
+        issues = pd.read_csv(Path(self.args.output_dir) / "diagnostics" / "input_issues.tsv", sep="\t")
+        self.assertEqual(issues["reason"].tolist(), ["annotation_name_collision"])
+        self.assertEqual(Path(issues["source"].iloc[0]).name, "SNP.bed")
+
     def test_run_quantile_h2_takes_the_command_option_names(self):
         # Single path tokens may be plain strings, as in the documented example.
         options = {

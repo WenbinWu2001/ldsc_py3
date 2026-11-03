@@ -1,6 +1,6 @@
 # Architecture
 
-Last updated on: 2026-11-02
+Last updated on: 2026-11-03
 
 LDSC3 (distribution `ldsc`) is the Python 3 package that replaces legacy LDSC.
 It reads optional SNP-level annotations, PLINK reference panels or R² matrices, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to the computation modules of its private domain packages; and writes LDSC3 artifacts that can be chained into later runs.
@@ -211,6 +211,7 @@ This is the public annotation API and CLI dispatch seam: `AnnotationBuilder`, `A
 `_annotation.bim_grid` stages metadata-only BIM grids through shared identity selection.
 Annotation-grid input emits aligned baseline/query families; BIM input emits query values only.
 `_annotation.saved_results` reopens these exports without original-input dependencies.
+`_annotation.preflight` holds the query checks that `run_annotate()`, `ldscore` and `build_annotation_shards()` (behind `AnnotationBuilder` and `quantile-h2`) share: BED and gene-list query names that are reserved or collide stop before any grid is read, and the gene-list Gate A error and the projection genome build come from one place; `ldscore` resolves its own build against the reference panel.
 The other `_annotation` modules own bounded discovery, identity cleanup, separate metadata/value artifacts, projection, and storage lifetime; `_ldscore.direct_annotation` integrates them with direct LD-score scope and support gates.
 The complete module and ownership map is in [memory-and-cpu.md](design/memory-and-cpu.md).
 

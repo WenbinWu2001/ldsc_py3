@@ -1,5 +1,11 @@
-"""Resolve annotation declarations and query names while collecting every issue."""
+"""Resolve annotation declarations, query names and the projection build.
 
+``annotate``, ``ldscore`` and ``build_annotation_shards`` (``AnnotationBuilder``
+and ``quantile-h2``) share these checks; each workflow keeps its own option
+checks and product steps.
+"""
+
+import logging
 from collections import Counter
 from dataclasses import replace
 from pathlib import Path
@@ -8,12 +14,18 @@ import pandas as pd
 
 from .parsing import normalize_annotation_chunk
 from .interval_queries import bed_query_name
+from .query_outcomes import gene_list_gate_a_message
 from .._core.chromosomes import AUTOSOMES
+from .._core.columns import normalize_genome_build
+from .._core.snp_identity import identity_mode_family
+from .._genome.build_policy import GenomeBuildCheck
 from .._runtime.preflight import InputGate, input_issue, inspect_declared_inputs
 from .._runtime.paths import (
     normalize_path_token, normalize_path_tokens, resolve_file_group, split_cli_path_tokens,
 )
 from ..errors import LDSCInputError, LDSCUserError
+
+LOGGER = logging.getLogger('LDSC.annotation')
 
 
 def resolve_annotation_inputs(tokens, *, role='baseline'):
@@ -144,3 +156,45 @@ def validate_gene_query_names(batch, existing_columns):
             lambda reason: ';'.join(filter(None, (reason, 'annotation_name_collision'))))
         batch = replace(batch, summary=summary, has_fatal_gate_a_issues=True)
     return batch
+
+
+def gene_list_gate_a_error(batch):
+    """Return the Gate A error for a gene-list batch with fatal issues.
+
+    The error keeps ``batch`` as ``gene_list_batch`` so a caller that writes
+    diagnostics after the failure can write the gene-list audit and summary.
+    """
+    error = LDSCInputError(gene_list_gate_a_message(batch) +
+                           ' Other causes & fixes: docs/user-guide/troubleshooting.md#annotate-gene-list-preflight')
+    error.gene_list_batch = batch
+    return error
+
+
+def resolve_projection_build(requested, mode, catalog, *, context, baseline_option, baseline_tokens=(),
+                             bim_tokens=(), query_tokens=(), bed_tokens=()):
+    """Reconcile grid and catalog declarations into the projection genome build.
+
+    An rsID-family run without a gene catalog or a requested build needs no
+    projection build and returns ``None``; with a catalog an omitted build
+    means ``auto``. Otherwise every labelled grid and catalog input is checked
+    against the requested build, and unlabelled BED files inherit the result.
+    ``context`` and ``baseline_option`` name the calling workflow and its
+    baseline option in build-consistency reports.
+    """
+    requested = normalize_genome_build(requested)
+    if catalog is None and identity_mode_family(mode) == 'rsid' and requested is None:
+        return None
+    if catalog is not None and requested is None:
+        requested = 'auto'
+    if requested is None:
+        raise LDSCInputError('Coordinate-family SNP identifier modes require a genome build: supply auto, hg19 or hg38 '
+                             '(--genome-build, or genome_build in Python).')
+    check = GenomeBuildCheck(requested, context=context, logger=LOGGER)
+    check.paths(baseline_option, baseline_tokens)
+    check.paths('--query-annot-sources', query_tokens)
+    if bim_tokens:
+        check.paths('--ref-snp-bim-sources', bim_tokens, bim=True)
+    if catalog is not None:
+        check.declared('--gene-coordinate-file', getattr(catalog, 'source', 'gene coordinate catalog'), catalog.genome_build)
+    check.unchecked('--query-annot-bed-sources', bed_tokens, 'ordinary BED; inherits workflow build')
+    return check.resolve()

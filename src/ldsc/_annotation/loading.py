@@ -1,10 +1,17 @@
 """Build a complete source-backed annotation dataset in a borrowed workspace."""
 
+from dataclasses import replace
+
 from .bundle import AnnotationBundle
+from .gene_lists import GeneCatalog
 from .interval_queries import build_query_shards, prepare_bed_queries, require_readable_bed_sources
-from .preflight import annotation_columns, inspect_annotation_inputs, require_usable_bed_query_names, validate_gene_query_names
+from .preflight import (
+    annotation_columns, gene_list_gate_a_error, inspect_annotation_inputs, require_usable_bed_query_names,
+    resolve_projection_build, validate_gene_query_names,
+)
 from .sources import prepare_annotation_sources
 from .gene_query_storage import resolve_gene_lists_staged
+from .._core.snp_identity import identity_mode_family
 from ..errors import LDSCInputError
 
 
@@ -22,29 +29,23 @@ def build_annotation_shards(spec, config, workspace, *, projection_genome_build=
         mode=config.snp_identifier, strict_annotations=False)
     baseline, query = declared.baseline, declared.query
     require_usable_bed_query_names(declared.files['BED'], annotation_columns(declared))
-    from dataclasses import replace
-    from .annotate import _projection_build
-    from .._core.snp_identity import identity_mode_family
-    from .gene_lists import GeneCatalog
 
     catalog = GeneCatalog.load(spec.gene_coordinate_file) if spec.query_annot_gene_list_sources else None
     requested = projection_genome_build or config.genome_build
-    projection_build = _projection_build(requested, config.snp_identifier, spec.baseline_annot_sources, catalog,
-                                        query_tokens=spec.query_annot_sources, bed_tokens=spec.query_annot_bed_sources)
+    projection_build = resolve_projection_build(
+        requested, config.snp_identifier, catalog, context='annotation preparation',
+        baseline_option='--baseline-annot-sources', baseline_tokens=spec.baseline_annot_sources,
+        query_tokens=spec.query_annot_sources, bed_tokens=spec.query_annot_bed_sources)
     if identity_mode_family(config.snp_identifier) == "chr_pos":
         config = replace(config, genome_build=projection_build)
     if spec.query_annot_gene_list_sources:
-        from .annotate import _gate_a_error
-
         batch = resolve_gene_lists_staged(spec.query_annot_gene_list_sources, catalog, workspace,
                                          control_path=spec.control_gene_list_file,
                                          resolution_policy=spec.gene_list_resolution_policy,
                                          gene_exclude_regions=spec.gene_exclude_regions)
         batch = validate_gene_query_names(batch, annotation_columns(declared))
         if batch.has_fatal_gate_a_issues:
-            error = _gate_a_error(batch)
-            error.gene_list_batch = batch
-            raise error
+            raise gene_list_gate_a_error(batch)
     else:
         batch = None
     beds = prepare_bed_queries(declared.files['BED'], workspace) if spec.query_annot_bed_sources else []

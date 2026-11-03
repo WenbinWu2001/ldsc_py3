@@ -169,7 +169,7 @@ def test_gene_gate_stops_before_grid_preparation(tmp_path, monkeypatch, kind, is
     def unexpected_preparation(*args, **kwargs):
         pytest.fail("Fatal source/name preflight must stop before build inference or grid preparation")
 
-    for operation in ("_projection_build", "prepare_annotation_sources", "prepare_bim_grid", "build_query_shards"):
+    for operation in ("resolve_projection_build", "prepare_annotation_sources", "prepare_bim_grid", "build_query_shards"):
         monkeypatch.setattr(annotate_workflow, operation, unexpected_preparation)
     output = tmp_path / "out"
     with pytest.raises(LDSCInputError, match="Gene-list catalog preflight") as failure:

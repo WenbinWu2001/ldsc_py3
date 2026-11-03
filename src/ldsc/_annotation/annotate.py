@@ -18,47 +18,20 @@ from .gene_query_storage import resolve_gene_lists_staged
 from .._core.snp_identity import identity_mode_family
 from .._runtime.workflow_logging import workflow_logging, materializing_overwrite_guard, log_inputs, log_outputs
 from .preflight import (
-    annotation_columns, inspect_annotation_inputs, require_usable_bed_query_names, validate_gene_query_names,
+    annotation_columns, gene_list_gate_a_error, inspect_annotation_inputs, require_usable_bed_query_names,
+    resolve_projection_build, validate_gene_query_names,
 )
-from .._core.columns import normalize_genome_build
 from ..config import AnnotationBuildConfig, GlobalConfig, get_global_config, print_global_config_banner
 from ..errors import LDSCInputError
 from .gene_lists import GeneCatalog, GeneCatalogValidationError
-from .._genome.build_policy import GenomeBuildCheck
 from .outputs import AnnotationDirectoryWriter
 from .._runtime.paths import ensure_output_directory, split_cli_path_tokens
 from .query_outcomes import (
-    gene_query_statuses, gene_viability_errors, all_query_annotations_skipped_message, gene_list_gate_a_message,
+    gene_query_statuses, gene_viability_errors, all_query_annotations_skipped_message,
     emit_bed_query_notice, emit_gene_gate_b_notice, emit_resolved_only_notice,
 )
 
 LOGGER = logging.getLogger('LDSC.annotation')
-
-
-def _projection_build(requested, mode, baseline_tokens, catalog, *, bim_tokens=(), bed_tokens=(), query_tokens=()):
-    """Reconcile grid/catalog declarations before resolving unlabeled inputs."""
-    requested = normalize_genome_build(requested)
-    if catalog is None and identity_mode_family(mode) == 'rsid' and requested is None:
-        return None
-    if catalog is not None and requested is None:
-        requested = 'auto'
-    if requested is None:
-        raise LDSCInputError('annotate requires --genome-build for coordinate-family SNP identifier modes. Supply auto, hg19, or hg38.')
-    check = GenomeBuildCheck(requested, context='annotate', logger=LOGGER)
-    check.paths('--ref-snp-annot-sources', baseline_tokens)
-    check.paths('--query-annot-sources', query_tokens)
-    if bim_tokens:
-        check.paths('--ref-snp-bim-sources', bim_tokens, bim=True)
-    if catalog is not None:
-        check.declared('--gene-coordinate-file', getattr(catalog, 'source', 'gene coordinate catalog'), catalog.genome_build)
-    check.unchecked('--query-annot-bed-sources', bed_tokens, 'ordinary BED; inherits workflow build')
-    return check.resolve()
-
-
-def _gate_a_error(batch):
-    # Shares the ldscore wording: per-source counts, omitted examples, audit filter, overwrite.
-    return LDSCInputError(gene_list_gate_a_message(batch) +
-                          ' Other causes & fixes: docs/user-guide/troubleshooting.md#annotate-gene-list-preflight')
 
 
 @materializing_overwrite_guard(lambda *args, **kwargs: (kwargs.get('output_dir'), kwargs.get('overwrite', False)) if kwargs.get('output_dir') else None, command='run_annotate(...)')
@@ -174,15 +147,16 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                 log_gene_catalog_issues(catalog.issues)
                 log_gene_list_rejections(batch)
                 if batch.has_fatal_gate_a_issues:
-                    raise _gate_a_error(batch)
+                    raise gene_list_gate_a_error(batch)
             else:
                 # Names and BED contents are cheap to check; both must pass before the grid is read.
                 require_usable_bed_query_names(declared_inputs.files['BED'], annotation_columns(declared_inputs),
                                                output/'diagnostics/input_issues.tsv')
                 bed_sources = prepare_bed_queries(declared_inputs.files['BED'], workspace)
                 require_readable_bed_sources(bed_sources, output/'diagnostics/input_issues.tsv')
-            projection_build = _projection_build(requested, config.snp_identifier, baseline, catalog,
-                                                 bim_tokens=bim, bed_tokens=bed)
+            projection_build = resolve_projection_build(
+                requested, config.snp_identifier, catalog, context='annotate', baseline_option='--ref-snp-annot-sources',
+                baseline_tokens=baseline, bim_tokens=bim, bed_tokens=bed)
             prepared = None
             if bim:
                 paths, declared = declared_inputs.files['BIM grid']

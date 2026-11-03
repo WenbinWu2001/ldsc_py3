@@ -602,7 +602,6 @@ def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, c
             bfile=chromosome_prefixes[chrom],
             keep=config.keep_indivs_file,
             maf_min=config.maf_min,
-            maf=None,
             snp_identifier=config.snp_identifier,
             genome_build=config.genome_build,
             ld_wind_snps=config.ld_wind_snps,

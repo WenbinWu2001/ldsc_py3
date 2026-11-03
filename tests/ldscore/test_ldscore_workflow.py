@@ -1588,7 +1588,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             panel = PlinkRefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(backend="plink", plink_prefix=prefix))
 
 
-            gated, control_error = ldscore_workflow._apply_direct_gene_gate_b(bundle, panel, LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True), GlobalConfig(snp_identifier="rsid"))
+            gated, control_error, _ = ldscore_workflow._apply_direct_gene_gate_b(bundle, panel, LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True), GlobalConfig(snp_identifier="rsid"))
 
             self.assertIsNone(control_error)
             self.assertEqual(gated.query_columns, ["mixed"])
@@ -1652,7 +1652,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             panel = PlinkRefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(backend="plink", plink_prefix=prefix))
 
 
-            gated, control_error = ldscore_workflow._apply_direct_gene_gate_b(bundle, panel, LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True), GlobalConfig(snp_identifier="rsid"))
+            gated, control_error, _ = ldscore_workflow._apply_direct_gene_gate_b(bundle, panel, LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True), GlobalConfig(snp_identifier="rsid"))
 
             self.assertIsNone(control_error)
             self.assertEqual(gated.query_columns, ["padded"])

@@ -1437,9 +1437,10 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
             if getattr(normalized_args,"gene_catalog_build",None) is not None:
                 LOGGER.info("Gene-list catalog projection build: %s (selected from --genome-build and baseline/reference-panel evidence).",normalized_args.gene_catalog_build)
             if annotation_bundle.gene_list_batch is not None:
-                annotation_bundle, gate_b_error = _apply_direct_gene_gate_b(annotation_bundle,ref_panel,ldscore_config,global_config)
+                annotation_bundle, gate_b_error, gate_b_issues = _apply_direct_gene_gate_b(
+                    annotation_bundle, ref_panel, ldscore_config, global_config)
                 if gate_b_error:
-                    fail_unusable_queries(_bundle_diagnostics(annotation_bundle), gate_b_error, output_config)
+                    fail_unusable_queries(_bundle_diagnostics(annotation_bundle, gate_b_issues), gate_b_error, output_config)
             statuses = annotation_bundle.query_statuses
             if statuses and not annotation_bundle.query_columns:
                 fail_unusable_queries(_bundle_diagnostics(annotation_bundle),
@@ -1663,7 +1664,12 @@ def _annotation_build_config_from_args(args: argparse.Namespace) -> AnnotationBu
 
 
 def _apply_direct_gene_gate_b(annotation_bundle, ref_panel, ldscore_config, global_config):
-    """Measure interval support on the prepared reference SNPs."""
+    """Measure interval support on the prepared reference SNPs.
+
+    Return the updated bundle, the Gate B error message or ``None``, and the
+    chromosomes whose reference preparation failed as an input-issue table or
+    ``None``.
+    """
     from ..errors import LDSCUserError
 
     batch = annotation_bundle.gene_list_batch
@@ -1714,9 +1720,9 @@ def _apply_direct_gene_gate_b(annotation_bundle, ref_panel, ldscore_config, glob
     statuses = gene_query_statuses(updated_batch)
     retained_queries = [status.query for status in statuses if status.status in {"ok", "warning"}]
     errors.extend(gene_viability_errors(updated_batch, statuses))
-    changes = dict(query_columns=retained_queries, query_statuses=statuses, gene_list_batch=updated_batch,
-                   input_issues=pd.DataFrame(input_issues) if input_issues else None)
-    return dataclass_replace(annotation_bundle,**changes), "; ".join(errors) if errors else None
+    changes = dict(query_columns=retained_queries, query_statuses=statuses, gene_list_batch=updated_batch)
+    return (dataclass_replace(annotation_bundle, **changes), "; ".join(errors) if errors else None,
+            pd.DataFrame(input_issues) if input_issues else None)
 
 
 def _validate_run_args(args: argparse.Namespace) -> None:
@@ -2312,10 +2318,10 @@ def _grid_emptied_message(funnels: Sequence[pd.DataFrame]) -> str:
     )
 
 
-def _bundle_diagnostics(bundle) -> QueryDiagnostics:
-    """Return the query diagnostics an annotation bundle holds, for the LD-score writer."""
+def _bundle_diagnostics(bundle, input_issues=None) -> QueryDiagnostics:
+    """Return the query diagnostics an annotation bundle holds, plus any Gate B input issues, for the writer."""
     return QueryDiagnostics(dict(bundle.source_summary.get("chromosome_scope", {})), tuple(bundle.query_statuses),
-                            bundle.gene_list_batch, bundle.input_issues)
+                            bundle.gene_list_batch, input_issues)
 
 
 def _write_one_ref_metadata_sidecar(metadata: pd.DataFrame, chrom: str, output_dir: str) -> None:

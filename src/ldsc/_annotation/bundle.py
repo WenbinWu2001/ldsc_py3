@@ -41,7 +41,6 @@ class AnnotationBundle:
     config_snapshot: GlobalConfig | None = None
     query_statuses: tuple = ()
     gene_list_batch: object | None = None
-    input_issues: object | None = None
     identity_drops: FrameSpool | TsvDiagnostics | None = None
     chromosome_identity_drops: dict | None = None
     output_paths: dict = field(default_factory=dict)

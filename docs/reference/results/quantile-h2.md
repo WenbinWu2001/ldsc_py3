@@ -1,6 +1,6 @@
 # Continuous-Annotation Quantile Heritability: Technical Contract
 
-Last updated on: 2026-11-02
+Last updated on: 2026-11-03
 
 Quantile calculation runs in one worker with **1 BLAS thread**, including input overlap products and post-fit projection.
 See [parallel execution](../parallel-execution.md) for native-limit verification and Python process startup.
@@ -73,6 +73,7 @@ Classification affects logs and metadata only, never coefficients or other numer
 ### Gene-list resolution
 
 When reconstructing a gene-list query, supply `--query-annot-gene-list-sources` and reproduce the original catalog, padding, exclusions, optional control, and resolution policy. Resolution is strict by default. Add the value-free `--allow-unresolved-genes` flag if the original LD-score run deliberately used the `resolved-only` subset; do not append a policy value. The old `--gene-list-resolution-policy` option is rejected without an alias. Other source, coverage, and model-consistency checks still apply. See [resolution choices and migration](../formats/gene-lists.md#strict-and-exploratory-resolution) and `add_quantile_h2_arguments()` in [_regression/quantile_h2.py](../../../src/ldsc/_regression/quantile_h2.py).
+When the gene-list catalog check rejects rows or sources, the run stops and writes `diagnostics/gene_list_audit.tsv.gz` and `diagnostics/gene_list_resolution_summary.tsv`, the files its error names.
 
 ## Missing target values
 
@@ -110,6 +111,9 @@ When that contrast has zero or missing jackknife SE, `enrichment_p` is `NaN`. `c
     quantile-h2.log
     snp_alignment_issues.tsv.gz
 ```
+
+A failed run can also leave `diagnostics/input_issues.tsv` (unusable inputs or BED query names) and the two gene-list diagnostic files.
+They belong to the output directory, so a rerun with `--overwrite` replaces them or, when its checks pass, removes them.
 
 `quantile_h2.tsv` contains `quantile`, target bounds, `n_snps`, `prop_snps`, observed/liability `h2` and SE, `prop_h2` and SE, `enrichment` and SE, and `enrichment_p`. Liability fields are `NaN` unless the fitted regression recorded both prevalences. `standardized_coefficients.tsv` contains every fitted annotation's classification, SD, `tau`, SE, z, two-sided p-value, and corresponding `tau_star` fields.
 

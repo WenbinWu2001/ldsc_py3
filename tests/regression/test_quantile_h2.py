@@ -327,6 +327,35 @@ class QuantileH2WorkflowTest(unittest.TestCase):
         self.assertEqual(issues["reason"].tolist(), ["annotation_name_collision"])
         self.assertEqual(Path(issues["source"].iloc[0]).name, "SNP.bed")
 
+    def test_gene_list_preflight_failure_writes_the_gene_list_diagnostics(self):
+        catalog = self.root / "genes.tsv"
+        catalog.write_text("gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\nG1\tONE\t1\t15\t25\thg38\n",
+                           encoding="utf-8")
+        genes = self.root / "query.txt"
+        genes.write_text("G1\nG9\n", encoding="utf-8")
+        self.args.query_annot_gene_list_sources = [str(genes)]
+        self.args.gene_coordinate_file = str(catalog)
+        # The fit's saved build is the projection build of the resupplied gene lists.
+        metadata_path = self.root / "ldscores" / "metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata_path.write_text(json.dumps(dict(metadata, genome_build="hg38")), encoding="utf-8")
+
+        with self.assertRaisesRegex(LDSCInputError, "Gene-list catalog preflight rejected"):
+            run_quantile_h2_from_args(self.args)
+
+        diagnostics = Path(self.args.output_dir) / "diagnostics"
+        summary = pd.read_csv(diagnostics / "gene_list_resolution_summary.tsv", sep="\t")
+        self.assertEqual(summary["rejected_rows"].tolist(), [1])
+        audit = pd.read_csv(diagnostics / "gene_list_audit.tsv.gz", sep="\t")
+        self.assertEqual(audit.loc[audit.disposition.eq("rejected"), "input_gene"].tolist(), ["G9"])
+
+        # Both files belong to the output directory, so a corrected overwrite removes them.
+        self.args.query_annot_gene_list_sources = self.args.gene_coordinate_file = None
+        self.args.overwrite = True
+        run_quantile_h2_from_args(self.args)
+        self.assertFalse((diagnostics / "gene_list_resolution_summary.tsv").exists())
+        self.assertFalse((diagnostics / "gene_list_audit.tsv.gz").exists())
+
     def test_run_quantile_h2_takes_the_command_option_names(self):
         # Single path tokens may be plain strings, as in the documented example.
         options = {

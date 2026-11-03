@@ -26,8 +26,10 @@ The user accepted fourteen recommendations in two rounds of questions and author
   This fixes P1 and the confinement leftover recorded under output-directory confinement.
 - `bcc56a6`: `AnnotationBundle` is a frozen dataclass; producers return new bundles through `dataclasses.replace`, closing belongs to the owner the bundles share (`AnnotationWorkspace` or the new `MemoryOwner`), and `diagnostics_in_memory` is the only in-memory marker.
 - `a286245`: this record; `d62183f` and `60eb5a2` approve the term "annotation result" and use it.
-- This commit: `quantile-h2` writes the BED query name issues to its `diagnostics/input_issues.tsv`; `build_annotation_shards()` takes a keyword-only `issues_path` for it.
+- `5188efc`: `quantile-h2` writes the BED query name issues to its `diagnostics/input_issues.tsv`; `build_annotation_shards()` takes a keyword-only `issues_path` for it.
   Round-2 decision 4 required the table in every path, and `9d45535` had left `quantile-h2` out without asking the user.
+- This commit, authorized by the user: a `quantile-h2` gene-list Gate A failure writes `diagnostics/gene_list_audit.tsv.gz` and `diagnostics/gene_list_resolution_summary.tsv`, the files its error names, before the workspace that stages the audit closes.
+  `QuantileH2DirectoryWriter` declares both as owned, so `--overwrite` replaces or removes them; the gap predated candidate 9.
 
 ### Decisions taken during implementation
 
@@ -50,8 +52,6 @@ The user accepted fourteen recommendations in two rounds of questions and author
 
 ### Open items
 
-- A `quantile-h2` gene-list Gate A failure writes neither `diagnostics/gene_list_audit.tsv.gz` nor `diagnostics/gene_list_resolution_summary.tsv`, although its error names both as the complete diagnostics; `AnnotationBuilder` writes them.
-  This predates candidate 9; fixing it needs the user's go-ahead.
 - The commits are local and not pushed; the HPC package copy does not have them.
 
 ## Completed: allele orientation outside summary statistics (2026-11-02)

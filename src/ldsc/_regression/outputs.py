@@ -371,6 +371,8 @@ class QuantileH2DirectoryWriter:
             "snp_alignment_issues": ("diagnostics/snp_alignment_issues.tsv.gz", True),
             "plots": ("plots", False),
             "input_issues": ("diagnostics/input_issues.tsv", False),
+            "gene_list_audit": ("diagnostics/gene_list_audit.tsv.gz", False),
+            "gene_list_resolution_summary": ("diagnostics/gene_list_resolution_summary.tsv", False),
         }, label="quantile-h2 output artifact")
 
     def write(

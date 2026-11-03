@@ -452,7 +452,8 @@ Missing files, invalid annotation values or headers, and incorrect chromosome me
 
 Use exactly one BED or gene-list query route. Gene lists require a readable gene coordinate catalog and explicit nonnegative `--padding-bp`, including `0` for gene bodies. Check `diagnostics/gene_catalog_issues.tsv`, `diagnostics/gene_list_audit.tsv.gz`, and `diagnostics/gene_list_resolution_summary.tsv` for catalog defects, malformed or unreadable lists, naming collisions, and unresolved identifiers. `resolved-only` permits only the established identifier-resolution omission allowlist; it does not bypass malformed rows, missing sources, or incomplete chromosome coverage.
 
-The error message, shared with gene-list `ldscore` runs, gives each source's rejected and submitted row counts; up to ten examples with their file and line, then the number not shown; a suggested filter for `diagnostics/gene_list_audit.tsv.gz`; and the rerun with `--overwrite`.
+The error message, shared with gene-list `ldscore`, `quantile-h2` and `AnnotationBuilder` runs, gives each source's rejected and submitted row counts; up to ten examples with their file and line, then the number not shown; a suggested filter for `diagnostics/gene_list_audit.tsv.gz`; and the rerun with `--overwrite`.
+`quantile-h2` and `AnnotationBuilder` write the two gene-list files to the `diagnostics/` directory of their own output directory.
 
 `annotate` checks query names from source filenames against validated baseline headers and reserved metadata/control names before preparing the annotation SNP grid; `ldscore`, `quantile-h2` and the Python `AnnotationBuilder` apply the same check.
 For example, if baseline column `base` conflicts with `base.txt` and that list contains `UNKNOWN`, the same terminal error reports both problems.

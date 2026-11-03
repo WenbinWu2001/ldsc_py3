@@ -8,8 +8,6 @@ of each SNP's window, and the checks that a window fits the reference data.
 
 from __future__ import annotations
 
-import argparse
-
 import numpy as np
 import pandas as pd
 
@@ -106,12 +104,22 @@ def window_coordinates(
     return np.asarray(cm, dtype=float), float(window.value)
 
 
-def check_whole_chromosome_window(block_left: np.ndarray, args: argparse.Namespace, chrom: str) -> None:
-    """Guard against accidental whole-chromosome windows unless explicitly allowed."""
-    if len(block_left) == 0:
+class WholeChromosomeWindowError(LDSCUsageError):
+    """An LD window spans a whole chromosome and no override allows it."""
+
+
+def check_whole_chromosome_window(block_left: np.ndarray, chrom: str, *, allowed: bool) -> None:
+    """Reject a window that spans the whole chromosome unless ``allowed``.
+
+    The window spans the chromosome when the last SNP's window still starts at
+    the first SNP. The error is worded for ``ldscore`` and its ``--yes-really``
+    override; the gene-index build, which has no override, catches
+    ``WholeChromosomeWindowError`` and raises its own error.
+    """
+    if len(block_left) == 0 or allowed:
         return
-    if block_left[-1] == 0 and not args.yes_really:
-        raise LDSCUsageError(
+    if block_left[-1] == 0:
+        raise WholeChromosomeWindowError(
             f"ldscore would use a whole-chromosome LD window on chromosome {chrom}. "
             "Most likely the LD-window setting is too large for this chromosome. "
             "Use a smaller LD window, or rerun with `--yes-really` if a whole-chromosome "

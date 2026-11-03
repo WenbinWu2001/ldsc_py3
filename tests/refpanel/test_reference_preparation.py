@@ -11,10 +11,11 @@ from ldsc.config import LDWindow
 from ldsc._ldscore import compute as ldscore
 from ldsc._refpanel.prepared import ChromosomeAnnotations
 from ldsc._refpanel.r2_format import SortedR2BlockReader
-from ldsc._refpanel.adapters import R2MatrixRefPanel
+from ldsc._refpanel.adapters import PlinkRefPanel, R2MatrixRefPanel
 from ldsc._refpanel.r2_format import write_r2_parquet, write_runtime_metadata_sidecar
 from ldsc._core.snp_identity import sidecar_identity_sha256
-from ldsc.errors import LDSCInputError
+from ldsc.errors import LDSCInputError, LDSCUsageError
+from tests.ref_panel_helpers import write_tiny_plink
 
 
 # write_panel stores R2=0.5 as round(0.5 * 32767); readers decode stored / 32767 in float32.
@@ -258,3 +259,30 @@ def test_prepared_chromosome_close_releases_state_once():
     prepared.close()
     assert calls == [1]
     assert all(getattr(prepared, name) is None for name in ("reader", "metadata", "annotations", "block_left", "identity_drops"))
+
+
+WHOLE_CHROMOSOME = r"ldscore would use a whole-chromosome LD window on chromosome 1\. .*rerun with `--yes-really`"
+
+
+def test_r2_matrix_preparation_rejects_a_whole_chromosome_window_unless_allowed(tmp_path):
+    metadata = write_panel(tmp_path)
+    config = GlobalConfig(snp_identifier="rsid")
+    panel = R2MatrixRefPanel(config, RefPanelConfig(backend="r2_matrix", r2_matrix_dir=tmp_path))
+    bundle = ChromosomeAnnotations(metadata, pd.DataFrame({"base": [1.0, 1.0]}), ["base"], [])
+    with pytest.raises(LDSCUsageError, match=WHOLE_CHROMOSOME):
+        panel.prepare_chromosome("1", bundle, LDScoreConfig(ld_wind_snps=5))
+    with panel.prepare_chromosome("1", bundle, LDScoreConfig(ld_wind_snps=5, whole_chromosome_ok=True)) as prepared:
+        np.testing.assert_array_equal(prepared.block_left, [0, 0])
+
+
+def test_plink_preparation_rejects_a_whole_chromosome_window_unless_allowed(tmp_path):
+    metadata = pd.DataFrame({"CHR": ["1"] * 3, "SNP": ["rs1", "rs2", "rs3"], "POS": [100, 300, 5000]})
+    prefix = write_tiny_plink(tmp_path / "panel", metadata)
+    panel = PlinkRefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(backend="plink", plink_prefix=str(prefix)))
+    bundle = ChromosomeAnnotations(metadata, pd.DataFrame({"base": [1.0] * 3}), ["base"], [])
+    with pytest.raises(LDSCUsageError, match=WHOLE_CHROMOSOME):
+        panel.prepare_chromosome("1", bundle, LDScoreConfig(ld_wind_kb=10))
+    with panel.prepare_chromosome("1", bundle, LDScoreConfig(ld_wind_kb=10, whole_chromosome_ok=True)) as prepared:
+        np.testing.assert_array_equal(prepared.block_left, [0, 0, 0])
+    with panel.prepare_chromosome("1", bundle, LDScoreConfig(ld_wind_kb=1)) as prepared:
+        np.testing.assert_array_equal(prepared.block_left, [0, 0, 2])

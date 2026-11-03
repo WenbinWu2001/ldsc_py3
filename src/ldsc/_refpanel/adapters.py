@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import replace
-from types import SimpleNamespace
 import logging
 from typing import Any
 
@@ -611,9 +610,7 @@ def _prepare_window(metadata, chrom, config, snp_identifier, *, snp_positions=No
         snp_positions=snp_positions,
     )
     block_left = get_block_lefts(coords, distance)
-    check_whole_chromosome_window(
-        block_left, SimpleNamespace(yes_really=config.whole_chromosome_ok), chrom,
-    )
+    check_whole_chromosome_window(block_left, chrom, allowed=config.whole_chromosome_ok)
     return block_left
 
 

@@ -69,6 +69,22 @@ def build_index(tmp_path, inputs, *, mode="rsid", common_maf_min="0.05"):
     return index_workflow.run_build_gene_ldscore_index_from_args(args)
 
 
+def test_index_build_rejects_a_whole_chromosome_window_without_an_override(tmp_path, inputs):
+    prefix, baseline, regression, catalog = inputs
+    args = index_workflow.build_parser().parse_args([
+        "--output-dir", str(tmp_path / "index"), "--baseline-annot-sources", str(baseline),
+        "--plink-prefix", str(prefix), "--gene-coordinate-file", str(catalog),
+        "--genome-build", "hg19", "--snp-identifier", "rsid", "--ld-wind-cm", "100",
+        "--gene-exclude-regions", "none", "--regr-snps-exclude-regions", "none", "--regr-snps-file", str(regression),
+    ])
+    with pytest.raises(LDSCInputError) as error:
+        index_workflow.run_build_gene_ldscore_index_from_args(args)
+    assert str(error.value) == (
+        "Gene-index construction rejects the whole-chromosome LD window on chromosome 1. "
+        "Specify a smaller --ld-wind-cm, --ld-wind-kb, or --ld-wind-snps value; "
+        "the builder has no whole-chromosome override.")
+
+
 @pytest.mark.parametrize("name", ["base", "SNP"])
 def test_direct_gate_a_reports_naming_and_identifier_issues_together(tmp_path, inputs, name):
     named, invalid = tmp_path / f"{name}.txt", tmp_path / "invalid.txt"

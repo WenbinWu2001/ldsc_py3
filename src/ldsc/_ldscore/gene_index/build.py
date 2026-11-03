@@ -49,6 +49,7 @@ from ..._annotation.overlap import compute_overlap
 from ..._refpanel.adapters import resolve_keep_individuals
 from ..._refpanel.funnel import concat_funnels, funnel_from_records, funnel_records, with_grid_rows
 from ..._refpanel.prepared import ChromosomeAnnotations
+from ..._refpanel.windows import WholeChromosomeWindowError
 from .atoms import (
     build_disjoint_atoms,
     compute_atom_statistics,
@@ -86,7 +87,7 @@ from ..._core.chromosomes import normalize_chromosome, normalize_chromosome_seri
 from ..._core.coordinates import positive_int_position_series
 from ..._core.columns import normalize_genome_build
 from ...config import DEFAULT_SNP_BATCH_SIZE, GeneLDScoreIndexBuildConfig, GlobalConfig, get_global_config
-from ...errors import LDSCInputError, LDSCInternalError, LDSCUsageError
+from ...errors import LDSCInputError, LDSCInternalError
 from ..._annotation.gene_lists import (
     GeneCatalog,
     GeneCatalogValidationError,
@@ -654,7 +655,7 @@ def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, c
             atom_batch_size=config.atom_batch_size,
         )
     except Exception as exc:
-        if isinstance(exc, LDSCUsageError) and "whole-chromosome" in str(exc):
+        if isinstance(exc, WholeChromosomeWindowError):
             raise LDSCInputError(
                 f"Gene-index construction rejects the whole-chromosome LD window on chromosome {chrom}. "
                 "Specify a smaller --ld-wind-cm, --ld-wind-kb, or --ld-wind-snps value; "

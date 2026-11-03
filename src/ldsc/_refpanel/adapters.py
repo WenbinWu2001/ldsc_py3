@@ -517,7 +517,7 @@ class R2MatrixRefPanel(RefPanel):
     def prepare_chromosome(self, chrom, annotations, config, *, genetic_map=None):
         """Prepare a sidecar-aligned streaming reader over a contract-validated R2 Parquet file."""
         chromosome = self.open_chromosome(chrom)
-        chromosome.check_ld_window(config)
+        chromosome.check_ld_window(config.ld_window)
         chromosome.reject_truncation()
         reference, funnel = self._load_reference(chromosome)
         aligned = _align_annotations(annotations, reference, chrom, self.global_config, funnel)
@@ -607,8 +607,7 @@ def _prepare_window(metadata, chrom, config, snp_identifier, *, snp_positions=No
             "metadata or use `--ld-wind-kb` / `--ld-wind-snps`."
         )
     coords, distance = window_coordinates(
-        metadata["POS"], metadata["CM"] if config.ld_wind_cm is not None else None,
-        ld_wind_snps=config.ld_wind_snps, ld_wind_kb=config.ld_wind_kb, ld_wind_cm=config.ld_wind_cm,
+        metadata["POS"], metadata["CM"] if config.ld_wind_cm is not None else None, config.ld_window,
         snp_positions=snp_positions,
     )
     block_left = get_block_lefts(coords, distance)

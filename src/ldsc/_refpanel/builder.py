@@ -1036,20 +1036,7 @@ class R2MatrixBuilder:
                 r2_min=config.r2_min,
                 n_snps=len(runtime_metadata),
                 sidecar_identity_sha256=identity_hash,
-                ld_window_mode=(
-                    "snps"
-                    if config.ld_wind_snps is not None
-                    else "kb"
-                    if config.ld_wind_kb is not None
-                    else "cm"
-                ),
-                ld_window_value=(
-                    config.ld_wind_snps
-                    if config.ld_wind_snps is not None
-                    else config.ld_wind_kb
-                    if config.ld_wind_kb is not None
-                    else config.ld_wind_cm
-                ),
+                ld_window=config.ld_window,
             )
             write_runtime_metadata_sidecar(
                 runtime_metadata,
@@ -1282,10 +1269,7 @@ def _r2_matrix_block_left(
                 "all retained positions. Provide a complete genetic map or use an SNP/kb "
                 f"LD window. Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
             )
-    coords, max_dist = window_coordinates(
-        positions, cm_values,
-        ld_wind_snps=config.ld_wind_snps, ld_wind_kb=config.ld_wind_kb, ld_wind_cm=config.ld_wind_cm,
-    )
+    coords, max_dist = window_coordinates(positions, cm_values, config.ld_window)
     return get_block_lefts(coords, max_dist)
 
 

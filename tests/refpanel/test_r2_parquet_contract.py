@@ -15,7 +15,7 @@ import pytest
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from ldsc.config import GlobalConfig, RefPanelConfig
+from ldsc.config import GlobalConfig, LDWindow, RefPanelConfig
 from ldsc.errors import LDSCInputError
 from ldsc._refpanel.preflight import inspect_r2_headers
 from ldsc._refpanel import build_kernel as kb
@@ -39,7 +39,7 @@ def _write_panel(root: Path, chrom: str = "1", *, snp_identifier: str = "chr_pos
     write_r2_parquet(
         pair_chunks=pairs, path=r2, genome_build="hg19", n_samples=100, snp_identifier=snp_identifier,
         n_snps=3, sidecar_identity_sha256=sidecar_identity_sha256(panel),
-        ld_window_mode="kb", ld_window_value=1000.0,
+        ld_window=LDWindow("kb", 1000.0),
     )
     return r2
 

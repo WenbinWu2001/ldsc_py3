@@ -9,11 +9,11 @@ of each SNP's window, and the checks that a window fits the reference data.
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
 
+from ..config import LDWindow
 from ..errors import LDSCInputError, LDSCInternalError, LDSCUsageError
 
 
@@ -86,27 +86,24 @@ def assert_cm_usable(cm: pd.Series, chrom: str) -> None:
 def window_coordinates(
     positions: np.ndarray,
     cm: np.ndarray | None,
+    window: LDWindow,
     *,
-    ld_wind_snps: int | None,
-    ld_wind_kb: float | None,
-    ld_wind_cm: float | None,
     snp_positions: np.ndarray | None = None,
 ) -> tuple[np.ndarray, float]:
-    """Build the coordinate array and maximum distance for the active LD window mode.
+    """Build the coordinate array and maximum distance for one LD window.
 
-    Exactly one window value is set; the configuration objects enforce this.
-    ``--ld-wind-snps`` counts retained rows unless ``snp_positions`` gives each
+    A SNP-count window counts retained rows unless ``snp_positions`` gives each
     retained SNP's row in a larger SNP set (the R2 matrix sidecar), in which case
     it counts rows of that set. ``snp_positions`` must be increasing; parquet
-    preparation orders retained SNPs by panel row. ``cm`` must be complete when
-    ``ld_wind_cm`` is set; callers raise their own command-specific error first.
+    preparation orders retained SNPs by panel row. ``cm`` must be complete for a
+    cM window; callers raise their own command-specific error first.
     """
-    if ld_wind_snps is not None:
+    if window.unit == "snps":
         rows = np.arange(len(positions)) if snp_positions is None else snp_positions
-        return np.asarray(rows, dtype=float), float(ld_wind_snps)
-    if ld_wind_kb is not None:
-        return np.asarray(positions, dtype=float), float(ld_wind_kb) * 1000.0
-    return np.asarray(cm, dtype=float), float(ld_wind_cm)
+        return np.asarray(rows, dtype=float), float(window.value)
+    if window.unit == "kb":
+        return np.asarray(positions, dtype=float), float(window.value) * 1000.0
+    return np.asarray(cm, dtype=float), float(window.value)
 
 
 def check_whole_chromosome_window(block_left: np.ndarray, args: argparse.Namespace, chrom: str) -> None:
@@ -120,39 +117,3 @@ def check_whole_chromosome_window(block_left: np.ndarray, args: argparse.Namespa
             "Use a smaller LD window, or rerun with `--yes-really` if a whole-chromosome "
             "window is intentional."
         )
-
-
-@dataclass(frozen=True)
-class _LDWindowSpec:
-    mode: str
-    value: float
-
-    @property
-    def flag(self) -> str:
-        return {
-            "snps": "--ld-wind-snps",
-            "kb": "--ld-wind-kb",
-            "cm": "--ld-wind-cm",
-        }[self.mode]
-
-
-def _format_ld_window_spec(spec: _LDWindowSpec) -> str:
-    """Return the CLI spelling of one LD-window specification."""
-    value = int(spec.value) if spec.mode == "snps" else spec.value
-    return f"{spec.flag} {value}"
-
-
-def _requested_ld_window_spec(args: argparse.Namespace) -> _LDWindowSpec:
-    """Return the user-requested LD-window mode and value from parsed args."""
-    if args.ld_wind_snps is not None:
-        return _LDWindowSpec("snps", float(args.ld_wind_snps))
-    if args.ld_wind_kb is not None:
-        return _LDWindowSpec("kb", float(args.ld_wind_kb))
-    if args.ld_wind_cm is not None:
-        return _LDWindowSpec("cm", float(args.ld_wind_cm))
-    raise LDSCUsageError(
-        "ldscore could not validate the R2 matrix LD window because no "
-        "user LD-window option was set. Most likely argument validation was "
-        "bypassed. Specify exactly one of `--ld-wind-snps`, `--ld-wind-kb`, or "
-        "`--ld-wind-cm`."
-    )

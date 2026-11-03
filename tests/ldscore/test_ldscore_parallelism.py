@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from ldsc.config import LDWindow
 from ldsc.errors import EmptyReferenceSNPs, LDSCInputError
 
 
@@ -87,8 +88,7 @@ def _write_index_panel(
             snp_identifier=snp_identifier,
             n_snps=len(panel),
             sidecar_identity_sha256=identity_hash,
-            ld_window_mode="kb",
-            ld_window_value=1000.0,
+            ld_window=LDWindow("kb", 1000.0),
         )
         write_runtime_metadata_sidecar(
             runtime_meta,

@@ -1370,7 +1370,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
     option_values = dict(vars(args))
     option_values.update(bfile=getattr(args, 'plink_prefix', None), keep=getattr(args, 'keep_indivs_file', None))
     _validate_run_args(argparse.Namespace(**option_values))
-    _ldscore_config_from_args(args)
+    ld_window = _ldscore_config_from_args(args).ld_window
     normalized_args = global_config = None
     output_config = _output_config_from_args(args)
     output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
@@ -1394,7 +1394,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
                 plink=getattr(args, 'plink_prefix', None), require_complete_suite=has_queries,
                 mode=getattr(args, 'snp_identifier', 'rsid'), issues_path=output_dir/'diagnostics/input_issues.tsv',
                 checks=[('reference', args.r2_matrix_dir, lambda: inspect_r2_headers(
-                    args.r2_matrix_dir, getattr(args, 'genome_build', None), command='ldscore', ldscore_args=args))]
+                    args.r2_matrix_dir, getattr(args, 'genome_build', None), command='ldscore', ld_window=ld_window))]
                        if getattr(args, 'r2_matrix_dir', None) else ())
             require_usable_bed_query_names(declared_inputs.files['query_annot_bed_sources'],
                                            annotation_columns(declared_inputs), output_dir/'diagnostics/input_issues.tsv')
@@ -2260,7 +2260,7 @@ def _check_parquet_reference(ref_panel, chromosomes, ldscore_config: LDScoreConf
     r2_matrix_dir = ref_panel.spec.r2_matrix_dir
     gate = InputGate("R2 matrix validation")
     gate.check("reference", r2_matrix_dir, lambda: inspect_r2_headers(
-        r2_matrix_dir, global_config.genome_build, command="ldscore", ldscore_args=ldscore_config))
+        r2_matrix_dir, global_config.genome_build, command="ldscore", ld_window=ldscore_config.ld_window))
     for chrom in chromosomes:
         gate.check("reference", r2_matrix_dir, lambda chrom=chrom: check_sidecar(chrom), chrom=chrom)
     gate.finish()

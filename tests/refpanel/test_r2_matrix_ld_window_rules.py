@@ -13,6 +13,7 @@ import pandas as pd
 import pytest
 
 from ldsc import cli
+from ldsc.config import LDWindow
 
 pytest.importorskip("bitarray")
 
@@ -121,7 +122,7 @@ def _tied_snp_panel(build_dir):
                       np.array([p[2] for p in pairs], dtype=np.float32), np.ones(len(pairs), dtype=np.int8))],
         path=build_dir / "chr1_r2.parquet", genome_build="hg19", n_samples=200, snp_identifier="rsid",
         n_snps=len(panel), sidecar_identity_sha256=sidecar_identity_sha256(sidecar),
-        ld_window_mode="snps", ld_window_value=1.0,
+        ld_window=LDWindow("snps", 1.0),
     )
     write_runtime_metadata_sidecar(sidecar, build_dir / "chr1_meta.tsv.gz", genome_build="hg19",
                                       snp_identifier="rsid")

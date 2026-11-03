@@ -31,9 +31,9 @@ from .._core.snp_identity import (
     sidecar_identity_sha256,
     normalize_snp_identifier_mode,
 )
+from ..config import LDWindow
 from .build_kernel import PairColumns
 from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
-from .windows import _LDWindowSpec, _format_ld_window_spec, _requested_ld_window_spec
 
 # Troubleshooting section for R2 matrix errors, by the command that reads the R2 matrix.
 R2_MATRIX_TROUBLESHOOTING = {
@@ -178,7 +178,7 @@ class R2ParquetContract:
     sidecar_identity_sha256: str
     n_samples: int
     r2_scale: float
-    ld_window: _LDWindowSpec
+    ld_window: LDWindow
     # Build-time adjusted-R2 floor; pairs below a positive value were not stored.
     r2_min: float
 
@@ -246,7 +246,8 @@ def _check_r2_parquet_contract(path) -> tuple[R2ParquetContract | None, list[str
     return R2ParquetContract(
         path=str(path), snp_identifier=snp_identifier, genome_build=genome_build,
         sorted_by_build=sorted_by_build, n_snps=n_snps, sidecar_identity_sha256=identity_hash,
-        n_samples=n_samples, r2_scale=r2_scale, ld_window=_LDWindowSpec(window_mode, window_value),
+        n_samples=n_samples, r2_scale=r2_scale,
+        ld_window=LDWindow(window_mode, int(window_value) if window_mode == "snps" else window_value),
         r2_min=r2_min,
     ), []
 
@@ -481,7 +482,7 @@ class R2MatrixChromosome:
                 "the sidecar was reordered or edited, or belongs to another R2 matrix",
             )
 
-    def check_ld_window(self, args) -> None:
+    def check_ld_window(self, requested: LDWindow) -> None:
         """Reject ``ldscore`` LD windows this R2 matrix is not known to cover.
 
         The rule uses only the recorded footer LD-window mode and value, so it is
@@ -491,9 +492,8 @@ class R2MatrixChromosome:
         relies on counting R2 matrix rows (see :func:`window_coordinates`).
         """
         recorded = self.contract.ld_window
-        requested = _requested_ld_window_spec(args)
-        if requested.mode != recorded.mode:
-            requested_text, recorded_text = _format_ld_window_spec(requested), _format_ld_window_spec(recorded)
+        if requested.unit != recorded.unit:
+            requested_text, recorded_text = str(requested), str(recorded)
             raise LDSCUsageError(
                 f"ldscore cannot use the R2 matrix for chromosome {self.chrom} with "
                 f"`{requested_text}`: the R2 matrix was built with `{recorded_text}`, and windows in different units "
@@ -505,14 +505,14 @@ class R2MatrixChromosome:
         if requested.value > recorded.value:
             raise LDSCUsageError(
                 f"ldscore cannot compute chromosome {self.chrom} from the "
-                f"R2 matrix: the user-requested LD window `{_format_ld_window_spec(requested)}` "
+                f"R2 matrix: the user-requested LD window `{requested}` "
                 f"is wider than the input R2 matrix window "
-                f"`{_format_ld_window_spec(recorded)}`. Most likely the "
+                f"`{recorded}`. Most likely the "
                 "R2 matrix was built with a smaller LD window, so it does not contain all "
                 "SNP pairs required by this ldscore run. Rebuild the R2 matrix "
-                f"with `{_format_ld_window_spec(requested)}` or a wider build window, or "
+                f"with `{requested}` or a wider build window, or "
                 f"rerun ldscore with an LD window no wider than the recorded R2 matrix window "
-                f"`{_format_ld_window_spec(recorded)}`."
+                f"`{recorded}`."
             )
 
     def reject_truncation(self) -> None:
@@ -732,8 +732,7 @@ def write_r2_parquet(
     sidecar_identity_sha256: str,
     batch_size: int = 100_000,
     row_group_size: int = 50_000,
-    ld_window_mode: str,
-    ld_window_value: float,
+    ld_window: LDWindow,
     r2_min: float = 0.0,
 ) -> str:
     """
@@ -756,8 +755,8 @@ def write_r2_parquet(
     pairwise-complete only when ``ldsc:r2_min`` is non-positive; ldscore
     rejects any other value, and query-r2-matrix reports absent pairs as absent.
 
-    ``ld_window_mode`` and ``ld_window_value`` record the build-time LD window
-    that bounded emitted pairs. LD-score calculation uses these fields to reject
+    ``ld_window`` is the build-time LD window that bounded emitted pairs,
+    recorded as ``ldsc:ld_window_mode`` and ``ldsc:ld_window_value``. LD-score calculation uses these fields to reject
     wider requested windows that would require pairs the parquet does not store.
 
     Column chunks are compressed with zstd level 9 when the codec is available
@@ -775,13 +774,6 @@ def write_r2_parquet(
             "space exceeds the int32 IDX column range. Most likely the retained reference "
             "R2 matrix is too large for the current parquet format. Split the R2 matrix or reduce "
             "the retained reference SNPs."
-        )
-    if ld_window_mode is None or ld_window_value is None:
-        raise LDSCInternalError(
-            "build-r2-matrix could not write R2 Parquet file LD-window metadata because "
-            "ld_window_mode and ld_window_value were not both provided. Most likely "
-            "the R2 matrix builder passed an incomplete build-window record. "
-            "Re-run with DEBUG logging and report the traceback."
         )
 
     pa_meta = {
@@ -802,8 +794,8 @@ def write_r2_parquet(
         b"ldsc:sidecar_identity_sha256": str(sidecar_identity_sha256).encode("utf-8"),
         b"ldsc:r2_encoding": R2_ENCODING.encode("utf-8"),
         b"ldsc:r2_scale": str(R2_QUANT_SCALE).encode("utf-8"),
-        b"ldsc:ld_window_mode": str(ld_window_mode).encode("utf-8"),
-        b"ldsc:ld_window_value": str(ld_window_value).encode("utf-8"),
+        b"ldsc:ld_window_mode": ld_window.unit.encode("utf-8"),
+        b"ldsc:ld_window_value": str(ld_window.value).encode("utf-8"),
     }
     schema = pa.schema(
         [

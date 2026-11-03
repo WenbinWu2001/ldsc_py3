@@ -21,7 +21,7 @@ import pandas as pd
 import pytest
 
 
-from ldsc.config import ConfigMismatchError, GlobalConfig
+from ldsc.config import ConfigMismatchError, GlobalConfig, LDWindow
 from ldsc.errors import LDSCInputError, LDSCInternalError, LDSCUsageError
 from ldsc._annotation.query_outcomes import QueryAnnotationStatus, emit_gene_gate_b_notice
 
@@ -2357,7 +2357,7 @@ class R2MatrixWindowValidationTest(unittest.TestCase):
     def test_ldscore_accepts_equal_recorded_r2_matrix_window(self):
         with tempfile.TemporaryDirectory() as tmp:
             chromosome = self._chromosome(tmp, ("cm", 1.0))
-            chromosome.check_ld_window(Namespace(ld_wind_snps=None, ld_wind_kb=None, ld_wind_cm=1.0))
+            chromosome.check_ld_window(LDWindow("cm", 1.0))
 
     def test_ldscore_rejects_window_wider_than_recorded_r2_matrix_window(self):
         panel = pd.DataFrame({"CHR": ["1"] * 3, "POS": [100, 200, 300], "SNP": ["rs1", "rs2", "rs3"],
@@ -2368,20 +2368,19 @@ class R2MatrixWindowValidationTest(unittest.TestCase):
                 LDSCUsageError,
                 "user-requested LD window `--ld-wind-kb 1.0` is wider than the input R2 matrix window `--ld-wind-kb 0.1`",
             ):
-                chromosome.check_ld_window(Namespace(ld_wind_snps=None, ld_wind_kb=1.0, ld_wind_cm=None))
+                chromosome.check_ld_window(LDWindow("kb", 1.0))
 
     def test_ldscore_rejects_any_strictly_larger_same_mode_window(self):
         with tempfile.TemporaryDirectory() as tmp:
             chromosome = self._chromosome(tmp, ("cm", 1.0))
             with self.assertRaisesRegex(LDSCUsageError, "is wider than the input R2 matrix window"):
-                chromosome.check_ld_window(
-                    Namespace(ld_wind_snps=None, ld_wind_kb=None, ld_wind_cm=float(np.nextafter(1.0, 2.0))))
+                chromosome.check_ld_window(LDWindow("cm", float(np.nextafter(1.0, 2.0))))
 
     def test_ldscore_rejects_requested_window_mode_differing_from_r2_matrix_mode(self):
         with tempfile.TemporaryDirectory() as tmp:
             chromosome = self._chromosome(tmp, ("cm", 1.0))
             with self.assertRaises(LDSCUsageError) as caught:
-                chromosome.check_ld_window(Namespace(ld_wind_snps=None, ld_wind_kb=100.0, ld_wind_cm=None))
+                chromosome.check_ld_window(LDWindow("kb", 100.0))
 
         message = str(caught.exception)
         self.assertIn("with `--ld-wind-kb 100.0`", message)
@@ -2613,16 +2612,16 @@ def test_window_coordinates_select_each_window_mode():
     positions = np.array([100, 250, 900, 2_000])
     cm = np.array([0.0, 0.4, 0.9, 1.6])
 
-    coords, dist = window_coordinates(positions, cm, ld_wind_snps=None, ld_wind_kb=None, ld_wind_cm=1.0)
+    coords, dist = window_coordinates(positions, cm, LDWindow("cm", 1.0))
     np.testing.assert_array_equal(coords, cm)
     assert dist == 1.0
     np.testing.assert_array_equal(ld_windows.get_block_lefts(coords, dist), [0, 0, 0, 2])
 
-    coords, dist = window_coordinates(positions, None, ld_wind_snps=None, ld_wind_kb=1.0, ld_wind_cm=None)
+    coords, dist = window_coordinates(positions, None, LDWindow("kb", 1.0))
     np.testing.assert_array_equal(coords, positions.astype(float))
     assert dist == 1000.0
 
-    coords, dist = window_coordinates(positions, None, ld_wind_snps=2, ld_wind_kb=None, ld_wind_cm=None)
+    coords, dist = window_coordinates(positions, None, LDWindow("snps", 2))
     np.testing.assert_array_equal(coords, [0.0, 1.0, 2.0, 3.0])
     assert dist == 2.0
 
@@ -2630,8 +2629,7 @@ def test_window_coordinates_select_each_window_mode():
 def test_window_coordinates_count_panel_rows_when_given():
     """``--ld-wind-snps`` counts R2 matrix sidecar rows, not retained rows."""
     coords, dist = window_coordinates(
-        np.array([10, 20, 30]), None, ld_wind_snps=1, ld_wind_kb=None, ld_wind_cm=None,
-        snp_positions=np.array([0, 5, 6]),
+        np.array([10, 20, 30]), None, LDWindow("snps", 1), snp_positions=np.array([0, 5, 6]),
     )
     np.testing.assert_array_equal(coords, [0.0, 5.0, 6.0])
     np.testing.assert_array_equal(ld_windows.get_block_lefts(coords, dist), [0, 1, 1])

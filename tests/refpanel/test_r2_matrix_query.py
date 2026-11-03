@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from ldsc._refpanel.r2_format import write_r2_parquet, write_runtime_metadata_sidecar
+from ldsc.config import LDWindow
 from ldsc._core.snp_identity import sidecar_identity_sha256
 from ldsc._refpanel.query import unbiased_r2_to_pearson_r
 from ldsc.errors import LDSCInputError
@@ -61,8 +62,7 @@ def build_test_panel(
         n_snps=len(sidecar),
         sidecar_identity_sha256=identity_hash,
         r2_min=0.0,
-        ld_window_mode="kb",
-        ld_window_value=1000.0,
+        ld_window=LDWindow("kb", 1000.0),
     )
     return build_dir, meta_path, r2_path
 

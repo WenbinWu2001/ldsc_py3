@@ -24,7 +24,7 @@ from ldsc._refpanel import r2_format
 from ldsc._refpanel.r2_format import build_runtime_metadata_table
 from ldsc._refpanel.windows import window_coordinates
 from ldsc._core.snp_identity import IDENTITY_DROP_COLUMNS, RestrictionIdentityKeys, empty_identity_drop_frame
-from ldsc.config import GlobalConfig, R2MatrixBuildConfig
+from ldsc.config import GlobalConfig, LDWindow, R2MatrixBuildConfig
 from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from ldsc._ldscore import calculator as ldscore_calculator
 from ldsc import reset_global_config, set_global_config
@@ -401,9 +401,7 @@ class RetainedSnpOrderingTest(unittest.TestCase):
     def test_kb_window_coordinates_use_requested_build_positions(self):
         build_positions = np.array([100, 250], dtype=np.int64)
 
-        coords, max_dist = window_coordinates(
-            build_positions, None, ld_wind_snps=None, ld_wind_kb=1.0, ld_wind_cm=None,
-        )
+        coords, max_dist = window_coordinates(build_positions, None, LDWindow("kb", 1.0))
 
         np.testing.assert_array_equal(coords, np.array([100.0, 250.0]))
         self.assertEqual(max_dist, 1000.0)
@@ -434,7 +432,7 @@ class StandardTableFormattingTest(unittest.TestCase):
                 pair_chunks=dict_chunks(rows), path=path, genome_build="hg19", n_samples=42,
                 snp_identifier="rsid_allele_aware", row_group_size=50_000,
                 n_snps=2, sidecar_identity_sha256="ab" * 32,
-                ld_window_mode="kb", ld_window_value=1000.0,
+                ld_window=LDWindow("kb", 1000.0),
             )
             meta = pq.read_schema(str(path)).metadata
             self.assertEqual(meta[b"ldsc:sorted_by_build"], b"hg19")
@@ -453,7 +451,7 @@ class StandardTableFormattingTest(unittest.TestCase):
             r2_format.write_r2_parquet(
                 pair_chunks=dict_chunks([]), path=default_path, genome_build="hg19", n_samples=10,
                 snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
-                ld_window_mode="kb", ld_window_value=1000.0,
+                ld_window=LDWindow("kb", 1000.0),
             )
             self.assertEqual(pq.read_schema(str(default_path)).metadata[b"ldsc:r2_min"], b"0.0")
 
@@ -461,23 +459,9 @@ class StandardTableFormattingTest(unittest.TestCase):
             r2_format.write_r2_parquet(
                 pair_chunks=dict_chunks([]), path=filtered_path, genome_build="hg19", n_samples=10,
                 snp_identifier="chr_pos", r2_min=0.3, n_snps=2, sidecar_identity_sha256="0" * 64,
-                ld_window_mode="kb", ld_window_value=1000.0,
+                ld_window=LDWindow("kb", 1000.0),
             )
             self.assertEqual(pq.read_schema(str(filtered_path)).metadata[b"ldsc:r2_min"], b"0.3")
-
-    def test_write_r2_parquet_requires_ld_window_record(self):
-        # Readers reject panels without a build window, so the writer must not
-        # record a missing window as the text "None".
-        with tempfile.TemporaryDirectory() as tmpdir:
-            for mode, value in (("kb", None), (None, 1000.0), (None, None)):
-                path = Path(tmpdir) / f"{mode}_{value}.parquet"
-                with self.subTest(mode=mode, value=value), self.assertRaisesRegex(LDSCInternalError, "ld_window_mode"):
-                    r2_format.write_r2_parquet(
-                        pair_chunks=dict_chunks([]), path=path, genome_build="hg19", n_samples=10,
-                        snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
-                        ld_window_mode=mode, ld_window_value=value,
-                    )
-                self.assertFalse(path.exists())
 
     def test_write_r2_parquet_records_ld_window_metadata(self):
         import pyarrow.parquet as pq
@@ -492,8 +476,7 @@ class StandardTableFormattingTest(unittest.TestCase):
                 snp_identifier="chr_pos",
                 n_snps=2,
                 sidecar_identity_sha256="0" * 64,
-                ld_window_mode="kb",
-                ld_window_value=1000.0,
+                ld_window=LDWindow("kb", 1000.0),
             )
 
             metadata = pq.read_schema(str(path)).metadata
@@ -523,7 +506,7 @@ class StandardTableFormattingTest(unittest.TestCase):
                 r2_format.write_r2_parquet(
                     pair_chunks=dict_chunks(rows), path=path, genome_build="hg19", n_samples=10,
                     snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
-                    ld_window_mode="kb", ld_window_value=1000.0,
+                    ld_window=LDWindow("kb", 1000.0),
                 )
             self.assertEqual(captured.get("compression"), "zstd")
             self.assertEqual(captured.get("compression_level"), 9)
@@ -551,7 +534,7 @@ class StandardTableFormattingTest(unittest.TestCase):
                     r2_format.write_r2_parquet(
                         pair_chunks=dict_chunks(rows), path=path, genome_build="hg19", n_samples=10,
                         snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
-                        ld_window_mode="kb", ld_window_value=1000.0,
+                        ld_window=LDWindow("kb", 1000.0),
                     )
             self.assertIn("snappy", str(cm.warning).lower())
 
@@ -572,7 +555,7 @@ class StandardTableFormattingTest(unittest.TestCase):
             r2_format.write_r2_parquet(
                 pair_chunks=dict_chunks(rows), path=path, genome_build="hg19", n_samples=10,
                 snp_identifier="chr_pos", n_snps=3, sidecar_identity_sha256="0" * 64,
-                ld_window_mode="kb", ld_window_value=1000.0,
+                ld_window=LDWindow("kb", 1000.0),
             )
             md = pq.ParquetFile(path).metadata
             rg = md.row_group(0)
@@ -2917,7 +2900,7 @@ class R2QuantizationTest(unittest.TestCase):
             path = Path(tmp) / "chr1_r2.parquet"
             r2_format.write_r2_parquet(pair_chunks=dict_chunks(rows), path=path, genome_build="hg19",
                                 n_samples=100, snp_identifier="chr_pos", n_snps=3,
-                                sidecar_identity_sha256="0" * 64, ld_window_mode="kb", ld_window_value=1000.0)
+                                sidecar_identity_sha256="0" * 64, ld_window=LDWindow("kb", 1000.0))
             pf = pq.ParquetFile(path)
             self.assertEqual(pf.schema_arrow.field("R2").type, pa.int16())
             meta = pf.schema_arrow.metadata
@@ -2948,7 +2931,7 @@ class IndexWriterTest(unittest.TestCase):
                 pair_chunks=dict_chunks(self._rows()), path=path, genome_build="hg19",
                 n_samples=100, snp_identifier="chr_pos", r2_min=0.0,
                 n_snps=3, sidecar_identity_sha256="deadbeef" * 8,
-                ld_window_mode="kb", ld_window_value=1000.0,
+                ld_window=LDWindow("kb", 1000.0),
             )
             pf = pq.ParquetFile(path)
             self.assertEqual(pf.schema_arrow.names, ["IDX_1", "IDX_2", "R2", "SIGN_R"])
@@ -2970,7 +2953,7 @@ class IndexWriterTest(unittest.TestCase):
                     pair_chunks=dict_chunks(bad), path=path, genome_build="hg19", n_samples=100,
                     snp_identifier="chr_pos", r2_min=0.0, n_snps=4,
                     sidecar_identity_sha256="0" * 64,
-                    ld_window_mode="kb", ld_window_value=1000.0,
+                    ld_window=LDWindow("kb", 1000.0),
                 )
 
 

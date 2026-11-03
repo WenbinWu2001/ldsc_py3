@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 
 from ldsc import GlobalConfig, LDScoreConfig, PlinkRefPanel, RefPanelConfig
+from ldsc.config import LDWindow
 from ldsc._core.snp_identity import sidecar_identity_sha256
 from ldsc._ldscore import compute as ldscore
 from ldsc._refpanel.r2_format import (
@@ -37,7 +38,7 @@ def write_r2_matrix_chromosome(build_dir, panel, pairs=(), *, snp_identifier="ch
     write_r2_parquet(
         pair_chunks=chunks, path=parquet_path, genome_build=genome_build, n_samples=n_samples,
         snp_identifier=snp_identifier, n_snps=len(sidecar), sidecar_identity_sha256=sidecar_identity_sha256(sidecar),
-        ld_window_mode=ld_window[0], ld_window_value=ld_window[1], r2_min=r2_min, row_group_size=row_group_size,
+        ld_window=LDWindow(*ld_window), r2_min=r2_min, row_group_size=row_group_size,
     )
     return parquet_path, sidecar_path
 

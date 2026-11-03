@@ -27,12 +27,12 @@ GENETIC_MAP_HEADER_CHECKS = {
 }
 
 
-def inspect_r2_headers(directory, genome_build=None, *, command, ldscore_args=None):
+def inspect_r2_headers(directory, genome_build=None, *, command, ld_window=None):
     """Check every R2 matrix chromosome's files, Parquet footer and sidecar header before any pair scan.
 
     ``command`` (``ldscore`` or ``query-r2-matrix``) names the reading command
-    in each issue. With ``ldscore_args`` (parsed ldscore options), each
-    chromosome's recorded build window must also admit the requested LD window,
+    in each issue. With ``ld_window`` (the ``ldscore`` LD window), each
+    chromosome's recorded build window must also admit that window,
     and its R2 matrix must store every pair (``ldsc:r2_min`` not positive).
     """
     from .r2_format import R2MatrixChromosome, r2_matrix_chromosomes, r2_matrix_file_paths, resolve_r2_build_dir
@@ -43,7 +43,7 @@ def inspect_r2_headers(directory, genome_build=None, *, command, ldscore_args=No
         gate = InputGate('R2 matrix declarations and headers')
         for child in children:
             gate.check('reference', child, lambda child=child: inspect_r2_headers(
-                child, child.name, command=command, ldscore_args=ldscore_args))
+                child, child.name, command=command, ld_window=ld_window))
         gate.finish()
         return root
     root = resolve_r2_build_dir(directory, genome_build)
@@ -58,8 +58,8 @@ def inspect_r2_headers(directory, genome_build=None, *, command, ldscore_args=No
         if chromosome is None:
             continue
         gate.check('reference', chromosome.sidecar_path, chromosome.check_sidecar_header, chrom=chrom)
-        if ldscore_args is not None:
-            gate.check('reference', source, lambda: chromosome.check_ld_window(ldscore_args), chrom=chrom)
+        if ld_window is not None:
+            gate.check('reference', source, lambda: chromosome.check_ld_window(ld_window), chrom=chrom)
             gate.check('reference', source, chromosome.reject_truncation, chrom=chrom)
     gate.finish()
     return root

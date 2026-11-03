@@ -896,7 +896,7 @@ def _run_gene_ldscore_index_build(
             "chromosomes": list(chromosomes),
             "baseline_annot_sources": list(config.baseline_annot_sources),
             "plink_prefix": config.plink_prefix,
-            "ld_window": _index_ld_window(config),
+            "ld_window": config.ld_window.record(),
             "padding_bp": config.padding_bp,
             "gene_exclude_regions": config.gene_exclude_regions,
             "maf_min": config.maf_min,
@@ -1302,12 +1302,6 @@ def _retained_baseline_content_sha256(
     return _canonical_frame_sha256(content, sort_by=tuple(identity_columns))
 
 
-def _index_ld_window(config) -> dict:
-    """Describe the one validated LD window in canonical index metadata."""
-    return next({"unit": unit, "value": getattr(config, f"ld_wind_{unit}")}
-                for unit in ("cm", "kb", "snps") if getattr(config, f"ld_wind_{unit}") is not None)
-
-
 def _genetic_map_identity(args, genetic_map: pd.DataFrame | None = None) -> str | dict:
     """Return the content-bound scientific identity of the effective cM map."""
     if args.ld_wind_cm is None:
@@ -1378,7 +1372,7 @@ def _builder_index_identity(
         },
         "maf_min": config.maf_min,
         "common_maf_min": config.common_maf_min,
-        "ld_window": _index_ld_window(config),
+        "ld_window": config.ld_window.record(),
         "genetic_map": _genetic_map_identity(args, genetic_map),
         "regression_snps": {
             "kind": "custom" if config.regr_snps_file else "bundled_hapmap3",

@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from ldsc import AnnotationBundle, GlobalConfig, LDScoreCalculator, LDScoreConfig, RefPanelConfig
+from ldsc.config import LDWindow
 from ldsc._ldscore import compute as ldscore
 from ldsc._refpanel.prepared import ChromosomeAnnotations
 from ldsc._refpanel.r2_format import SortedR2BlockReader
@@ -37,7 +38,7 @@ def write_panel(root, *, chrom="1", mode="rsid", ld_window=("snps", 10.0), r2_mi
         pair_chunks=[(np.array([0]), np.array([1]), np.array([0.5], dtype=np.float32), np.array([1], dtype=np.int8))],
         path=root / f"chr{chrom}_r2.parquet", genome_build="hg19", n_samples=200, snp_identifier=mode,
         n_snps=2, sidecar_identity_sha256=sidecar_identity_sha256(metadata),
-        ld_window_mode=ld_window[0], ld_window_value=ld_window[1], r2_min=r2_min,
+        ld_window=LDWindow(*ld_window), r2_min=r2_min,
     )
     return metadata
 

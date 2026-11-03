@@ -391,10 +391,10 @@ class LDScoreCalculator:
         ----------
         annotation_bundle : AnnotationBundle or AnnotationResult
             Prepared baseline and query inputs. ``AnnotationBundle.from_frames``
-            supplies a small in-memory dataset without filesystem staging. A
-            saved ``run_annotate`` result (``AnnotationResult``) needs
-            ``output_config``; it is prepared inside the output directory and
-            the preparation is removed when the run ends.
+            supplies a small in-memory dataset without filesystem staging. An
+            annotation result (``AnnotationResult``) from ``run_annotate``
+            needs ``output_config``; it is prepared inside the output
+            directory and the preparation is removed when the run ends.
         ref_panel : RefPanel
             Resolved PLINK or R2 matrix adapter; input files are read without mutation.
         ldscore_config : LDScoreConfig
@@ -426,8 +426,8 @@ class LDScoreCalculator:
         Raises
         ------
         LDSCUsageError
-            Output is omitted for multiple batches or a saved ``run_annotate``
-            result, annotations still need disk preparation, or
+            Output is omitted for multiple batches or an annotation result
+            (``AnnotationResult``), annotations still need disk preparation, or
             reference-metadata export is requested without an output directory.
         LDSCInputError
             An R2 matrix has an invalid chromosome footer or sidecar.
@@ -461,15 +461,15 @@ class LDScoreCalculator:
              regression_snps=None, regression_regions=None, *, check_parquet_reference=False):
         """Implement :meth:`run`; the CLI calls this after its own reference preflight.
 
-        A saved ``run_annotate`` result is prepared inside this run's output
-        directory, so the annotate output directory, an input here, is never
-        written; the preparation is removed when the run ends.
+        An annotation result (``AnnotationResult``) is prepared inside this
+        run's output directory, so the annotate output directory, an input
+        here, is never written; the preparation is removed when the run ends.
         """
         arguments = (ref_panel, ldscore_config, global_config, output_config, regression_snps, regression_regions)
         if not isinstance(annotation_bundle, AnnotationResult):
             return self._run_prepared(annotation_bundle, *arguments, check_parquet_reference=check_parquet_reference)
         if output_config is None:
-            raise LDSCUsageError(_saved_result_message("LDScoreCalculator.run() without output_config") +
+            raise LDSCUsageError(_annotation_result_message("LDScoreCalculator.run() without output_config") +
                                  " Alternatively pass output_config, and run() prepares it inside the output directory.")
         with annotation_bundle.prepared_in(output_config.output_dir) as bundle:
             return self._run_prepared(bundle, *arguments, check_parquet_reference=check_parquet_reference)
@@ -581,7 +581,7 @@ class LDScoreCalculator:
         existing calculation worker reuse that process.
         """
         if isinstance(annotation_bundle, AnnotationResult):
-            raise LDSCUsageError(_saved_result_message("compute_chromosome()"))
+            raise LDSCUsageError(_annotation_result_message("compute_chromosome()"))
         backend = getattr(getattr(ref_panel, "spec", None), "backend", None)
         chrom_annotations = _chromosome_annotations(annotation_bundle,chrom)
         LOGGER.info(f"Computing chromosome {chrom} LD scores with backend '{backend or 'unknown'}' and {len(chrom_annotations.metadata)} annotation rows.")
@@ -2325,11 +2325,12 @@ def _grid_emptied_message(funnels: Sequence[pd.DataFrame]) -> str:
     )
 
 
-def _saved_result_message(caller: str) -> str:
-    """Explain how to read a saved ``run_annotate`` result where a bundle is required."""
-    return (f"{caller} cannot read a saved run_annotate result (AnnotationResult) directly: it reads no files "
-            "until you prepare it. Call result.prepared_in(directory), which prepares the exported annotation "
-            "files in a private folder of a directory you choose, and pass the returned AnnotationBundle; "
+def _annotation_result_message(caller: str) -> str:
+    """Explain how to read an annotation result where a bundle is required."""
+    return (f"{caller} cannot read an annotation result (AnnotationResult) from run_annotate directly: "
+            "it reads no files until you prepare it. Call result.prepared_in(directory), which prepares the "
+            "exported annotation files in a private folder of a directory you choose, and pass the returned "
+            "AnnotationBundle; "
             "close that bundle when you are done.")
 
 

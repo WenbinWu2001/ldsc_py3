@@ -1,6 +1,6 @@
 # Logs and Outputs
 
-Last updated on: 2026-11-02
+Last updated on: 2026-11-03
 
 This page describes what a logged workflow writes besides its scientific results: logs, console messages, output preflight and failure markers.
 The rules for writing log and error messages, and the logging API boundary, are in [logging design](../dev/design/logging.md).
@@ -19,7 +19,7 @@ Every file a run creates, writes, renames or deletes is inside its output direct
 Logs, diagnostics, failure markers, scratch workspaces and the gene LD-score index build state are all there; nothing is written beside the output directory, in an input directory, in the working directory, or in the system temporary directory.
 An empty or blank destination (`--output-dir ""`, `output_dir=""`, or the same for a result directory) is rejected before anything is written, because it would otherwise mean the working directory: on the command line as an argument-parsing error (exit 2), and in Python as `LDSCConfigError`.
 Pass `.` to use the working directory on purpose.
-A workflow that reads a saved `run_annotate` result prepares it in its own output directory, never in the annotate output directory.
+A workflow that reads an annotation result (`AnnotationResult`, returned by `run_annotate`) prepares it in its own output directory, never in the annotate output directory.
 Matplotlib's own per-user configuration and font cache, created the first time `plot` or `convert-h2-scale` imports it, are outside the package's control.
 
 ## Workflow log lifecycle

@@ -230,11 +230,12 @@ def test_valid_and_resolved_only_outputs_keep_membership_and_precision(tmp_path,
     genes = tmp_path / "focal.txt"
     genes.write_text("G1\nUNKNOWN\n" if policy == "resolved-only" else "G1\n")
     output = tmp_path / "out"
-    with run_annotate(**grid, query_annot_gene_list_sources=[genes], gene_coordinate_file=catalog,
-                      padding_bp=0, genome_build="hg19", gene_list_resolution_policy=policy,
-                      global_config=GlobalConfig(snp_identifier="rsid"), output_dir=output) as bundle:
-        assert bundle.query_columns == ["focal"]
-        assert bundle.baseline_columns == (["base"] if kind == "annot" else [])
+    result = run_annotate(**grid, query_annot_gene_list_sources=[genes], gene_coordinate_file=catalog,
+                          padding_bp=0, genome_build="hg19", gene_list_resolution_policy=policy,
+                          global_config=GlobalConfig(snp_identifier="rsid"), output_dir=output)
+    assert result.query_columns == ["focal"]
+    assert result.baseline_columns == (["base"] if kind == "annot" else [])
+    with result.prepared_in(tmp_path / "scratch") as bundle:
         # G1 is one-based inclusive [101,110]; positions 100 and 111 are outside.
         values = bundle.read("1", columns=["focal"])
         assert str(values.dtype) == "float32"

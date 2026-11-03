@@ -98,10 +98,10 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             baseline.write_text("CHR\tPOS\tSNP\tbase\n1\t10\trs1\t1\n")
             bed.write_text("1\t9\t10\n")
             with mock.patch("builtins.print") as patched_print, self.assertLogs("LDSC.config", level="INFO") as caught:
-                with ldsc.run_annotate(query_annot_bed_sources=[bed], ref_snp_annot_sources=[baseline], output_dir=root / "out") as result:
-                    self.assertEqual(result.config_snapshot.snp_identifier, "rsid")
-                    self.assertIsNone(result.config_snapshot.genome_build)
-                    self.assertEqual(result.config_snapshot.log_level, "DEBUG")
+                result = ldsc.run_annotate(query_annot_bed_sources=[bed], ref_snp_annot_sources=[baseline], output_dir=root / "out")
+                self.assertEqual(result.config_snapshot.snp_identifier, "rsid")
+                self.assertIsNone(result.config_snapshot.genome_build)
+                self.assertEqual(result.config_snapshot.log_level, "DEBUG")
             patched_print.assert_not_called()
             self.assertEqual(len(caught.records), 1)
             self.assertIn("GlobalConfig", caught.records[0].getMessage())

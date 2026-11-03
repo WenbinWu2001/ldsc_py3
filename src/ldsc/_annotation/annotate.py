@@ -2,7 +2,7 @@
 
 This workflow resolves source and catalog gates before projection, measures
 support on the annotation rows, writes canonical chromosome shards
-incrementally, and returns a resource-owning dataset handle. Reference-SNP and
+incrementally, and returns a record of the written files. Reference-SNP and
 regression-SNP selection are deliberately absent from standalone annotation
 generation.
 """
@@ -25,6 +25,7 @@ from ..config import AnnotationBuildConfig, GlobalConfig, get_global_config, pri
 from ..errors import LDSCInputError, LDSCUsageError
 from .gene_lists import GeneCatalog, GeneCatalogValidationError
 from .outputs import AnnotationDirectoryWriter
+from .saved_results import annotation_result
 from .._runtime.paths import ensure_output_directory, split_cli_path_tokens
 from .query_outcomes import (
     gene_query_statuses, gene_viability_errors, all_query_annotations_skipped_message,
@@ -39,7 +40,7 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                  query_annot_bed_sources=None, query_annot_gene_list_sources=None,
                  gene_coordinate_file=None, padding_bp=None, gene_list_resolution_policy=None, gene_exclude_regions=None,
                  genome_build=None, global_config=None, overwrite=False, _console_notices=False):
-    """Write BED or query gene-list annotations and return a live shard handle.
+    """Write BED or gene-list query annotations and return a record of the written files.
 
     Parameters
     ----------
@@ -79,13 +80,14 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
 
     Returns
     -------
-    AnnotationBundle
-        Persistent query outputs and, for annotation-input mode, aligned baseline
-        outputs. Original inputs are not needed for later reads. BIM mode has no
-        baseline columns. Construction scratch is released before returning;
-        explicit float32 reads prepare packed-binary/dense-float32 private stores
-        on demand under the output directory. Use a context manager or ``close()``;
-        closure preserves public outputs. No genotype QC or LD scoring occurs.
+    AnnotationResult
+        The exported query files and, for annotation-input mode, aligned
+        baseline files, with query statuses, gene-list diagnostics and output
+        paths. BIM mode has no baseline columns. Construction scratch is
+        released before returning, and the result owns no files. To read
+        values, call ``result.prepared_in(directory)``, which prepares the
+        exported files in a directory you choose; original inputs are not
+        needed. No genotype QC or LD scoring occurs.
 
     Raises
     ------
@@ -226,8 +228,7 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                 LOGGER.info("For downstream ldscore, use the exported baseline files with --baseline-annot-sources "
                             "and the exported query files with --query-annot-sources; do not use the original baseline inputs. "
                             "Exported paths are listed above.")
-            from .saved_results import persistent_annotation_bundle
-            return persistent_annotation_bundle(bundle, output)
+            return annotation_result(bundle)
     except BaseException as exc:
         try:
             writer.write_diagnostics(output, batch=None, drops=getattr(exc, 'annotation_drops', None), input_issues=getattr(exc, 'input_issues', None))

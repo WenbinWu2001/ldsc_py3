@@ -906,9 +906,9 @@ class AnnotationBuilderTest(unittest.TestCase):
                 },
             )()
 
-            bundle = annotation_builder.run_annotate_from_args(args)
+            result = annotation_builder.run_annotate_from_args(args)
 
-            self.assertEqual(bundle.query_columns, ["query"])
+            self.assertEqual(result.query_columns, ["query"])
             self.assertTrue((output_dir / "query.1.annot.gz").exists())
             self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
             self.assertFalse((output_dir / "metadata.json").exists())
@@ -1158,18 +1158,19 @@ class AnnotationBuilderTest(unittest.TestCase):
 
 
 class AnnotationWrapperTest(unittest.TestCase):
-    def test_run_annotate_returns_annotation_bundle(self):
+    def test_run_annotate_returns_annotation_result(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             baseline, bed = root / "baseline.annot", root / "query.bed"
             _write_annot(baseline, [("1", 10, "rs1", 0.1), ("1", 20, "rs2", 0.2)], {"base_a": [1, 0]})
             bed.write_text("chr1\t0\t100\tfeature\n", encoding="utf-8")
-            with run_annotate(query_annot_bed_sources=[bed], ref_snp_annot_sources=[baseline],
-                              output_dir=root / "out", global_config=GlobalConfig(snp_identifier="rsid")) as result:
-                self.assertEqual(result.query_columns, ["query"])
-                self.assertEqual(result.read("1", columns=["query"]).ravel().tolist(), [1, 1])
-                self.assertEqual(result.source_summary["padding_bp"], 0)
-                self.assertTrue(Path(result.output_paths["query_annotations"][0]).is_file())
+            result = run_annotate(query_annot_bed_sources=[bed], ref_snp_annot_sources=[baseline],
+                                  output_dir=root / "out", global_config=GlobalConfig(snp_identifier="rsid"))
+            self.assertEqual(result.query_columns, ["query"])
+            with result.prepared_in(root / "scratch") as bundle:
+                self.assertEqual(bundle.read("1", columns=["query"]).ravel().tolist(), [1, 1])
+            self.assertEqual(result.source_summary["padding_bp"], 0)
+            self.assertTrue(Path(result.output_paths["query_annotations"][0]).is_file())
 
     def test_main_chr_pos_auto_resolves_build_before_running(self):
         from ldsc._genome.build_inference import load_packaged_reference_table
@@ -1180,9 +1181,10 @@ class AnnotationWrapperTest(unittest.TestCase):
             rows = reference.loc[reference.CHR.astype(str).eq('2')].head(500)
             rows[['CHR', 'hg19_POS']].rename(columns={'hg19_POS': 'BP'}).assign(base=1).to_csv(baseline, sep='\t', index=False)
             bed.write_text("chr2\t0\t1000000000\n")
-            with annotation_builder.main([
+            result = annotation_builder.main([
                 "--query-annot-bed-sources", str(bed), "--ref-snp-annot-sources", str(root / "baseline.*.annot"),
                 "--output-dir", str(root / "out"), "--snp-identifier", "chr_pos", "--genome-build", "auto",
-            ]) as result:
-                self.assertEqual(result.config_snapshot.genome_build, "hg19")
-                self.assertEqual(result.read("2", columns=["query"]).ravel().tolist(), [1] * 500)
+            ])
+            self.assertEqual(result.config_snapshot.genome_build, "hg19")
+            with result.prepared_in(root / "scratch") as bundle:
+                self.assertEqual(bundle.read("2", columns=["query"]).ravel().tolist(), [1] * 500)

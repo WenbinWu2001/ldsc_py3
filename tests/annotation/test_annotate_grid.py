@@ -25,37 +25,38 @@ def test_exported_baseline_query_pair_survives_cleanup_and_input_removal(tmp_pat
     bed = tmp_path / "focal.bed"
     bed.write_text("1\t109\t110\n")
     output = tmp_path / "out"
-    with run_annotate(
+    result = run_annotate(
         ref_snp_annot_sources=[baseline], query_annot_bed_sources=[bed],
         global_config=GlobalConfig(snp_identifier="rsid"), output_dir=output,
-    ) as bundle:
-        baselines = list(map(Path, bundle.output_paths["baseline_annotations"]))
-        queries = list(map(Path, bundle.output_paths["query_annotations"]))
-        assert len(baselines) == len(queries) == 2
-        for path, query in zip(baselines, queries):
-            left, right = (pd.read_csv(p, sep=r"\s+") for p in (path, query))
-            pd.testing.assert_frame_equal(left.drop(columns=bundle.baseline_columns),
-                                          right.drop(columns=bundle.query_columns))
-        assert baseline.read_text().count("duplicate") == 2
-        baseline.unlink()
-        bed.unlink()
+    )
+    baselines = list(map(Path, result.output_paths["baseline_annotations"]))
+    queries = list(map(Path, result.output_paths["query_annotations"]))
+    assert len(baselines) == len(queries) == 2
+    for path, query in zip(baselines, queries):
+        left, right = (pd.read_csv(p, sep=r"\s+") for p in (path, query))
+        pd.testing.assert_frame_equal(left.drop(columns=result.baseline_columns),
+                                      right.drop(columns=result.query_columns))
+    assert baseline.read_text().count("duplicate") == 2
+    baseline.unlink()
+    bed.unlink()
+    with result.prepared_in(tmp_path / "scratch") as bundle:
         np.testing.assert_array_equal(bundle.read("1"), [[1, .5, 1]])
         np.testing.assert_array_equal(bundle.read("2"), [[0, 1.25, 0]])
-        with AnnotationWorkspace(tmp_path / "downstream") as workspace:
-            prepared = prepare_annotation_sources(workspace, baselines, queries, mode="rsid")
-            assert prepared.shards["1"].metadata().SNP.tolist() == ["rs1"]
-            np.testing.assert_array_equal(
-                prepared.shards["2"].read(columns=["binary", "continuous", "focal"]),
-                [[0, 1.25, 0]],
-            )
-        metadata = json.loads((output / "diagnostics/metadata.json").read_text())
-        assert metadata["snp_rows"] == {
-            "input": 4, "output": 2, "dropped": 2,
-            "by_chromosome": {
-                "1": {"input": 2, "output": 1, "dropped": 1},
-                "2": {"input": 2, "output": 1, "dropped": 1},
-            },
-        }
+    with AnnotationWorkspace(tmp_path / "downstream") as workspace:
+        prepared = prepare_annotation_sources(workspace, baselines, queries, mode="rsid")
+        assert prepared.shards["1"].metadata().SNP.tolist() == ["rs1"]
+        np.testing.assert_array_equal(
+            prepared.shards["2"].read(columns=["binary", "continuous", "focal"]),
+            [[0, 1.25, 0]],
+        )
+    metadata = json.loads((output / "diagnostics/metadata.json").read_text())
+    assert metadata["snp_rows"] == {
+        "input": 4, "output": 2, "dropped": 2,
+        "by_chromosome": {
+            "1": {"input": 2, "output": 1, "dropped": 1},
+            "2": {"input": 2, "output": 1, "dropped": 1},
+        },
+    }
     log = (output / "diagnostics/annotate.log").read_text()
     assert "input=4, output=2, dropped=2" in log
     assert "--baseline-annot-sources" in log and "--query-annot-sources" in log
@@ -72,14 +73,15 @@ def test_bim_only_grid_is_query_only_and_ignores_cm_without_companions(tmp_path)
     )
     bed = tmp_path / "focal.bed"
     bed.write_text("1\t109\t110\n")
-    with run_annotate(ref_snp_bim_sources=[bim], query_annot_bed_sources=[bed],
-                      global_config=GlobalConfig(snp_identifier="rsid"),
-                      output_dir=tmp_path / "out") as bundle:
-        assert bundle.baseline_columns == []
-        assert bundle.query_columns == ["focal"]
-        assert "baseline_annotations" not in bundle.output_paths
-        assert not list((tmp_path / "out").glob("baseline.*.annot.gz"))
-        bim.unlink()
+    result = run_annotate(ref_snp_bim_sources=[bim], query_annot_bed_sources=[bed],
+                          global_config=GlobalConfig(snp_identifier="rsid"), output_dir=tmp_path / "out")
+    assert result.baseline_columns == []
+    assert result.query_columns == ["focal"]
+    assert "baseline_annotations" not in result.output_paths
+    assert not list((tmp_path / "out").glob("baseline.*.annot.gz"))
+    bim.unlink()
+    assert result.summary()["n_rows"] == 2
+    with result.prepared_in(tmp_path / "scratch") as bundle:
         np.testing.assert_array_equal(bundle.read("1"), [[1]])
         np.testing.assert_array_equal(bundle.read("2"), [[0]])
         assert bundle.read("1").dtype == np.float32
@@ -110,11 +112,12 @@ def test_bim_gene_and_bed_projection_share_identity_and_boundaries(tmp_path, mod
     config = GlobalConfig(snp_identifier=mode, genome_build='hg19' if mode.startswith('chr_pos') else None)
     for route in ('gene', 'bed'):
         options = dict(query_annot_gene_list_sources=[genes], gene_coordinate_file=catalog) if route == 'gene' else dict(query_annot_bed_sources=[bed])
-        with run_annotate(ref_snp_bim_sources=[bim], **options, padding_bp=0, genome_build='hg19',
-                          global_config=config, output_dir=tmp_path / route) as bundle:
-            expected = [0, 1, 1, 0] if mode.endswith('allele_aware') else [0, 1, 1, 0, 1]
+        result = run_annotate(ref_snp_bim_sources=[bim], **options, padding_bp=0, genome_build='hg19',
+                              global_config=config, output_dir=tmp_path / route)
+        expected = [0, 1, 1, 0] if mode.endswith('allele_aware') else [0, 1, 1, 0, 1]
+        with result.prepared_in(tmp_path / 'scratch') as bundle:
             assert bundle.read('1')[:, 0].tolist() == expected
-            assert bundle.source_summary['snp_rows']['dropped'] == (1 if mode.endswith('allele_aware') else 0)
+        assert result.source_summary['snp_rows']['dropped'] == (1 if mode.endswith('allele_aware') else 0)
     pd.testing.assert_frame_equal(*(pd.read_csv(tmp_path / route / 'query.1.annot.gz', sep='\t') for route in ('gene', 'bed')))
 
 
@@ -141,9 +144,9 @@ def test_bim_auto_build_uses_packaged_evidence(tmp_path):
     bim, bed = tmp_path / 'grid.bim', tmp_path / 'focal.bed'
     bim.write_text(''.join(f'{row.CHR} rs{i} 0 {row.hg19_POS} A C\n' for i, row in enumerate(reference.itertuples(index=False))))
     bed.write_text(f'{reference.iloc[0].CHR}\t0\t1000000000\n')
-    with run_annotate(ref_snp_bim_sources=[bim], query_annot_bed_sources=[bed],
-                     global_config=GlobalConfig(snp_identifier='chr_pos', genome_build='auto'), output_dir=tmp_path / 'out') as bundle:
-        assert bundle.source_summary['projection_genome_build'] == 'hg19'
+    result = run_annotate(ref_snp_bim_sources=[bim], query_annot_bed_sources=[bed],
+                          global_config=GlobalConfig(snp_identifier='chr_pos', genome_build='auto'), output_dir=tmp_path / 'out')
+    assert result.source_summary['projection_genome_build'] == 'hg19'
 
 
 def test_cli_switch_to_bim_cleans_stale_baselines_and_preserves_unrelated_file(tmp_path):
@@ -154,12 +157,10 @@ def test_cli_switch_to_bim_cleans_stale_baselines_and_preserves_unrelated_file(t
     bed.write_text('1\t99\t100\n')
     output = tmp_path / 'out'
     common = ['--query-annot-bed-sources', str(bed), '--snp-identifier', 'rsid', '--output-dir', str(output)]
-    with main(['--ref-snp-annot-sources', str(baseline), *common]):
-        pass
+    main(['--ref-snp-annot-sources', str(baseline), *common])
     marker = output / 'notes.txt'
     marker.write_text('keep')
-    with main(['--ref-snp-bim-sources', str(bim), *common, '--overwrite']) as bundle:
-        assert bundle.baseline_columns == []
+    assert main(['--ref-snp-bim-sources', str(bim), *common, '--overwrite']).baseline_columns == []
     assert not (output / 'baseline.1.annot.gz').exists()
     assert marker.read_text() == 'keep'
     assert 'input=1, output=1, dropped=0' in (output / 'diagnostics/annotate.log').read_text()
@@ -176,14 +177,14 @@ def test_exported_pair_computes_known_ld_scores_after_cleanup(tmp_path, monkeypa
     pd.concat([original, duplicates], ignore_index=True).to_csv(baseline, sep='\t', index=False)
     bed = tmp_path / 'focal.bed'
     bed.write_text('22\t19\t20\n')
-    with run_annotate(ref_snp_annot_sources=[baseline], query_annot_bed_sources=[bed], output_dir=tmp_path / 'annot') as bundle:
-        baseline.unlink()
-        regression = tmp_path / 'regression.txt'
-        regression.write_text('SNP\nrs1\nrs2\nrs3\n')
-        result = run_ldscore(baseline_annot_sources=bundle.output_paths['baseline_annotations'],
-                            query_annot_sources=bundle.output_paths['query_annotations'], r2_matrix_dir=args.r2_matrix_dir,
-                            regr_snps_file=regression, regr_snps_exclude_regions='none',
-                            ld_wind_snps=2, yes_really=True, output_dir=tmp_path / 'ldscore')
+    annotated = run_annotate(ref_snp_annot_sources=[baseline], query_annot_bed_sources=[bed], output_dir=tmp_path / 'annot')
+    baseline.unlink()
+    regression = tmp_path / 'regression.txt'
+    regression.write_text('SNP\nrs1\nrs2\nrs3\n')
+    result = run_ldscore(baseline_annot_sources=annotated.output_paths['baseline_annotations'],
+                         query_annot_sources=annotated.output_paths['query_annotations'], r2_matrix_dir=args.r2_matrix_dir,
+                         regr_snps_file=regression, regr_snps_exclude_regions='none',
+                         ld_wind_snps=2, yes_really=True, output_dir=tmp_path / 'ldscore')
     assert result.read_queries(['focal']).SNP.tolist() == ['rs1', 'rs2', 'rs3']
     np.testing.assert_allclose(result.read_queries(['focal']).focal, [.5, 1, .25], atol=2e-5, rtol=0)
 
@@ -193,10 +194,11 @@ def test_aligned_column_sources_count_logical_rows_once(tmp_path):
     left.write_text('CHR SNP BP base\n1 rs1 100 1\n2 rs2 200 1\n')
     right.write_text('CHR SNP BP continuous\n1 rs1 100 0.125\n2 rs2 200 2.25\n')
     bed.write_text('1\t99\t100\n')
-    with run_annotate(ref_snp_annot_sources=[left, right], query_annot_bed_sources=[bed],
-                      global_config=GlobalConfig(snp_identifier='rsid'), output_dir=tmp_path / 'out') as bundle:
-        assert bundle.source_summary['snp_rows']['input'] == 2
-        assert bundle.source_summary['snp_rows']['dropped'] == 0
+    result = run_annotate(ref_snp_annot_sources=[left, right], query_annot_bed_sources=[bed],
+                          global_config=GlobalConfig(snp_identifier='rsid'), output_dir=tmp_path / 'out')
+    assert result.source_summary['snp_rows']['input'] == 2
+    assert result.source_summary['snp_rows']['dropped'] == 0
+    with result.prepared_in(tmp_path / 'scratch') as bundle:
         np.testing.assert_array_equal(bundle.read('2'), [[1, 2.25, 0]])
 
 

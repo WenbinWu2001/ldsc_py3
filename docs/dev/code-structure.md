@@ -104,7 +104,7 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 | `ldsc._annotation.sources`, `ldsc._annotation.identity_cleanup`, `ldsc._annotation.loading` | bounded input scans, aligned source preparation, global identity cleanup, and shared source-backed construction |
 | `ldsc._annotation.parsing` | annotation chunk normalization and numeric-value validation shared by every annotation reader |
 | `ldsc._annotation.preflight` | annotation declaration resolution and `inspect_annotation_inputs`, the declared-input gate with annotation header checks first; the query checks that `annotate`, `ldscore` and `build_annotation_shards` share: reserved and colliding BED and gene-list query names, the gene-list Gate A error and the projection genome build |
-| `ldsc._annotation.saved_results` | saved baseline/query descriptors with no original-input dependencies; deferred preparation on explicit reads and construction-owner detachment |
+| `ldsc._annotation.saved_results` | `AnnotationResult`, the record `run_annotate()` returns: saved baseline/query descriptors with no original-input dependencies, construction-owner detachment, and explicit preparation with `prepared_in(directory)` |
 | `ldsc._annotation.bim_grid` | metadata-only standalone BIM grid scans using shared identity cleanup; no genotype companions or value synthesis |
 | `ldsc._annotation.gene_lists` | required/embedded gene-coordinate-catalog validation and vectorized query/control resolution into exact IDs, intervals, audits, and summaries |
 | `ldsc._annotation.gene_query_storage` | staged per-source gene selections and complete audit replay with shared gene-coordinate-catalog state |

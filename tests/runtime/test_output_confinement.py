@@ -223,28 +223,36 @@ def test_a_failure_during_publication_leaves_an_index_no_reader_accepts(tmp_path
         load_gene_ldscore_index(index)
 
 
-@pytest.mark.parametrize("mode", ["chr_pos", "rsid"])
-def test_ldscore_from_a_saved_annotation_prepares_inside_its_own_output_directory(tmp_path, mode):
-    import numpy as np
+def _saved_annotation(tmp_path, mode):
+    """Run annotate once on the two-chromosome R2 test panel; return what LD scoring needs."""
     import pandas as pd
 
-    from ldsc import GlobalConfig, LDScoreCalculator, LDScoreConfig, RefPanelConfig, run_annotate
-    from ldsc._ldscore.outputs import LDScoreOutputConfig
+    from ldsc import GlobalConfig, LDScoreConfig, RefPanelConfig, run_annotate
     from ldsc._refpanel.adapters import R2MatrixRefPanel
     from tests.ldscore.test_ldscore_parallelism import _PANEL_CHROMS, _write_index_panel
 
     config = GlobalConfig(snp_identifier=mode, genome_build="hg19" if mode == "chr_pos" else None)
     _write_index_panel(tmp_path / "panel", _PANEL_CHROMS, snp_identifier=mode)
     panel = R2MatrixRefPanel(config, RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(tmp_path / "panel")))
-    numerical = LDScoreConfig(ld_wind_kb=1, whole_chromosome_ok=True)
     metadata = pd.concat([pair[0] for pair in _PANEL_CHROMS.values()], ignore_index=True)
     baseline = tmp_path / "baseline.annot"
     metadata.loc[:, ["CHR", "POS", "SNP", "A1", "A2"]].assign(base=1).to_csv(baseline, sep="\t", index=False)
     bed = tmp_path / "query.bed"
     bed.write_text("chr1\t150\t350\nchr2\t50\t250\n")
-    annotated = tmp_path / "annotated"
     saved = run_annotate(ref_snp_annot_sources=[str(baseline)], query_annot_bed_sources=[str(bed)],
-                         genome_build="hg19", global_config=config, output_dir=annotated)
+                         genome_build="hg19", global_config=config, output_dir=tmp_path / "annotated")
+    return saved, panel, LDScoreConfig(ld_wind_kb=1, whole_chromosome_ok=True), config
+
+
+@pytest.mark.parametrize("mode", ["chr_pos", "rsid"])
+def test_ldscore_from_a_saved_annotation_prepares_inside_its_own_output_directory(tmp_path, mode):
+    import numpy as np
+
+    from ldsc import LDScoreCalculator
+    from ldsc._ldscore.outputs import LDScoreOutputConfig
+
+    saved, panel, numerical, config = _saved_annotation(tmp_path, mode)
+    annotated = tmp_path / "annotated"
     annotated_before = _tree(annotated)
 
     result = LDScoreCalculator().run(saved, panel, numerical, config, LDScoreOutputConfig(tmp_path / "ldscores"))
@@ -252,10 +260,38 @@ def test_ldscore_from_a_saved_annotation_prepares_inside_its_own_output_director
     # The annotate output is this run's input: nothing appears or changes there.
     assert _tree(annotated) == annotated_before
     assert not list((tmp_path / "ldscores").glob(".ldsc-annotation-*"))
-    # Preparing in the reading run's own workspace leaves the LD scores unchanged.
-    with saved:
-        saved.read("1")
-        expected = LDScoreCalculator().run(saved, panel, numerical, config, LDScoreOutputConfig(tmp_path / "ldscores2"))
+    # Preparing in a directory the caller chooses leaves the LD scores unchanged.
+    with saved.prepared_in(tmp_path / "scratch") as bundle:
+        expected = LDScoreCalculator().run(bundle, panel, numerical, config, LDScoreOutputConfig(tmp_path / "ldscores2"))
     np.testing.assert_array_equal(result.baseline_table.to_numpy(), expected.baseline_table.to_numpy())
     np.testing.assert_array_equal(result.read_queries(result.query_columns).to_numpy(),
                                   expected.read_queries(expected.query_columns).to_numpy())
+
+
+@pytest.mark.parametrize("mode", ["chr_pos", "rsid"])
+def test_a_saved_annotation_is_read_only_after_explicit_preparation(tmp_path, mode):
+    from ldsc import AnnotationResult, LDScoreCalculator
+    from ldsc.errors import LDSCUsageError
+
+    saved, panel, numerical, config = _saved_annotation(tmp_path, mode)
+    annotated = tmp_path / "annotated"
+    annotated_before = _tree(annotated)
+    assert isinstance(saved, AnnotationResult)
+    assert {chrom: shard.n_rows for chrom, shard in saved.shards.items()} == {"1": 4, "2": 3}
+
+    # Without an output directory, LD scoring and single chromosomes refuse a saved result in every mode.
+    with pytest.raises(LDSCUsageError, match="prepared_in"):
+        LDScoreCalculator().run(saved, panel, numerical, config, output_config=None)
+    with pytest.raises(LDSCUsageError, match="prepared_in"):
+        LDScoreCalculator().compute_chromosome("1", saved, panel, numerical, config)
+    assert _tree(annotated) == annotated_before
+
+    scratch = tmp_path / "scratch"
+    with saved.prepared_in(scratch) as bundle:
+        assert bundle.read("1", columns=["query"])[:, 0].tolist() == [0, 1, 1, 0]
+        assert bundle.read("2", columns=["query"])[:, 0].tolist() == [1, 1, 0]
+        in_memory = LDScoreCalculator().run(bundle, panel, numerical, config, output_config=None)
+        assert list(in_memory.query_columns) == ["query"]
+        assert len(list(scratch.glob(".ldsc-annotation-*"))) == 1
+    assert list(scratch.iterdir()) == []
+    assert _tree(annotated) == annotated_before

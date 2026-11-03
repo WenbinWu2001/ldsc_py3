@@ -1,8 +1,8 @@
 # Python API reference
 
-Last updated on: 2026-11-01
+Last updated on: 2026-11-03
 
-The supported Python interface is the set of names exported by the `ldsc` package (`ldsc.__all__`, 83 names on 2026-11-01).
+The supported Python interface is the set of names exported by the `ldsc` package (`ldsc.__all__`, 84 names on 2026-11-03).
 Modules whose names start with an underscore, including the domain packages such as `ldsc._ldscore`, are private even when a name defined there is re-exported.
 This page lists every exported name with the first paragraph of its docstring, taken from the installed package; `help(ldsc.<name>)` shows the full docstring, and a future documentation build will generate this page.
 Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and the command-line equivalents in the [command-line reference](cli.md).
@@ -38,7 +38,7 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | `query_r2_matrix` | Open an R2 matrix, query ``pairs`` once, and return the annotated DataFrame. |
 | `resolve_chr_pos_table` | Infer and normalize the genome build for a ``CHR``/``POS`` table. |
 | `resolve_genome_build` | Resolve a genome-build hint to a concrete build or ``None``. |
-| `run_annotate` | Write BED or query gene-list annotations and return a live shard handle. |
+| `run_annotate` | Write BED or gene-list query annotations and return a record of the written files. |
 | `run_build_r2_matrix` | Run the reference-panel builder with CLI-equivalent keyword arguments. |
 | `run_h2` | Estimate SNP heritability and save the ``h2`` result directory. |
 | `run_ldscore` | Run LD-score calculation from Python using public CLI-style names. |
@@ -79,6 +79,7 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | Name | Summary |
 | --- | --- |
 | `AnnotationBundle` | Complete annotation dataset represented by on-demand chromosome shards. |
+| `AnnotationResult` | Files a completed ``run_annotate`` wrote; values are read after explicit preparation. |
 | `ChrPosBuildInference` | Resolved build and coordinate-basis decision for one ``chr_pos`` table. |
 | `ChromLDScoreResult` | Normalized per-chromosome LD-score output in split baseline/query form. |
 | `H2Result` | Result of one `h2` run: its summary and the files it wrote. |

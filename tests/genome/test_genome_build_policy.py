@@ -43,12 +43,12 @@ def test_annotate_exact_chr2_grid_infers_and_publishes_build(tmp_path):
     grid, bed, output = tmp_path / "grid.annot", tmp_path / "region.bed", tmp_path / "out"
     coordinates(2, "hg38").assign(base=1).to_csv(grid, sep="\t", index=False)
     bed.write_text("2\t0\t1000000000\n")
-    with run_annotate(ref_snp_annot_sources=[grid], query_annot_bed_sources=[bed],
-                      global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="auto"),
-                      output_dir=output) as result:
-        assert result.config_snapshot.genome_build == "hg38"
-        emitted = pd.read_csv(output / "query.2.annot.gz", sep="\t")
-        assert emitted.BP.tolist() == coordinates(2, "hg38").POS.tolist()
+    result = run_annotate(ref_snp_annot_sources=[grid], query_annot_bed_sources=[bed],
+                          global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="auto"),
+                          output_dir=output)
+    assert result.config_snapshot.genome_build == "hg38"
+    emitted = pd.read_csv(output / "query.2.annot.gz", sep="\t")
+    assert emitted.BP.tolist() == coordinates(2, "hg38").POS.tolist()
 
 
 def test_annotate_checks_every_bim_before_publication(tmp_path):

@@ -405,9 +405,8 @@ def test_real_annotation_workflow_artifact(tmp_path, capsys):
     grid, bed, output = tmp_path / "grid.annot", tmp_path / "regions.bed", tmp_path / "result"
     coordinates().assign(SNP=lambda frame: "rs" + frame.POS.astype(str), base=1).to_csv(grid, sep="\t", index=False)
     bed.write_text("1\t0\t1000000000\n")
-    with run_annotate(ref_snp_annot_sources=[grid], query_annot_bed_sources=[bed],
-                      global_config=GlobalConfig(snp_identifier="rsid"), genome_build="hg19", output_dir=output):
-        pass
+    run_annotate(ref_snp_annot_sources=[grid], query_annot_bed_sources=[bed],
+                 global_config=GlobalConfig(snp_identifier="rsid"), genome_build="hg19", output_dir=output)
     assert cli.run_cli(["infer-genome-build", str(output)]) == 0
     text = capsys.readouterr().out
     assert "Genome build: hg19 (declared" in text and RSID_NOTICE in text

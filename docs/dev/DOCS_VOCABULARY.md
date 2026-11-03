@@ -1,6 +1,6 @@
 # Documentation Vocabulary
 
-Last updated on: 2026-11-02
+Last updated on: 2026-11-03
 
 This is the glossary of the LDSC3 documentation.
 Each term below has one meaning and one wording across the user guide, the reference, the developer guide, the README, docstrings, command help and messages.
@@ -171,3 +171,4 @@ Add a row when a concept appears under several names: the concept, the proposed 
 
 | Concept | Proposed term | Variants and locations |
 | --- | --- | --- |
+| The Python object `run_annotate()` returns: a record of the files one `annotate` run wrote, which owns no files and is read through `prepared_in(directory)` | annotation result (`AnnotationResult`) | Before `AnnotationResult` existed: "live shard handle" (`docs/reference/python-api.md`, `src/ldsc/_annotation/annotate.py`), "returned bundle" (`docs/user-guide/python-usage.md`, `docs/dev/data-flow.md`) and "persistent output/source references" (`docs/dev/architecture.md`); the change that added `AnnotationResult` replaced them |

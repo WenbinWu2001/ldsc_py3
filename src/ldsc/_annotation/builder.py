@@ -14,6 +14,7 @@ from typing import Sequence
 from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, output_directory_argument
 from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
 from .bundle import AnnotationBundle
+from .saved_results import AnnotationResult
 from .loading import build_annotation_shards
 from .storage import AnnotationWorkspace
 from .._core.identifiers import normalize_snp_identifier_mode
@@ -257,7 +258,7 @@ def parse_annotate_args(argv: Sequence[str] | None = None) -> argparse.Namespace
     args_output_scope,
     command="run_annotate_from_args(...)",
 )
-def run_annotate_from_args(args: argparse.Namespace) -> AnnotationBundle:
+def run_annotate_from_args(args: argparse.Namespace) -> AnnotationResult:
     """Run the annotation workflow from a parsed CLI namespace.
 
     This function is the workflow-layer dispatch target used by the unified
@@ -267,7 +268,7 @@ def run_annotate_from_args(args: argparse.Namespace) -> AnnotationBundle:
     baseline shards for annotation-grid input. BIM-grid input writes query shards
     only. Auto compares every selected grid shard with the catalog declaration;
     concrete builds must agree with input declarations and BED inherits the projection build.
-    The returned bundle reads exported files without reparsing arguments.
+    The returned result records the exported files without reparsing arguments.
 
     Parameters
     ----------
@@ -277,8 +278,8 @@ def run_annotate_from_args(args: argparse.Namespace) -> AnnotationBundle:
 
     Returns
     -------
-    bundle : AnnotationBundle
-        Produced annotation bundle.
+    result : AnnotationResult
+        Record of the written annotation files.
     """
     mode = normalize_snp_identifier_mode(args.snp_identifier)
     genes = getattr(args, "query_annot_gene_list_sources", None)
@@ -298,8 +299,8 @@ def run_annotate_from_args(args: argparse.Namespace) -> AnnotationBundle:
     )
 
 
-def main(argv: Sequence[str] | None = None) -> AnnotationBundle:
-    """Parse annotation arguments, run projection, and return the bundle.
+def main(argv: Sequence[str] | None = None) -> AnnotationResult:
+    """Parse annotation arguments, run projection, and return the result.
 
     Direct ``ldsc annotate`` dispatch uses it, as do script-style invocations
     that want parser behavior plus the produced result object.

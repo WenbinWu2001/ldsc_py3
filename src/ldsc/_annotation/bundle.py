@@ -1,6 +1,6 @@
 """Resource-owning annotation dataset with explicit chromosome/column access."""
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 import numpy as np
 from .storage import AnnotationShard, AnnotationWorkspace, FrameSpool, TsvDiagnostics
 from .semantics import require_unique_annotation_names
@@ -44,7 +44,6 @@ class AnnotationBundle:
     identity_drops: FrameSpool | TsvDiagnostics | None = None
     chromosome_identity_drops: dict | None = None
     output_paths: dict = field(default_factory=dict)
-    _source_loader: object | None = field(default=None, repr=False)
     diagnostics_in_memory: bool = False
     query_preparation: object | None = field(default=None, repr=False)
     _closed: bool = field(default=False, repr=False)
@@ -114,33 +113,7 @@ class AnnotationBundle:
     def shard(self, chrom):
         """Return one chromosome accessor while verifying its owner's lifetime."""
         self._require_open()
-        self._prepare_sources()
         return self.shards[normalize_chromosome(chrom)]
-
-    def prepared_in(self, workspace):
-        """Return this bundle with a saved annotation result prepared in ``workspace``.
-
-        The bundle ``run_annotate`` returns reads its saved files through
-        private stores, created in the annotate output directory unless a
-        workflow that reads it lends a workspace in its own output directory.
-        The returned bundle borrows ``workspace`` and must not be closed; this
-        bundle is unchanged. A bundle that is already prepared is returned as is.
-        """
-        if self._closed:
-            raise ValueError("Annotation bundle is closed.")
-        if self._source_loader is None:
-            return self
-        shards = self._source_loader.prepare(workspace, self.config_snapshot.snp_identifier)
-        return replace(self, shards=shards, workspace=workspace, _source_loader=None)
-
-    def _prepare_sources(self):
-        if self._source_loader is not None:
-            try:
-                self.shards = self._source_loader.prepare(self.workspace, self.config_snapshot.snp_identifier)
-            except BaseException:
-                self.workspace.close()
-                raise
-            self._source_loader = None
 
     def metadata_for_chromosome(self, chrom):
         """Load row metadata for exactly one chromosome; do not cache it."""
@@ -173,8 +146,7 @@ class AnnotationBundle:
         -----
         Packed values use bounded selected reads; no value cache is retained.
         The entire requested result is materialized, so explicit row and column
-        selections determine its memory cost. Deferred source-backed bundles may
-        prepare private stores on the first read. The bundle must remain open.
+        selections determine its memory cost. The bundle must remain open.
         """
         columns = self.baseline_columns + self.query_columns if columns is None else list(columns)
         allowed = set(self.baseline_columns + self.query_columns)
@@ -184,9 +156,8 @@ class AnnotationBundle:
         return self.shard(chrom).read(rows=rows, columns=columns).astype(np.float32, copy=False)
 
     def validate(self):
-        """Prepare deferred sources if needed, then validate descriptor contracts."""
+        """Validate annotation names and the declared columns of every shard."""
         self._require_open()
-        self._prepare_sources()
         require_unique_annotation_names(self.baseline_columns, self.query_columns)
         columns = set(self.baseline_columns + ([] if self.query_preparation is not None else self.query_columns))
         for chrom, shard in self.shards.items():

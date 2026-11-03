@@ -211,6 +211,7 @@ print(ldsc.__file__)
         for name in (
             "AnnotationBuilder",
             "AnnotationBundle",
+            "AnnotationResult",
             "run_annotate",
             "run_annotate_from_args",
             "add_annotate_arguments",

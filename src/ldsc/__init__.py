@@ -38,6 +38,7 @@ from importlib import import_module
 from ._annotation.builder import (
     AnnotationBuilder,
     AnnotationBundle,
+    AnnotationResult,
     run_annotate,
 )
 from .config import (
@@ -136,6 +137,7 @@ __all__ = [
     "AnnotationBuildConfig",
     "AnnotationBuilder",
     "AnnotationBundle",
+    "AnnotationResult",
     "ChromLDScoreResult",
     "ChrPosBuildInference",
     "ConfigMismatchError",

@@ -10,7 +10,6 @@ from pathlib import Path
 import pickle
 import shutil
 import tempfile
-import uuid
 from typing import Sequence
 
 import numpy as np
@@ -29,25 +28,19 @@ class AnnotationWorkspace:
     must not close their caller's workspace.
     """
 
-    def __init__(self, output_dir: str | Path, *, defer=False):
+    def __init__(self, output_dir: str | Path):
         destination = output_directory_path(output_dir)
         destination.mkdir(parents=True, exist_ok=True)
-        self.path = (destination / f".ldsc-annotation-{uuid.uuid4().hex}" if defer else
-                     Path(tempfile.mkdtemp(prefix=".ldsc-annotation-", dir=destination)))
-        self._created = not defer
+        self.path = Path(tempfile.mkdtemp(prefix=".ldsc-annotation-", dir=destination))
         self.closed = False
 
     def require_open(self) -> None:
         if self.closed:
             raise ValueError("Annotation workspace is closed.")
-        if not self._created:
-            self.path.mkdir()
-            self._created = True
 
     def close(self) -> None:
         if not self.closed:
-            if self._created:
-                shutil.rmtree(self.path)
+            shutil.rmtree(self.path)
             self.closed = True
 
     def __enter__(self):

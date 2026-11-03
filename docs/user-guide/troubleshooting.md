@@ -467,7 +467,7 @@ Measured support is then reported as `annotation_snp_count` on cleaned grid SNP 
 Empty and globally unsupported focal queries are skipped, usable siblings continue, and an all-skipped batch fails without publishing a new query family.
 All-one annotation columns remain valid.
 
-An authorized overwrite can leave `RUN_FAILED.txt` after failure. Inspect diagnostics and rerun with corrected inputs and `--overwrite`; no rollback to earlier results is promised. Private staging is removed on handled failure or bundle closure. Python callers should use `with run_annotate(...):` or call `close()` after consuming the returned handle; canonical `query.<chrom>.annot.gz` files remain available.
+An authorized overwrite can leave `RUN_FAILED.txt` after failure. Inspect diagnostics and rerun with corrected inputs and `--overwrite`; no rollback to earlier results is promised. Private staging is removed on handled failure and before `run_annotate()` returns; the returned `AnnotationResult` owns no files, and a bundle from `result.prepared_in(directory)` removes its private folder when closed. Canonical `query.<chrom>.annot.gz` files remain available.
 
 ### `annotate`: no annotation SNP rows remain
 

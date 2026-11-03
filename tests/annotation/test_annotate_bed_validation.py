@@ -71,9 +71,8 @@ def test_annotate_cli_names_skipped_bed_queries_and_python_api_stays_quiet(tmp_p
     assert 'the BED file contains no intervals' in notice
     assert 'diagnostics/query_annotation_status.tsv' in notice
 
-    with run_annotate(ref_snp_annot_sources=baseline, query_annot_bed_sources=[bed, empty],
-                      global_config=RSID, output_dir=tmp_path / 'api'):
-        pass
+    run_annotate(ref_snp_annot_sources=baseline, query_annot_bed_sources=[bed, empty],
+                 global_config=RSID, output_dir=tmp_path / 'api')
     assert capsys.readouterr().err == ''
 
 

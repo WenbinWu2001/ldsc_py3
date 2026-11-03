@@ -1,6 +1,6 @@
 # Memory and CPU efficiency design
 
-Last updated on: 2026-11-02
+Last updated on: 2026-11-03
 
 <a id="annotation-and-workflow-memory-design"></a>
 
@@ -95,7 +95,7 @@ The calculator borrows a bundle and does not close it.
 Closure is idempotent, deletes only owned private staging, and invalidates subsequent reads.
 Original inputs must remain available and unchanged while a source-backed result depends on them.
 
-Standalone `run_annotate()` uses [`_annotation/saved_results.py`](../../../src/ldsc/_annotation/saved_results.py) to return saved sources.
+Standalone `run_annotate()` uses [`_annotation/saved_results.py`](../../../src/ldsc/_annotation/saved_results.py) to return an `AnnotationResult` of saved sources.
 It writes persistent `query.<chrom>.annot.gz` files and, in annotation-grid mode, aligned `baseline.<chrom>.annot.gz` files incrementally.
 Returned descriptors refer only to exported files; original baseline/BIM inputs are not dependencies.
 BIM grids are scanned in bounded metadata chunks by [`_annotation/bim_grid.py`](../../../src/ldsc/_annotation/bim_grid.py), then use the shared disk identity index and retained-metadata writer.
@@ -103,7 +103,7 @@ They require no genotype data or placeholder baseline value stores.
 Generated queries use packed binary stores; exported baselines retain the existing exact classification and float32 continuous-value contract.
 The writer reads row tiles sized for the selected family width, preserving a bounded numeric working set.
 It removes its construction scratch before returning.
-A later explicit read can prepare output-owned private shards; the caller closes that owner when done.
+Reading values requires `result.prepared_in(directory)`, which prepares private shards in a directory the caller chooses and returns a bundle the caller closes; `LDScoreCalculator.run` with an output directory prepares them there and removes them when the run ends.
 Persistent outputs survive closure.
 Direct and indexed `run_ldscore()` publish their diagnostics before releasing their private workspace, so returned diagnostic references remain valid.
 A single-batch `LDScoreCalculator.run(..., output_config=None)` accepts already-prepared inputs, keeps diagnostics in memory, and creates no annotation, diagnostic, temporary, logging, or result files.

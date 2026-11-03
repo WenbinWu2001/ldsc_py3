@@ -33,16 +33,16 @@ def test_gene_and_bed_membership_boundaries_reload_and_lifetime(tmp_path, sharde
 
     baseline, genes, bed, catalog = inputs(tmp_path, sharded)
     config=GlobalConfig(snp_identifier='rsid')
-    with run_annotate(ref_snp_annot_sources=baseline, query_annot_gene_list_sources=[genes], gene_coordinate_file=catalog,
-                      padding_bp=0, genome_build='hg19', global_config=config, output_dir=tmp_path/'gene') as bundle:
-        assert bundle.chromosomes == ['1', '2']
+    result = run_annotate(ref_snp_annot_sources=baseline, query_annot_gene_list_sources=[genes], gene_coordinate_file=catalog,
+                          padding_bp=0, genome_build='hg19', global_config=config, output_dir=tmp_path/'gene')
+    assert result.chromosomes == ['1', '2']
+    assert result.query_statuses[0].n_annotation_snps == 2
+    with result.prepared_in(tmp_path/'scratch') as bundle:
         assert bundle.read('1', columns=['pathway'])[:,0].tolist() == [0,1,1,0]
         assert bundle.read('2', columns=['pathway'])[:,0].tolist() == [0]
-        assert bundle.query_statuses[0].n_annotation_snps == 2
         private = bundle.workspace.path
     assert not private.exists()
-    with run_annotate(ref_snp_annot_sources=baseline, query_annot_bed_sources=[bed], global_config=config, output_dir=tmp_path/'bed'):
-        pass
+    run_annotate(ref_snp_annot_sources=baseline, query_annot_bed_sources=[bed], global_config=config, output_dir=tmp_path/'bed')
     for chrom in ['1','2']:
         gene_frame = pd.read_csv(tmp_path/'gene'/f'query.{chrom}.annot.gz', sep=r'\s+')
         bed_frame = pd.read_csv(tmp_path/'bed'/f'query.{chrom}.annot.gz', sep=r'\s+')
@@ -113,9 +113,10 @@ def test_bed_projection_padding_and_headers_without_optional_backend(tmp_path, m
                      'chrom\tchromStart\tchromEnd\tname\n1\t50\t75\ta\nchr2\t5\t20\tb\n')
     # POS is one-based: padded BED [25,100) selects POS 26 through 100.
     # The second interval pads to [0,45), selecting POS 1 through 45.
-    with run_annotate(ref_snp_annot_sources=[baseline], query_annot_bed_sources=[bed],
-                      padding_bp=padding, global_config=GlobalConfig(snp_identifier='rsid'),
-                      output_dir=tmp_path/'out') as bundle:
+    result = run_annotate(ref_snp_annot_sources=[baseline], query_annot_bed_sources=[bed],
+                          padding_bp=padding, global_config=GlobalConfig(snp_identifier='rsid'),
+                          output_dir=tmp_path/'out')
+    with result.prepared_in(tmp_path/'scratch') as bundle:
         for chrom, values in expected.items():
             assert bundle.read(chrom, columns=bundle.query_columns)[:, 0].tolist() == values
 
@@ -128,19 +129,20 @@ def test_returned_annotation_uses_persistent_outputs_after_build_scratch_is_rele
     output.mkdir()
     marker = output / 'RUN_FAILED.txt'
     marker.write_text('earlier failed overwrite')
-    bundle = run_annotate(ref_snp_annot_sources=baseline, query_annot_gene_list_sources=[genes],
+    result = run_annotate(ref_snp_annot_sources=baseline, query_annot_gene_list_sources=[genes],
                           gene_coordinate_file=catalog, padding_bp=0, genome_build='hg19',
                           global_config=GlobalConfig(snp_identifier='rsid'), output_dir=output)
     assert not marker.exists()
     assert not list(output.glob('.ldsc-annotation-*'))
-    assert bundle.n_rows == 5
-    assert bundle.gene_list_batch.audit_path.is_file()
+    assert result.n_rows == 5
+    assert result.gene_list_batch.audit_path.is_file()
     genes.unlink()
     catalog.unlink()
-    with bundle:
+    with result.prepared_in(tmp_path / 'scratch') as bundle:
         assert bundle.read('1', columns=['base', 'pathway']).tolist() == [[1, 0], [1, 1], [1, 1], [1, 0]]
         assert bundle.read('2', columns=['pathway']).tolist() == [[0]]
     assert not list(output.glob('.ldsc-annotation-*'))
+    assert not list((tmp_path / 'scratch').iterdir())
     assert (output / 'query.1.annot.gz').is_file()
 
 
@@ -155,13 +157,13 @@ def test_empty_and_unsupported_sources_are_skipped_but_supported_query_survives(
     frame = pd.read_csv(baseline[0], sep='\t')
     frame.loc[frame.CHR.eq(2), 'POS'] = 500
     frame.to_csv(baseline[0], sep='\t', index=False)
-    with run_annotate(ref_snp_annot_sources=baseline, query_annot_gene_list_sources=[empty, genes, unsupported], gene_coordinate_file=catalog,
-                      padding_bp=0, genome_build='hg19', gene_list_resolution_policy=policy,
-                      global_config=GlobalConfig(snp_identifier='rsid'), output_dir=tmp_path/'out') as bundle:
-        assert bundle.query_columns == ['pathway']
-        assert [(s.query,s.status,s.reason) for s in bundle.query_statuses] == [('empty','skipped','empty_gene_list'), ('pathway','ok',''), ('unsupported','skipped','zero_annotation_snps')]
-        summary = bundle.gene_list_batch.summary.set_index('query')
-        assert summary.loc['unsupported','genes_with_snp_support'] == 0
+    result = run_annotate(ref_snp_annot_sources=baseline, query_annot_gene_list_sources=[empty, genes, unsupported], gene_coordinate_file=catalog,
+                          padding_bp=0, genome_build='hg19', gene_list_resolution_policy=policy,
+                          global_config=GlobalConfig(snp_identifier='rsid'), output_dir=tmp_path/'out')
+    assert result.query_columns == ['pathway']
+    assert [(s.query,s.status,s.reason) for s in result.query_statuses] == [('empty','skipped','empty_gene_list'), ('pathway','ok',''), ('unsupported','skipped','zero_annotation_snps')]
+    summary = result.gene_list_batch.summary.set_index('query')
+    assert summary.loc['unsupported','genes_with_snp_support'] == 0
 
 
 def test_all_focal_skipped_writes_diagnostics_and_no_scientific_family(tmp_path):
@@ -236,8 +238,7 @@ def test_overwrite_failure_marker_and_persistent_family(tmp_path):
     output=tmp_path/'out'
     kwargs=dict(ref_snp_annot_sources=baseline, query_annot_gene_list_sources=[genes], gene_coordinate_file=catalog,
                 padding_bp=0, genome_build='hg19', global_config=GlobalConfig(snp_identifier='rsid'), output_dir=output)
-    with run_annotate(**kwargs):
-        pass
+    run_annotate(**kwargs)
     with pytest.raises(FileExistsError):
         run_annotate(**kwargs)
     unrelated=output/'notes.txt'
@@ -248,8 +249,7 @@ def test_overwrite_failure_marker_and_persistent_family(tmp_path):
     assert (output/'RUN_FAILED.txt').is_file()
     assert unrelated.read_text() == 'keep'
     genes.write_text('G1\n')
-    with run_annotate(**kwargs, overwrite=True):
-        pass
+    run_annotate(**kwargs, overwrite=True)
     assert not (output/'RUN_FAILED.txt').exists()
     assert not list(output.glob('.ldsc-annotation-*'))
 

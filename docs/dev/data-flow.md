@@ -1,6 +1,6 @@
 # Data Flow
 
-Last updated on: 2026-11-02
+Last updated on: 2026-11-03
 
 Examples below use the munged file names written without a trait label (`sumstats.parquet`, `sumstats.gz`); naming rules are in [artifact metadata](../reference/formats/artifact-metadata.md).
 
@@ -112,7 +112,7 @@ flowchart LR
   P --> W[AnnotationDirectoryWriter]
   W --> O[Query shards and diagnostics]
   W --> B[Aligned baseline shards for annotation-grid input]
-  O --> R[Export-backed AnnotationBundle]
+  O --> R[AnnotationResult of the exports]
   B --> R
 ```
 
@@ -125,7 +125,7 @@ BIM-generated files may serve as baseline or query annotations according to the 
 
 Diagnostics include `metadata.json`, `annotate.log`, `dropped_snps/dropped.tsv.gz`, query statuses, and applicable gene/input/scope audits under `diagnostics/`.
 Metadata `snp_rows` records logical input/output/dropped counts, in total and per chromosome; the log reports totals and downstream usage flags.
-The returned bundle reopens exported files and owns bounded private read storage until `close()`.
+The returned `AnnotationResult` records the exported files and owns nothing; `prepared_in(directory)` reopens them as a bundle that owns bounded private read storage in that directory until `close()`.
 
 Output preflight covers both `query.*.annot.gz` and `baseline.*.annot.gz` plus owned diagnostics.
 `--overwrite` replaces owned outputs and removes stale siblings after success, preserving unrelated files.

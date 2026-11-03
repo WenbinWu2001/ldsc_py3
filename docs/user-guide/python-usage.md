@@ -165,7 +165,7 @@ print(failed[["query_annotation", "stage", "error_type", "error_message"]])
 
 ### Reuse query annotations and check SNP retention
 
-`run_annotate` writes reusable annotation files and returns a bundle that must be used inside a `with` block.
+`run_annotate` writes reusable annotation files and returns an `AnnotationResult`, a record of those files that owns nothing and needs no closing.
 On an annotation grid it exports aligned baseline and query files; pass both lists to `run_ldscore`:
 
 ```python
@@ -174,15 +174,15 @@ from ldsc import run_annotate, run_ldscore
 
 def main():
     # Assumes set_global_config(...) was called as above.
-    with run_annotate(
+    result = run_annotate(
         query_annot_bed_sources="/path/to/beds/*.bed",
         ref_snp_annot_sources="/path/to/baseline/baseline.@.annot.gz",
         output_dir="results/query_annotations",
-    ) as bundle:
-        print(bundle.summary())
-        annotation_rows = {chrom: shard.n_rows for chrom, shard in bundle.shards.items()}
-        baseline_files = bundle.output_paths["baseline_annotations"]
-        query_files = bundle.output_paths["query_annotations"]
+    )
+    print(result.summary())
+    annotation_rows = {chrom: shard.n_rows for chrom, shard in result.shards.items()}
+    baseline_files = result.output_paths["baseline_annotations"]
+    query_files = result.output_paths["query_annotations"]
 
     source = run_ldscore(
         baseline_annot_sources=baseline_files,
@@ -660,27 +660,27 @@ Invalid inputs, query names or gene identifiers raise `LDSCInputError`.
 ```python
 from ldsc import GlobalConfig, run_annotate
 
-with run_annotate(
+result = run_annotate(
     ref_snp_bim_sources="panel/reference.@.bim",
     query_annot_bed_sources="baseline_beds/*.bed",
     global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19"),
     output_dir="annotations/from_bim",
     # overwrite=True,  # replace existing annotation files and remove stale ones
-) as bundle:
-    print(bundle.query_columns)
-    print(bundle.chromosomes)
-    print(bundle.output_paths["query_annotations"])
+)
+print(result.query_columns)
+print(result.chromosomes)
+print(result.output_paths["query_annotations"])
 ```
 
 For an annotation grid, replace `ref_snp_bim_sources` with `ref_snp_annot_sources`.
-That result also has `bundle.output_paths["baseline_annotations"]`; pass both path lists to `run_ldscore(baseline_annot_sources=..., query_annot_sources=..., ...)`.
+That result also has `result.output_paths["baseline_annotations"]`; pass both path lists to `run_ldscore(baseline_annot_sources=..., query_annot_sources=..., ...)`.
 
 ### Project gene lists
 
 ```python
 from ldsc import GlobalConfig, run_annotate
 
-with run_annotate(
+result = run_annotate(
     ref_snp_annot_sources="/path/to/baseline/baseline.@.annot.gz",
     query_annot_gene_list_sources="pathways/*.txt",
     gene_coordinate_file="/path/to/genes/gene-coordinates.hg19.tsv.gz",
@@ -689,19 +689,27 @@ with run_annotate(
     global_config=GlobalConfig(snp_identifier="rsid", genome_build="hg19"),
     output_dir="annotations/pathways",
     # gene_list_resolution_policy="resolved-only",  # exploratory screens only
-) as bundle:
-    print(bundle.query_columns)
-    print(bundle.query_statuses)
+)
+print(result.query_columns)
+print(result.query_statuses)
 ```
 
 `gene_list_resolution_policy=None` (the default) means strict resolution; `"resolved-only"` is the equivalent of `--allow-unresolved-genes`.
 `run_annotate()` prints no console notice; it returns the query statuses and output paths instead.
 
-### Bundle lifetime
+### Read annotation values
 
-The returned bundle refers to the exported annotation files (only query files for a BIM grid), not to your original inputs.
-Construction scratch is released before the call returns; reading a chromosome from the bundle can prepare private data again under the output directory.
-Use `with run_annotate(...) as bundle:` or call `bundle.close()` when you are done; closing keeps every exported file and your original inputs.
+The returned `AnnotationResult` refers to the exported annotation files (only query files for a BIM grid), not to your original inputs.
+Construction scratch is released before the call returns, and the result reads no files on its own.
+To read values, prepare the exported files in a directory you choose; the returned `AnnotationBundle` owns one hidden `.ldsc-annotation-*` folder there and removes it when closed:
+
+```python
+with result.prepared_in("scratch") as bundle:
+    values = bundle.read("1", columns=bundle.query_columns)
+```
+
+Any directory works, including the annotate output directory, and closing keeps every exported file and your original inputs.
+`LDScoreCalculator.run(result, ..., output_config=...)` prepares the result inside its own output directory, so you can pass the result directly; without `output_config`, pass a prepared bundle instead.
 
 <a id="r2-matrices"></a>
 

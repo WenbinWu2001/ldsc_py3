@@ -1,6 +1,6 @@
 # `annotate`
 
-Last updated on: 2026-11-02
+Last updated on: 2026-11-03
 
 `ldsc annotate` projects BED intervals or gene lists onto an annotation SNP grid and writes reusable query annotation files.
 This page is the exact contract; the task guide is [Create reusable SNP annotations](../user-guide/workflows/annotations.md), and every option is listed by `ldsc annotate --help`.
@@ -41,13 +41,16 @@ A query annotation is the binary union of its intervals over the grid rows that 
 Gene identifiers match exactly and case-sensitively, as described in the [gene-list format](formats/gene-lists.md).
 
 A query name that equals a baseline column or a reserved name stops the run; queries are never renamed.
-The reserved names are `gene_control`, `CHR`, `POS`, `BP`, `SNP`, `CM`, `A1`, `A2` and `MAF` (`src/ldsc/_annotation/annotate.py`).
+The reserved names are `gene_control`, `CHR`, `POS`, `BP`, `SNP`, `CM`, `A1`, `A2` and `MAF` (`RESERVED_QUERY_NAMES` in `src/ldsc/_annotation/preflight.py`).
+`ldscore`, `quantile-h2` and the Python `AnnotationBuilder` apply the same rule.
 
 ## Validation and outcomes
 
 ### BED queries
 
-Every requested BED file is read before the grid.
+A BED query is named after its file name without the last suffix.
+Before any BED file is read, a name that is reserved, equals a baseline column or is shared by two BED files stops the run with one `BED query name validation failed` error that lists every such file, also written to `diagnostics/input_issues.tsv` with reason `annotation_name_collision`.
+Every requested BED file is then read before the grid.
 Any unreadable or malformed BED file stops the run with one `BED query content validation failed` error that lists every such file, also written to `diagnostics/input_issues.tsv`.
 A BED file without intervals is skipped as `empty_input`.
 A non-empty BED file that overlaps no grid row is kept as an all-zero column with status `ok`; the zero-support skip below applies to gene lists only.

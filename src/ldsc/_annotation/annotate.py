@@ -8,24 +8,25 @@ generation.
 """
 
 import logging
-from dataclasses import replace
 
 from .bundle import AnnotationBundle
 from .bim_grid import resolve_bim_grid_inputs, prepare_bim_grid
-from .interval_queries import bed_query_name, prepare_bed_queries, build_query_shards, require_readable_bed_sources
+from .interval_queries import prepare_bed_queries, build_query_shards, require_readable_bed_sources
 from .sources import prepare_annotation_sources
 from .storage import AnnotationWorkspace
 from .gene_query_storage import resolve_gene_lists_staged
 from .._core.snp_identity import identity_mode_family
 from .._runtime.workflow_logging import workflow_logging, materializing_overwrite_guard, log_inputs, log_outputs
-from .semantics import require_unique_annotation_names
+from .preflight import (
+    annotation_columns, inspect_annotation_inputs, require_usable_bed_query_names, validate_gene_query_names,
+)
 from .._core.columns import normalize_genome_build
 from ..config import AnnotationBuildConfig, GlobalConfig, get_global_config, print_global_config_banner
 from ..errors import LDSCInputError
 from .gene_lists import GeneCatalog, GeneCatalogValidationError
 from .._genome.build_policy import GenomeBuildCheck
 from .outputs import AnnotationDirectoryWriter
-from .._runtime.paths import ensure_output_directory, resolve_file_group, split_cli_path_tokens
+from .._runtime.paths import ensure_output_directory, split_cli_path_tokens
 from .query_outcomes import (
     gene_query_statuses, gene_viability_errors, all_query_annotations_skipped_message, gene_list_gate_a_message,
     emit_bed_query_notice, emit_gene_gate_b_notice, emit_resolved_only_notice,
@@ -54,13 +55,10 @@ def _projection_build(requested, mode, baseline_tokens, catalog, *, bim_tokens=(
     return check.resolve()
 
 
-def _gate_a_error(batch, naming_error=None):
+def _gate_a_error(batch):
     # Shares the ldscore wording: per-source counts, omitted examples, audit filter, overwrite.
-    parts = [gene_list_gate_a_message(batch)]
-    if naming_error:
-        parts.append(str(naming_error))
-    parts.append('Other causes & fixes: docs/user-guide/troubleshooting.md#annotate-gene-list-preflight')
-    return LDSCInputError(' '.join(parts))
+    return LDSCInputError(gene_list_gate_a_message(batch) +
+                          ' Other causes & fixes: docs/user-guide/troubleshooting.md#annotate-gene-list-preflight')
 
 
 @materializing_overwrite_guard(lambda *args, **kwargs: (kwargs.get('output_dir'), kwargs.get('overwrite', False)) if kwargs.get('output_dir') else None, command='run_annotate(...)')
@@ -156,7 +154,6 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
             log_inputs(grid_kind='bim' if bim else 'annotation', grid_sources=f"{len(bim or baseline)} input declarations",
                        query_sources=f"{len(genes or bed)} input declarations; see diagnostics/metadata.json for source provenance",
                        padding_bp=spec.padding_bp, output_dir=str(output))
-            from .preflight import inspect_annotation_inputs
             declared_inputs = inspect_annotation_inputs(baseline=baseline,
                 files=[('BED', bed), ('gene lists', genes)], scalar_files=[('gene catalog', spec.gene_coordinate_file)],
                 mode=config.snp_identifier, strict_annotations=bool(genes),
@@ -169,35 +166,19 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                     writer.write_diagnostics(output, catalog_issues=exc.issues)
                     raise
                 batch = resolve_gene_lists_staged(genes, catalog, workspace, resolution_policy=spec.gene_list_resolution_policy, gene_exclude_regions=spec.gene_exclude_regions)
-                # Names depend on declarations and validated headers, not resolved genes or grid rows.
-                names = [declaration['query'] for declaration in batch.declarations]
-                baseline_columns = {column for path in declared_inputs.baseline for column in declared_inputs.columns[path]}
-                reserved = {'gene_control', 'CHR', 'POS', 'BP', 'SNP', 'CM', 'A1', 'A2', 'MAF'}
-                naming_errors = []
-                try:
-                    require_unique_annotation_names(sorted(baseline_columns), names)
-                except LDSCInputError as exc:
-                    naming_errors.append(str(exc))
-                reserved_queries = sorted(reserved.intersection(names))
-                if reserved_queries:
-                    naming_errors.append('Gene-list query names collide with reserved annotation metadata/control names: ' + ', '.join(reserved_queries) + '.')
-                naming_error = None
-                if naming_errors:
-                    naming_error = LDSCInputError(' '.join(naming_errors) + ' Rename conflicting query source files to change their query names.')
-                    summary = batch.summary.copy()
-                    # Duplicate-query reasons are already recorded by the resolver.
-                    invalid_names = summary['query'].isin(baseline_columns | reserved)
-                    summary.loc[invalid_names, 'source_status'] = 'error'
-                    summary.loc[invalid_names, 'source_reasons'] = summary.loc[invalid_names, 'source_reasons'].fillna('').map(lambda text: ';'.join(filter(None, (text, 'annotation_name_collision'))))
-                    batch = replace(batch, summary=summary, has_fatal_gate_a_issues=True)
+                # Names depend on declarations and validated headers, not resolved genes or grid rows;
+                # duplicate-query reasons are already recorded by the resolver.
+                batch = validate_gene_query_names(batch, annotation_columns(declared_inputs))
                 writer.write_diagnostics(output, batch=batch, catalog_issues=catalog.issues)
                 from .query_outcomes import log_gene_catalog_issues, log_gene_list_rejections
                 log_gene_catalog_issues(catalog.issues)
                 log_gene_list_rejections(batch)
                 if batch.has_fatal_gate_a_issues:
-                    raise _gate_a_error(batch, naming_error)
+                    raise _gate_a_error(batch)
             else:
-                # BED parsing is cheap; it must pass before the grid is read.
+                # Names and BED contents are cheap to check; both must pass before the grid is read.
+                require_usable_bed_query_names(declared_inputs.files['BED'], annotation_columns(declared_inputs),
+                                               output/'diagnostics/input_issues.tsv')
                 bed_sources = prepare_bed_queries(declared_inputs.files['BED'], workspace)
                 require_readable_bed_sources(bed_sources, output/'diagnostics/input_issues.tsv')
             projection_build = _projection_build(requested, config.snp_identifier, baseline, catalog,
@@ -216,9 +197,6 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                                                        autosomes_only=bool(genes), header_widths=declared_inputs.widths)
             bundle = AnnotationBundle(prepared.shards, list(prepared.baseline_columns), [], workspace,
                                       config_snapshot=resolved_config, identity_drops=prepared.drops, gene_list_batch=batch)
-            if batch is None:
-                names = [bed_query_name(path) for path in resolve_file_group(bed, label='BED file')]
-                require_unique_annotation_names(bundle.baseline_columns, names)
             scope = {'chromosomes': list(prepared.scope_chromosomes), 'grid_kind': 'bim' if bim else 'annotation',
                      'requires_all_autosomes': bool(declared), 'selection': 'validated_input_contents', 'validation_status': 'passed'}
             if baseline:

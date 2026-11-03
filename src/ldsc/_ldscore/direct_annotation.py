@@ -16,7 +16,6 @@ from .._annotation.interval_queries import build_query_shards, prepare_bed_queri
 from .._annotation.sources import prepare_annotation_sources
 from .._annotation.storage import AnnotationShard, ColumnStore
 from .preflight import validate_direct_scope
-from .._annotation.semantics import require_unique_annotation_names
 from ..errors import LDSCInputError
 
 
@@ -55,8 +54,6 @@ def prepare_direct_annotations(args, config, spec, workspace, output_config, *, 
             'padding_bp':spec.padding_bp,'chromosome_scope':scope,
         })
     if batch is not None or bed_sources:
-        names = [d['query'] for d in batch.declarations] if batch is not None else [b.query for b in bed_sources]
-        require_unique_annotation_names(bundle.baseline_columns,names)
         statuses = query_source_statuses(bed_sources, batch)
         if batch is not None and any(item['input_role'] == 'control' for item in batch.declarations):
             build_query_shards(bundle, gene_batch=batch, padding_bp=spec.padding_bp,

@@ -1353,7 +1353,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
     from .._annotation.gene_lists import GeneCatalog
     from .._annotation.gene_query_storage import resolve_gene_lists_staged, persistent_gene_diagnostics
     from .._annotation.storage import AnnotationWorkspace
-    from .._annotation.query_outcomes import validate_gene_query_names
+    from .._annotation.preflight import annotation_columns, require_usable_bed_query_names, validate_gene_query_names
     from .direct_annotation import prepare_direct_annotations, prepare_synthetic_base
 
     has_queries = any(_has_cli_tokens(getattr(args, name, None)) for name in (
@@ -1388,6 +1388,8 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
                 checks=[('reference', args.r2_matrix_dir, lambda: inspect_r2_headers(
                     args.r2_matrix_dir, getattr(args, 'genome_build', None), command='ldscore', ldscore_args=args))]
                        if getattr(args, 'r2_matrix_dir', None) else ())
+            require_usable_bed_query_names(declared_inputs.files['query_annot_bed_sources'],
+                                           annotation_columns(declared_inputs), output_dir/'diagnostics/input_issues.tsv')
             batch = catalog = None
             if _has_cli_tokens(getattr(args,"query_annot_gene_list_sources",None)):
                 catalog = GeneCatalog.load(args.gene_coordinate_file)
@@ -1395,8 +1397,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
                     control_path=getattr(args,"control_gene_list_file",None),
                     resolution_policy=getattr(args,"gene_list_resolution_policy","strict"),
                     gene_exclude_regions=getattr(args,"gene_exclude_regions","none"))
-                batch = validate_gene_query_names(batch, {column for path in declared_inputs.baseline
-                    for column in declared_inputs.columns[path]})
+                batch = validate_gene_query_names(batch, annotation_columns(declared_inputs))
                 if batch.has_fatal_gate_a_issues:
                     fail_gene_list_resolution(batch, output_config)
             if normalized_args is None:

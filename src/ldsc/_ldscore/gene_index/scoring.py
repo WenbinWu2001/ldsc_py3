@@ -490,8 +490,8 @@ def _run_indexed_ldscore_in_workspace(
     gene_query_statuses,
     gene_control_errors,
     gene_viability_errors,
-    validate_gene_query_names,
 )
+    from ..._annotation.preflight import validate_gene_query_names
     from ..diagnostics import fail_gene_list_resolution, fail_unusable_queries, log_query_outcomes
     from ..outputs import LDScoreDirectoryWriter, LDScoreOutputConfig, QueryDiagnostics
 

@@ -1,6 +1,6 @@
 # BED Input Format
 
-Last updated on: 2026-10-27
+Last updated on: 2026-11-03
 
 Gene-list queries use the same interval projection and padding semantics after
 resolution; see [gene-lists.md](gene-lists.md).
@@ -114,11 +114,9 @@ workflow-specific transforms still happen after parsing:
   included, so `/path1/annot.bed` and `/path2/annot.bed` both map to `annot`
 
 Query annotation BED stems must be unique because they become annotation column
-names. If two resolved BED inputs have the same stem, or if a BED stem clashes
-with an already-loaded baseline/query annotation column, `annotate` raises a
-user-facing input error before projection or output writing. Under the current
-`Path.stem` rule, only the final suffix is removed: `annot.bed.gz` maps to
-`annot.bed`.
+names.
+If two resolved BED inputs have the same stem, or a BED stem equals a reserved name (`gene_control`, `CHR`, `POS`, `BP`, `SNP`, `CM`, `A1`, `A2` or `MAF`) or a column of the supplied baseline or query annotation files, `annotate`, `ldscore`, `quantile-h2` and `AnnotationBuilder` raise one input error listing every such file before any BED file is read.
+Under the current `Path.stem` rule, only the final suffix is removed: `annot.bed.gz` maps to `annot.bed`.
 
 ## Compression
 

@@ -1,6 +1,6 @@
 # Calculate LD scores from gene lists
 
-Last updated on: 2026-10-31
+Last updated on: 2026-11-03
 
 Use gene-list mode to turn pathway, expression, proteomic, GO or other gene lists into query annotations for partitioned heritability, estimated with stratified LD score regression (S-LDSC; Finucane et al. 2015).
 LDSC3 resolves each gene list against one gene coordinate catalog, marks the SNPs inside the listed genes' intervals, and writes an ordinary, self-contained LD-score directory that `partitioned-h2` reads.
@@ -53,7 +53,7 @@ GENE002
 - Blank lines are ignored and surrounding whitespace is removed; there is no comment syntax, so `#TP53` is read as an identifier, and extra tab-separated fields make the line malformed.
 - An identifier repeated in one file, or two names of the same gene, selects that gene once.
 - The file name becomes the query annotation name after removing a final `.gz` and then one final `.txt`, `.tsv` or `.list`: `pathway_A.txt.gz` becomes `pathway_A`.
-  Query names must be unique and must not equal a baseline column or `gene_control`.
+  Query names must be unique and must not equal a baseline column, a SNP metadata name such as `SNP` or `CHR`, or `gene_control`.
 
 Pass gene lists with `--query-annot-gene-list-sources` as exact paths or quoted `*` patterns such as `"/path/to/gene-lists/*.txt"`; `@` is not expanded.
 The full parsing rules are in [gene-list source format](../../reference/formats/gene-lists.md#gene-list-source-format).

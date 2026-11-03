@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-11-02
+Last updated on: 2026-11-03
 
 This reference expands run-aborting `ldsc` errors with at least three distinct plausible causes, following the [current logging and error-message guide](../dev/design/logging.md#diagnostics-and-troubleshooting).
 It also retains guidance for failed-run artifacts, documented query omissions, and cleanup warnings that users need to interpret.
@@ -250,6 +250,29 @@ Inference uses bounded samples from every relevant file/chromosome and retains t
 
 **Developer reference:** `_core.snp_identity.validate_identity_artifact_metadata()` and artifact reload guards · **Exception:** `LDSCInputError`
 
+### Common: a BED query name is not usable
+
+**Symptom:** `BED query name validation failed: <n> input issue(s). query BED <path>: its query name '<name>' ...`
+
+`annotate`, `ldscore`, `quantile-h2` and the Python `AnnotationBuilder` name each BED query after its file name without the last suffix: `/data/beds/SNP.bed` becomes the query `SNP`, and `genes.bed.gz` becomes `genes.bed`.
+The names are checked before any BED file is read, and every affected file is listed in the error.
+`annotate`, `ldscore` and `AnnotationBuilder` also write each file to `diagnostics/input_issues.tsv` with reason `annotation_name_collision`.
+
+**Likely causes & how to check:**
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | The name is a reserved SNP metadata or control name: `CHR`, `POS`, `BP`, `SNP`, `CM`, `A1`, `A2`, `MAF` or `gene_control` | The `details` column says the name is reserved |
+| 2 | The name is already an annotation column of the baseline or prebuilt query annotation files | Compare the name with the headers of the files passed as baseline or query annotations |
+| 3 | Two BED files in different directories have the same file name | Look for the same file name in two `source` rows |
+
+**Remedies:**
+
+1. Rename the BED file, or copy it under a new name; the new name becomes the query annotation name in every output.
+2. Give BED files from different directories distinct file names.
+
+**Developer reference:** `_annotation.preflight.require_usable_bed_query_names()` · **Exception:** `LDSCInputError`
+
 ## `munge-sumstats`
 
 ### `munge-sumstats`: could not map a required column
@@ -431,7 +454,7 @@ Use exactly one BED or gene-list query route. Gene lists require a readable gene
 
 The error message, shared with gene-list `ldscore` runs, gives each source's rejected and submitted row counts; up to ten examples with their file and line, then the number not shown; a suggested filter for `diagnostics/gene_list_audit.tsv.gz`; and the rerun with `--overwrite`.
 
-Standalone `annotate` checks query names from source filenames against validated baseline headers and reserved metadata/control names before preparing the annotation SNP grid.
+`annotate` checks query names from source filenames against validated baseline headers and reserved metadata/control names before preparing the annotation SNP grid; `ldscore`, `quantile-h2` and the Python `AnnotationBuilder` apply the same check.
 For example, if baseline column `base` conflicts with `base.txt` and that list contains `UNKNOWN`, the same terminal error reports both problems.
 The source summary records `annotation_name_collision`, while the row audit records the unresolved identifier; duplicate source-derived query names retain `duplicate_query_name`.
 Rename the conflicting focal source files to change their query names, and repair rejected identifiers when using strict resolution.

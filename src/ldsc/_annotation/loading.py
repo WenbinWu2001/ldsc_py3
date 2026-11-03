@@ -2,6 +2,7 @@
 
 from .bundle import AnnotationBundle
 from .interval_queries import build_query_shards, prepare_bed_queries, require_readable_bed_sources
+from .preflight import annotation_columns, inspect_annotation_inputs, require_usable_bed_query_names, validate_gene_query_names
 from .sources import prepare_annotation_sources
 from .gene_query_storage import resolve_gene_lists_staged
 from ..errors import LDSCInputError
@@ -15,12 +16,12 @@ def build_annotation_shards(spec, config, workspace, *, projection_genome_build=
     annotate and direct LD-score workflows own their additional validation
     gates and publication policies.
     """
-    from .preflight import inspect_annotation_inputs
     declared = inspect_annotation_inputs(baseline=spec.baseline_annot_sources, query=spec.query_annot_sources,
         files=[('BED', spec.query_annot_bed_sources), ('gene lists', spec.query_annot_gene_list_sources)],
         scalar_files=[('gene catalog', spec.gene_coordinate_file), ('control genes', spec.control_gene_list_file)],
         mode=config.snp_identifier, strict_annotations=False)
     baseline, query = declared.baseline, declared.query
+    require_usable_bed_query_names(declared.files['BED'], annotation_columns(declared))
     from dataclasses import replace
     from .annotate import _projection_build
     from .._core.snp_identity import identity_mode_family
@@ -39,6 +40,7 @@ def build_annotation_shards(spec, config, workspace, *, projection_genome_build=
                                          control_path=spec.control_gene_list_file,
                                          resolution_policy=spec.gene_list_resolution_policy,
                                          gene_exclude_regions=spec.gene_exclude_regions)
+        batch = validate_gene_query_names(batch, annotation_columns(declared))
         if batch.has_fatal_gate_a_issues:
             error = _gate_a_error(batch)
             error.gene_list_batch = batch

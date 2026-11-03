@@ -1,10 +1,15 @@
-"""Resolve annotation declarations while collecting every missing input."""
+"""Resolve annotation declarations and query names while collecting every issue."""
+
+from collections import Counter
+from dataclasses import replace
+from pathlib import Path
 
 import pandas as pd
 
 from .parsing import normalize_annotation_chunk
+from .interval_queries import bed_query_name
 from .._core.chromosomes import AUTOSOMES
-from .._runtime.preflight import input_issue, inspect_declared_inputs
+from .._runtime.preflight import InputGate, input_issue, inspect_declared_inputs
 from .._runtime.paths import (
     normalize_path_token, normalize_path_tokens, resolve_file_group, split_cli_path_tokens,
 )
@@ -81,3 +86,61 @@ def inspect_annotation_inputs(*, baseline=(), query=(), mode='rsid', strict_anno
         return dict(declarations=declarations, widths=widths, columns=columns)
 
     return inspect_declared_inputs(declaration_check=check, **kwargs)
+
+
+# SNP metadata columns and the gene-list control column; a query with one of
+# these names would duplicate a column of the annotation files.
+RESERVED_QUERY_NAMES = frozenset({'gene_control', 'CHR', 'POS', 'BP', 'SNP', 'CM', 'A1', 'A2', 'MAF'})
+
+
+def annotation_columns(declared):
+    """Return the annotation columns of the declared baseline and query files."""
+    return {column for path in (*declared.baseline, *declared.query) for column in declared.columns.get(str(path), ())}
+
+
+def require_usable_bed_query_names(paths, existing_columns, issues_path=None):
+    """Stop before any BED file is parsed when a query name cannot become a column.
+
+    A BED query is named by its file name without the last suffix. Each file
+    whose name is reserved (``RESERVED_QUERY_NAMES``), is already an annotation
+    column in ``existing_columns``, or is shared with another BED file of the
+    run gets one ``annotation_name_collision`` row, and all rows are reported
+    in one ``LDSCInputError`` (written to ``issues_path`` when given).
+    """
+    names = {Path(path): bed_query_name(path) for path in paths}
+    counts = Counter(names.values())
+    issues = []
+    for path, name in names.items():
+        if name in RESERVED_QUERY_NAMES:
+            problem = 'is a reserved SNP metadata or gene-list control column name'
+        elif name in existing_columns:
+            problem = 'is already an annotation column of the supplied annotation files'
+        elif counts[name] > 1:
+            problem = 'is also the query name of another BED file of this run'
+        else:
+            continue
+        issues.append(dict(input_issue('query BED', path, '', 'annotation_name_collision',
+                                       f'its query name {name!r} {problem}'),
+                           repair='Rename the BED file; its name without the last suffix becomes the query annotation name'))
+    InputGate('BED query name validation', issues_path, issues,
+              troubleshooting='docs/user-guide/troubleshooting.md#common-a-bed-query-name-is-not-usable').finish()
+
+
+def validate_gene_query_names(batch, existing_columns):
+    """Record gene-list query names that would collide with output columns (Gate A).
+
+    A query named like one of ``existing_columns`` (the annotation columns of
+    the supplied files), or a focal query named like a reserved metadata column
+    or ``gene_control``, gets the ``annotation_name_collision`` reason, so the
+    run stops at Gate A together with any rejected identifiers instead of after
+    LD-score calculation.
+    """
+    summary = batch.summary.copy()
+    invalid = summary['query'].isin(existing_columns) | (
+        summary.input_role.eq('focal') & summary['query'].isin(RESERVED_QUERY_NAMES))
+    if invalid.any():
+        summary.loc[invalid, 'source_status'] = 'error'
+        summary.loc[invalid, 'source_reasons'] = summary.loc[invalid, 'source_reasons'].fillna('').map(
+            lambda reason: ';'.join(filter(None, (reason, 'annotation_name_collision'))))
+        batch = replace(batch, summary=summary, has_fatal_gate_a_issues=True)
+    return batch

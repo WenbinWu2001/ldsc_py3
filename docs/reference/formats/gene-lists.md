@@ -1,6 +1,6 @@
 # Gene-list query input
 
-Last updated on: 2026-10-28
+Last updated on: 2026-11-03
 
 `ldsc ldscore` accepts one or more focal gene lists through `--query-annot-gene-list-sources`.
 Direct mode requires an explicit gene coordinate catalog; indexed mode uses only the catalog embedded in the gene LD-score index.
@@ -53,7 +53,8 @@ Repeated rows and different aliases that resolve to the same canonical ID select
 
 The query name is the source basename after removing optional final `.gz` and
 then at most one final `.txt`, `.tsv`, or `.list`, case-insensitively. Query
-names must be unique and must not collide with baseline columns or the reserved
+names must be unique and must not collide with baseline columns, the SNP
+metadata names `CHR`, `POS`, `BP`, `SNP`, `CM`, `A1`, `A2` and `MAF`, or the
 control name `gene_control`.
 
 ## Gene coordinate catalog

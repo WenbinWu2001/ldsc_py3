@@ -1770,24 +1770,6 @@ def _validate_run_args(args: argparse.Namespace) -> None:
                 "`--snp-identifier chr_pos_allele_aware` was supplied without `--genome-build`. Pass "
                 "`--genome-build hg19`, `--genome-build hg38`, or `--genome-build auto`."
             )
-    if args.ld_wind_cm is not None and args.ld_wind_cm <= 0:
-        raise LDSCConfigError(
-            f"ldscore received invalid `--ld-wind-cm={args.ld_wind_cm}`. Most likely "
-            "the LD window was set to zero or a negative value. Pass a positive "
-            "centimorgan window, for example `--ld-wind-cm 1.0`."
-        )
-    if args.ld_wind_kb is not None and args.ld_wind_kb <= 0:
-        raise LDSCConfigError(
-            f"ldscore received invalid `--ld-wind-kb={args.ld_wind_kb}`. Most likely "
-            "the LD window was set to zero or a negative value. Pass a positive "
-            "kilobase window."
-        )
-    if args.ld_wind_snps is not None and args.ld_wind_snps <= 0:
-        raise LDSCConfigError(
-            f"ldscore received invalid `--ld-wind-snps={args.ld_wind_snps}`. Most likely "
-            "the LD window was set to zero or a negative SNP count. Pass a positive "
-            "SNP-count window."
-        )
     if getattr(args, "maf_min", None) is not None and not 0 <= args.maf_min <= 0.5:
         raise LDSCConfigError(
             f"ldscore received invalid `--maf-min={args.maf_min}`. Most likely the "

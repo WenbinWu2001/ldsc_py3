@@ -26,7 +26,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 import logging
 import math
-from numbers import Integral
+from numbers import Integral, Real
 from os import PathLike
 from typing import Literal
 import warnings
@@ -135,13 +135,65 @@ def _range_message(config_name: str, field_name: str, value, allowed_range: str)
     )
 
 
-def _one_ld_window_message(config_name: str) -> str:
-    """Return a self-contained message for LD-window selector validation."""
-    return (
-        f"Could not construct {config_name}: exactly one LD-window option must be set. "
-        "Most likely no window was supplied or multiple window units were combined. "
-        "Set exactly one of ld_wind_snps, ld_wind_kb, or ld_wind_cm."
-    )
+@dataclass(frozen=True)
+class LDWindow:
+    """One LD window: its unit and its width on either side of each SNP.
+
+    ``unit`` is ``"snps"``, ``"kb"`` or ``"cm"``. ``value`` is an ``int`` for a
+    SNP count and a ``float`` for kilobases and centiMorgans, so one window has
+    one spelling in R2 matrix footers, gene-index identities and LD-score
+    metadata. Configurations build it from their ``ld_wind_*`` fields.
+    """
+
+    unit: str
+    value: int | float
+
+    @property
+    def flag(self) -> str:
+        """Return the command-line option that sets this window, such as ``--ld-wind-kb``."""
+        return f"--ld-wind-{self.unit}"
+
+    def __str__(self) -> str:
+        return f"{self.flag} {self.value}"
+
+    def record(self) -> dict:
+        """Return ``{"unit": ..., "value": ...}`` for metadata and identities."""
+        return {"unit": self.unit, "value": self.value}
+
+
+def _ld_window(ld_wind_snps, ld_wind_kb, ld_wind_cm) -> LDWindow:
+    """Return the one LD window set among the three ``ld_wind_*`` fields.
+
+    Every configuration that takes an LD window applies this rule: exactly one
+    field is set, its value is a finite number greater than 0 and not a
+    boolean, and a SNP count is an integer. Raises ``LDSCConfigError``
+    otherwise; the message names the command-line option and the field.
+    """
+    values = {"snps": ld_wind_snps, "kb": ld_wind_kb, "cm": ld_wind_cm}
+    chosen = [unit for unit, value in values.items() if value is not None]
+    if len(chosen) != 1:
+        flags = [f"--ld-wind-{unit}" for unit in chosen]
+        found = ("none was set" if not flags else f"{flags[0]} and {flags[1]} were both set" if len(flags) == 2
+                 else f"{flags[0]}, {flags[1]} and {flags[2]} were all set")
+        raise LDSCConfigError(
+            "Cannot configure the LD window: set exactly one of --ld-wind-snps, --ld-wind-kb or --ld-wind-cm "
+            f"(ld_wind_snps, ld_wind_kb or ld_wind_cm in Python); {found}."
+        )
+    unit = chosen[0]
+    value = values[unit]
+    number_type = Integral if unit == "snps" else Real
+    if isinstance(value, bool) or not isinstance(value, number_type) or not math.isfinite(value) or value <= 0:
+        raise LDSCConfigError(
+            f"Cannot configure the LD window: --ld-wind-{unit} (ld_wind_{unit} in Python) is {value!r}. "
+            "Use a finite number greater than 0; --ld-wind-snps takes a whole number of SNPs."
+        )
+    return LDWindow(unit, int(value) if unit == "snps" else float(value))
+
+
+def _store_ld_window(config) -> None:
+    """Validate a frozen config's LD window and store its value as ``int`` or ``float``."""
+    window = _ld_window(config.ld_wind_snps, config.ld_wind_kb, config.ld_wind_cm)
+    object.__setattr__(config, f"ld_wind_{window.unit}", window.value)
 
 
 @dataclass(frozen=True, init=False)
@@ -484,7 +536,10 @@ class RefPanelConfig:
 class LDScoreConfig:
     """Configuration for chromosome-wise LD-score calculation.
 
-    Exactly one LD-window field must be provided. With an R2 matrix the
+    Exactly one LD-window field must be set, to a finite number greater than
+    0; ``ld_wind_snps`` takes an integer. The value is stored as ``int`` for
+    SNPs and ``float`` otherwise, and ``ld_window`` returns it as an
+    ``LDWindow``. With an R2 matrix the
     window must use the R2 matrix's build-window unit and be no wider than it, and
     ``ld_wind_snps`` counts R2 matrix sidecar rows rather than retained SNPs. The
     remaining fields control regression-SNP selection, annotation counts, and
@@ -556,15 +611,7 @@ class LDScoreConfig:
 
     def __post_init__(self) -> None:
         """Validate LD-window settings and normalize optional SNP-list paths."""
-        windows = [self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm]
-        if sum(value is not None for value in windows) != 1:
-            raise LDSCConfigError(_one_ld_window_message("LDScoreConfig"))
-        if self.ld_wind_snps is not None and self.ld_wind_snps <= 0:
-            raise LDSCConfigError(_positive_number_message("LDScoreConfig", "ld_wind_snps", self.ld_wind_snps))
-        if self.ld_wind_kb is not None and self.ld_wind_kb <= 0:
-            raise LDSCConfigError(_positive_number_message("LDScoreConfig", "ld_wind_kb", self.ld_wind_kb))
-        if self.ld_wind_cm is not None and self.ld_wind_cm <= 0:
-            raise LDSCConfigError(_positive_number_message("LDScoreConfig", "ld_wind_cm", self.ld_wind_cm))
+        _store_ld_window(self)
         if not 0 <= self.common_maf_min <= 0.5:
             raise LDSCConfigError(_range_message("LDScoreConfig", "common_maf_min", self.common_maf_min, "[0, 0.5]"))
         if isinstance(self.query_batch_size, bool) or not isinstance(self.query_batch_size, int) or self.query_batch_size < 1:
@@ -576,6 +623,11 @@ class LDScoreConfig:
             raise LDSCConfigError(_positive_number_message("LDScoreConfig", "snp_batch_size", self.snp_batch_size))
         validate_workers(self.workers, error_type=LDSCConfigError)
         object.__setattr__(self, "regr_snps_file", _normalize_optional_path(self.regr_snps_file))
+
+    @property
+    def ld_window(self) -> LDWindow:
+        """Return the LD window this configuration sets."""
+        return _ld_window(self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm)
 
 
 @dataclass(frozen=True)
@@ -613,8 +665,10 @@ class GeneLDScoreIndexBuildConfig:
         Gene-region exclusion applied to unpadded intervals before padding.
         Default is ``"mhc"``.
     ld_wind_cm, ld_wind_kb, ld_wind_snps : float, float, int, or None, optional
-        Exactly one positive LD window must be supplied: centiMorgans,
-        kilobases, or retained SNPs. No default or whole-chromosome override.
+        Exactly one LD window must be supplied, as a finite number greater
+        than 0: centiMorgans, kilobases, or an integer count of retained SNPs.
+        Stored as ``float``, ``float`` and ``int``, the types the index
+        identity records. No default or whole-chromosome override.
     maf_min : float, optional
         Inclusive retained-reference MAF threshold. Default is no explicit
         filter.
@@ -708,17 +762,10 @@ class GeneLDScoreIndexBuildConfig:
                 f"Cannot extend gene intervals by padding_bp={self.padding_bp!r}: padding must be nonnegative. "
                 "Set --padding-bp to 0 for gene bodies or a positive number of base pairs."
             )
-        windows = [self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm]
-        if sum(value is not None for value in windows) != 1:
-            raise LDSCConfigError(_one_ld_window_message("GeneLDScoreIndexBuildConfig"))
-        for name in ("ld_wind_snps", "ld_wind_kb", "ld_wind_cm"):
-            value = getattr(self, name)
-            if value is not None and (isinstance(value, bool) or not math.isfinite(value) or value <= 0
-                                      or (name == "ld_wind_snps" and not isinstance(value, Integral))):
-                raise LDSCConfigError(f"Invalid {name}={value!r}: use a finite positive window, with an integer SNP count.")
+        _store_ld_window(self)
         if self.snp_batch_size <= 0 or self.atom_batch_size <= 0:
             raise LDSCConfigError(
-                f"Cannot configure gene-index construction: ld_wind_cm={self.ld_wind_cm!r}, "
+                f"Cannot configure gene-index construction: "
                 f"snp_batch_size={self.snp_batch_size!r}, atom_batch_size={self.atom_batch_size!r}. "
                 "Set both --snp-batch-size and --atom-batch-size to positive values."
             )
@@ -733,6 +780,11 @@ class GeneLDScoreIndexBuildConfig:
                 "Set --common-maf-min to the intended minor-allele-frequency threshold within this range."
             )
         validate_workers(self.workers, error_type=LDSCConfigError)
+
+    @property
+    def ld_window(self) -> LDWindow:
+        """Return the LD window this configuration sets."""
+        return _ld_window(self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm)
 
 
 @dataclass(frozen=True)
@@ -773,7 +825,9 @@ class R2MatrixBuildConfig:
         only when the active ``GlobalConfig.snp_identifier`` is in the
         ``chr_pos`` family.
     ld_wind_snps, ld_wind_kb, ld_wind_cm : int, float, float, or None, optional
-        LD window specification. Exactly one must be supplied.
+        LD window specification. Exactly one must be supplied, as a finite
+        number greater than 0, an integer for ``ld_wind_snps``. Stored as
+        ``int`` or ``float``; the R2 Parquet footer records that value.
     maf_min : float or None, optional
         Optional retained-SNP MAF threshold. Default is ``None``.
     ref_panel_snps_file : str or os.PathLike[str] or None, optional
@@ -856,9 +910,7 @@ class R2MatrixBuildConfig:
         object.__setattr__(self, "output_dir", normalize_required_path(self.output_dir))
         object.__setattr__(self, "ref_panel_snps_file", _normalize_optional_path(self.ref_panel_snps_file))
         object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
-        windows = [self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm]
-        if sum(value is not None for value in windows) != 1:
-            raise LDSCConfigError(_one_ld_window_message("R2MatrixBuildConfig"))
+        _store_ld_window(self)
         source_map = None
         if self.source_genome_build == "hg19":
             source_map = self.genetic_map_hg19_sources
@@ -870,12 +922,6 @@ class R2MatrixBuildConfig:
                 "Most likely cM-window LD scores were requested without the matching genetic map. "
                 f"Set genetic_map_{self.source_genome_build}_sources or use ld_wind_snps/ld_wind_kb."
             )
-        if self.ld_wind_snps is not None and self.ld_wind_snps <= 0:
-            raise LDSCConfigError(_positive_number_message("R2MatrixBuildConfig", "ld_wind_snps", self.ld_wind_snps))
-        if self.ld_wind_kb is not None and self.ld_wind_kb <= 0:
-            raise LDSCConfigError(_positive_number_message("R2MatrixBuildConfig", "ld_wind_kb", self.ld_wind_kb))
-        if self.ld_wind_cm is not None and self.ld_wind_cm <= 0:
-            raise LDSCConfigError(_positive_number_message("R2MatrixBuildConfig", "ld_wind_cm", self.ld_wind_cm))
         if self.maf_min is not None and not 0 <= self.maf_min <= 0.5:
             raise LDSCConfigError(_range_message("R2MatrixBuildConfig", "maf_min", self.maf_min, "[0, 0.5]"))
         if self.snp_batch_size <= 0:
@@ -887,6 +933,11 @@ class R2MatrixBuildConfig:
                 "Most likely an R2 percentage or invalid threshold was supplied. "
                 "Use a decimal threshold in [0, 1]."
             )
+
+    @property
+    def ld_window(self) -> LDWindow:
+        """Return the LD window this configuration sets."""
+        return _ld_window(self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm)
 
 
 @dataclass(frozen=True)

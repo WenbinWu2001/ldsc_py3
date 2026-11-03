@@ -102,7 +102,7 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 | `ldsc._annotation.interval_projection` | `ChromosomeProjector` maps BED/gene interval unions to chromosome SNP positions; called by `interval_queries.build_query_shards()` after shared BED parsing |
 | `ldsc._annotation.bundle`, `ldsc._annotation.storage` | explicit dataset ownership, chromosome descriptors, detached selected reads, and output-contained scratch |
 | `ldsc._annotation.sources`, `ldsc._annotation.identity_cleanup`, `ldsc._annotation.loading` | bounded input scans, aligned source preparation, global identity cleanup, and shared source-backed construction |
-| `ldsc._annotation.parsing`, `ldsc._annotation.tables` | annotation chunk normalization and concrete annotation table reading with numeric-value validation |
+| `ldsc._annotation.parsing` | annotation chunk normalization and numeric-value validation shared by every annotation reader |
 | `ldsc._annotation.preflight` | annotation declaration resolution and `inspect_annotation_inputs`, the declared-input gate with annotation header checks first; the query checks that `annotate`, `ldscore` and `build_annotation_shards` share: reserved and colliding BED and gene-list query names, the gene-list Gate A error and the projection genome build |
 | `ldsc._annotation.saved_results` | saved baseline/query descriptors with no original-input dependencies; deferred preparation on explicit reads and construction-owner detachment |
 | `ldsc._annotation.bim_grid` | metadata-only standalone BIM grid scans using shared identity cleanup; no genotype companions or value synthesis |
@@ -204,7 +204,7 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 - Keep optional-baseline behavior in the public LD-score workflow layer: no baseline and no query means a synthetic all-ones `base`; prebuilt, BED, and gene-list queries require explicit baseline annotations. Skipped BED/gene queries never become placeholder scientific columns.
 - Keep `ldsc annotate` orchestration in `ldsc._annotation.builder`. The CLI
   registers annotation flags from that module and dispatches parsed namespaces
-  to `run_annotate_from_args()`; `_annotation.tables` must not own parser
+  to `run_annotate_from_args()`; `_annotation.parsing` must not own parser
   functions, result objects, or public workflow aliases.
 - Use the shared output preflight helpers for fixed output files, including
   workflow log files. Public workflows should create missing output

@@ -11,7 +11,6 @@ import numpy as np
 import pandas as pd
 
 
-from ldsc._annotation import tables as kernel_annotation
 from ldsc._annotation.sources import prepare_annotation_sources
 from ldsc._annotation.storage import AnnotationWorkspace
 from ldsc._annotation import builder as annotation_builder
@@ -412,10 +411,6 @@ class AnnotationBuilderTest(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaisesRegex(Exception, "padding_bp"):
                     AnnotationBuildConfig(padding_bp=value)
-
-    def test_kernel_annotation_does_not_export_workflow_api(self):
-        for name in ("run_annotate", "parse_annotate_args"):
-            self.assertFalse(hasattr(kernel_annotation, name), f"{name} should live in ldsc._annotation.builder")
 
     def test_run_builds_bundle(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())

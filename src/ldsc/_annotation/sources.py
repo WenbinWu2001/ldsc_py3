@@ -21,11 +21,10 @@ import pyarrow.parquet as pq
 from .._runtime.progress import report_phase, advance, PhaseProgress
 
 from .identity_cleanup import DiskIdentityIndex, IdentityDropSpool
-from .parsing import normalize_annotation_chunk
+from .parsing import annotation_parse_error_message, normalize_annotation_chunk, validate_annotation_values
 from .._core.chromosomes import AUTOSOMES
 from .._runtime.preflight import INPUT_ISSUE_COLUMNS, input_issue
 from .storage import AnnotationShard, ColumnStore, FrameSpool
-from .tables import _annotation_parse_error_message, _validate_annotation_values
 from .._core.snp_identity import identity_base_mode, is_allele_aware_mode
 from .._core.row_alignment import assert_same_snp_rows
 from .semantics import require_unique_annotation_names
@@ -87,7 +86,7 @@ def _scan(path, directory, mode, chunk_rows, *, source_progress=None):
                 quantitative.update(values.columns[~values.isin((0, 1)).all(axis=0)])
                 width = len(chunk.columns)
     except (pd.errors.ParserError, UnicodeDecodeError, ValueError) as exc:
-        raise LDSCInputError(_annotation_parse_error_message(path, details=str(exc))) from exc
+        raise LDSCInputError(annotation_parse_error_message(path, details=str(exc))) from exc
     if not chromosomes:
         raise LDSCInputError(f"Annotation file '{path}' has no SNP rows. Supply a nonempty annotation SNP grid.")
     return _Source(Path(path), spool, columns, metadata_columns, chromosomes, width,
@@ -232,7 +231,7 @@ def _write_values(groups, selections, group_rows, counts, workspace, columns):
                     if retained is not None and retained["row"].iloc[0] < stop:
                         if retained["row"].iloc[0] < first or retained["row"].iloc[-1] >= stop:
                             raise LDSCInputError(f"Annotation rows changed between input passes: {source.path}. Keep source files unchanged during preparation.")
-                        values = _validate_annotation_values(chunk, source.columns, path=source.path).to_numpy()
+                        values = validate_annotation_values(chunk, source.columns, path=source.path).to_numpy()
                         for chrom, rows in retained.groupby("CHR", sort=False):
                             indices = rows["row"].to_numpy() - first
                             for dtype, names, positions in selected_columns:

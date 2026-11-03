@@ -651,7 +651,7 @@ For BED queries, `--padding-bp` extends the supplied intervals at both ends. Set
 2. Use `NA` for missing metadata such as `CM`, never an empty field or a numeric sentinel.
 3. Supply numeric, non-missing values in every annotation column, then rerun.
 
-**Developer reference:** `_annotation.tables._validate_annotation_values()` through the annotation and LD-score loaders · **Exception:** `LDSCInputError`
+**Developer reference:** `_annotation.parsing.validate_annotation_values()` through the annotation and LD-score loaders · **Exception:** `LDSCInputError`
 
 ### `ldscore`: annotation SNP rows do not match across files
 

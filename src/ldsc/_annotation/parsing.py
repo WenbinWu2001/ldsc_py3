@@ -1,10 +1,16 @@
-"""Shared annotation chunk normalization; no source reads or retained matrices."""
+"""Shared annotation chunk normalization and numeric-value validation.
+
+Annotation preparation, ``ldscore``, ``quantile-h2`` and ``AnnotationBuilder``
+share these helpers; they read no sources and retain no matrices.
+"""
 
 import logging
+from pathlib import Path
+from typing import Sequence
+
 import numpy as np
 import pandas as pd
 
-from . import tables as kernel_annotation
 from .._core.snp_identity import identity_mode_family
 from .._core.chromosomes import normalize_chromosome
 from .._core.columns import (
@@ -44,7 +50,7 @@ def normalize_annotation_chunk(df, path, snp_identifier, chrom=None, *, log_igno
     a2_col = resolve_optional_column(df.columns, _ANNOTATION_A2_COLUMN_SPEC, context=context)
     if (a1_col is None) ^ (a2_col is None):
         raise LDSCInputError(
-            f"annotate could not read annotation file '{path}': exactly one allele column was found. "
+            f"Could not read annotation file '{path}': exactly one allele column was found. "
             "Most likely the file has A1 without A2 or A2 without A1. Provide both allele columns or neither."
         )
     columns = {"CHR": df[chr_col], "POS": df[pos_col]}
@@ -82,10 +88,10 @@ def normalize_annotation_chunk(df, path, snp_identifier, chrom=None, *, log_igno
     annotation_columns = [column for column in df.columns if column not in metadata_source_columns]
     if not annotation_columns:
         raise LDSCInputError(
-            f"annotate could not read annotation file '{path}': no annotation value columns remain after metadata columns. "
+            f"Could not read annotation file '{path}': no annotation value columns remain after metadata columns. "
             "Most likely the file contains only CHR/POS/SNP/CM/allele metadata. Add at least one numeric annotation column."
         )
-    annotations = kernel_annotation._validate_annotation_values(
+    annotations = validate_annotation_values(
         df,
         annotation_columns,
         path=path,
@@ -93,3 +99,65 @@ def normalize_annotation_chunk(df, path, snp_identifier, chrom=None, *, log_igno
     ).reset_index(drop=True)
     metadata = metadata.reset_index(drop=True)
     return metadata, annotations
+
+
+_ANNOTATION_VALUES_DOC = "docs/user-guide/troubleshooting.md#ldscore-annotation-values-are-malformed"
+
+
+def validate_annotation_values(
+    frame: pd.DataFrame,
+    annotation_columns: Sequence[str],
+    *,
+    path: str | Path,
+    dtype=np.float32,
+) -> pd.DataFrame:
+    """Validate numeric, non-missing annotations and apply the requested dtype.
+
+    ``dtype=None`` preserves parsed precision so exact binary classification
+    can precede the ordinary float32 normalization.
+    """
+    values = frame.loc[:, annotation_columns]
+    numeric = values.apply(pd.to_numeric, errors="coerce")
+    missing = values.isna()
+    non_numeric = numeric.isna() & ~missing
+    if missing.any().any() or non_numeric.any().any():
+        problems: list[str] = []
+        for column in annotation_columns:
+            missing_rows = np.flatnonzero(missing[column].to_numpy()) + 1
+            non_numeric_rows = np.flatnonzero(non_numeric[column].to_numpy()) + 1
+            if len(missing_rows):
+                problems.append(
+                    f"'{column}': {_counted(len(missing_rows), 'missing value')} at data row(s) "
+                    f"{_summarize_row_numbers(missing_rows)}"
+                )
+            if len(non_numeric_rows):
+                problems.append(
+                    f"'{column}': {_counted(len(non_numeric_rows), 'non-numeric value')} at data row(s) "
+                    f"{_summarize_row_numbers(non_numeric_rows)}"
+                )
+        raise LDSCInputError(annotation_parse_error_message(path, details="; ".join(problems)))
+    return numeric if dtype is None else numeric.astype(dtype)
+
+
+def _summarize_row_numbers(rows: np.ndarray, *, limit: int = 5) -> str:
+    """Format a bounded set of one-based data-row numbers for an error."""
+    shown = ", ".join(str(int(row)) for row in rows[:limit])
+    return shown if len(rows) <= limit else f"{shown}, ..."
+
+
+def _counted(count: int, noun: str) -> str:
+    """Return a count with a minimally pluralized noun."""
+    return f"{count} {noun}{'' if count == 1 else 's'}"
+
+
+def annotation_parse_error_message(path: str | Path, *, details: str) -> str:
+    """Build the shared actionable annotation-table format error."""
+    return (
+        f"Could not parse annotation file '{path}': annotation value columns must be numeric "
+        f"and non-missing. Affected values: {details}. Most likely a row has fewer fields "
+        "than the header, delimiters are inconsistent, an empty placeholder was collapsed "
+        "by whitespace parsing, a row/file is truncated, or an annotation value is not "
+        "numeric. Ensure each row has one field per header column, use the package's `NA` "
+        "token only for missing metadata values, and provide numeric, non-missing annotation values. "
+        f"Other causes & fixes: {_ANNOTATION_VALUES_DOC}"
+    )

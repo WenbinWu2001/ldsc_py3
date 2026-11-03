@@ -1,9 +1,54 @@
 # Status
 
-Last updated on: 2026-11-02
+Last updated on: 2026-11-03
 
-Branch `restructure`; checked on 2026-11-02.
+Branch `restructure`; checked on 2026-11-03.
 Nothing below is in progress; each open item needs the user's go-ahead.
+
+## Completed: annotation query checks and saved results (2026-11-03)
+
+Architecture review candidate 9, "Annotation preparation as one pipeline", narrowed after re-checking it at `5c909ff`.
+The three preparation paths produce different things, so they stay separate: `annotate` publishes files, `build_annotation_shards()` (behind `AnnotationBuilder` and `quantile-h2`) builds complete shards, and direct `ldscore` projects queries per batch.
+Only their shared query checks and the handling of a saved `annotate` result changed.
+Probes found three defects: a BED or gene-list query named like a SNP metadata column (`SNP.bed`, `SNP.txt`) failed late or wrote a broken file (P2, P5), and an in-memory LD-score run on a saved result wrote scratch into the annotate output in `chr_pos` modes but failed in rsID modes (P1).
+The user accepted fourteen recommendations in two rounds of questions and authorized the implementation on 2026-11-03; the question record and evidence are in the shared side-session note `candidate9-evidence.md`, outside the repository.
+
+- `0c88856`: direct gene-list Gate B returns the chromosomes whose reference preparation failed next to the bundle instead of storing them on it.
+- `9d45535`: `_annotation/preflight.py` owns `RESERVED_QUERY_NAMES` and `require_usable_bed_query_names()`, which checks BED query names from the resolved paths before any BED file is read or the grid is prepared, in `annotate`, `ldscore`, `AnnotationBuilder` and `quantile-h2`.
+  A reserved name, an annotation column of the supplied files or a name shared by two BED files is one `BED query name validation failed` error; `annotation_name_collision` rows go to `diagnostics/input_issues.tsv`, except in `quantile-h2`, which writes no input-issue table.
+  `validate_gene_query_names()` moved there and now also guards `AnnotationBuilder` and `quantile-h2`; the Gate A message names the colliding gene-list queries in every command.
+  New troubleshooting entry "Common: a BED query name is not usable".
+- `54fd054`: `resolve_projection_build()` and `gene_list_gate_a_error()` in `_annotation/preflight.py` replace annotate's private `_projection_build` and `_gate_a_error`, which `build_annotation_shards()` imported; build reports from `AnnotationBuilder` and `quantile-h2` name "annotation preparation" and `--baseline-annot-sources`.
+- `9729e12`: `_annotation/tables.py` is merged into `parsing.py`; the two shared parsing errors no longer say "annotate".
+- `ac905b9` (breaking): `run_annotate()` option-mix errors are `LDSCUsageError`; the CLI exit code is unchanged.
+- `10a716e` (breaking): `run_annotate()`, `run_annotate_from_args()` and the annotate `main()` return `AnnotationResult`, which owns no files; `result.prepared_in(directory)` returns a readable bundle that owns a hidden folder there.
+  `LDScoreCalculator.run()` accepts the result only with `output_config` and prepares it in its own output directory; without one, and in `compute_chromosome()`, it raises `LDSCUsageError`.
+  This fixes P1 and the confinement leftover recorded under output-directory confinement.
+- `bcc56a6`: `AnnotationBundle` is a frozen dataclass; producers return new bundles through `dataclasses.replace`, closing belongs to the owner the bundles share (`AnnotationWorkspace` or the new `MemoryOwner`), and `diagnostics_in_memory` is the only in-memory marker.
+- This commit: this record.
+
+### Decisions taken during implementation
+
+- The round-1 evidence called `AnnotationBundle.input_issues` dead, but Gate B set it through `dataclasses.replace`; removing the field failed 21 focused tests.
+  Gate B returns the table instead, because it is a run diagnostic rather than annotation data; outputs are unchanged.
+- `resolve_projection_build()` keeps its missing-build branch, now an `LDSCUsageError` with neutral wording, although `GlobalConfig` never allows a coordinate-family mode without a build.
+- `prepared_in()` accepts any directory, including the annotate output directory, and creates it when missing.
+- BED names are checked before BED contents, so a run with a reserved name and a malformed BED file reports the name first.
+- A closed file-backed bundle reports "Annotation workspace is closed."; the in-memory owner keeps "Annotation bundle is closed.".
+- The run-annotate result is recorded in `docs/dev/DOCS_VOCABULARY.md` only as a proposed term, "annotation result" (`AnnotationResult`).
+
+### Evidence
+
+- A before/after harness ran exported copies of `5c909ff` and of each commit on 39 scenarios: `annotate` with BED and gene-list queries on annotation and BIM grids (Gate A partial success with `--allow-unresolved-genes`, Gate B zero-support skips, strict rejection, malformed BED, missing build, name collisions), `ldscore` from saved `annotate` output and directly with BED and gene-list queries, `quantile-h2`, and Python `AnnotationBuilder`, `run_annotate()`, `LDScoreCalculator.run()` and `compute_chromosome()` calls.
+  Records hold exit codes, stderr, exceptions and every output file (gzip decompressed, Parquet as text, logs excluded); two runs of the base copy were identical.
+- `0c88856`, `54fd054` and `bcc56a6` were identical to their predecessors; `9d45535` changed the 16 name-collision scenarios, `9729e12` one parsing message, `ac905b9` the exception class of five option errors, and `10a716e` the six saved-result scenarios.
+  Against `5c909ff`, 15 scenarios are identical, including all 9 command-line runs that succeed in both and the LD scores computed from a saved result; the other 24 differ only by those designed changes.
+- Tests: each commit ran its focused tests on an exported copy (720 for `0c88856`, between 1,155 and 1,163 for the others); the full suite on an exported copy of `bcc56a6`, with the workspace `resources/` linked into its parent folder, passed 2,544 tests with none skipped.
+
+### Open items
+
+- The user has not yet approved "annotation result" as a vocabulary term or `AnnotationResult` as the public name.
+- The commits are local and not pushed; the HPC package copy does not have them.
 
 ## Completed: allele orientation outside summary statistics (2026-11-02)
 
@@ -205,6 +250,7 @@ The user approved the designs and authorized the work on 2026-10-30; matplotlib'
 - A cleanup failure of `.build/` after a successful build is a `UserWarning`, because the workflow log is already closed.
 - `estimate_partitioned_h2_batch`, indexed `ldscore` and indexed scoring also route their output directory through `output_directory_path()`, though no public entry point reaches them with an empty value.
 - `LDScoreCalculator.compute_chromosome` and a direct `bundle.read()` keep preparing a saved result in the annotate output directory, the bundle's own output, as the brief allows.
+  Resolved in `10a716e`: a saved result is read only after `prepared_in(directory)`.
 
 ## Completed: one failure-marker scope per run (2026-10-30)
 
@@ -497,5 +543,5 @@ The contract is in [reference SNPs on the annotation SNP grid](docs/reference/ld
 
 - [annotate contract](docs/reference/annotate.md) and [LD-score SNP universes](docs/reference/ldscore-snp-universes.md).
 - `src/ldsc/_refpanel/adapters.py` (`_align_annotations()`, `PlinkRefPanel._load_genotypes()`, `RefPanel.prepare_chromosome()`), `src/ldsc/_refpanel/plink.py` (per-SNP genotype QC), `src/ldsc/_ldscore/preflight.py` (chromosome-coverage gate) and `src/ldsc/_ldscore/calculator.py` (`_snp_universe_policy()`, batch-1 counts, chromosome skips).
-- `src/ldsc/_annotation/annotate.py` (`run_annotate()`, `_gate_a_error()`), `src/ldsc/_annotation/sources.py` (`_aligned_metadata()`) and `src/ldsc/_ldscore/gene_index/build.py` (per-chromosome evidence).
+- `src/ldsc/_annotation/annotate.py` (`run_annotate()`), `src/ldsc/_annotation/preflight.py` (query-name checks, `gene_list_gate_a_error()`), `src/ldsc/_annotation/sources.py` (`_aligned_metadata()`) and `src/ldsc/_ldscore/gene_index/build.py` (per-chromosome evidence).
 - [Lessons](lessons.md), particularly reference preparation, physical BIM/BED row mapping, and output ownership.

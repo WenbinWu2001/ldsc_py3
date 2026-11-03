@@ -2384,7 +2384,7 @@ def _partition_annotation_drops(bundle):
     artifacts = {}
     if bundle.identity_drops is None:
         return artifacts
-    if bundle.diagnostics_in_memory or bundle.workspace is None:
+    if bundle.diagnostics_in_memory:
         from .._annotation.in_memory import MemoryDiagnostics
         frames = list(bundle.identity_drops.frames())
         if frames:
@@ -2407,7 +2407,7 @@ def _stage_chromosome_drops(bundle, chrom, reference_drops):
     import gzip
     from uuid import uuid4
 
-    if bundle.diagnostics_in_memory or bundle.workspace is None:
+    if bundle.diagnostics_in_memory:
         from .._annotation.in_memory import MemoryDiagnostics
         frames = [frame.loc[frame.CHR.astype(str).eq(str(chrom))] for frame in bundle.identity_drops.frames()] if bundle.identity_drops is not None else []
         frames.append(coerce_identity_drop_frame(reference_drops))

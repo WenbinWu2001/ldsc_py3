@@ -127,13 +127,12 @@ def execution_query_bundle(bundle, columns, statuses, output_dir):
     active = replace(bundle, query_columns=list(columns), query_statuses=statuses)
     preparation = bundle.query_preparation
     with AnnotationWorkspace(output_dir) as workspace:
-        active = replace(active, shards=dict(bundle.shards), workspace=workspace, query_preparation=None)
+        active = replace(active, workspace=workspace, query_preparation=None)
         if preparation is not None:
-            build_query_shards(active, bed_sources=preparation.bed_sources, gene_batch=bundle.gene_list_batch,
-                               padding_bp=preparation.padding_bp, evaluate_support=False,
-                               query_columns=columns, include_control=False, statuses=statuses)
-        active.query_statuses = statuses
-        yield active
+            active = build_query_shards(active, bed_sources=preparation.bed_sources, gene_batch=bundle.gene_list_batch,
+                                        padding_bp=preparation.padding_bp, evaluate_support=False,
+                                        query_columns=columns, include_control=False, statuses=statuses)
+        yield replace(active, query_statuses=statuses)
 
 
 @report_phase(LOGGER, 'computation', 'annotation projection')
@@ -141,11 +140,13 @@ def build_query_shards(bundle, *, bed_sources=(), gene_batch=None, padding_bp=0,
                        query_columns=None, include_control=True, statuses=None):
     """Project one query at a time, retaining only per-query and per-gene counts.
 
-    Zero-valued chromosome shards are retained for globally supported queries.
-    Gene controls are appended to baseline columns and never enter query batches.
-    This primitive does not apply reference-panel or LD-score variance checks.
-    ``statuses`` supplies already resolved source statuses (an execution
-    batch's), so they are not resolved again for every query of the run.
+    Return a new bundle whose shards gain the projected query store; ``bundle``
+    is unchanged and shares its owner. Zero-valued chromosome shards are
+    retained for globally supported queries. Gene controls are appended to
+    baseline columns and never enter query batches. This primitive does not
+    apply reference-panel or LD-score variance checks. ``statuses`` supplies
+    already resolved source statuses (an execution batch's), so they are not
+    resolved again for every query of the run.
     """
     if statuses is None:
         statuses = query_source_statuses(bed_sources, gene_batch)
@@ -164,6 +165,7 @@ def build_query_shards(bundle, *, bed_sources=(), gene_batch=None, padding_bp=0,
             selected[list(selection.catalog_indices)] = True
         support = pd.Series(pd.NA, index=gene_batch.catalog.frame.index, dtype='Int64')
         support.loc[selected] = 0
+    shards = dict(bundle.shards)
     advance(0, total=len(bundle.chromosomes))
     for chrom in bundle.chromosomes:
         advance(0, object=f'chromosome {chrom}', force=True)
@@ -193,14 +195,14 @@ def build_query_shards(bundle, *, bed_sources=(), gene_batch=None, padding_bp=0,
                         values |= projector.project(zip(intervals.start, intervals.end), padding_bp=padding_bp)
                 store.write(0, values[:, None], columns=[source.query])
                 totals[source.query] += int(values.sum())
-        bundle.shards[chrom] = replace(shard, stores=(*shard.stores, store))
+        shards[chrom] = replace(shard, stores=(*shard.stores, store))
         advance(object=f'chromosome {chrom}')
         del metadata, projector
         values = genes = intervals = selection = None
     if gene_batch is not None and evaluate_support:
         gene_batch = gene_batch.with_snp_support(support, support_kind=support_kind)
         statuses = gene_query_statuses(gene_batch)
-        bundle.gene_list_batch = gene_batch
+        bundle = replace(bundle, gene_list_batch=gene_batch)
     finalized = []
     for status in statuses:
         if status.status in {'ok', 'warning'}:
@@ -214,8 +216,7 @@ def build_query_shards(bundle, *, bed_sources=(), gene_batch=None, padding_bp=0,
         elif status.reason == 'zero_annotation_snps':
             status = status.updated(n_annotation_snps=0.0)
         finalized.append(status)
-    bundle.baseline_columns = baseline_names
-    bundle.query_statuses = tuple(finalized)
-    bundle.query_columns = [item.query for item in finalized if item.status in {'ok', 'warning'}]
+    bundle = replace(bundle, shards=shards, baseline_columns=baseline_names, query_statuses=tuple(finalized),
+                     query_columns=[item.query for item in finalized if item.status in {'ok', 'warning'}])
     bundle.validate()
     return bundle

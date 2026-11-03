@@ -52,18 +52,19 @@ def build_annotation_shards(spec, config, workspace, *, projection_genome_build=
     require_readable_bed_sources(beds)
     prepared = prepare_annotation_sources(workspace, baseline, query, mode=config.snp_identifier,
                                           header_widths=declared.widths)
-    bundle = AnnotationBundle(prepared.shards, list(prepared.baseline_columns), list(prepared.query_columns), workspace,
-                              config_snapshot=config, identity_drops=prepared.drops,
-                              source_summary={"baseline_annot_sources": baseline, "query_annot_sources": query,
-                                              "padding_bp": spec.padding_bp})
+    source_summary = {"baseline_annot_sources": baseline, "query_annot_sources": query, "padding_bp": spec.padding_bp}
     if batch is not None:
-        build_query_shards(bundle, gene_batch=batch, padding_bp=spec.padding_bp, evaluate_support=False)
-        bundle.gene_list_batch = batch
-        bundle.source_summary.update(query_annot_gene_list_sources=list(spec.query_annot_gene_list_sources),
-                                     gene_catalog_build=catalog.genome_build, projection_genome_build=projection_build)
+        source_summary.update(query_annot_gene_list_sources=list(spec.query_annot_gene_list_sources),
+                              gene_catalog_build=catalog.genome_build, projection_genome_build=projection_build)
     elif spec.query_annot_bed_sources:
-        build_query_shards(bundle, bed_sources=beds, padding_bp=spec.padding_bp, evaluate_support=False)
-        bundle.source_summary['query_annot_bed_sources'] = declared.files['BED']
+        source_summary['query_annot_bed_sources'] = declared.files['BED']
+    bundle = AnnotationBundle(prepared.shards, list(prepared.baseline_columns), list(prepared.query_columns), workspace,
+                              config_snapshot=config, identity_drops=prepared.drops, source_summary=source_summary)
+    if batch is not None:
+        bundle = replace(build_query_shards(bundle, gene_batch=batch, padding_bp=spec.padding_bp, evaluate_support=False),
+                         gene_list_batch=batch)
+    elif spec.query_annot_bed_sources:
+        bundle = build_query_shards(bundle, bed_sources=beds, padding_bp=spec.padding_bp, evaluate_support=False)
     if not bundle.baseline_columns:
         raise LDSCInputError("Annotation sources must supply at least one baseline annotation column.")
     bundle.validate()

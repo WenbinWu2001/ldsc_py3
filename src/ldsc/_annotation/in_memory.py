@@ -14,6 +14,20 @@ from .storage import BINARY_BITORDER
 from .._core.snp_identity import clean_identity_artifact_table, identity_base_mode, identity_mode_family
 
 
+class MemoryOwner:
+    """Lifetime of an in-memory bundle: closing invalidates reads; there are no files to remove."""
+
+    def __init__(self):
+        self.closed = False
+
+    def require_open(self) -> None:
+        if self.closed:
+            raise ValueError("Annotation bundle is closed.")
+
+    def close(self) -> None:
+        self.closed = True
+
+
 @dataclass(frozen=True)
 class MemoryDiagnostics:
     """Complete diagnostic rows owned by an in-memory result."""
@@ -106,7 +120,7 @@ def bundle_from_frames(cls, metadata, baseline_annotations, query_annotations, c
             packed[:, j] = np.packbits(values[name].to_numpy()[indices].astype(bool, copy=False), bitorder=BINARY_BITORDER)
         shards[chrom] = MemoryAnnotationShard(rows.drop(columns="_memory_row").reset_index(drop=True),
                                              continuous[indices], continuous_columns, packed, binary_columns)
-    bundle = cls(shards, baseline, queries, None, config_snapshot=config,
+    bundle = cls(shards, baseline, queries, MemoryOwner(), config_snapshot=config,
                  identity_drops=MemoryDiagnostics(clean.dropped), diagnostics_in_memory=True)
     bundle.validate()
     return bundle

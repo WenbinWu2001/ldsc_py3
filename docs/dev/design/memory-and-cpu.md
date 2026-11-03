@@ -82,6 +82,7 @@ See [the pair-query reference](../../reference/query-r2-matrix.md) and [`test_r2
 ## Ownership and lifetime
 
 [`AnnotationBundle`](../../../src/ldsc/_annotation/bundle.py) represents one complete dataset through shared metadata and chromosome descriptors.
+It is a frozen dataclass: projection, query preparation and publication return a new bundle through `dataclasses.replace`, and bundles made that way share one owner, so closing any of them invalidates all.
 It has ordered baseline/query names, source provenance, configuration, scope, and paths needed for access.
 File-backed shard dictionaries contain descriptors.
 The explicit small-input `AnnotationBundle.from_frames(metadata, baseline_annotations, query_annotations, config_snapshot=...)` route instead owns packed binary arrays, dense float32 continuous arrays, and complete diagnostics in memory, with no staging directory.

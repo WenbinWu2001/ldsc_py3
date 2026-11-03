@@ -1,6 +1,10 @@
 """Resource-owning annotation dataset with explicit chromosome/column access."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
 import numpy as np
 from .storage import AnnotationShard, AnnotationWorkspace, FrameSpool, TsvDiagnostics
 from .semantics import require_unique_annotation_names
@@ -8,8 +12,13 @@ from .._core.chromosomes import normalize_chromosome
 from ..config import GlobalConfig
 from ..errors import LDSCInternalError
 
+if TYPE_CHECKING:
+    from .gene_query_storage import GeneListDiagnostics, StagedGeneListBatch
+    from .in_memory import MemoryDiagnostics, MemoryOwner
+    from .interval_queries import ProjectedQueries
 
-@dataclass
+
+@dataclass(frozen=True)
 class AnnotationBundle:
     """Complete annotation dataset represented by on-demand chromosome shards.
 
@@ -22,13 +31,17 @@ class AnnotationBundle:
     invalidates subsequent reads but preserves canonical outputs and original
     sources. Freed arrays become reusable memory; process RSS may not fall.
 
+    Fields are never reassigned: a step that changes the dataset returns a new
+    bundle through ``dataclasses.replace``. Bundles made that way share their
+    owner, so closing any of them invalidates all.
+
     Attributes
     ----------
     baseline_columns, query_columns : list of str
         Ordered baseline and query annotation names shared by all chromosomes.
-    workspace : AnnotationWorkspace or None
-        Owner of private, output-contained staging files; ``None`` for the
-        file-free ``from_frames`` route.
+    workspace : AnnotationWorkspace or MemoryOwner
+        Owner of private, output-contained staging files, or the lifetime of
+        the in-memory arrays of the file-free ``from_frames`` route.
     output_paths : dict
         Canonical persistent artifact paths, populated by writing workflows.
     """
@@ -36,17 +49,16 @@ class AnnotationBundle:
     shards: dict[str, AnnotationShard]
     baseline_columns: list[str]
     query_columns: list[str]
-    workspace: AnnotationWorkspace | None
+    workspace: AnnotationWorkspace | MemoryOwner
     source_summary: dict = field(default_factory=dict)
     config_snapshot: GlobalConfig | None = None
     query_statuses: tuple = ()
-    gene_list_batch: object | None = None
-    identity_drops: FrameSpool | TsvDiagnostics | None = None
+    gene_list_batch: StagedGeneListBatch | GeneListDiagnostics | None = None
+    identity_drops: FrameSpool | TsvDiagnostics | MemoryDiagnostics | None = None
     chromosome_identity_drops: dict | None = None
     output_paths: dict = field(default_factory=dict)
     diagnostics_in_memory: bool = False
-    query_preparation: object | None = field(default=None, repr=False)
-    _closed: bool = field(default=False, repr=False)
+    query_preparation: ProjectedQueries | None = field(default=None, repr=False)
 
     @classmethod
     def from_frames(cls, metadata, baseline_annotations, query_annotations=None, *, config_snapshot=None):
@@ -97,10 +109,7 @@ class AnnotationBundle:
         return bundle_from_frames(cls, metadata, baseline_annotations, query_annotations, config_snapshot)
 
     def _require_open(self):
-        if self._closed:
-            raise ValueError("Annotation bundle is closed.")
-        if self.workspace is not None:
-            self.workspace.require_open()
+        self.workspace.require_open()
 
     @property
     def chromosomes(self):
@@ -176,9 +185,7 @@ class AnnotationBundle:
 
     def close(self):
         """Remove owned private staging; persistent outputs and sources survive."""
-        if self.workspace is not None:
-            self.workspace.close()
-        self._closed = True
+        self.workspace.close()
 
     def __enter__(self):
         self._require_open()

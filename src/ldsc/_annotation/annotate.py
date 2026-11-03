@@ -8,6 +8,7 @@ generation.
 """
 
 import logging
+from dataclasses import replace
 
 from .bundle import AnnotationBundle
 from .bim_grid import resolve_bim_grid_inputs, prepare_bim_grid
@@ -188,18 +189,18 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                 scope['baseline_chromosomes'] = list(prepared.scope_chromosomes)
             if batch is not None:
                 batch, coverage_errors = batch.with_coverage(prepared.scope_chromosomes)
-                bundle.gene_list_batch = batch
+                bundle = replace(bundle, gene_list_batch=batch)
                 if coverage_errors:
                     scope['validation_status'] = 'failed'
                     writer.write_diagnostics(output, batch=batch, statuses=gene_query_statuses(batch), drops=prepared.drops, scope=scope)
                     raise LDSCInputError('Annotation chromosome coverage preflight failed: ' + '; '.join(coverage_errors[:10]) + '. See diagnostics/chromosome_scope.json and gene-list audit/summary.')
-                build_query_shards(bundle, gene_batch=batch, padding_bp=spec.padding_bp)
+                bundle = build_query_shards(bundle, gene_batch=batch, padding_bp=spec.padding_bp)
                 writer.write_diagnostics(output, batch=bundle.gene_list_batch, statuses=bundle.query_statuses, drops=prepared.drops, scope=scope)
                 errors = gene_viability_errors(bundle.gene_list_batch, bundle.query_statuses)
                 if errors:
                     raise LDSCInputError('; '.join(errors))
             else:
-                build_query_shards(bundle, bed_sources=bed_sources, padding_bp=spec.padding_bp)
+                bundle = build_query_shards(bundle, bed_sources=bed_sources, padding_bp=spec.padding_bp)
                 if not bundle.query_columns:
                     writer.write_diagnostics(output, statuses=bundle.query_statuses, drops=prepared.drops, scope=scope)
                     raise LDSCInputError(all_query_annotations_skipped_message(bundle.query_statuses))
@@ -209,9 +210,10 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                           'gene_coordinate_file': spec.gene_coordinate_file, 'gene_catalog_build': None if catalog is None else catalog.genome_build,
                           'projection_genome_build': projection_build, 'padding_bp': spec.padding_bp, 'snp_rows': prepared.snp_rows,
                           'gene_exclude_regions': spec.gene_exclude_regions, 'gene_list_resolution_policy': spec.gene_list_resolution_policy}
-            bundle.source_summary = provenance
-            writer.write(bundle, output, overwrite=overwrite, provenance=provenance, scope=scope,
-                         catalog_issues=None if catalog is None else catalog.issues, preflighted=True)
+            bundle = replace(bundle, source_summary=provenance)
+            bundle = replace(bundle, output_paths=writer.write(
+                bundle, output, overwrite=overwrite, provenance=provenance, scope=scope,
+                catalog_issues=None if catalog is None else catalog.issues, preflighted=True))
             from .query_outcomes import log_gene_list_snp_support, log_query_annotation_statuses
             if bundle.gene_list_batch is not None:
                 log_gene_list_snp_support(bundle.gene_list_batch)

@@ -6,6 +6,7 @@ integrity is checked before preparation, and that evidence is reused when
 content-derived annotation scope becomes available.
 """
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -56,11 +57,11 @@ def prepare_direct_annotations(args, config, spec, workspace, output_config, *, 
     if batch is not None or bed_sources:
         statuses = query_source_statuses(bed_sources, batch)
         if batch is not None and any(item['input_role'] == 'control' for item in batch.declarations):
-            build_query_shards(bundle, gene_batch=batch, padding_bp=spec.padding_bp,
-                               evaluate_support=False, query_columns=[])
-        bundle.query_preparation = ProjectedQueries(tuple(bed_sources), spec.padding_bp)
-        bundle.query_statuses = statuses
-        bundle.query_columns = [item.query for item in statuses if item.status in {'ok', 'warning'}]
+            bundle = build_query_shards(bundle, gene_batch=batch, padding_bp=spec.padding_bp,
+                                        evaluate_support=False, query_columns=[])
+        bundle = replace(bundle, query_preparation=ProjectedQueries(tuple(bed_sources), spec.padding_bp),
+                         query_statuses=statuses,
+                         query_columns=[item.query for item in statuses if item.status in {'ok', 'warning'}])
     bundle.validate()
     return bundle, scope
 

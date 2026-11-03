@@ -74,7 +74,8 @@ class AnnotationDirectoryWriter:
 
         Both families share cleaned metadata, rows, and chromosome order. Numeric
         tile width is bounded by the family column count; source files are never
-        modified. Query-only bundles emit no baseline family.
+        modified. Query-only bundles emit no baseline family. Return the written
+        artifact paths, which the caller records on its bundle.
         """
         output_dir = Path(output_dir)
         diagnostics = ['chromosome_scope'] if scope is not None else []
@@ -117,6 +118,5 @@ class AnnotationDirectoryWriter:
                              **{key: str(path.relative_to(output_dir)) for key, path in paths.items()}}}
         atomic_write_json(payload, family.paths['metadata'])
         remove_output_artifacts(stale)
-        bundle.output_paths = {**{key: str(path) for key, path in paths.items()}, 'metadata': str(family.paths['metadata']),
-                               **{key: [str(path) for path in files] for key, files in written.items()}}
-        return bundle.output_paths
+        return {**{key: str(path) for key, path in paths.items()}, 'metadata': str(family.paths['metadata']),
+                **{key: [str(path) for path in files] for key, files in written.items()}}

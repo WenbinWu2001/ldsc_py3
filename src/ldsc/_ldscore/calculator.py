@@ -1188,7 +1188,9 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    window.add_argument(
+    # Not required: indexed mode takes its window from the index.
+    window_choice = window.add_mutually_exclusive_group()
+    window_choice.add_argument(
         '--ld-wind-cm', default=None, type=float, metavar='CM',
         help=(
             'Maximum LD-window distance on either side of each SNP, in centiMorgans; requires usable '
@@ -1196,14 +1198,14 @@ def build_parser() -> argparse.ArgumentParser:
             '--ld-wind-cm. Direct mode only.'
         ),
     )
-    window.add_argument(
+    window_choice.add_argument(
         '--ld-wind-kb', default=None, type=float, metavar='KB',
         help=(
             'Maximum LD-window distance on either side of each SNP, in kilobases. No default; specify '
             'exactly one of --ld-wind-snps, --ld-wind-kb, or --ld-wind-cm. Direct mode only.'
         ),
     )
-    window.add_argument(
+    window_choice.add_argument(
         '--ld-wind-snps', default=None, type=int, metavar='N',
         help=(
             'Maximum LD-window distance on either side of each SNP, counted in retained SNPs with '

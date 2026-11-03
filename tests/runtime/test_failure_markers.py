@@ -357,8 +357,8 @@ def test_a_chromosome_job_never_removes_another_chromosomes_marker(tmp_path):
     assert (output_dir / "hg19" / "chr22_meta.tsv.gz").is_file()
 
 
-@pytest.mark.parametrize("failure", ["missing PLINK input", "no LD window"])
-def test_r2_errors_before_the_chromosomes_are_known_leave_no_marker(tmp_path, failure):
+@pytest.mark.parametrize(("failure", "exit_code"), [("missing PLINK input", 1), ("no LD window", 2)])
+def test_r2_errors_before_the_chromosomes_are_known_leave_no_marker(tmp_path, failure, exit_code):
     output_dir = tmp_path / "out"
     output_dir.mkdir()
     marker = output_dir / "RUN_FAILED.chr22.txt"
@@ -368,7 +368,8 @@ def test_r2_errors_before_the_chromosomes_are_known_leave_no_marker(tmp_path, fa
     if failure == "missing PLINK input":
         argv += ["--ld-wind-kb", "1000"]
 
-    assert cli.run_cli(argv) == 1
+    # A missing LD window is an argument-parsing error (exit 2).
+    assert cli.run_cli(argv) == exit_code
 
     assert sorted(path.name for path in output_dir.glob("RUN_FAILED*")) == ["RUN_FAILED.chr22.txt"]
     assert marker.read_text(encoding="utf-8") == "previous failed run"

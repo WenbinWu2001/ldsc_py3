@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from ldsc._ldscore.calculator import build_parser, run_ldscore_from_args
+from ldsc._refpanel.builder import build_parser as r2_build_parser
 from ldsc.config import GeneLDScoreIndexBuildConfig, LDScoreConfig, LDWindow, R2MatrixBuildConfig
 from ldsc.errors import LDSCConfigError
 
@@ -77,6 +78,28 @@ def test_gene_index_batch_size_error_names_only_the_batch_sizes():
         CONFIGS["gene_index"](ld_wind_kb=1.0, snp_batch_size=0)
     assert "ld_wind" not in str(error.value)
     assert "snp_batch_size=0" in str(error.value)
+
+
+@pytest.mark.parametrize(("command", "argv", "message"), [
+    ("ldscore", ["--ld-wind-kb", "1", "--ld-wind-snps", "5"],
+     "argument --ld-wind-snps: not allowed with argument --ld-wind-kb"),
+    ("build-r2-matrix", ["--ld-wind-cm", "1", "--ld-wind-kb", "5"],
+     "argument --ld-wind-kb: not allowed with argument --ld-wind-cm"),
+    ("build-r2-matrix", [], "one of the arguments --ld-wind-cm --ld-wind-kb --ld-wind-snps is required"),
+])
+def test_commands_reject_window_choices_while_parsing(tmp_path, capsys, command, argv, message):
+    parser = build_parser() if command == "ldscore" else r2_build_parser()
+    with pytest.raises(SystemExit) as stop:
+        parser.parse_args(["--plink-prefix", "panel", "--output-dir", str(tmp_path / "out"), *argv])
+    assert stop.value.code == 2
+    assert message in capsys.readouterr().err
+
+
+def test_ldscore_command_without_a_window_fails_before_creating_the_output_directory(tmp_path):
+    args = build_parser().parse_args(["--plink-prefix", str(tmp_path / "panel"), "--output-dir", str(tmp_path / "out")])
+    with pytest.raises(LDSCConfigError, match="none was set"):
+        run_ldscore_from_args(args)
+    assert not (tmp_path / "out").exists()
 
 
 def test_ldscore_command_rejects_a_bad_window_before_creating_the_output_directory(tmp_path):

@@ -1530,7 +1530,8 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    window.add_argument(
+    window_choice = window.add_mutually_exclusive_group(required=True)
+    window_choice.add_argument(
         '--ld-wind-cm', default=None, type=float, metavar='CM',
         help=(
             'Maximum pair distance on either side of each SNP, in centiMorgans. Requires '
@@ -1538,14 +1539,14 @@ def build_parser() -> argparse.ArgumentParser:
             'specify exactly one of --ld-wind-snps, --ld-wind-kb, or --ld-wind-cm.'
         ),
     )
-    window.add_argument(
+    window_choice.add_argument(
         '--ld-wind-kb', default=None, type=float, metavar='KB',
         help=(
             'Maximum pair distance on either side of each SNP, in kilobases. No default; specify exactly '
             'one of --ld-wind-snps, --ld-wind-kb, or --ld-wind-cm.'
         ),
     )
-    window.add_argument(
+    window_choice.add_argument(
         '--ld-wind-snps', default=None, type=int, metavar='N',
         help=(
             'Maximum pair distance on either side of each SNP, counted in retained reference-panel SNP '

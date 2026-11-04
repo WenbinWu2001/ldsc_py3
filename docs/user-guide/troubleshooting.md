@@ -1168,6 +1168,26 @@ Keep the saved comparison metadata faithful to the fit that produced it.
 
 **Developer reference:** `_regression.quantile_h2.load_fitted_partitioned_model()` / `_regression.quantile_inputs.prepare_quantile_statistics()` · **Exception:** `LDSCInputError`
 
+### `quantile-h2`: reference metadata cannot be read
+
+**Symptom:** `quantile-h2` stops because a `--ref-metadata-sources` file cannot be parsed or lacks one of the columns `CHR`, `POS`, `SNP` and `MAF`.
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|---|---|
+| 1 | The file is not SNP metadata of the reference panel used for the fit, for example an annotation or summary-statistics table | Compare its header with the R² matrix sidecar columns `CHR POS SNP A1 A2 CM MAF` |
+| 2 | Its frequency column is named `FRQ` or another name instead of `MAF` | Read the header; `FRQ` is not read as `MAF`, because it usually holds the unfolded frequency of `A1` |
+| 3 | It is not UTF-8 text, is compressed with something other than gzip, or is not whitespace-delimited | `zcat <file> \| head` (or `head <file>`) should show readable columns separated by tabs or spaces |
+| 4 | `POS` holds nonnumeric values | Find the value that the error quotes |
+
+Set `--ref-metadata-sources` to the SNP metadata of the reference panel used for the fit: the `chr@_meta.tsv.gz` sidecars of an R² matrix, or the `ref_metadata/chr@_meta.tsv.gz` files that `ldsc ldscore --export-ref-metadata` wrote for a PLINK reference panel.
+Both carry `MAF` as the folded minor-allele frequency, and the leading `# ldsc:` identity lines of the sidecars are skipped.
+Rename an `FRQ` column to `MAF` only if it already holds the folded minor-allele frequency of that panel; an unfolded frequency changes which SNPs count as common.
+Do not fill missing frequencies with invented values.
+
+**Developer reference:** `_regression.quantile_storage.reference_chunks()` · **Exception:** `LDSCInputError`
+
 ### `quantile-h2`: target values are invalid or quantiles are empty
 
 **Symptom:** the target annotation contains an invalid value, or the requested quantile split leaves an empty group.

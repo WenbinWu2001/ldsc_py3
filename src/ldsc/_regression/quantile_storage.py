@@ -13,9 +13,10 @@ import numpy as np
 import pandas as pd
 
 from .._core.columns import (
-    A1_COLUMN_SPEC, A2_COLUMN_SPEC, CHR_COLUMN_SPEC, POS_COLUMN_SPEC,
+    A1_COLUMN_SPEC, A2_COLUMN_SPEC, CHR_COLUMN_SPEC, MAF_COLUMN_SPEC, POS_COLUMN_SPEC,
     SNP_COLUMN_SPEC, resolve_optional_column, resolve_required_column,
 )
+from .._core.identifiers import open_text, read_identity_lines
 from ..errors import LDSCInputError
 from .outputs import SNP_ALIGNMENT_ISSUE_COLUMNS
 
@@ -78,29 +79,67 @@ def target_chunks(paths, target_annotation, missing_token):
             ) from exc
 
 
+_REFERENCE_TROUBLESHOOTING = "docs/user-guide/troubleshooting.md#quantile-h2-reference-metadata-cannot-be-read"
+
+
+def _reference_columns(header, path):
+    """Map reference-metadata header names to CHR, POS, SNP, MAF and, when both exist, A1/A2.
+
+    Only a column named ``MAF`` gives the frequency: ``FRQ`` usually holds the
+    unfolded A1 frequency, which would select the wrong common SNPs.
+    """
+    found = {spec.canonical: resolve_optional_column(header, spec, context=path)
+             for spec in (CHR_COLUMN_SPEC, POS_COLUMN_SPEC, SNP_COLUMN_SPEC, MAF_COLUMN_SPEC)}
+    missing = [name for name, column in found.items() if column is None]
+    if missing:
+        frq = (" Its FRQ column is not read as MAF, because FRQ usually holds the unfolded A1 frequency, "
+               "which would select the wrong common SNPs."
+               if "MAF" in missing and any(name.upper() == "FRQ" for name in header) else "")
+        raise LDSCInputError(
+            f"quantile-h2 reference metadata '{path}' is missing required column(s) {', '.join(missing)}.{frq} "
+            "Reference metadata needs CHR, POS (or BP), SNP and MAF, the folded minor-allele frequency. "
+            "Set --ref-metadata-sources to the R2 matrix sidecars (chr<N>_meta.tsv.gz) or the files that "
+            "ldscore --export-ref-metadata wrote for the panel of the fit; both carry these columns. "
+            f"Do not fill missing frequencies with invented values. See {_REFERENCE_TROUBLESHOOTING}."
+        )
+    a1 = resolve_optional_column(header, A1_COLUMN_SPEC, context=path)
+    a2 = resolve_optional_column(header, A2_COLUMN_SPEC, context=path)
+    if a1 is not None and a2 is not None:
+        found.update(A1=a1, A2=a2)
+    return {column: name for name, column in found.items()}
+
+
 def reference_chunks(paths):
-    """Yield narrow reference metadata while preserving existing MAF semantics."""
+    """Yield narrow reference metadata with canonical CHR, POS, SNP, MAF and optional A1/A2 columns.
+
+    Each path is a UTF-8 text table, plain or gzip-compressed, with a
+    whitespace-delimited header. Leading ``# ldsc:`` identity lines, which
+    R2 matrix sidecars carry, are skipped. Header names resolve through the
+    shared column aliases; A1/A2 are kept only when both are present.
+    Nonnumeric MAF values become NaN, for the caller's MAF check.
+    """
     for path in paths:
-        header = pd.read_csv(path, sep=r"\s+", nrows=0).columns
-        aliases = {old: new for old, new in {"BP": "POS", "FRQ": "MAF"}.items()
-                   if old in header and new not in header}
-        normalized = [aliases.get(name, name) for name in header]
-        missing = [name for name in ("CHR", "POS", "SNP", "MAF") if name not in normalized]
-        if missing:
+        try:
+            with open_text(path) as stream:
+                _, header_line = read_identity_lines(stream)
+                header = header_line.split()
+                rename = _reference_columns(header, path)
+                with pd.read_csv(stream, sep=r"\s+", header=None, names=header, usecols=list(rename),
+                                 chunksize=ROW_CHUNK_SIZE) as reader:
+                    for frame in reader:
+                        frame = frame.rename(columns=rename)
+                        frame["CHR"] = frame.CHR.astype(str).str.replace(r"^chr", "", regex=True)
+                        frame["POS"] = pd.to_numeric(frame.POS, errors="raise").astype(np.int64)
+                        frame["MAF"] = pd.to_numeric(frame.MAF, errors="coerce")
+                        yield frame
+        except (pd.errors.ParserError, UnicodeDecodeError, ValueError) as exc:
             raise LDSCInputError(
-                f"Reference metadata '{path}' is missing required column(s) {missing}. "
-                "Expected CHR, POS (or BP), SNP, and MAF. Set --ref-metadata-sources to the "
-                "SNP metadata from the same reference panel used for the fitted LD scores; "
-                "do not fill missing frequencies with invented values."
-            )
-        keep = [name for name in header if aliases.get(name, name) in {"CHR", "POS", "SNP", "MAF", "A1", "A2"}]
-        with pd.read_csv(path, sep=r"\s+", usecols=keep, chunksize=ROW_CHUNK_SIZE) as reader:
-            for frame in reader:
-                frame = frame.rename(columns=aliases)
-                frame["CHR"] = frame.CHR.astype(str).str.replace(r"^chr", "", regex=True)
-                frame["POS"] = pd.to_numeric(frame.POS, errors="raise").astype(np.int64)
-                frame["MAF"] = pd.to_numeric(frame.MAF, errors="coerce")
-                yield frame
+                f"quantile-h2 could not parse reference metadata '{path}': {exc}. "
+                "Check that it is UTF-8 text, plain or gzip-compressed, with a whitespace-delimited header "
+                "and numeric POS coordinates; set --ref-metadata-sources to the R2 matrix sidecars "
+                "(chr<N>_meta.tsv.gz) or the files that ldscore --export-ref-metadata wrote for the panel "
+                f"of the fit. See {_REFERENCE_TROUBLESHOOTING}."
+            ) from exc
 
 
 class AlignmentDiagnostics:

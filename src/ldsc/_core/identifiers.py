@@ -25,6 +25,9 @@ read_global_snp_restriction :
 read_global_chr_pos_restriction_key_set :
     Stream a coordinate restriction file into packed uint64 CHR/POS keys for
     memory-sensitive chunk filtering.
+read_identity_lines :
+    Consume the leading ``# ldsc:`` identity lines of a package-written text
+    table, such as an R2 matrix sidecar.
 
 Design Notes
 ------------
@@ -380,6 +383,29 @@ def open_text(path: str | PathLike[str]):
     if str(path).lower().endswith(".gz"):
         return gzip.open(path, "rt", encoding="utf-8")
     return open(path, "rt", encoding="utf-8")
+
+
+def read_identity_lines(stream) -> tuple[dict[str, str], str]:
+    """Consume the leading ``# ldsc:<key>=<value>`` identity lines of an open text table.
+
+    Package-written text tables, such as R2 matrix sidecars, start with these
+    lines. Only lines with that exact prefix are consumed, so any other line,
+    including a ``#CHROM`` header, is returned as the header.
+
+    Returns
+    -------
+    tuple[dict[str, str], str]
+        The identity lines as ``{key: value}``, and the next line of
+        ``stream``: the table header, unparsed, or ``""`` at the end of the
+        file. ``stream`` is left at the first row after the header.
+    """
+    identity: dict[str, str] = {}
+    line = stream.readline()
+    while line.startswith("# ldsc:"):
+        key, _, value = line.removeprefix("# ldsc:").strip().partition("=")
+        identity[key] = value
+        line = stream.readline()
+    return identity, line
 
 
 def _detect_delimiter(sample_line: str) -> str | None:

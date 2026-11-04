@@ -1,5 +1,6 @@
 """Independent multi-chromosome expectations for streamed quantile inputs."""
 
+import gzip
 import json
 from pathlib import Path
 import weakref
@@ -160,6 +161,65 @@ def test_allele_aware_fit_names_reference_metadata_without_alleles(workflow):
     message = str(error.value)
     assert f"reference metadata '{workflow.root / 'ref.tsv'}'" in message and "rsid_allele_aware" in message
     assert "chr<N>_meta.tsv.gz" in message and "ldscore --export-ref-metadata" in message
+
+
+@pytest.mark.parametrize("snp_identifier", ["rsid", "rsid_allele_aware"])
+def test_r2_matrix_sidecars_serve_as_reference_metadata(workflow, snp_identifier):
+    from ldsc._refpanel.r2_format import SIDECAR_COLUMNS, write_runtime_metadata_sidecar
+
+    metadata_path = workflow.root / "ldscores/metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["snp_identifier"] = snp_identifier
+    metadata_path.write_text(json.dumps(metadata))
+    reference = pd.read_csv(workflow.root / "ref.tsv", sep="\t")
+    reference["A1"], reference["A2"], reference["CM"] = "A", "C", 0.0
+    for chrom, rows in reference.groupby("CHR"):
+        # The writer build-r2-matrix uses, so each sidecar starts with its "# ldsc:" identity lines.
+        write_runtime_metadata_sidecar(rows.loc[:, list(SIDECAR_COLUMNS)], workflow.root / f"chr{chrom}_meta.tsv.gz",
+                                       genome_build="hg19", snp_identifier=snp_identifier)
+    with gzip.open(workflow.root / "chr1_meta.tsv.gz", "rt") as stream:
+        assert stream.readline().startswith("# ldsc:")
+    workflow.args.ref_metadata_sources = [str(workflow.root / "chr@_meta.tsv.gz")]
+
+    result = run_quantile_h2_from_args(workflow.args)
+
+    np.testing.assert_allclose(result.quantile_h2.h2_obs, [.45, .35])
+    assert result.quantile_h2.n_snps.tolist() == [3, 1]
+
+
+def test_reference_position_may_be_named_bp(workflow):
+    path = workflow.root / "ref.tsv"
+    pd.read_csv(path, sep="\t").rename(columns={"POS": "BP"}).to_csv(path, sep="\t", index=False)
+
+    result = run_quantile_h2_from_args(workflow.args)
+
+    np.testing.assert_allclose(result.quantile_h2.h2_obs, [.45, .35])
+
+
+def test_reference_frequency_named_frq_is_not_read_as_maf(workflow):
+    path = workflow.root / "ref.tsv"
+    pd.read_csv(path, sep="\t").rename(columns={"MAF": "FRQ"}).to_csv(path, sep="\t", index=False)
+
+    with pytest.raises(LDSCInputError) as error:
+        run_quantile_h2_from_args(workflow.args)
+
+    message = str(error.value)
+    assert f"reference metadata '{path}'" in message and "MAF" in message and "FRQ" in message
+    assert "chr<N>_meta.tsv.gz" in message and "ldscore --export-ref-metadata" in message
+
+
+@pytest.mark.parametrize("content", [
+    b"CHR\tPOS\tSNP\tMAF\n1\tten\trs1\t0.2\n",  # nonnumeric POS
+    b"CHR\tPOS\tSNP\tMAF\n1\t10\trs\xe91\t0.2\n",  # Latin-1 byte, not UTF-8
+])
+def test_unparsable_reference_metadata_is_named(workflow, content):
+    path = workflow.root / "ref.tsv"
+    path.write_bytes(content)
+
+    with pytest.raises(LDSCInputError, match="could not parse reference metadata") as error:
+        run_quantile_h2_from_args(workflow.args)
+
+    assert f"'{path}'" in str(error.value)
 
 
 def test_global_ties_and_sharded_baselines(workflow):

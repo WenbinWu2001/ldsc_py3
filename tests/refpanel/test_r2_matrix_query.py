@@ -21,10 +21,11 @@ def build_test_panel(
     snp_identifier: str = "chr_pos_allele_aware",
     genome_build: str = "hg38",
     n_samples: int = 1000,
+    alleles=(("A", "G"), ("C", "T"), ("A", "C"), ("G", "T")),
 ):
     """Write one binding-valid index panel (chrN_r2.parquet + chrN_meta.tsv.gz).
 
-    Sidecar rows (0-based index -> identity):
+    Sidecar rows (0-based index -> identity, with the default ``alleles``):
         0: 1:100 A/G   1: 1:200 C/T   2: 1:300 A/C   3: 1:400 G/T
     Stored pairs (canonical i<j), R2 (adjusted) and SIGN_R (Pearson r >= 0):
         (0,1) R2=0.64 sign=+   (0,2) R2=0.04 sign=-   (1,2) R2=0.25 sign=+
@@ -37,8 +38,8 @@ def build_test_panel(
             "CHR": [chrom] * 4,
             "POS": [100, 200, 300, 400],
             "SNP": ["rs1", "rs2", "rs3", "rs4"],
-            "A1": ["A", "C", "A", "G"],
-            "A2": ["G", "T", "C", "T"],
+            "A1": [a1 for a1, _ in alleles],
+            "A2": [a2 for _, a2 in alleles],
             "CM": [0.0, 0.1, 0.2, 0.3],
             "MAF": [0.2, 0.3, 0.25, 0.4],
         }
@@ -257,6 +258,32 @@ class TestQueryPairs:
         )
         out = panel.query_pairs(pairs)
         assert out["sign_r"].tolist() == [1, -1, 1]  # 0 / 1 / 2 swaps -> +,-,+
+
+    def test_a_t_and_c_g_endpoints_report_r2_without_a_sign(self, tmp_path):
+        from ldsc._refpanel.query import R2Matrix
+
+        # SNP 2 is A/T and SNP 3 is C/G: their strand, and so the sign, is unknown.
+        build_test_panel(tmp_path, alleles=(("A", "G"), ("C", "T"), ("A", "T"), ("C", "G")))
+        panel = R2Matrix.open(tmp_path, genome_build="hg38")
+        pairs = pd.DataFrame(
+            {
+                "CHR_1": [1, 1, 1],
+                "POS_1": [100, 100, 100],
+                "A1_1": ["A", "A", "A"],
+                "A2_1": ["G", "G", "G"],
+                "CHR_2": [1, 1, 1],
+                "POS_2": [300, 300, 200],
+                "A1_2": ["A", "T", "C"],   # A/T as stored / swapped / an ordinary SNP
+                "A2_2": ["T", "A", "T"],
+            }
+        )
+        out = panel.query_pairs(pairs)
+        assert out["r2"].iloc[0] == pytest.approx(0.04, abs=1.5e-5)
+        assert out["r2"].iloc[1] == pytest.approx(0.04, abs=1.5e-5)
+        assert out["status"].tolist() == ["", "", ""]
+        assert pd.isna(out["sign_r"].iloc[0]) and pd.isna(out["sign_r"].iloc[1])
+        assert np.isnan(out["r"].iloc[0]) and np.isnan(out["r"].iloc[1])
+        assert out["sign_r"].iloc[2] == 1
 
     def test_base_mode_ignores_alleles_and_sign_is_na(self, tmp_path):
         panel = self._panel(tmp_path, mode="chr_pos")

@@ -114,7 +114,7 @@ def query_r2_matrix(
     pandas.DataFrame
         Copy of the input with ``r2``, ``sign_r``, ``r``, and ``status``.
         Signed results use query allele orientation and are missing in base
-        modes. See :meth:`R2Matrix.query_pairs` for missing-pair semantics.
+        modes and for pairs with an A/T or C/G endpoint. See :meth:`R2Matrix.query_pairs` for missing-pair semantics.
     """
     matrix = R2Matrix.open(
         r2_matrix_dir,
@@ -340,7 +340,8 @@ class R2Matrix:
             ``status`` (string). Existing result-named columns are replaced.
             ``sign_r`` and ``r`` use query A1 dosage orientation, allowing
             allele swaps and strand complements. Both are missing in base
-            modes.
+            modes and for pairs with an A/T or C/G endpoint, whose strand
+            is unknown.
             Unresolved, cross-chromosome, and unstored pairs have NaN R2 and
             status ``not_in_matrix``, ``cross_chromosome``, or ``absent``.
             Resolved diagonals have R2=1; numeric results have empty status.
@@ -511,9 +512,9 @@ def _orientation_multiplier(query_a1: np.ndarray, panel_a1: np.ndarray, panel_a2
     """Return per-endpoint sign multiplier (+1 aligned, -1 swapped, 0 unknown).
 
     Aligned when the query A1 equals R2 matrix A1 (or its strand complement); swapped
-    when it equals R2 matrix A2 (or its complement). Strand-ambiguous R2 matrix SNPs are
-    excluded from allele-aware matching, so a matched endpoint always classifies
-    cleanly; ``0`` only occurs for unresolved endpoints (R2 matrix allele ``None``).
+    when it equals R2 matrix A2 (or its complement). ``0`` marks an unresolved
+    endpoint (R2 matrix allele ``None``) or an A/T or C/G SNP: its alleles are each
+    other's complements, so the strand of the query, and with it the sign, is unknown.
     """
     n = query_a1.shape[0]
     out = np.zeros(n, dtype=np.int16)
@@ -523,6 +524,8 @@ def _orientation_multiplier(query_a1: np.ndarray, panel_a1: np.ndarray, panel_a2
             continue
         q = str(q).upper()
         p1u, p2u = str(p1).upper(), str(p2).upper()
+        if p2u == p1u.translate(COMPLEMENT):
+            continue
         if q == p1u or q == p1u.translate(COMPLEMENT):
             out[k] = 1
         elif q == p2u or q == p2u.translate(COMPLEMENT):

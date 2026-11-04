@@ -273,7 +273,8 @@ def test_index_records_the_reference_snp_funnel_and_indexed_scoring_reports_it(t
     assert int(reference['remaining'].iloc[-1]) == evidence['retained_reference_rows']
     grid = stored.loc[stored['funnel'].eq('annotation_snp_grid')].set_index('step')
     assert int(grid.loc['grid_rows', 'remaining']) == 7
-    assert [row['step'] for row in evidence['reference_snp_funnel']][:2] == ['panel_rows', 'identity_cleanup']
+    assert [row['step'] for row in evidence['reference_snp_funnel']][:3] == [
+        'panel_rows', 'ref_panel_snps_file', 'identity_cleanup']
     build_log = (path / 'diagnostics' / 'build-gene-ldscore-index.log').read_text()
     assert 'build-gene-ldscore-index excluded 22 reference-panel SNPs on 22 chromosomes' in build_log
 

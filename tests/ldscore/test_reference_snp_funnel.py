@@ -132,6 +132,22 @@ def test_plink_grid_that_misses_every_panel_snp_is_emptied_at_the_grid_step():
     assert annotation_snp_grid_emptied(funnel)
 
 
+def test_plink_restriction_that_keeps_no_panel_snp_empties_the_chromosome_before_cleanup(tmp_path):
+    pytest.importorskip("bitarray")
+    restriction = tmp_path / "keep.tsv"
+    restriction.write_text("SNP\nabsent\n")
+    panel = PlinkRefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(
+        backend="plink", plink_prefix=str(PLINK_PREFIX), ref_panel_snps_file=str(restriction)))
+    with pytest.raises(EmptyReferenceSNPs) as caught:  # a skippable chromosome, not a cleanup failure
+        panel.prepare_chromosome("22", plink_annotations(slice(0, 2), alleles=False), WINDOW)
+    funnel = caught.value.reference_snp_funnel
+    reference = steps(funnel, "reference_panel")
+    assert list(reference)[:3] == ["panel_rows", "ref_panel_snps_file", "identity_cleanup"]
+    assert reference["ref_panel_snps_file"] == (32, 0)
+    assert reference["identity_cleanup"] == (0, 0)
+    assert not annotation_snp_grid_emptied(funnel)
+
+
 def test_index_grid_funnel_restarts_before_the_baseline_intersection(tmp_path):
     write_panel(tmp_path)
     panel = R2MatrixRefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(backend="r2_matrix", r2_matrix_dir=tmp_path))

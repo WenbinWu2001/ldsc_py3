@@ -54,7 +54,6 @@ from .._core.snp_identity import (
     identity_base_mode,
     identity_mode_family,
     is_allele_aware_mode,
-    restriction_membership_mask,
 )
 
 LOGGER = logging.getLogger("LDSC.ref_panel")
@@ -198,7 +197,15 @@ class RefPanel(ABC):
         return self._apply_keep_restriction(metadata)
 
     def _apply_keep_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
-        """Filter metadata rows to ``RefPanelConfig.ref_panel_snps_file`` when set."""
+        """Filter metadata rows to ``RefPanelConfig.ref_panel_snps_file`` when set.
+
+        The restriction matches as in ``build-r2-matrix``: a row whose alleles
+        cannot form an allele-aware identity is kept when its base key is
+        restricted, so identity cleanup, which runs afterwards, drops and
+        reports it.
+        """
+        from .build_kernel import build_restriction_mask
+
         restrict_path = self.spec.ref_panel_snps_file
         if restrict_path is None or len(metadata) == 0:
             return metadata
@@ -208,12 +215,7 @@ class RefPanel(ABC):
             genome_build=self.global_config.genome_build,
             logger=LOGGER,
         )
-        keep = restriction_membership_mask(
-            metadata,
-            restriction,
-            self.global_config.snp_identifier,
-            context=f"reference-panel restriction matching for {restrict_path}",
-        )
+        keep = build_restriction_mask(metadata, restriction, self.global_config.snp_identifier)
         return metadata.loc[keep].reset_index(drop=True)
 
     def _validate_metadata(self, metadata: pd.DataFrame, chrom: str) -> pd.DataFrame:
@@ -252,10 +254,12 @@ class PlinkRefPanel(RefPanel):
         return self._chromosome_prefixes
 
     def _load_source(self, chrom: str):
-        """Resolve physical BED rows and apply panel identity/SNP restrictions once.
+        """Resolve physical BED rows and apply the panel SNP restriction and identity cleanup once.
 
-        Returns the prefix, BIM, FAM, restricted metadata, identity drops and
-        the chromosome's reference-SNP funnel so far.
+        ``ref_panel_snps_file`` applies first and identity cleanup runs on the
+        restricted rows, the order ``build-r2-matrix`` uses. Returns the
+        prefix, BIM, FAM, restricted metadata, identity drops and the
+        chromosome's reference-SNP funnel so far.
         """
         prefix = self._bim_prefixes(chrom)[0]
         bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
@@ -274,24 +278,26 @@ class PlinkRefPanel(RefPanel):
             raise LDSCInputError(f"Reference-panel loading found no PLINK metadata rows for chromosome {chrom}.")
         funnel = ReferenceSNPFunnel(normalize_chromosome(chrom), "plink")
         funnel.record(REFERENCE_PANEL, "panel_rows", len(metadata))
-        # Allele-aware modes also drop rows whose alleles are missing, non-ACGT
-        # or identical, and multi-allelic positions; base modes drop duplicates.
+        if self.spec.ref_panel_snps_file is not None:
+            before = len(metadata)
+            metadata = self._apply_snp_restriction(metadata)
+            funnel.record(REFERENCE_PANEL, "ref_panel_snps_file", before - len(metadata))
+        # Cleanup sees only the restricted rows: a position is multi-allelic only when
+        # the restriction keeps more than one of its allele pairs. Allele-aware modes
+        # also drop rows whose alleles are missing, non-ACGT or identical; base modes
+        # drop duplicates.
         cleanup = clean_identity_artifact_table(
             metadata, self.global_config.snp_identifier,
             context=f"PLINK reference-panel metadata chromosome {chrom}",
             stage="plink_reference_identity_cleanup", logger=LOGGER,
         )
         funnel.record(REFERENCE_PANEL, "identity_cleanup", len(metadata) - len(cleanup.cleaned))
-        metadata, drops = cleanup.cleaned, cleanup.dropped
-        if metadata.empty:
+        if len(metadata) and cleanup.cleaned.empty:
             raise LDSCInputError(
                 f"Reference-panel loading retained no PLINK rows on chromosome {chrom} after SNP identity cleanup. "
                 "Each dropped row and its reason is listed in diagnostics/dropped_snps/."
             )
-        if self.spec.ref_panel_snps_file is not None:
-            before = len(metadata)
-            metadata = self._apply_snp_restriction(metadata)
-            funnel.record(REFERENCE_PANEL, "ref_panel_snps_file", before - len(metadata))
+        metadata, drops = cleanup.cleaned, cleanup.dropped
         metadata = self._validate_metadata(metadata, chrom)
         return prefix, bim, fam, metadata, drops, funnel
 

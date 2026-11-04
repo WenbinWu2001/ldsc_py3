@@ -28,7 +28,7 @@ FUNNEL_COLUMNS = ["funnel", "chrom", "backend", "step_index", "step", "removed",
 
 _STEPS = {
     ("plink", REFERENCE_PANEL): (
-        "panel_rows", "identity_cleanup", "ref_panel_snps_file", ANNOTATION_SNP_GRID, "genotype_qc", "maf_floor",
+        "panel_rows", "ref_panel_snps_file", "identity_cleanup", ANNOTATION_SNP_GRID, "genotype_qc", "maf_floor",
     ),
     ("r2_matrix", REFERENCE_PANEL): (
         "panel_rows", "ref_panel_snps_file", "maf_floor", ANNOTATION_SNP_GRID,

@@ -1,6 +1,6 @@
 # Config Design: Immutable Config + Provenance-Carrying Results
 
-Last updated on: 2026-11-02
+Last updated on: 2026-11-03
 
 `--workers` sets the number of managed workers (default one, each with one BLAS thread); CPU budgets, limits and failure handling are in [parallel execution](../../reference/parallel-execution.md).
 
@@ -217,6 +217,18 @@ regression = runner.build_dataset(sumstats_hg19, ldscore_hg38)  # ← hard error
 
 ---
 
+## LD window
+
+`LDScoreConfig`, `R2MatrixBuildConfig` and `GeneLDScoreIndexBuildConfig` apply one LD-window rule when they are constructed (`_ld_window()` in `src/ldsc/config.py`).
+Exactly one of `ld_wind_snps`, `ld_wind_kb` and `ld_wind_cm` is set, to a finite number greater than 0 that is not a boolean, and `ld_wind_snps` is an integer.
+The value is stored as `int` for SNP counts and `float` for kilobases and centiMorgans, so one window has one spelling in R² matrix footers, gene-index identities and LD-score `metadata.json`.
+Each of the three configs returns it as an `LDWindow` (`unit`, `value`) from its `ld_window` property; `LDWindow` is internal and not exported from `ldsc`.
+The window helpers in `src/ldsc/_refpanel/windows.py`, the R² matrix footer writer and reader, and the gene-index identity take that value.
+A violation raises `LDSCConfigError` naming both the command-line option and the Python field.
+On the command line, `ldscore` and `build-r2-matrix` reject two windows while parsing (exit 2), and `build-r2-matrix` also requires one; `ldscore` cannot, because indexed mode takes its window from the index.
+
+---
+
 ## Workflow-Specific SNP Controls
 
 Standard LDSC still needs two distinct SNP-set controls, but they no longer live
@@ -375,6 +387,7 @@ region-exclusion nor HM3 convenience flags.
 - Count records are accumulated over `ld_reference_snps = B ∩ A'` and stored in LD-score root `metadata.json`.
 - Public `ldscore.baseline.parquet` and optional query batch file rows are `ld_regression_snps = B ∩ A' ∩ C ∩ complement(regions)`; `w_ld` uses that same final set.
 - LD-score `metadata.json` records `snp_universe_policy`, including independent reference and regression policies plus the regression-region removal count.
+- LD-score `metadata.json` records `ld_window`: the run's window unit and value, and whether windows spanning a whole chromosome were allowed.
 
 ### Migration Notes
 

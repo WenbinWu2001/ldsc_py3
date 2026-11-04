@@ -74,7 +74,7 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 | Module | Responsibility |
 | --- | --- |
 | `ldsc.cli` | unified `ldsc` command; the `_COMMANDS` table maps each subcommand to its workflow module and entry functions |
-| `ldsc.config` | frozen public config dataclasses and basic validation, including the one binary-trait prevalence rule (`normalize_prevalence_pair()`) |
+| `ldsc.config` | frozen public config dataclasses and basic validation, including the one binary-trait prevalence rule (`normalize_prevalence_pair()`) and the one LD-window rule that `LDScoreConfig`, `R2MatrixBuildConfig` and `GeneLDScoreIndexBuildConfig` share (`LDWindow`, returned by their `ld_window` property) |
 | `ldsc._core.chromosomes` | canonical chromosome normalization and ordering |
 | `ldsc._core.columns` | resolve header aliases and normalize identifier/build tokens |
 | `ldsc._core.coordinates` | `CHR:POS` keys and coordinate-frame normalization |
@@ -115,7 +115,7 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 | `ldsc._annotation.outputs` | `AnnotationDirectoryWriter` for the `ldsc annotate` result directory |
 | `ldsc._refpanel.plink` | PLINK genotype reader (`PlinkBEDFile` and its `__GenotypeArrayInMemory__` base): selective SNP reads with fused individual filtering retain only selected packed genotypes; unrestricted panel builds opt into disk streaming instead |
 | `ldsc._refpanel.r2_format` | the R² matrix format: file names (`r2_matrix_file_paths`, `r2_matrix_chromosomes`, `resolve_r2_build_dir`), schema constants, Parquet and sidecar writers, `R2MatrixChromosome` (footer contract, strict sidecar reading, sidecar binding, LD-window and truncation checks for `ldscore` and `query-r2-matrix`), `SortedR2BlockReader` and the pair lookup used by `query-r2-matrix` |
-| `ldsc._refpanel.windows` | LD-window geometry shared by `ldscore` and `build-r2-matrix`: `window_coordinates`, `get_block_lefts`, and window checks |
+| `ldsc._refpanel.windows` | LD-window geometry shared by `ldscore`, `build-r2-matrix` and gene-index construction: `window_coordinates`, `get_block_lefts`, the position-order and CM checks, and the whole-chromosome guard (`check_whole_chromosome_window`, `WholeChromosomeWindowError`) |
 | `ldsc._refpanel.prepared` | the `PreparedChromosome` contract, the chromosome annotation input `ChromosomeAnnotations`, and the `ArrayAnnotations`/`MappedAnnotations` accessors |
 | `ldsc._refpanel.funnel` | the reference-SNP funnel: `ReferenceSNPFunnel` records what each reference-preparation step removed, with readers, writers and the run-level warning text |
 | `ldsc._refpanel.adapters` | runtime PLINK/R²-matrix adapters; `RefPanel.prepare_chromosome` owns reference filtering, annotation alignment, window/bias policy, and reader lifetime |

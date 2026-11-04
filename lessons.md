@@ -1,7 +1,7 @@
 
 # Lessons
 
-Last updated on: 2026-10-31
+Last updated on: 2026-11-03
 
 ## Refactoring must preserve attribution outside removable banners
 
@@ -315,6 +315,9 @@ Last updated on: 2026-10-31
 - Summary/root cause/correction: A summary-statistics row with a missing `Z` reached the `h2` fit, because only `rg` dropped missing values after its merge.
   The outcome then depended on an unrelated setting: a single-annotation `h2` fit raised "SVD did not converge"; under a chi-square cap, `chisq <= cap` is `False` for NaN, so the cap removed the row silently and logged it as an outlier; `rg` aborted in its per-trait `h2` loop.
   Decide missing and infinite values explicitly where the input is prepared (`_prepare_trait_sumstats` in `src/ldsc/_regression/runner.py`), record what was dropped, and test each downstream path that used to absorb them; see `tests/regression/test_nonfinite_statistics.py`.
+- Recurrence (2026-11-03): an LD window of NaN passed the "must be positive" checks of `LDScoreConfig` and `R2MatrixBuildConfig`, because `nan <= 0` is False, and inf passed them too.
+  `ldscore --ld-wind-kb nan` then made every SNP's window start at the first SNP, so `--yes-really` produced whole-chromosome LD scores, and `build-r2-matrix` wrote a footer value its own reader rejects.
+  `_ld_window()` in `src/ldsc/config.py` checks finiteness before comparing, for all three window configs; see `tests/core/test_ld_window.py`.
 
 ## Per-thread state does not cross the worker boundary
 

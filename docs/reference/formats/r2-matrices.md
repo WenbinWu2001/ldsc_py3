@@ -1,6 +1,6 @@
 # R² Matrix: Format Specification and Read Pipeline
 
-Last updated on: 2026-11-01
+Last updated on: 2026-11-03
 
 This document defines the canonical **index** format for R² matrices and describes how the read pipeline validates, binds, and streams them into the LD-score accumulation.
 
@@ -138,7 +138,7 @@ to the retained reference SNPs when the reader builds its remap (§3).
 | `ldsc:sidecar_identity_sha256` | string(hex) | binding hash of the sidecar identity (§4) |
 | `ldsc:r2_encoding` | string | required; must be `"int16_symmetric"` |
 | `ldsc:r2_scale` | string(int) | required; must be `"32767"`. The reader divides the int16 values by this to recover float32 R². |
-| `ldsc:ld_window_mode`, `ldsc:ld_window_value` | string, string(float) | required; build window unit (`snps`, `kb`, or `cm`) and positive width. `ldscore` rejects a window in another unit or wider than this one ([window rules](#37-ld-windows-and-sidecar-values-in-ldscore)) |
+| `ldsc:ld_window_mode`, `ldsc:ld_window_value` | string, string(int or float) | required; build window unit (`snps`, `kb`, or `cm`) and positive width, an integer for `snps` and a float for `kb` and `cm`. `ldscore` rejects a window in another unit or wider than this one ([window rules](#37-ld-windows-and-sidecar-values-in-ldscore)) |
 
 Stored as UTF-8 byte strings, accessed via
 `pq.ParquetFile(path).schema_arrow.metadata`.
@@ -354,7 +354,7 @@ Every R² matrix `--ld-wind-snps` run writes `diagnostics/ld_window_snp_counts.t
 SNPs that share a position are computed in sidecar row order and written sorted by `CHR`, `POS`, then `SNP`.
 That output order matches an annotation-ordered run only because SNPs that share `CHR`, `POS` and `SNP` never reach computation: the identity policy drops them as duplicate or multi-allelic.
 If that policy changes to keep such SNPs, `R2MatrixRefPanel.prepare_chromosome` would also need to return them to annotation order.
-Code: `build_window_coordinates` in `src/ldsc/_ldscore/compute.py`, `R2MatrixRefPanel.prepare_chromosome` in `src/ldsc/_refpanel/adapters.py`, and `_ld_window_snp_counts` in `src/ldsc/_ldscore/calculator.py`.
+Code: `window_coordinates` in `src/ldsc/_refpanel/windows.py`, `R2MatrixRefPanel.prepare_chromosome` in `src/ldsc/_refpanel/adapters.py`, and `_ld_window_snp_counts` in `src/ldsc/_ldscore/calculator.py`.
 
 **`CM` and `MAF` come from the reference panel.**
 Annotation `CM` and `MAF` values are ignored.

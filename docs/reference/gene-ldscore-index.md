@@ -1,6 +1,6 @@
 # Exact gene LD-score indexes
 
-Last updated on: 2026-11-02
+Last updated on: 2026-11-03
 
 `--workers` sets the number of workers (default one, each with one BLAS thread); CPU budgets, limits and failure handling are in [parallel execution](parallel-execution.md).
 
@@ -120,12 +120,14 @@ Independent missing/invalid chromosome shards are collected before aborting inde
 
 ### LD windows
 
-Specify exactly one of `--ld-wind-cm`, `--ld-wind-kb`, or `--ld-wind-snps`; there is no default.
+Specify exactly one of `--ld-wind-cm`, `--ld-wind-kb`, or `--ld-wind-snps`, as a finite number greater than 0; there is no default.
 Each describes the maximum distance on either side of a SNP using the same PLINK kernel as direct `ldscore`.
 SNP-count windows use the retained SNP order after identity cleanup, the baseline/PLINK intersection, and genotype/MAF filtering.
 cM windows require informative BIM CM values or matching `--genetic-map-hg19-sources` / `--genetic-map-hg38-sources`; kb and SNP-count windows need no map.
 The builder rejects whole-chromosome windows and exposes no override.
-Window unit and value are stored in the immutable index identity.
+Window unit and value are stored in the immutable index identity, the value as an integer for SNP counts and a float for kb and cM windows.
+An integer `ld_wind_kb` or `ld_wind_cm` passed from Python is therefore recorded as the same float the command line gives, and indexes built from Python with an integer kb or cM window before 2026-11-03 have a different `index_id` from a new build with the same settings; they stay loadable.
+Indexed `ldscore` output records the index's window as `ld_window` in `metadata.json`.
 
 ### Baseline reference-SNP caveat
 

@@ -1,6 +1,6 @@
 # Artifact Metadata Field Inventory
 
-Last updated on: 2026-11-02
+Last updated on: 2026-11-03
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](../munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -286,6 +286,7 @@ Embedding the matrix in `metadata.json` was rejected because it would reach tens
 | `query_diagnostics` | Relative paths to available query status, scope, structural input issues, and, for gene runs, the audit and source summary. | Troubleshooting/navigation; ignored by regression. |
 | `chromosome_scope` | Validated input scope and selection semantics, separately from chromosomes with retained output rows. Empty for workflows without query coverage preflight. | Scientific provenance; ignored by regression. |
 | `legacy_ldscore_conversion` | Present only for explicit legacy LDSC conversion: profile, selected source directories/prefixes/files, rsID intersection counts, count origins, strict common-frequency rule, coordinate evidence, and diagnostic paths. Source-file hashes are not computed or written. | Provenance and compatibility auditing; regression still consumes the ordinary canonical fields. |
+| `ld_window` | The run's LD window: `unit` (`snps`, `kb` or `cm`), `value` (an integer for `snps`, a float otherwise) and `whole_chromosome_ok` (`true` when `--yes-really`, `whole_chromosome_ok` in Python, allowed windows that span a whole chromosome). A run on an R² matrix records its own window, not the R² matrix's build window. Indexed runs record the index's window with `whole_chromosome_ok` `false`. Absent from converted legacy LD scores, whose window is unknown. | Scientific provenance; ignored by regression. |
 
 Native LDSC3 computation records an inclusive common operator (`>=`).
 Explicit legacy LDSC conversion records the actual strict legacy operator (`>`) at threshold `0.05`; `overlap_config` must agree with `count_config`, and the loader rejects drift.

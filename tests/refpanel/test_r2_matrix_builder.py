@@ -841,7 +841,7 @@ class R2MatrixBuildConfigFromArgsTest(unittest.TestCase):
         stack.enter_context(mock.patch.object(builder, "_run", return_value=result))
         return stack
 
-    def test_run_build_r2_matrix_uses_parser_default_identifier_for_restriction_file(self):
+    def test_run_build_r2_matrix_uses_registered_identifier_for_restriction_file(self):
         captured = {}
 
         def fake_inspect(self, config):
@@ -849,7 +849,7 @@ class R2MatrixBuildConfigFromArgsTest(unittest.TestCase):
             captured["config"] = config
             return Path("out"), [], []
 
-        set_global_config(GlobalConfig(snp_identifier="chr_pos"))
+        set_global_config(GlobalConfig(snp_identifier="rsid"))
         try:
             with self._built_without_inputs(fake_inspect):
                 r2_matrix_builder.run_build_r2_matrix(
@@ -864,8 +864,8 @@ class R2MatrixBuildConfigFromArgsTest(unittest.TestCase):
             reset_global_config()
 
         self.assertEqual(captured["config"].ref_panel_snps_file, "hm3.tsv")
-        self.assertEqual(captured["global_config"].snp_identifier, "chr_pos_allele_aware")
-        self.assertEqual(captured["global_config"].genome_build, "auto")
+        self.assertEqual(captured["global_config"].snp_identifier, "rsid")
+        self.assertIsNone(captured["global_config"].genome_build)
 
     def test_run_build_r2_matrix_uses_snp_batch_size_keyword(self):
         captured = {}

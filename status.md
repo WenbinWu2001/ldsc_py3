@@ -45,9 +45,15 @@ The evidence and question record are in the shared side-session note `strand-amb
 ### Open items
 
 - The commits are local and not pushed; the HPC package copy does not have them.
-- `run_build_r2_matrix()` (Python) ignores the registered `GlobalConfig.snp_identifier` and always builds `chr_pos_allele_aware`, although its docstring says the mode comes from the registered config; found while testing, not fixed.
 - `ldscore --snp-identifier rsid_allele_aware --genome-build hg19` with the default region exclusion stops with "Pass `--genome-build hg19`", because rsID-family modes discard the build; the message asks for the option already given.
 - Duplicate and multi-allelic reference-panel drops are documented policy but not listed among the recorded exceptions in `AGENTS.md`; ask whether they should be.
+
+### Follow-ups closed (2026-11-04)
+
+- This commit: `run_build_r2_matrix()` builds in the registered `GlobalConfig.snp_identifier` mode, as its docstring and `docs/user-guide/python-usage.md` say.
+  Its keyword namespace carried the parser default `chr_pos_allele_aware`, which `config_from_args()` preferred over the registered mode, so a Python build registered as `rsid_allele_aware` was recorded as `chr_pos_allele_aware` and `ldscore` in that mode refused the matrix.
+  The command line was not affected.
+  The wrapper unit test expects the registered mode again (`a47b676` had changed it to expect the parser default), and the R² test in `tests/ldscore/test_strand_ambiguous_snps.py` now covers `rsid_allele_aware`.
 
 ## Completed: one LD-window rule (2026-11-03)
 

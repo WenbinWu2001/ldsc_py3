@@ -1717,9 +1717,12 @@ def run_build_r2_matrix(**kwargs: Any) -> R2MatrixBuildResult:
         **GLOBAL_CONFIG_RUNTIME_OPTIONS,
         "genome_build": "pass source_genome_build for the PLINK input build; GlobalConfig.genome_build is not used",
     }
+    registered_config = get_global_config()
     args = namespace_from_kwargs(
-        "run_build_r2_matrix", build_parser(), kwargs, rejected=rejected, log_level=get_global_config().log_level,
+        "run_build_r2_matrix", build_parser(), kwargs, rejected=rejected, log_level=registered_config.log_level,
     )
+    # The namespace holds the parser default, which would override the registered mode.
+    args.snp_identifier = registered_config.snp_identifier
     return _build_from_args(args, command="run_build_r2_matrix(...)")
 
 

@@ -347,6 +347,10 @@ Last updated on: 2026-11-04
   Every test of the rule went through the CLI parser, the one route that enforced it.
   `normalize_prevalence_pair()` in `src/ldsc/config.py` now holds the rule, and `RegressionConfig`, the `rg` prevalence parsers and `estimate_rg_pairs()` apply it before any fit.
   When a docstring states a constraint, find the code that enforces it on every public route and test the Python seams, not only the command; see `tests/regression/test_prevalence.py`.
+- Recurrence (2026-11-04): `run_build_r2_matrix()` documented that the SNP identifier mode comes from the registered `GlobalConfig`, but `config_from_args()` used `args.snp_identifier or registered_config.snp_identifier`, which falls back only while the parser default is `None`.
+  When the parser default became `chr_pos_allele_aware`, `a47b676` changed the wrapper test to expect the parser default instead of restoring the documented behavior.
+  The wrapper now sets the registered mode on its namespace, as `run_ldscore()` does.
+  When a changed default breaks a test, check the test against the documented contract before changing its expectation.
 
 ## Fixtures must contain the input classes real data carries
 

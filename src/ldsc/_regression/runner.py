@@ -534,17 +534,13 @@ class RegressionRunner:
             )
         key = _merge_key_column(identifier_mode)
         payload = {name: ldscore_keyed[name] for name in [key, *ref_ld_columns, weight_column, "_ldsc_source_row"]}
-        allele_aware = is_allele_aware_mode(identifier_mode)
-        if allele_aware and {"A1", "A2"}.issubset(ldscore_keyed.columns):
-            payload.update(A1_ld=ldscore_keyed["A1"], A2_ld=ldscore_keyed["A2"])
         # LD-score is the left frame so the inner merge inherits its genomic
         # order; the block jackknife needs genomically contiguous rows for valid
         # SEs, and the sumstats order alone (legacy .sumstats.gz is unsorted) does
         # not guarantee that. Values still align by key regardless of side.
         # The payload borrows the keyed columns; the merge makes the one copy.
+        # The fit uses chi^2 = Z^2, so Z keeps the summary statistics' A1 orientation.
         merged = pd.merge(pd.DataFrame(payload, copy=False), sumstats_keyed, how="inner", on=key, sort=False)
-        if allele_aware and {"A1", "A2", "A1_ld", "A2_ld"}.issubset(merged.columns):
-            merged = _orient_sumstats_z_to_reference_alleles(merged)
         if merged.empty:
             raise LDSCInputError(
                 f"h2 regression retained no overlapping {identifier_mode} SNPs after merging summary statistics "
@@ -722,7 +718,7 @@ class RegressionRunner:
                 f"for same-family allele-aware/base mixes. Other causes & fixes: {_REGRESSION_NO_OVERLAP_DOC}"
             )
 
-        compatible, flip = _allele_pair_flags([merged["A1"], merged["A2"], merged["A1x"], merged["A2x"]], normalize=False)
+        compatible, flip = _allele_pair_flags([merged["A1"], merged["A2"], merged["A1x"], merged["A2x"]])
         if not compatible.all():
             merged = merged.take(np.flatnonzero(compatible))
             merged.index = pd.RangeIndex(len(merged))
@@ -1926,28 +1922,6 @@ def _with_effective_identity_key(frame: pd.DataFrame, mode: str, *, context: str
     return keyed
 
 
-def _orient_sumstats_z_to_reference_alleles(merged: pd.DataFrame) -> pd.DataFrame:
-    """Orient h2 summary-statistics Z values to LD-score/reference-panel allele order.
-
-    ``merged`` is the caller's own merge result, which this changes in place
-    when no row is dropped.
-    """
-    compatible, flip = _allele_pair_flags(
-        [merged["A1"], merged["A2"], merged["A1_ld"], merged["A2_ld"]], normalize=True)
-    if not compatible.all():
-        LOGGER.warning(
-            "Dropping %d SNPs with incompatible summary-statistics and LD-score allele order.",
-            int((~compatible).sum()),
-        )
-        merged = merged.take(np.flatnonzero(compatible))
-    flip = flip[compatible]
-    if flip.any():
-        z = merged["Z"].to_numpy()
-        merged["Z"] = np.where(flip, z * -1, z)
-    merged.index = pd.RangeIndex(len(merged))
-    return merged
-
-
 def _with_chr_pos_key(frame: pd.DataFrame, *, context: str) -> pd.DataFrame:
     """Return a copy with a private canonical ``CHR:POS`` merge key."""
     chr_col, pos_col = infer_chr_pos_columns(frame.columns, context=context)
@@ -2001,12 +1975,11 @@ def _ld_column_variances(merged: pd.DataFrame, columns: Sequence[str], known: di
     return pd.Series({column: known[column] if column in known else merged[column].var() for column in columns})
 
 
-def _allele_pair_flags(columns: Sequence[pd.Series], *, normalize: bool) -> tuple[np.ndarray, np.ndarray]:
+def _allele_pair_flags(columns: Sequence[pd.Series]) -> tuple[np.ndarray, np.ndarray]:
     """Return per-row (compatible, flip) flags for concatenated allele pairs.
 
-    The pair string is the four alleles concatenated, uppercased first when
-    ``normalize``; it is compatible when it is in ``MATCH_ALLELES`` and flips
-    when ``FLIP_ALLELES`` says so. The string is built once per distinct allele
+    The pair string is the four alleles concatenated; it is compatible when
+    it is in ``MATCH_ALLELES`` and flips when ``FLIP_ALLELES`` says so. The string is built once per distinct allele
     combination with the same pandas operations a per-row build would use.
     """
     codes, sizes = [], []
@@ -2023,8 +1996,6 @@ def _allele_pair_flags(columns: Sequence[pd.Series], *, normalize: bool) -> tupl
         _, first, inverse = np.unique(np.stack(codes, axis=1), axis=0, return_index=True, return_inverse=True)
     inverse = inverse.reshape(-1)
     parts = [column.iloc[first].reset_index(drop=True) for column in columns]
-    if normalize:
-        parts = [part.astype("string").str.upper() for part in parts]
     pairs = parts[0] + parts[1] + parts[2] + parts[3]
     compatible = pairs.isin(reg.MATCH_ALLELES).to_numpy(dtype=bool)
     flip = np.zeros(len(pairs), dtype=bool)

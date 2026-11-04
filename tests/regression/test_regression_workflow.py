@@ -871,7 +871,8 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertIn("SNP identifier used for this regression: chr_pos", log_text)
         self.assertIn("allele-awareness downgrade", log_text)
 
-    def test_h2_allele_aware_mode_orients_sumstats_z_to_ldscore_alleles(self):
+    def test_h2_keeps_sumstats_z_in_the_effect_allele_orientation(self):
+        # h2 fits chi^2 = Z^2, so the sign of Z is never aligned to LD-score alleles.
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid_allele_aware"), RegressionConfig())
         sumstats = self.make_sumstats_table_from_frame(
             pd.DataFrame(
@@ -905,26 +906,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         dataset = runner.build_dataset(sumstats, ldscore_result)
 
         self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1", "rs2", "rs3", "rs4"])
-        np.testing.assert_allclose(dataset.merged["Z"], [2.0, -3.0, 4.0, -5.0])
-
-    def test_h2_allele_orientation_drops_only_truly_incompatible_pairs(self):
-        merged = pd.DataFrame(
-            {
-                "SNP": ["same", "complement_same", "literal_reversed", "complement_reversed", "bad"],
-                "A1": ["A", "A", "C", "C", "A"],
-                "A2": ["C", "C", "A", "A", "C"],
-                "A1_ld": ["A", "T", "A", "T", "A"],
-                "A2_ld": ["C", "G", "C", "G", "G"],
-                "Z": [1.0, 2.0, 3.0, 4.0, 5.0],
-            }
-        )
-
-        with self.assertLogs("LDSC.regression_runner", level="WARNING") as caught:
-            oriented = regression_runner._orient_sumstats_z_to_reference_alleles(merged)
-
-        self.assertEqual(oriented["SNP"].tolist(), ["same", "complement_same", "literal_reversed", "complement_reversed"])
-        np.testing.assert_allclose(oriented["Z"], [1.0, 2.0, -3.0, -4.0])
-        self.assertIn("Dropping 1 SNPs with incompatible summary-statistics and LD-score allele order", "\n".join(caught.output))
+        np.testing.assert_allclose(dataset.merged["Z"], [2.0, 3.0, 4.0, 5.0])
 
     def test_build_dataset_empty_merge_error_includes_active_config(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())

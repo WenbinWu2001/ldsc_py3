@@ -76,15 +76,13 @@ def test_query_fit_without_retained_rows_matches_the_full_fit(tmp_path, chisq_ma
         np.testing.assert_array_equal(getattr(lean.estimator, field), getattr(full.estimator, field))
 
 
-@pytest.mark.parametrize("normalize", [False, True])
-def test_allele_pair_flags_match_concatenated_pair_strings(normalize):
+def test_allele_pair_flags_match_concatenated_pair_strings():
     rng = np.random.default_rng(3)
     tokens = np.array(["A", "C", "G", "T", "a", "c", "AT", ""], dtype=object)
     columns = [pd.Series(rng.choice(tokens, 2000)) for _ in range(4)]
     columns[0][::17] = None
-    compatible, flip = workflow._allele_pair_flags(columns, normalize=normalize)
-    parts = [column.astype("string").str.upper() if normalize else column for column in columns]
-    pairs = parts[0] + parts[1] + parts[2] + parts[3]
+    compatible, flip = workflow._allele_pair_flags(columns)
+    pairs = columns[0] + columns[1] + columns[2] + columns[3]
     expected = pairs.isin(regression.MATCH_ALLELES).to_numpy(dtype=bool)
     np.testing.assert_array_equal(compatible, expected)
     np.testing.assert_array_equal(flip[expected], pairs[expected].map(regression.FLIP_ALLELES).astype(bool).to_numpy())

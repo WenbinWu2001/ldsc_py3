@@ -16,9 +16,13 @@ use drop-all duplicate cleanup.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 import hashlib
 import logging
+from os import PathLike
+from pathlib import Path
+import sys
 from typing import Literal
 
 import numpy as np
@@ -644,6 +648,34 @@ def _combine_drop_frames(drop_frames: list[pd.DataFrame]) -> pd.DataFrame:
     if not drop_frames:
         return empty_identity_drop_frame()
     return coerce_identity_drop_frame(pd.concat(drop_frames, ignore_index=True))
+
+
+def emit_dropped_snps_notice(paths: Iterable[str | PathLike[str]], *, command: str) -> None:
+    """Print one stderr WARNING that sums a command-line run's dropped-SNP tables by reason.
+
+    ``paths`` are the ``diagnostics/dropped_snps/`` tables the run wrote;
+    nothing is printed when they hold no rows. The workflow log already has
+    each cleanup's counts; the notice exists because batch-scheduler users
+    rarely read logs after a successful run. Call it only at the command-line
+    boundary, after the run succeeded.
+    """
+    paths = [Path(path) for path in paths]
+    frames = [pd.read_csv(path, sep="\t", usecols=["reason"]) for path in paths if path.is_file()]
+    reasons = pd.concat(frames, ignore_index=True)["reason"] if frames else pd.Series(dtype=object)
+    if reasons.empty:
+        return
+    counts = reasons.value_counts().sort_index()
+    message = (
+        f"WARNING: {command} dropped {len(reasons):,} SNP rows "
+        f"({', '.join(f'{reason}={count:,}' for reason, count in counts.items())}); "
+        f"each dropped row and its reason is listed in {paths[0].parent}."
+    )
+    if {"missing_allele", "invalid_allele"} & set(counts.index):
+        message += (
+            " Rows with missing, non-ACGT (such as indels) or identical alleles have no allele-aware SNP identity;"
+            " a base SNP identifier mode (rsid or chr_pos) keeps them."
+        )
+    print(message, file=sys.stderr)
 
 
 def _log_identity_drops(dropped: pd.DataFrame, *, context: str, logger: logging.Logger | None) -> None:

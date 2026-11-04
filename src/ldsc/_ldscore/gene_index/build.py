@@ -67,6 +67,7 @@ from ..._core.snp_identity import (
     base_key_series,
     clean_identity_artifact_table,
     effective_merge_key_series,
+    emit_dropped_snps_notice,
     empty_identity_drop_frame,
     normalize_snp_identifier_mode,
     identity_mode_family,
@@ -313,6 +314,8 @@ def main(argv: Sequence[str] | None = None):
     summary = Path(published) / "diagnostics" / "build-gene-ldscore-index.json"
     emit_reference_snp_funnel_notice(_evidence_funnel(json.loads(summary.read_text(encoding="utf-8"))["chromosomes"]),
                                      summary, command="build-gene-ldscore-index")
+    emit_dropped_snps_notice(sorted((Path(published) / "diagnostics" / "dropped_snps").glob("*.tsv.gz")),
+                             command="build-gene-ldscore-index")
     return published
 
 

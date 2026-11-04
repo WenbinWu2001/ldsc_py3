@@ -28,11 +28,10 @@ FUNNEL_COLUMNS = ["funnel", "chrom", "backend", "step_index", "step", "removed",
 
 _STEPS = {
     ("plink", REFERENCE_PANEL): (
-        "panel_rows", "identity_cleanup", "ref_panel_snps_file", "allele_aware_identity_cleanup",
-        ANNOTATION_SNP_GRID, "genotype_qc", "maf_floor",
+        "panel_rows", "identity_cleanup", "ref_panel_snps_file", ANNOTATION_SNP_GRID, "genotype_qc", "maf_floor",
     ),
     ("r2_matrix", REFERENCE_PANEL): (
-        "panel_rows", "ref_panel_snps_file", "maf_floor", "allele_aware_identity_cleanup", ANNOTATION_SNP_GRID,
+        "panel_rows", "ref_panel_snps_file", "maf_floor", ANNOTATION_SNP_GRID,
     ),
     ("plink", ANNOTATION_SNP_GRID): ("grid_rows", ANNOTATION_SNP_GRID, "genotype_qc", "maf_floor"),
     ("r2_matrix", ANNOTATION_SNP_GRID): ("grid_rows", ANNOTATION_SNP_GRID),

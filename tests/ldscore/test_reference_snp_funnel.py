@@ -50,7 +50,7 @@ def test_r2_funnel_counts_grid_rows_missing_from_the_panel(tmp_path):
         retained = len(prepared.metadata)
     assert steps(funnel, "reference_panel") == {
         "panel_rows": (None, 2), "ref_panel_snps_file": (None, 2), "maf_floor": (None, 2),
-        "allele_aware_identity_cleanup": (None, 2), "annotation_snp_grid": (0, 2),
+        "annotation_snp_grid": (0, 2),
     }
     assert steps(funnel, "annotation_snp_grid") == {"grid_rows": (None, 3), "annotation_snp_grid": (1, 2)}
     assert set(funnel["backend"]) == {"r2_matrix"} and set(funnel["chrom"]) == {"1"}
@@ -108,9 +108,8 @@ def test_plink_funnel_counts_off_grid_panel_snps_before_genotype_qc(mode, allele
         retained, qc_removed = len(prepared.metadata), prepared.genotype_qc_removed
     reference = steps(funnel, "reference_panel")
     assert reference["panel_rows"] == (None, 32)
-    assert reference["identity_cleanup"][0] == (0 if mode == "rsid" else None)
+    assert reference["identity_cleanup"] == (0, 32)  # every SNP identifier mode
     assert reference["ref_panel_snps_file"] == (None, 32)
-    assert reference["allele_aware_identity_cleanup"][0] == (None if mode == "rsid" else 0)
     assert reference["annotation_snp_grid"] == (12, 20)
     assert reference["genotype_qc"] == (qc_removed, 20 - qc_removed)
     assert reference["maf_floor"] == (None, retained)
@@ -233,7 +232,7 @@ def test_multi_batch_run_records_each_chromosome_funnel_once(tmp_path):
     run_ldscore_from_args(build_parser().parse_args(workflow_argv(
         tmp_path, inputs, "--query-annot-sources", str(query), "--query-batch-size", "1")))
     funnel = read_funnel(tmp_path)
-    assert len(funnel) == 7
+    assert len(funnel) == 6  # an R2 matrix funnel: four reference-panel steps and two grid steps
     assert not funnel.duplicated(["funnel", "chrom", "step"]).any()
     assert steps(funnel, "reference_panel")["annotation_snp_grid"] == (1, 2)
 

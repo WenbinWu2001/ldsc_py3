@@ -16,7 +16,7 @@ from .interval_queries import prepare_bed_queries, build_query_shards, require_r
 from .sources import prepare_annotation_sources
 from .storage import AnnotationWorkspace
 from .gene_query_storage import resolve_gene_lists_staged
-from .._core.snp_identity import identity_mode_family
+from .._core.snp_identity import emit_dropped_snps_notice, identity_mode_family
 from .._runtime.workflow_logging import workflow_logging, materializing_overwrite_guard, log_inputs, log_outputs
 from .preflight import (
     annotation_columns, gene_list_gate_a_error, inspect_annotation_inputs, require_usable_bed_query_names,
@@ -222,6 +222,7 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                 emit_resolved_only_notice(bundle.gene_list_batch)
                 emit_gene_gate_b_notice(bundle.query_statuses, bundle.gene_list_batch, command='annotate')
                 emit_bed_query_notice(bundle.query_statuses, command='annotate')
+                emit_dropped_snps_notice([bundle.output_paths['dropped_snps']], command='annotate')
             log_outputs(**bundle.output_paths)
             counts = prepared.snp_rows
             LOGGER.info("%s SNP rows: input=%s, output=%s, dropped=%s.",

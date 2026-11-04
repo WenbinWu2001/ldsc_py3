@@ -53,6 +53,7 @@ from .._core.snp_identity import (
     RestrictionIdentityKeys,
     clean_identity_artifact_table,
     coerce_identity_drop_frame,
+    emit_dropped_snps_notice,
     empty_identity_drop_frame,
     identity_mode_family,
     sidecar_identity_sha256,
@@ -1727,4 +1728,6 @@ def main(argv: Sequence[str] | None = None) -> R2MatrixBuildResult:
 
     parser = build_parser()
     args = parser.parse_args(argv)
-    return run_build_r2_matrix_from_args(args)
+    result = run_build_r2_matrix_from_args(args)
+    emit_dropped_snps_notice(result.output_paths.get("dropped_snps", []), command="build-r2-matrix")
+    return result

@@ -164,7 +164,7 @@ class PlinkRefPanelTest(unittest.TestCase):
                 GlobalConfig(snp_identifier="rsid"),
                 RefPanelConfig(backend="plink", plink_prefix=str(prefix)),
             )
-            with self.assertRaisesRegex(LDSCInputError, "after duplicate SNP identity cleanup"):
+            with self.assertRaisesRegex(LDSCInputError, "after SNP identity cleanup"):
                 panel.load_metadata("1")
 
     def test_global_restriction_applies(self):

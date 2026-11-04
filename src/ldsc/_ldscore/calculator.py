@@ -61,7 +61,7 @@ from .._annotation.storage import TsvDiagnostics
 from .source import LDScoreSource
 from .._core.snp_identity import coerce_identity_drop_frame, IDENTITY_DROP_COLUMNS, identity_mode_family, is_allele_aware_mode
 from .._core.columns import normalize_genome_build
-from .._core.snp_identity import normalize_snp_identifier_mode
+from .._core.snp_identity import emit_dropped_snps_notice, normalize_snp_identifier_mode
 from ..config import (
     DEFAULT_SNP_BATCH_SIZE,
     GlobalConfig,
@@ -1469,7 +1469,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
                 emit_gene_gate_b_notice(result.query_statuses,result.gene_list_batch,command="ldscore")
                 emit_resolved_only_notice(result.gene_list_batch)
                 emit_bed_query_notice(result.query_statuses,command="ldscore")
-                _emit_funnel_notice(result.output_paths)
+                _emit_reference_snp_notices(result.output_paths)
             return dataclass_replace(result,gene_list_batch=persistent_gene_diagnostics(result.gene_list_batch,result.output_paths))
 
 
@@ -1594,7 +1594,7 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> "LDScoreSource":
                 command="ldscore",
             )
             emit_resolved_only_notice(getattr(result, "gene_list_batch", None))
-            _emit_funnel_notice(getattr(result, "output_paths", None) or {})
+            _emit_reference_snp_notices(getattr(result, "output_paths", None) or {})
         output_paths = getattr(result, "output_paths", None)
         if output_paths:
             log_outputs(**output_paths)
@@ -2290,11 +2290,13 @@ def _warn_ld_window_snp_subset(counts: pd.DataFrame | None, where: str) -> None:
     )
 
 
-def _emit_funnel_notice(output_paths: dict) -> None:
-    """Print the published funnel's WARNING to stderr after a successful command-line run."""
+def _emit_reference_snp_notices(output_paths: dict) -> None:
+    """Print the funnel and dropped-SNP WARNINGs to stderr after a successful command-line run."""
     path = output_paths.get("reference_snp_funnel")
     if path is not None:
         emit_reference_snp_funnel_notice(read_reference_snp_funnel(path), path)
+    emit_dropped_snps_notice([path for key, path in output_paths.items() if key.startswith("dropped_snps")],
+                             command="ldscore")
 
 
 def _grid_emptied_message(funnels: Sequence[pd.DataFrame]) -> str:

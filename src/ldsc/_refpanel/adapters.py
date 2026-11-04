@@ -51,7 +51,6 @@ from .._core.identifiers import (
 )
 from .._core.snp_identity import (
     clean_identity_artifact_table,
-    empty_identity_drop_frame,
     identity_base_mode,
     identity_mode_family,
     is_allele_aware_mode,
@@ -275,19 +274,20 @@ class PlinkRefPanel(RefPanel):
             raise LDSCInputError(f"Reference-panel loading found no PLINK metadata rows for chromosome {chrom}.")
         funnel = ReferenceSNPFunnel(normalize_chromosome(chrom), "plink")
         funnel.record(REFERENCE_PANEL, "panel_rows", len(metadata))
-        drops = empty_identity_drop_frame()
-        if self.global_config.snp_identifier in {"rsid", "chr_pos"}:
-            cleanup = clean_identity_artifact_table(
-                metadata, self.global_config.snp_identifier,
-                context=f"PLINK reference-panel metadata chromosome {chrom}",
-                stage="plink_reference_identity_cleanup", logger=LOGGER,
+        # Allele-aware modes also drop rows whose alleles are missing, non-ACGT
+        # or identical, and multi-allelic positions; base modes drop duplicates.
+        cleanup = clean_identity_artifact_table(
+            metadata, self.global_config.snp_identifier,
+            context=f"PLINK reference-panel metadata chromosome {chrom}",
+            stage="plink_reference_identity_cleanup", logger=LOGGER,
+        )
+        funnel.record(REFERENCE_PANEL, "identity_cleanup", len(metadata) - len(cleanup.cleaned))
+        metadata, drops = cleanup.cleaned, cleanup.dropped
+        if metadata.empty:
+            raise LDSCInputError(
+                f"Reference-panel loading retained no PLINK rows on chromosome {chrom} after SNP identity cleanup. "
+                "Each dropped row and its reason is listed in diagnostics/dropped_snps/."
             )
-            funnel.record(REFERENCE_PANEL, "identity_cleanup", len(metadata) - len(cleanup.cleaned))
-            metadata, drops = cleanup.cleaned, cleanup.dropped
-            if metadata.empty:
-                raise LDSCInputError(
-                    f"Reference-panel loading retained no PLINK rows on chromosome {chrom} after duplicate SNP identity cleanup."
-                )
         if self.spec.ref_panel_snps_file is not None:
             before = len(metadata)
             metadata = self._apply_snp_restriction(metadata)
@@ -656,16 +656,10 @@ def _align_annotations(bundle, reference, chrom, global_config, funnel):
     gets the ``A1``/``A2`` of its reference SNP: the R2 matrix sidecar's
     minor-allele orientation, or ``.bim`` alleles that PLINK preparation
     reorients after reading genotypes. Annotation files without alleles match
-    by the base mode, which allele-aware cleanup makes unique in the reference.
+    by the base mode: identity cleanup of the reference, by ``build-r2-matrix``
+    or in ``PlinkRefPanel._load_source``, already dropped multi-allelic
+    positions, so base keys are unique in the reference.
     """
-    if is_allele_aware_mode(global_config.snp_identifier):
-        cleaned = clean_identity_artifact_table(
-            reference, global_config.snp_identifier,
-            context=f"reference panel chromosome {chrom}",
-            stage="annotation_reference_identity_cleanup", logger=LOGGER,
-        ).cleaned
-        funnel.record(REFERENCE_PANEL, "allele_aware_identity_cleanup", len(reference) - len(cleaned))
-        reference = cleaned
     mode = _annotation_reference_match_mode(bundle.metadata, global_config.snp_identifier)
     reference_keys = build_snp_id_series(reference, mode)
     annotation_keys = build_snp_id_series(bundle.metadata, mode)

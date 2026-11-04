@@ -5,6 +5,54 @@ Last updated on: 2026-11-03
 Branch `restructure`; checked on 2026-11-03.
 Nothing below is in progress; each open item needs the user's go-ahead.
 
+## Completed: one LD-window rule (2026-11-03)
+
+Architecture review candidate 11, "LD-window value object", narrowed after re-checking it at `d62183f`.
+A public value object replacing the three `ld_wind_*` fields was rejected: the configs are public and documented, Python callers would write more, and the command line would not change.
+Probes found that `LDScoreConfig` and `R2MatrixBuildConfig` accepted NaN and inf windows, so `ldscore --ld-wind-kb nan --yes-really` published whole-chromosome LD scores and `build-r2-matrix --ld-wind-kb nan` wrote a footer its own reader rejects; they also accepted non-integer and boolean SNP counts, which the gene-index config rejected.
+The gene-index build recognized the whole-chromosome error by matching its message text, no test covered the whole-chromosome guard, and an LD-score directory recorded no window.
+The user accepted three rounds of recommendations (seven, six and four) and authorized the implementation on 2026-11-03; the question record and evidence are in the shared side-session note `candidate11-evidence.md`, outside the repository.
+
+- `72df2b5`: the unused `maf=None` of the index kernel namespace is gone, before the kernel signature changes.
+- `2111fba` (breaking): `LDScoreConfig`, `R2MatrixBuildConfig` and `GeneLDScoreIndexBuildConfig` apply one rule, `_ld_window()` in `src/ldsc/config.py`: exactly one window, a finite number greater than 0 and not a boolean, and an integer SNP count.
+  Values are stored as `int` or `float` and returned by the new `ld_window` property as an internal `LDWindow`; one message names the option and the Python field.
+  `ldscore`'s own window checks in `_validate_run_args` are gone, and the index batch-size error no longer names `ld_wind_cm`.
+  A Python build with an integer kb or cM window now records a float: a new gene index built that way gets another `index_id`, and its R² footer reads `500.0` instead of `500`; existing indexes and R² matrices stay loadable.
+- `e3574aa` (breaking): `ldscore` and `build-r2-matrix` take their window options in a mutually exclusive group, and `build-r2-matrix` requires one, so two windows, and no window in `build-r2-matrix`, exit 2 with an argparse message.
+  `ldscore` cannot require one, because indexed mode takes its window from the index.
+- `c87dc96`: `window_coordinates`, `R2MatrixChromosome.check_ld_window`, `inspect_r2_headers` and `write_r2_parquet` take an `LDWindow` instead of three keywords, a parsed namespace or a mode and value pair.
+  `_LDWindowSpec`, `_requested_ld_window_spec`, `_format_ld_window_spec` and `_index_ld_window` are gone, and the `ldscore` preflight uses the window of the `LDScoreConfig` it already builds.
+- `9deb211`: `check_whole_chromosome_window(block_left, chrom, *, allowed)` raises `WholeChromosomeWindowError`, a subclass of `LDSCUsageError`, which the index catches by class instead of by message text.
+  New tests cover the guard and its override for PLINK and R² matrix preparation and the index build's own error.
+- `7251280`: `build_plink_index_chromosome` takes a `PlinkRefPanel` and an `LDScoreConfig` instead of an argparse namespace with `bfile`, `keep` and `yes_really`; the test helper `plink_panel()` replaces `prepare_plink()`, and `compute_plink()` takes the panel and config.
+- `0934716`: LD-score `metadata.json` records `ld_window` (`unit`, `value`, `whole_chromosome_ok`): direct runs from their config, which for an R² matrix is the run's window and not the build window, indexed runs from the index with `whole_chromosome_ok` `false`, and nothing for converted legacy directories.
+- `537dfea`: `configuration.md` gains "LD window"; `artifact-metadata.md`, `gene-ldscore-index.md` and `code-structure.md` follow; `r2-matrices.md` and `cli-help.md` cited `build_window_coordinates`, which no longer exists; the approved "LD window" vocabulary row names `ld_window`; `lessons.md` records the NaN window as a recurrence.
+- This commit: this record.
+
+### Decisions taken during implementation
+
+- The R² footer reader returns a SNP-count window as `int`.
+- `write_r2_parquet` lost its check that both window fields were given, and that check's test, because the window is now one required argument.
+- The `ldscore` task-failure log line names `WholeChromosomeWindowError` where it named `LDSCUsageError`; the message text and exit code are unchanged.
+- The index worker builds `GlobalConfig(snp_identifier=..., genome_build=...)` as the namespace path did, so the refactor changes no output.
+- The shared gene-index test identity (`_artifact_payload()` in `tests/ldscore/test_gene_ldscore_index.py`) gained the `ld_window` every built index records, so its two pinned fixture `index_id` values changed; the old pins reproduce without the key, so the hashing is unchanged.
+- `test_r2_errors_before_the_chromosomes_are_known_leave_no_marker[no LD window]` now expects exit 2; the marker behavior it checks is unchanged.
+
+### Evidence
+
+- A before/after harness ran exported copies of `09bf5b7` and of each code commit on 48 scenarios on the 32-SNP chromosome 22 fixture: help for the three commands; the Python rule matrix of the three configs; direct PLINK `ldscore` with SNP, kb and cM windows, a live gene-list query, and Python `run_ldscore` with an integer kb window; `build-r2-matrix` in the three units and from Python with an integer kb window; `ldscore` from each R² matrix with a narrower, a wider and another-unit window; whole-chromosome windows with and without `--yes-really` in PLINK and R² matrix `ldscore` and the index build; index builds from the command line (SNP and kb windows) and from Python (integer kb) with indexed scoring; and the window rule cases of all three commands.
+  Records hold exit codes, stderr and every output file (gzip decompressed, Parquet as text with its footer, so `index_id` too); logs, process IDs and peak memory were excluded, and two runs of the base copy were identical.
+- `72df2b5`, `c87dc96` and `7251280` were identical to their predecessors.
+  `2111fba` changed 17 scenarios: the rule messages, the NaN and inf runs now rejected before any output, and for the Python integer-kb builds the R² footer (`500.0`), the index identity value (`300.0`) and the `index_id`, which indexed scoring on that index carries.
+  `e3574aa` changed 4 (the `build-r2-matrix` usage line, and exit 2 for doubled or missing windows), `9deb211` 2 (the task-failure line names `WholeChromosomeWindowError`), and `0934716` the 14 successful LD-score runs, whose `metadata.json` gains `ld_window`.
+  Against `09bf5b7`, 15 scenarios are identical, among them both command-line index builds and the four command-line R² matrix builds; every LD-score table is identical, and the 14 successful LD-score runs differ only by `ld_window`, apart from the `index_id` of the Python integer-kb index.
+- Tests: each commit ran its focused tests in the clean working tree before it was committed: 181 (`72df2b5`), 1,732 (`2111fba`), 1,494 plus the corrected marker test (`e3574aa`), 1,735 (`c87dc96`), 1,497 (`9deb211`), 1,424 plus 117 after two test sites were corrected (`7251280`), and 2,059 plus 147 after the fixture identity gained `ld_window` (`0934716`).
+  The full suite on an exported copy of `537dfea`, with the workspace `resources/` linked into its parent folder, passed 2,602 tests with none skipped.
+
+### Open items
+
+- The commits are local and not pushed; the HPC package copy does not have them.
+
 ## Completed: annotation query checks and saved results (2026-11-03)
 
 Architecture review candidate 9, "Annotation preparation as one pipeline", narrowed after re-checking it at `5c909ff`.

@@ -1,6 +1,6 @@
 # Build and query R² matrices
 
-Last updated on: 2026-11-02
+Last updated on: 2026-11-04
 
 `ldsc build-r2-matrix` computes the unbiased R² between pairs of SNPs within an LD window from the genotypes of a PLINK reference panel and saves them as an R² matrix.
 An R² matrix is a reusable reference panel: build it once, then use it with `ldsc ldscore --r2-matrix-dir` to compute LD scores for any annotations and traits, or with `ldsc query-r2-matrix` to look up the LD between specific SNP pairs.
@@ -99,6 +99,7 @@ SNPs whose source or target positions collide are dropped; see [liftover rules](
 ### When a chromosome loses all its SNPs
 
 Before reading any genotypes, `build-r2-matrix` applies SNP selection to every chromosome: the SNP restriction, identity cleanup, liftover and duplicate-position filtering.
+Identity cleanup sees only the SNPs the restriction keeps, as in `ldscore --plink-prefix`: a position is multi-allelic only when the restriction keeps more than one of its allele pairs.
 If this leaves any autosome (chromosomes 1 to 22) without SNPs, the run stops before computing any R².
 The error reports every such autosome together, naming the stage that removed its SNPs, and `diagnostics/input_issues.tsv` lists them with a suggested repair.
 Genotype filtering comes later: if MAF filtering, monomorphic SNPs or missing genotypes among the kept individuals remove every SNP of an autosome, the run stops when it reaches that chromosome.

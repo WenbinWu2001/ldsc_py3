@@ -285,19 +285,13 @@ group. No row is selected as a representative and duplicate rows are not
 aggregated. The workflow emits a summarized warning and records the dropped
 rows and counts in its diagnostics.
 
-This policy applies independently to baseline annotation rows and PLINK BIM
-metadata before their intersection in direct PLINK-backed LD-score calculation
-and gene LD-score index construction, and to PLINK BIM metadata in
-`build-r2-matrix`. Consequently, `rsid` drops a complete
-duplicate-`SNP` group, while `chr_pos` drops a complete duplicate normalized
-`(CHR, POS)` group. Cleanup can therefore remove an ambiguous multiallelic
-coordinate without silently collapsing biologically distinct variants.
+This policy applies independently to baseline annotation rows and PLINK BIM metadata before their intersection in direct PLINK-backed LD-score calculation and gene LD-score index construction, and to PLINK BIM metadata in `build-r2-matrix`.
+In PLINK-backed `ldscore` and in `build-r2-matrix` it applies to the BIM rows that `--ref-panel-snps-file` keeps.
+Consequently, `rsid` drops a complete duplicate-`SNP` group, while `chr_pos` drops a complete duplicate normalized `(CHR, POS)` group.
+Cleanup can therefore remove an ambiguous multiallelic coordinate without silently collapsing biologically distinct variants.
 
-Allele-aware artifact cleanup additionally drops rows with missing alleles,
-invalid or non-SNP alleles, identical pairs, and the package-wide
-multiallelic base-key clusters defined by the allele-aware identity contract.
-Duplicate effective-key groups still use the same drop-all
-rule after the effective key is computed.
+Allele-aware artifact cleanup additionally drops rows with missing alleles, invalid or non-SNP alleles, identical pairs, and the multiallelic base-key clusters defined by the allele-aware identity contract, among the rows that pass any SNP restriction.
+Duplicate effective-key groups still use the same drop-all rule after the effective key is computed.
 For reference panels this drop is a recorded exception to failing on unrequested filtering; see [reference-panel rows without an allele-aware SNP identity](../ldscore-snp-universes.md#reference-panel-rows-without-an-allele-aware-snp-identity).
 
 Restriction files have deliberately different semantics because they define a

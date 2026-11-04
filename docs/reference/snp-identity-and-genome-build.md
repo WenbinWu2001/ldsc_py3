@@ -269,6 +269,8 @@ duplicate filtering, retention, or drop reasons.
 
 Allele-aware modes require usable `A1/A2` on package-written identity artifacts: munged summary statistics, reference-panel metadata, R² matrix sidecars, and LD-score directories.
 They drop missing, invalid/non-SNP and identical allele pairs, multi-allelic base-key clusters, and duplicate effective-key clusters.
+This identity cleanup runs on the rows a SNP restriction keeps: `--ref-panel-snps-file` in `ldscore --plink-prefix` and `build-r2-matrix`, and the summary-statistics SNP keep-list in `munge-sumstats`, apply first.
+A position is therefore multi-allelic only when more than one of its allele pairs passes the restriction, and an allele-bearing restriction that lists one allele pair of a multi-allelic position keeps that SNP in both reference-panel commands.
 A/T and C/G pairs are valid identities and are kept; only signed uses treat their strand as unknown (see [allele-aware identity keys](formats/column-schema.md#snp-identifier-modes)).
 Artifact duplicates are handled by computing the effective merge key for the active mode and dropping all rows in duplicate-key clusters.
 

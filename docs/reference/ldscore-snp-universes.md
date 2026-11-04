@@ -17,7 +17,7 @@ It is especially important for MHC and pericentromeric exclusions.
 
 The annotation files given to `ldscore` define the annotation SNP grid: their SNP rows are the candidate SNPs.
 Baseline and prebuilt query files must list the same SNP rows in the same order, and BED and gene-list queries are projected onto the baseline rows, so all annotation files of one run share one grid.
-The reference SNPs are the grid SNPs among the reference-panel SNPs that pass the panel's filters: identity cleanup, `--ref-panel-snps-file`, `--keep-indivs-file`, genotype QC and `--maf-min`.
+The reference SNPs are the grid SNPs among the reference-panel SNPs that pass the panel's filters: `--ref-panel-snps-file`, identity cleanup, `--keep-indivs-file`, genotype QC and `--maf-min`.
 Reference-panel SNPs without an annotation row are excluded at the `annotation_snp_grid` step, and grid rows without a reference-panel SNP are dropped at the same step.
 No annotation value is filled in or imputed; a missing annotation value is rejected when the file is read.
 
@@ -45,7 +45,7 @@ A step that did not run, because its option was not set, the identifier mode ski
 
 | Funnel | Backend | Steps in order |
 | --- | --- | --- |
-| `reference_panel` | PLINK | `panel_rows` (BIM rows on the chromosome), `identity_cleanup` (see [rows without an allele-aware SNP identity](#reference-panel-rows-without-an-allele-aware-snp-identity)), `ref_panel_snps_file`, `annotation_snp_grid`, `genotype_qc` (monomorphic or all-missing SNPs after `--keep-indivs-file`), `maf_floor` |
+| `reference_panel` | PLINK | `panel_rows` (BIM rows on the chromosome), `ref_panel_snps_file`, `identity_cleanup` (see [rows without an allele-aware SNP identity](#reference-panel-rows-without-an-allele-aware-snp-identity)), `annotation_snp_grid`, `genotype_qc` (monomorphic or all-missing SNPs after `--keep-indivs-file`), `maf_floor` |
 | `reference_panel` | R² matrix | `panel_rows` (sidecar rows), `ref_panel_snps_file`, `maf_floor`, `annotation_snp_grid` |
 | `annotation_snp_grid` | PLINK | `grid_rows`, `annotation_snp_grid` (grid rows with no remaining reference-panel SNP), `genotype_qc`, `maf_floor` |
 | `annotation_snp_grid` | R² matrix | `grid_rows`, `annotation_snp_grid` |
@@ -84,7 +84,11 @@ The drop is never silent:
 - a successful command-line run prints one stderr WARNING with the counts by reason and the diagnostics directory, for example `WARNING: ldscore dropped 352 SNP rows (invalid_allele=340, missing_allele=12); each dropped row and its reason is listed in .../diagnostics/dropped_snps. ...`;
 - the workflow log records each chromosome's counts, and Python entry points print nothing.
 
-Sources: `PlinkRefPanel._load_source()` in [_refpanel/adapters.py](../../src/ldsc/_refpanel/adapters.py), `clean_identity_artifact_table()` and `emit_dropped_snps_notice()` in [_core/snp_identity.py](../../src/ldsc/_core/snp_identity.py).
+With `--ref-panel-snps-file`, the restriction applies first and identity cleanup runs on the rows it keeps, in `ldscore --plink-prefix` as in `build-r2-matrix`.
+A row with unusable alleles whose rsID or `CHR:POS` the restriction lists is kept by the restriction, then dropped and reported by cleanup; any other such row is removed by the restriction and not listed.
+A position is multi-allelic only when the restriction keeps more than one of its allele pairs, so both commands keep the same reference SNPs from one panel and one restriction.
+
+Sources: `PlinkRefPanel._load_source()` and `RefPanel._apply_keep_restriction()` in [_refpanel/adapters.py](../../src/ldsc/_refpanel/adapters.py), `build_restriction_mask()` in [_refpanel/build_kernel.py](../../src/ldsc/_refpanel/build_kernel.py), `R2MatrixBuilder._select_chromosome_snps()` in [_refpanel/builder.py](../../src/ldsc/_refpanel/builder.py), `clean_identity_artifact_table()` and `emit_dropped_snps_notice()` in [_core/snp_identity.py](../../src/ldsc/_core/snp_identity.py).
 
 ## Chromosome coverage versus SNP support
 

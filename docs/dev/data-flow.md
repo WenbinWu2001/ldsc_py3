@@ -80,7 +80,9 @@ Allele-aware modes use unordered, strand-aware `A1/A2` allele sets only to make
 merge keys safer. They require usable alleles on summary statistics, reference-panel
 artifacts, R² Parquet endpoints, and LD-score directories, and they drop missing,
 invalid/non-SNP, identical, multi-allelic base-key, and duplicate effective-key
-clusters. A/T and C/G pairs are valid identities; only signed comparisons between
+clusters.
+This identity cleanup runs on the rows that pass any SNP restriction, such as `--ref-panel-snps-file` in `ldscore --plink-prefix` and `build-r2-matrix` or the summary-statistics keep-list, so a position is multi-allelic only when more than one of its allele pairs passes the restriction.
+A/T and C/G pairs are valid identities; only signed comparisons between
 files treat their strand as unknown. Artifact duplicate filtering always computes
 the effective key for the active mode, then drops all rows in duplicate-key
 clusters.
@@ -170,7 +172,7 @@ sidecar.
 | `.fam` row | `fam1 iid1 0 0 0 -9` | sample metadata |
 | genetic map, conditional | `chr position Genetic_Map(cM)`<br/>`22 16050000 0.42` | required for every emitted build when cM windows are used; optional for SNP/kb windows |
 | liftover method, optional | `hg38ToHg19.over.chain.gz` | matching source-to-target chain enables cross-build R² and metadata in chr_pos-family modes (`chr_pos`, `chr_pos_allele_aware`); omitted liftover produces source-build-only output; liftover is rejected in rsID-family modes (`rsid`, `rsid_allele_aware`) |
-| keep or restrict file, optional | one IID per row or a headered SNP table through `--ref-panel-snps-file` | filters individuals or variants; SNP restriction matching uses `GlobalConfig.snp_identifier`; `chr_pos`-family restrictions must match the source PLINK build; allele-free restrictions match by base key; allele-bearing restrictions, including packaged HM3, match by effective allele-aware key in allele-aware modes; duplicate restriction keys collapse to one retained key and non-identity columns such as `CM` or `MAF` are ignored |
+| keep or restrict file, optional | one IID per row or a headered SNP table through `--ref-panel-snps-file` | filters individuals or variants; SNP restriction matching uses `GlobalConfig.snp_identifier`; `chr_pos`-family restrictions must match the source PLINK build; allele-free restrictions match by base key; allele-bearing restrictions, including packaged HM3, match by effective allele-aware key in allele-aware modes; duplicate restriction keys collapse to one retained key and non-identity columns such as `CM` or `MAF` are ignored; the SNP restriction applies before identity cleanup, which then runs on the restricted rows, as in `ldscore --plink-prefix` |
 
 ### Flow
 

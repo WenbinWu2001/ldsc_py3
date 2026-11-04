@@ -187,17 +187,18 @@ def test_disk_identity_allele_policy_excludes_invalid_before_global_clusters(tmp
     from ldsc._annotation.identity_cleanup import DiskIdentityIndex
 
     frame = pd.DataFrame({"CHR": [1] * 7, "POS": list(range(1, 8)),
-                          "SNP": ["multi", "dup", "valid", "bad", "multi", "dup", "valid"],
+                          "SNP": ["multi", "dup", "valid", "at", "multi", "dup", "bad"],
                           "A1": ["A", "A", "A", "A", "A", "T", "N"],
                           "A2": ["C", "G", "C", "T", "G", "C", "C"]})
     with DiskIdentityIndex(tmp_path / "identity.sqlite", "rsid_allele_aware") as index:
         index.add(frame.iloc[:4])
         index.add(frame.iloc[4:])
         keep, dropped = index.select(frame)
-    assert frame.loc[keep, "POS"].tolist() == [3]
+    # The A/T row is a valid identity; only the non-ACGT row is invalid.
+    assert frame.loc[keep, "POS"].tolist() == [3, 4]
     assert dropped.groupby("reason")["SNP"].apply(list).to_dict() == {
         "multi_allelic_base_key": ["multi", "multi"], "duplicate_identity": ["dup", "dup"],
-        "strand_ambiguous_allele": ["bad"], "invalid_allele": ["valid"],
+        "invalid_allele": ["bad"],
     }
 
 

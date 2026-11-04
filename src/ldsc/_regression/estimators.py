@@ -21,7 +21,6 @@ from scipy.stats import norm, chi2
 from ..errors import LDSCConfigError, LDSCInternalError, LDSCUsageError
 from . import jackknife as jk
 from .irwls import IRWLS
-from .._core.snp_identity import VALID_SNPS
 from scipy.stats import t as tdist
 from collections import namedtuple
 
@@ -30,8 +29,13 @@ _TwoStepJackknife = namedtuple("_TwoStepJackknife", [
     "est", "jknife_se", "jknife_est", "jknife_var", "jknife_cov", "delete_values",
 ])
 
-# Allele-matching helpers reused by the public regression and munging workflows.
+# Allele-matching helpers for aligning signed statistics between files.
 COMPLEMENT = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C'}
+# Pairs whose orientation is resolvable across files: distinct bases, not a
+# base with its own complement. An A/T or C/G SNP is a valid SNP identity,
+# but its strand, and so the sign of its statistic, cannot be aligned.
+VALID_SNPS = {first + second for first in COMPLEMENT for second in COMPLEMENT
+              if first != second and COMPLEMENT[first] != second}
 MATCH_ALLELES = {x for x in list(map(lambda y: ''.join(y), it.product(VALID_SNPS, VALID_SNPS)))
                  if ((x[0] == x[2]) and (x[1] == x[3])) or
                  ((x[0] == COMPLEMENT[x[2]]) and (x[1] == COMPLEMENT[x[3]])) or

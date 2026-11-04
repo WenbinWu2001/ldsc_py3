@@ -125,7 +125,7 @@ def _read_hm3_snplist(path: str | PathLike[str]) -> pd.DataFrame:
     Read the w_hm3 SNP list with its allele-set token and drop bookkeeping.
 
     Pairs the package cannot use as an allele identity (missing, non-ACGT,
-    identical, or strand-ambiguous) are dropped under the package's reason.
+    or identical) are dropped under the package's reason.
     """
     frame = pd.read_csv(path, sep=r"\s+", dtype=str)
     frame = frame.loc[:, ["SNP", "A1", "A2"]].copy()

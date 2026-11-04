@@ -75,9 +75,10 @@ def test_builder_allele_matching_uses_shared_cleanup(mode, with_alleles):
         baseline = baseline.drop(columns=["A1", "A2"])
     result = index.intersect_baseline_plink_by_identifier(
         baseline, pd.DataFrame({"base": [11, 22, 33, 44]}), reference, snp_identifier=mode, chrom="1")
-    assert result.metadata.SNP.tolist() == ["rs1", "rs2"]
-    assert result.annotations.base.tolist() == [11, 22]
-    assert {"strand_ambiguous_allele", "invalid_allele", "multi_allelic_base_key"}.issubset(set(result.dropped_rows.reason))
+    # rs3 is an A/T SNP: a valid identity, kept like any other.
+    assert result.metadata.SNP.tolist() == ["rs1", "rs2", "rs3"]
+    assert result.annotations.base.tolist() == [11, 22, 33]
+    assert {"invalid_allele", "multi_allelic_base_key"}.issubset(set(result.dropped_rows.reason))
 
 
 @pytest.mark.parametrize("mode", ["rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"])

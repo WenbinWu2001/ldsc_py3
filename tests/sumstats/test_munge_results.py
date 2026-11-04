@@ -173,7 +173,7 @@ def test_coordinate_liftover_and_identity_counts_are_exclusive(tmp_path, monkeyp
         "1 100 duplicate1 A G .05 0 1000 1\n"
         "1 100 duplicate2 A G .05 0 1000 1\n"
         "1 200 unmapped A G .05 0 1000 1\n"
-        "1 300 ambiguous A T .05 0 1000 1\n"
+        "1 300 identical G G .05 0 1000 1\n"
         "1 400 keep A G .05 .05 1000 1\n"
     )
 
@@ -212,5 +212,5 @@ def test_coordinate_liftover_and_identity_counts_are_exclusive(tmp_path, monkeyp
     assert provenance["liftover"]["n_dropped"] == 3
     dropped = pd.read_csv(summary.output_paths["dropped_snps_tsv_gz"], sep="\t")
     assert dropped.reason.value_counts().to_dict() == {
-        "source_duplicate": 2, "unmapped_liftover": 1, "strand_ambiguous_allele": 1,
+        "source_duplicate": 2, "unmapped_liftover": 1, "invalid_allele": 1,
     }

@@ -192,7 +192,7 @@ class Hm3CuratedMapBuilderTest(unittest.TestCase):
             hm3=[
                 ("rs30", "A", "G"),  # two accepted hg38 placements
                 ("rs31", "A", "G"),  # chr1 in hg19, chr2 in hg38
-                ("rs32", "A", "T"),  # strand-ambiguous
+                ("rs32", "A", "N"),  # non-ACGT allele
                 ("rs33", "C", "T"),  # shares hg19 chr1:700 with rs34
                 ("rs34", "C", "T"),
                 ("rs35", "A", "C"),  # no hg38 placement
@@ -223,7 +223,7 @@ class Hm3CuratedMapBuilderTest(unittest.TestCase):
             {
                 "rs30": "multiple_placements_hg38",
                 "rs31": "chromosome_mismatch",
-                "rs32": "strand_ambiguous_allele",
+                "rs32": "invalid_allele",
                 "rs33": "duplicate_coordinate_hg19",
                 "rs34": "duplicate_coordinate_hg19",
                 "rs35": "no_placement_hg38",
@@ -249,7 +249,7 @@ class Hm3CuratedMapBuilderTest(unittest.TestCase):
     def test_command_line_writes_map_and_drop_report_and_summarizes_counts(self):
         paths = write_sources(
             self.tmpdir,
-            hm3=[("rs1", "A", "G"), ("rs2", "A", "T")],
+            hm3=[("rs1", "A", "G"), ("rs2", "A", "N")],
             hg19=[(accession(1, "hg19"), 100, "rs1", "A", "G")],
             hg38=[(accession(1, "hg38"), 1100, "rs1", "A", "G")],
         )
@@ -265,7 +265,7 @@ class Hm3CuratedMapBuilderTest(unittest.TestCase):
         summary = json.loads(stdout.getvalue())
         self.assertEqual(summary["input_snps"], 2)
         self.assertEqual(summary["retained_snps"], 1)
-        self.assertEqual(summary["dropped_by_reason"], {"strand_ambiguous_allele": 1})
+        self.assertEqual(summary["dropped_by_reason"], {"invalid_allele": 1})
         self.assertEqual(len(pd.read_csv(paths["output_path"], sep="\t")), 1)
         self.assertEqual(read_drop_report(paths)["SNP"].tolist(), ["rs2"])
 

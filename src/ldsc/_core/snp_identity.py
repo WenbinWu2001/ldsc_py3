@@ -49,17 +49,11 @@ IDENTITY_DROP_COLUMNS = [
 IDENTITY_DROP_REASONS = (
     "missing_allele",
     "invalid_allele",
-    "strand_ambiguous_allele",
     "multi_allelic_base_key",
     "duplicate_identity",
 )
 COMPLEMENT = str.maketrans({"A": "T", "T": "A", "C": "G", "G": "C"})
 _VALID_ALLELES = frozenset({"A", "C", "G", "T"})
-# Two-letter allele pairs of distinct bases that are not strand-ambiguous
-# (a base paired with its own complement, such as A/T, is ambiguous).
-_BASE_COMPLEMENT = {"A": "T", "T": "A", "C": "G", "G": "C"}
-VALID_SNPS = {first + second for first in _BASE_COMPLEMENT for second in _BASE_COMPLEMENT
-              if first != second and _BASE_COMPLEMENT[first] != second}
 _INTERNAL_COLUMNS = ["_ldsc_base_key", "_ldsc_allele_set", "_ldsc_identity_key"]
 
 
@@ -214,8 +208,6 @@ def _allele_failure_reason(a1: object, a2: object) -> str | None:
         return "invalid_allele"
     if left == right:
         return "invalid_allele"
-    if frozenset((left, right)) in {frozenset(("A", "T")), frozenset(("C", "G"))}:
-        return "strand_ambiguous_allele"
     return None
 
 
@@ -223,10 +215,12 @@ def normalize_allele_set(a1: object, a2: object) -> object:
     """
     Normalize an unordered, strand-aware allele pair.
 
-    Invalid, missing, identical, or strand-ambiguous pairs raise ``ValueError``
-    with the public drop reason as the message.
+    Invalid, missing, or identical pairs raise ``ValueError`` with the public
+    drop reason as the message.
     Valid pairs return the lexicographically smallest token among the observed
-    unordered pair and its unordered complement pair.
+    unordered pair and its unordered complement pair, one of ``A:C``, ``A:G``,
+    ``A:T`` and ``C:G``. An ``A/T`` or ``C/G`` pair is its own complement, so
+    it identifies a SNP but cannot establish which strand a file reports.
     """
     reason = _allele_failure_reason(a1, a2)
     if reason is not None:
@@ -325,7 +319,7 @@ def _allele_set_series_vectorized(frame: pd.DataFrame, *, context: str) -> tuple
     pair = np.where(valid_base, code_left * 4 + code_right, 0)
 
     # Valid base pairs read key/reason from the tables (which already encode the
-    # identical and strand-ambiguous failures); the rest follow reason precedence.
+    # identical-allele failure); the rest follow reason precedence.
     values = np.where(valid_base, _ALLELE_CANONICAL16[pair], pd.NA)
     reasons = np.where(valid_base, _ALLELE_REASON16[pair], pd.NA)
     reasons[missing] = "missing_allele"
@@ -390,7 +384,7 @@ def effective_merge_key_series(frame: pd.DataFrame, mode: str, *, context: str =
         reason = str(reasons.loc[invalid].iloc[0])
         raise LDSCInputError(
             f"Cannot build allele-aware SNP identity for {context}: invalid A1/A2 rows were found ({reason}). "
-            "Most likely the input contains missing, non-ACGT, identical, or strand-ambiguous allele pairs. "
+            "Most likely the input contains missing, non-ACGT, or identical allele pairs. "
             "Clean the allele columns or use a base snp_identifier mode (rsid or chr_pos)."
         )
     keys = pd.Series(pd.NA, index=frame.index, dtype=object)
@@ -565,7 +559,7 @@ class _IdentityFilter:
         """Drop invalid allele pairs and multi-allelic base keys, then form identity keys."""
         allele_set, reasons = allele_set_series(self.data, context=context)
         self.allele_set = allele_set.to_numpy(dtype=object)
-        for reason in IDENTITY_DROP_REASONS[:3]:
+        for reason in ("missing_allele", "invalid_allele"):
             self.drop((reasons == reason).to_numpy(dtype=bool), reason)
         self.keep &= ~reasons.notna().to_numpy()
         kept = np.flatnonzero(self.keep)

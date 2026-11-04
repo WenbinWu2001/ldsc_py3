@@ -6,7 +6,7 @@ Run manually from the repo root (requires an editable install of the package):
         --output src/ldsc/data/hm3_chr_pos_reference.tsv.gz
 
 Writes a gzipped TSV (CHR, hg19_POS, hg38_POS) of autosomal,
-non-strand-ambiguous SNPs with unique, build-discordant coordinates, evenly
+SNPs with valid allele pairs and unique, build-discordant coordinates, evenly
 sampled by hg38 position within each chromosome. Consumed by genome-build
 inference; the generated artifact ships with the package but this builder does
 not.
@@ -37,7 +37,7 @@ def build_hm3_chr_pos_reference(
     """
     Build and write the compact HM3 coordinate reference used for build inference.
 
-    The generated table contains autosomal, non-strand-ambiguous SNPs that have
+    The generated table contains autosomal SNPs with valid allele pairs that have
     unique hg19 and hg38 coordinates and differ between builds. Up to
     ``snps_per_chromosome`` rows are evenly sampled by hg38 position within
     each chromosome.

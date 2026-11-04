@@ -1516,7 +1516,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 "SNP A1 A2 P BETA N\n"
                 "rs1 A C 0.05 0.1 1000\n"
                 "rs2 AT C 0.05 0.1 1000\n"
-                "rs3 A T 0.05 0.1 1000\n",
+                "rs3 G G 0.05 0.1 1000\n",
                 encoding="utf-8",
             )
             keep_path = tmpdir / "keep.tsv"
@@ -1539,7 +1539,7 @@ class SumstatsMungerTest(unittest.TestCase):
             dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
             self.assertEqual(
                 dropped["reason"].tolist(),
-                ["invalid_allele", "strand_ambiguous_allele"],
+                ["invalid_allele", "invalid_allele"],
             )
             self.assertEqual(
                 dropped["stage"].tolist(),
@@ -1653,14 +1653,14 @@ class SumstatsMungerTest(unittest.TestCase):
             raw_path.write_text(
                 "SNP A1 A2 P BETA N\n"
                 "rs_bad AT C 0.05 0.1 1000\n"
-                "rs_ambiguous A T 0.05 0.1 1000\n",
+                "rs_identical G G 0.05 0.1 1000\n",
                 encoding="utf-8",
             )
             keep_path = tmpdir / "keep.tsv"
             keep_path.write_text(
                 "SNP\tA1\tA2\n"
                 "rs_bad\tA\tC\n"
-                "rs_ambiguous\tA\tC\n",
+                "rs_identical\tA\tC\n",
                 encoding="utf-8",
             )
             output_dir = tmpdir / "munged"
@@ -1673,8 +1673,8 @@ class SumstatsMungerTest(unittest.TestCase):
 
             self.assertEqual(table.data["SNP"].tolist(), [])
             dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
-            self.assertEqual(dropped["SNP"].tolist(), ["rs_bad", "rs_ambiguous"])
-            self.assertEqual(dropped["reason"].tolist(), ["invalid_allele", "strand_ambiguous_allele"])
+            self.assertEqual(dropped["SNP"].tolist(), ["rs_bad", "rs_identical"])
+            self.assertEqual(dropped["reason"].tolist(), ["invalid_allele", "invalid_allele"])
 
     def test_load_sumstats_rejects_duplicate_effective_keys(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -69,7 +69,7 @@ def test_handcrafted_matrix_matches_scalar_oracle():
         ("A", "A"), ("g", "G"),
         # multi-character / invalid base tokens
         ("AC", "T"), ("A", "N"), ("", ""), ("X", "Y"),
-        # strand-ambiguous
+        # a base with its own complement: valid A:T and C:G
         ("A", "T"), ("T", "A"), ("C", "G"), ("G", "C"),
         # non-string objects fall through str()/isna handling
         (1, "A"), ("A", 2),

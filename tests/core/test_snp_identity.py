@@ -49,6 +49,16 @@ class AlleleNormalizationTest(unittest.TestCase):
             with self.subTest(pair=(left, right)):
                 self.assertEqual(si.normalize_allele_set(left, right), "A:C")
 
+    def test_a_t_and_c_g_pairs_are_valid_identities(self):
+        # A base paired with its own complement folds to itself, so these two
+        # classes complete the four canonical allele sets A:C, A:G, A:T and C:G.
+        for left, right, token in [("A", "T", "A:T"), ("T", "A", "A:T"), ("C", "G", "C:G"), ("G", "C", "C:G")]:
+            with self.subTest(pair=(left, right)):
+                self.assertEqual(si.normalize_allele_set(left, right), token)
+                values, reasons = si.allele_set_series(pd.DataFrame({"A1": [left], "A2": [right]}), context="test")
+                self.assertEqual(values.iloc[0], token)
+                self.assertTrue(pd.isna(reasons.iloc[0]))
+
     def test_invalid_pairs_return_required_failure_reasons(self):
         examples = [
             (None, "A", "missing_allele"),
@@ -56,8 +66,6 @@ class AlleleNormalizationTest(unittest.TestCase):
             ("A", "A", "invalid_allele"),
             ("AC", "T", "invalid_allele"),
             ("A", "N", "invalid_allele"),
-            ("A", "T", "strand_ambiguous_allele"),
-            ("C", "G", "strand_ambiguous_allele"),
         ]
         for a1, a2, reason in examples:
             with self.subTest(pair=(a1, a2)):
@@ -98,9 +106,9 @@ class EffectiveKeyTest(unittest.TestCase):
                 self.assertEqual(si.effective_merge_key_series(frame, mode).tolist(), keys)
 
     def test_effective_key_raises_for_invalid_alleles_in_allele_aware_modes(self):
-        frame = pd.DataFrame({"CHR": [1], "POS": [101], "SNP": ["rs1"], "A1": ["A"], "A2": ["T"]})
+        frame = pd.DataFrame({"CHR": [1], "POS": [101], "SNP": ["rs1"], "A1": ["A"], "A2": ["N"]})
 
-        with self.assertRaisesRegex(LDSCInputError, "strand_ambiguous_allele"):
+        with self.assertRaisesRegex(LDSCInputError, "invalid_allele"):
             si.effective_merge_key_series(frame, "rsid_allele_aware")
 
 
@@ -181,7 +189,7 @@ class IdentityArtifactCleanupTest(unittest.TestCase):
         self.assertEqual(set(result.dropped["SNP"]), {"rs1"})
         self.assertEqual(result.dropped["source_pos"].tolist(), [10, 10])
 
-    def test_base_modes_keep_singletons_with_invalid_missing_or_ambiguous_alleles(self):
+    def test_base_modes_keep_singletons_with_invalid_or_missing_alleles(self):
         frame = pd.DataFrame(
             {
                 "CHR": [1, 1, 1],

@@ -1,6 +1,6 @@
 # R² Matrix Pair Query
 
-Last updated on: 2026-11-02
+Last updated on: 2026-11-04
 
 Query the unbiased R² stored in an R² matrix built by `ldsc build-r2-matrix` for a list of SNP pairs, and convert it to a signed Pearson correlation `r`.
 This is the random-access counterpart to the LD-score read path: the LD-score workflow streams every stored pair once, while this tool looks up specific pairs by SNP identity.
@@ -97,7 +97,10 @@ The stored `SIGN_R` is boolean (`True` means Pearson r ≥ 0) in the R² matrix'
 the returned `sign_r` is harmonized to *your* allele coding: for each endpoint the
 query alleles are classified as aligned or swapped against the R² matrix (allowing
 strand complement), and the pair sign is flipped when an odd number of endpoints
-are swapped. In **base** modes no allele information is consulted, so `sign_r` is
+are swapped. An endpoint whose alleles are A/T or C/G is its own strand
+complement, so it is both aligned and swapped and its strand is unknown: a pair
+with such an endpoint reports `r2` with `sign_r` and `r` missing and an empty
+`status`. In **base** modes no allele information is consulted, so `sign_r` is
 always `NA`. Because base modes carry no sign, the always-emitted `r` column is
 all-`NaN` there (with a warning); use an allele-aware R² matrix/mode for signed `r`.
 

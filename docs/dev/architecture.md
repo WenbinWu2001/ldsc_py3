@@ -1,6 +1,6 @@
 # Architecture
 
-Last updated on: 2026-11-03
+Last updated on: 2026-11-04
 
 LDSC3 (distribution `ldsc`) is the Python 3 package that replaces legacy LDSC.
 It reads optional SNP-level annotations, PLINK reference panels or R² matrices, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to the computation modules of its private domain packages; and writes LDSC3 artifacts that can be chained into later runs.
@@ -328,9 +328,9 @@ Selected-value validation and alignment to a regression model remain with `Regre
 ### `ldsc._regression.runner`
 
 `RegressionRunner` accepts saved sources or prepared `LDScoreResult` values and prepares each trait's summary statistics once per run (`_PreparedTraitSumstats`, built by `_prepare_trait_sumstats()`).
-That preparation projects legacy summary statistics by rsID onto the regression SNPs in the LD-score directory with allele validation, orientation, and a stable drop audit, and drops rows whose `Z` or `N` is missing or infinite with a warning and a recorded count (see [missing or infinite statistics](../reference/regression-options.md#16-missing-or-infinite-statistics)).
+That preparation projects legacy summary statistics by rsID onto the regression SNPs in the LD-score directory with allele validation, orientation (A/T and C/G rows keep their source orientation), and a stable drop audit, and drops rows whose `Z` or `N` is missing or infinite with a warning and a recorded count (see [missing or infinite statistics](../reference/regression-options.md#16-missing-or-infinite-statistics)).
 A missing or infinite baseline LD score or regression weight stops the run when `_PreparedLDScores` is built, once per run; a damaged query column fails only its model in `_dataset_from_query_values()`.
-Each command then applies its own SNP alignment: `h2` and `partitioned-h2` orient `Z` to the LD-score alleles, and `rg` harmonizes trait 2 to trait 1 and drops strand-ambiguous pairs.
+Each command then applies its own SNP alignment: `h2` and `partitioned-h2` merge by SNP identity only, because they fit $\chi^2 = Z^2$, and `rg` harmonizes trait 2 to trait 1 in `_rg_dataset()`, dropping A/T and C/G SNPs (strand unknown) and SNPs whose traits list different allele pairs, with both counts recorded per pair.
 The shared `_select_model_columns()` then drops zero-variance LD-score columns and selects the count vectors on the final rows.
 The runner requires `output_dir` for writing workflows, writes per-command logs under `diagnostics/`, and dispatches to the regression kernel for SNP heritability, partitioned heritability, and genetic correlation.
 Regression merges by the effective key for the active mode: `SNP` in `rsid`, `SNP:<allele_set>` in `rsid_allele_aware`, `CHR:POS` in `chr_pos`, and `CHR:POS:<allele_set>` in `chr_pos_allele_aware`.
@@ -470,7 +470,9 @@ Private boundary: these modules are not the supported import surface; numerical 
   Mode names are exact, while column aliases such as `RSID`, `BP`, and `POSITION` apply only to input headers.
   Base modes are fully allele-blind: `rsid` uses only `SNP`, and `chr_pos` uses only `CHR:POS`; allele columns may be preserved as passive data but never affect base-mode identity, duplicate filtering, retention, or drop reasons.
   Allele-free munging is selected through a base identifier mode, not through a separate skip flag.
-  Allele-aware modes require usable `A1/A2` for summary statistics, the R²-matrix sidecar, and LD-score directories; they drop missing, invalid/non-SNP, identical, strand-ambiguous allele pairs, package-wide multi-allelic base-key clusters, and duplicate effective-key clusters.
+  Allele-aware modes require usable `A1/A2` for summary statistics, the R²-matrix sidecar, and LD-score directories; they drop missing, invalid/non-SNP and identical allele pairs, package-wide multi-allelic base-key clusters, and duplicate effective-key clusters.
+  A/T and C/G pairs are valid identities (canonical allele sets `A:T`, `C:G`); only signed comparisons between files (`rg`, `query-r2-matrix` signs) treat their strand as unknown.
+  Reference-panel identity cleanup runs before validation in every backend: `PlinkRefPanel._load_source()` for PLINK panels and `build-r2-matrix` for R² matrices, so `_align_annotations()` receives a reference with unique identities.
   For artifact-like tables, the duplicate policy is always compute the active effective merge key, then drop all rows in duplicate-key clusters.
 - **Restrictions and annotations**: restriction files may omit alleles. Allele-free restrictions match by base key and can retain multiple candidate rows before later artifact cleanup. Allele-bearing restrictions, including packaged HM3 restrictions, match by the effective allele-aware key in allele-aware modes. Restriction files are identity-only filters: duplicate restriction keys collapse to one retained key, and non-identity columns such as `CM`, `MAF`, or other metadata are not carried into downstream artifacts. Annotation files may omit alleles even in allele-aware modes because annotations describe genomic membership, not variant alleles; if annotation files include alleles, those alleles participate in allele-aware matching.
 - **Artifact compatibility**: Public downstream chaining uses `.annot.gz`, self-describing Parquet munged summary statistics (identity in the footer) with optional `.sumstats.gz` compatibility output, package-built R² matrices, and LD-score directories with root `metadata.json`.

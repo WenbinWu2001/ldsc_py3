@@ -1,6 +1,6 @@
 # SNP Identifier / Genome Build: Default Design
 
-Last updated on: 2026-10-28
+Last updated on: 2026-11-04
 
 ## Standalone build inspection
 
@@ -268,7 +268,8 @@ Allele columns may be preserved in base modes, but they never affect identity,
 duplicate filtering, retention, or drop reasons.
 
 Allele-aware modes require usable `A1/A2` on package-written identity artifacts: munged summary statistics, reference-panel metadata, R² matrix sidecars, and LD-score directories.
-They drop missing, invalid/non-SNP, identical, strand-ambiguous allele pairs, multi-allelic base-key clusters, and duplicate effective-key clusters.
+They drop missing, invalid/non-SNP and identical allele pairs, multi-allelic base-key clusters, and duplicate effective-key clusters.
+A/T and C/G pairs are valid identities and are kept; only signed uses treat their strand as unknown (see [allele-aware identity keys](formats/column-schema.md#snp-identifier-modes)).
 Artifact duplicates are handled by computing the effective merge key for the active mode and dropping all rows in duplicate-key clusters.
 
 Multi-allelic base-key clusters are dropped because allele-aware modes exist for safer merging, not for retaining multi-allelic sites.

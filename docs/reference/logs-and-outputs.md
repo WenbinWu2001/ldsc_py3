@@ -1,6 +1,6 @@
 # Logs and Outputs
 
-Last updated on: 2026-11-03
+Last updated on: 2026-11-04
 
 This page describes what a logged workflow writes besides its scientific results: logs, console messages, output preflight and failure markers.
 The rules for writing log and error messages, and the logging API boundary, are in [logging design](../dev/design/logging.md).
@@ -83,6 +83,9 @@ They name the diagnostic paths and cap the listed outcomes at 10.
 In `annotate`, the SNP-support notice is headed `Gene-list SNP-support checks` and says skipped queries are omitted from annotation outputs.
 In `ldscore` and `build-gene-ldscore-index`, a further notice appears when reference-panel SNPs not on the annotation SNP grid were excluded: `WARNING: <command> excluded <n> reference-panel SNPs on <k> chromosomes that are not on the annotation SNP grid; ...`.
 It has no threshold, repeats the WARNING already written to the workflow log, and names `diagnostics/reference_snp_funnel.tsv`, or `diagnostics/build-gene-ldscore-index.json` for an index build ([reference SNPs on the annotation SNP grid](ldscore-snp-universes.md#reference-snps-on-the-annotation-snp-grid)).
+`ldscore`, `build-gene-ldscore-index`, `build-r2-matrix` and `annotate` print one more notice when their `diagnostics/dropped_snps/` tables hold rows, summed by reason: `WARNING: <command> dropped <n> SNP rows (<reason>=<count>, ...); each dropped row and its reason is listed in <dir>/diagnostics/dropped_snps.`
+In allele-aware modes these include panel rows with missing, non-ACGT or identical alleles ([reference-panel rows without an allele-aware SNP identity](ldscore-snp-universes.md#reference-panel-rows-without-an-allele-aware-snp-identity)); in every mode they include duplicate identities, and for `build-r2-matrix` liftover drops.
+`rg` prints one notice when aligning the traits' alleles dropped SNPs, with the A/T and C/G count and the count of SNPs whose traits list different allele pairs ([allele alignment between traits](regression-options.md#31-allele-alignment-between-traits)).
 Python entry points print no console notices; callers inspect the returned statuses and paths.
 
 In `ldscore`, the successful gene-list notice distinguishes unsupported gene-list rows from queries skipped after LD-score computation.

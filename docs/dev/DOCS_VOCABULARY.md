@@ -1,6 +1,6 @@
 # Documentation Vocabulary
 
-Last updated on: 2026-11-03
+Last updated on: 2026-11-04
 
 This is the glossary of the LDSC3 documentation.
 Each term below has one meaning and one wording across the user guide, the reference, the developer guide, the README, docstrings, command help and messages.
@@ -172,3 +172,4 @@ Add a row when a concept appears under several names: the concept, the proposed 
 
 | Concept | Proposed term | Variants and locations |
 | --- | --- | --- |
+| A SNP whose two alleles are each other's strand complements (A/T or C/G): a valid SNP identity whose strand, and so the sign of its statistic, cannot be aligned between files | "A/T or C/G SNP" | "strand-ambiguous" (`docs/reference/snp-identity-and-genome-build.md:100`, `_same_strand_ambiguous_pair` in `src/ldsc/_regression/runner.py`); "palindromic" (`tests/regression/test_legacy_sumstats_compatibility.py`); "orientation unknown" (`dropped_orientation_unknown_rows` in rg metadata) |

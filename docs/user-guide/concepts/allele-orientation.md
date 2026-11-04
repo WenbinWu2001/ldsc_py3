@@ -1,6 +1,6 @@
 # Allele orientation
 
-Last updated on: 2026-11-02
+Last updated on: 2026-11-04
 
 Every file with `A1` and `A2` columns names the two alleles of a SNP, but which allele is `A1` depends on the file.
 In summary statistics `A1` is the effect allele; in files the package derives from reference-panel genotypes it is the minor allele; in inputs and in `annotate` output it keeps the order of the source.
@@ -11,10 +11,13 @@ The meaning in each file type is listed in [What A1 means in each file type](../
 
 - In allele-aware modes (`rsid_allele_aware`, `chr_pos_allele_aware`), SNP identity uses the two alleles as an unordered pair, folded over the DNA strand: `A`/`G`, `G`/`A`, `T`/`C` and `C`/`T` give one identity (`normalize_allele_set` in `src/ldsc/_core/snp_identity.py`).
   Swapping `A1` and `A2` in a file therefore never changes which SNPs match.
-- Allele order matters only for signed values, and each signed use aligns the alleles first:
-  - in allele-aware modes, `h2` and `partitioned-h2` reverse the sign of `Z` where the summary statistics' `A1` is the LD-score `A2`;
-  - `rg` aligns the second trait's `Z` to the first trait's `A1`;
-  - `query-r2-matrix` reports `sign_r` and `r` for the dosages of each endpoint's `A1` in the pair file, which need not be the minor allele.
+- Every valid pair folds into one of four allele sets: `A:C`, `A:G`, `A:T` and `C:G`.
+  An `A`/`T` or `C`/`G` SNP is its own strand complement, so it still names one SNP and is kept for matching, LD scores, SNP counts, annotation and munging.
+  What it cannot show is which strand a file reports, so the direction of its signed statistic cannot be compared between files.
+- Allele order matters only for signed values that are compared between files, and each such use aligns the alleles first:
+  - `rg` aligns the second trait's `Z` to the first trait's `A1` and drops A/T and C/G SNPs, whose strand is unknown ([allele alignment between traits](../../reference/regression-options.md#31-allele-alignment-between-traits));
+  - `query-r2-matrix` reports `sign_r` and `r` for the dosages of each endpoint's `A1` in the pair file, which need not be the minor allele, and leaves them empty for an A/T or C/G endpoint.
+- `h2` and `partitioned-h2` fit $\chi^2 = Z^2$, so they never align alleles: `Z` keeps the summary statistics' own `A1` orientation, and A/T and C/G SNPs stay in the fit.
 - LD scores use only R² and the folded MAF, so the rules below change no LD score, SNP count or regression result.
 
 ## 2. What A1 means depends on whether the package knows allele frequencies

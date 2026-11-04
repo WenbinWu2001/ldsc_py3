@@ -1,6 +1,6 @@
 # Exact gene LD-score indexes
 
-Last updated on: 2026-11-03
+Last updated on: 2026-11-04
 
 `--workers` sets the number of workers (default one, each with one BLAS thread); CPU budgets, limits and failure handling are in [parallel execution](parallel-execution.md).
 
@@ -99,7 +99,8 @@ optional and never participates in coordinate matching.
 After either join, PLINK supplies the published `CHR`, `POS`, `SNP`, `A1`, and `A2`, with `A1` the minor allele in the retained reference individuals, as in an R² matrix sidecar.
 Thus differing labels at one matched coordinate are allowed and reported, and the PLINK label is authoritative.
 `rsid_allele_aware` and `chr_pos_allele_aware` additionally use shared unordered, strand-complement-normalized allele pairs.
-Missing, invalid/non-SNP, identical, or palindromic A/T and C/G pairs are removed with diagnostics; multiallelic base-key groups and duplicate effective identities are dropped in full.
+Missing, invalid/non-SNP, or identical pairs are removed with diagnostics, and a successful build prints their counts to stderr; multiallelic base-key groups and duplicate effective identities are dropped in full.
+A/T and C/G pairs are valid identities and are kept.
 Baseline annotations may omit both allele columns, in which case they are matched by base identity and the build log names the files and the base mode; the published alleles come from the reference panel either way.
 These rules can change the reference SNPs, counts, and SNP-count windows.
 

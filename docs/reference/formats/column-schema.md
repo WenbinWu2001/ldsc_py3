@@ -1,6 +1,6 @@
 # Column Schema: Canonical Names, Data Types, and Ordering
 
-Last updated on: 2026-11-02
+Last updated on: 2026-11-04
 
 This document is the single source of truth for column conventions across all
 Python-written artifacts in this package. It governs `_core/columns.py`, all
@@ -231,7 +231,7 @@ unordered, strand-aware set; orientation is never used for identity (a summary-s
 `A1`=effect and a panel `A1`=minor still match, with any disagreement resolved as
 a sign flip at alignment).
 
-**R² matrix and query correlation signs:** stored `SIGN_R` is boolean and describes correlation between R² matrix A1 (minor-allele) dosages. In allele-aware `query-r2-matrix` results, nullable `sign_r` (+1/-1) and Pearson `r` are harmonized to query A1 dosages, which need not be minor alleles. Swapping one endpoint's allele order reverses the returned sign but leaves R² unchanged. Base modes return missing `sign_r` and `r`.
+**R² matrix and query correlation signs:** stored `SIGN_R` is boolean and describes correlation between R² matrix A1 (minor-allele) dosages. In allele-aware `query-r2-matrix` results, nullable `sign_r` (+1/-1) and Pearson `r` are harmonized to query A1 dosages, which need not be minor alleles. Swapping one endpoint's allele order reverses the returned sign but leaves R² unchanged. Base modes, and pairs with an A/T or C/G endpoint, return missing `sign_r` and `r`.
 
 In raw summary statistics, allele aliases are only names that say which allele the signed statistic refers to.
 `REF`, `ALT`, `REFERENCE_ALLELE`, `ALLELE0`, `ALLELE1`, `ALLELE2` and their underscore forms are never mapped there, and a file whose only allele columns have these names stops munging until `--a1` and `--a2` name the effect allele (see [allele columns](../munge-sumstats.md#allele-columns)).
@@ -254,8 +254,7 @@ not rewrite the written `A1`/`A2` columns or make `A1` the minor allele. The
 key builder treats `(A1, A2)` as an unordered, strand-aware set:
 
 1. Clean each allele by trimming whitespace and uppercasing it.
-2. Reject missing, non-`A/C/G/T`, identical, or strand-ambiguous pairs
-   (`A/T` or `C/G`).
+2. Reject missing, non-`A/C/G/T`, or identical pairs.
 3. Sort the observed pair lexicographically to form an observed allele-set
    label.
 4. Complement both alleles, sort that complement pair, and compare the two
@@ -272,6 +271,11 @@ pairs `(A, C)`, `(C, A)`, `(G, T)`, or `(T, G)` at the same base key. The
 canonical label is not emitted as `A1/A2`; those columns keep their source
 allele order in output artifacts.
 
+Every valid pair falls into one of four canonical allele sets: `A:C`, `A:G`, `A:T` and `C:G`.
+An `A/T` or `C/G` pair is its own complement, so its canonical set is the pair itself.
+Such a SNP is a valid identity in every workflow, but its strand cannot be established, so signed uses treat its orientation as unknown: `rg` drops it ([allele alignment between traits](../regression-options.md#31-allele-alignment-between-traits)) and `query-r2-matrix` leaves its `sign_r` and `r` empty.
+Uses without a sign keep it: LD scores, SNP counts, annotation, munging, `h2` and `partitioned-h2`.
+
 ### Duplicate SNP identity policy
 
 Mutable variant-source rows use one conservative duplicate policy in every SNP
@@ -283,16 +287,18 @@ rows and counts in its diagnostics.
 
 This policy applies independently to baseline annotation rows and PLINK BIM
 metadata before their intersection in direct PLINK-backed LD-score calculation
-and gene LD-score index construction. Consequently, `rsid` drops a complete
+and gene LD-score index construction, and to PLINK BIM metadata in
+`build-r2-matrix`. Consequently, `rsid` drops a complete
 duplicate-`SNP` group, while `chr_pos` drops a complete duplicate normalized
 `(CHR, POS)` group. Cleanup can therefore remove an ambiguous multiallelic
 coordinate without silently collapsing biologically distinct variants.
 
 Allele-aware artifact cleanup additionally drops rows with missing alleles,
-invalid or non-SNP alleles, identical pairs, strand-ambiguous pairs, and the
-package-wide multiallelic base-key clusters defined by the allele-aware
-identity contract. Duplicate effective-key groups still use the same drop-all
+invalid or non-SNP alleles, identical pairs, and the package-wide
+multiallelic base-key clusters defined by the allele-aware identity contract.
+Duplicate effective-key groups still use the same drop-all
 rule after the effective key is computed.
+For reference panels this drop is a recorded exception to failing on unrequested filtering; see [reference-panel rows without an allele-aware SNP identity](../ldscore-snp-universes.md#reference-panel-rows-without-an-allele-aware-snp-identity).
 
 Restriction files have deliberately different semantics because they define a
 set of requested identities rather than variant metadata. Repeated restriction
@@ -371,7 +377,7 @@ Dropped-SNP audit sidecars are always written by liftover-aware public workflows
 They use nullable read dtypes: `CHR`, `SNP`, and `reason` as strings, and `source_pos` and `target_pos` as nullable integer positions.
 Identity fields are nullable when a drop reason has no effective identity key.
 Summary-statistics and reference-panel sidecars may include identity reasons (`missing_allele`, `invalid_allele`,
-`strand_ambiguous_allele`, `multi_allelic_base_key`, `duplicate_identity`) and
+`multi_allelic_base_key`, `duplicate_identity`) and
 liftover reasons (`missing_coordinate`, `source_duplicate`,
 `unmapped_liftover`, `cross_chromosome_liftover`, and `target_collision`);
 reference-panel sidecars do not emit `missing_coordinate`.

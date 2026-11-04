@@ -1,6 +1,6 @@
 # Data Flow
 
-Last updated on: 2026-11-03
+Last updated on: 2026-11-04
 
 Examples below use the munged file names written without a trait label (`sumstats.parquet`, `sumstats.gz`); naming rules are in [artifact metadata](../reference/formats/artifact-metadata.md).
 
@@ -79,8 +79,9 @@ do not affect identity, duplicate filtering, retention, or drop reasons.
 Allele-aware modes use unordered, strand-aware `A1/A2` allele sets only to make
 merge keys safer. They require usable alleles on summary statistics, reference-panel
 artifacts, R² Parquet endpoints, and LD-score directories, and they drop missing,
-invalid/non-SNP, identical, strand-ambiguous, multi-allelic base-key, and
-duplicate effective-key clusters. Artifact duplicate filtering always computes
+invalid/non-SNP, identical, multi-allelic base-key, and duplicate effective-key
+clusters. A/T and C/G pairs are valid identities; only signed comparisons between
+files treat their strand as unknown. Artifact duplicate filtering always computes
 the effective key for the active mode, then drops all rows in duplicate-key
 clusters.
 Allele-free summary-statistics munging is selected by using the base

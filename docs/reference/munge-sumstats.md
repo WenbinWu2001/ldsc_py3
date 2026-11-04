@@ -1,6 +1,6 @@
 # `munge-sumstats`
 
-Last updated on: 2026-11-02
+Last updated on: 2026-11-04
 
 This document explains the public shape of `ldsc munge-sumstats`: what it does,
 what it writes, how genome builds are handled, and how to use `--infer-only`
@@ -52,6 +52,10 @@ Name any other allele column with `--a1` and `--a2`.
 `--infer-only` reports these cases as `A1/A2 orientation`, `A1/A2 pair` or `A1/A2` under `Missing fields`, explains them, and never puts `--a1`, `--a2` or `--ignore` into its suggested command.
 The `INC_ALLELE`/`DEC_ALLELE` check reads data, so only the run performs it.
 Remedies are collected in [troubleshooting](../user-guide/troubleshooting.md#munge-sumstats-a1-cannot-be-identified).
+
+A/T and C/G SNPs are kept in every SNP identifier mode.
+Munging writes each `Z` for the file's own `A1` and compares no strands with another file; `rg` drops these SNPs when it aligns two traits, because their strand is unknown (see [allele alignment between traits](regression-options.md#31-allele-alignment-between-traits)).
+With the default HM3 keep-list, allele-aware modes keep none of them, because the packaged map has no A/T or C/G SNP.
 
 ## Preparation and Run Accounting
 

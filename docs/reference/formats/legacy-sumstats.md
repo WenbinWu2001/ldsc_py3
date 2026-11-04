@@ -1,6 +1,6 @@
 # Legacy Munged Summary-Statistics Compatibility
 
-Last updated on: 2026-11-02
+Last updated on: 2026-11-04
 
 This document defines the public compatibility boundary for munged summary statistics written by the legacy LDSC Python 2 implementation and consumed by LDSC3 regression workflows.
 
@@ -31,10 +31,12 @@ For each legacy summary-statistics input, LDSC3 performs this boundary conversio
 2. Normalize allele letter case and apply the LDSC3 drop-all duplicate policy to the source. When an rsID occurs more than once in one legacy input, drop every row in that source duplicate cluster before panel matching.
 3. For an allele-aware panel, find all panel rows with the source rsID, filter those candidates by allele compatibility, and accept the source row only when exactly one compatible panel row remains. A panel rsID need not be unique before allele filtering because panel alleles may safely disambiguate candidates.
 4. For an allele-unaware panel, accept a source row only when its rsID identifies exactly one panel row. Multiple panel rows with that rsID cannot be disambiguated and are dropped.
-5. With an allele-aware panel, accept direct, strand-complement, swapped, and swapped-strand-complement allele relationships. Drop strand-ambiguous A/T and C/G pairs, missing or invalid alleles, and relationships incompatible with every panel candidate. Orient the legacy association statistic to the accepted panel row's `A1`: keep `Z` for direct or strand-complement matches and negate `Z` for swapped or swapped-strand-complement matches.
+5. With an allele-aware panel, accept direct, strand-complement, swapped, and swapped-strand-complement allele relationships. Drop missing or invalid alleles, and relationships incompatible with every panel candidate. Orient the legacy association statistic to the accepted panel row's `A1`: keep `Z` for direct or strand-complement matches and negate `Z` for swapped or swapped-strand-complement matches.
+   An A/T or C/G pair is its own strand complement, so it matches its panel row both ways round and its orientation is unknown: the row is kept with its source `A1`, `A2`, `Z` and `FRQ`, never reoriented.
+   `h2` and `partitioned-h2` use only `Z` squared, and `rg` drops such SNPs when it aligns the two traits ([allele alignment between traits](../regression-options.md#31-allele-alignment-between-traits)).
 6. With an allele-unaware panel, retain the source `A1`, `A2`, `Z`, and `FRQ` orientation. No panel allele exists to justify changing them. This is sufficient for `h2`, which consumes `Z` through `Z` squared. For `rg`, project each trait independently to panel SNP rows, then harmonize the two traits to one another; negate `Z` and transform a valid `FRQ` to `1 - FRQ` for the swapped trait as required.
 7. In both cases, replace the matched row's `CHR`, `POS`, and `SNP` with the panel values and run regression using the panel's recorded SNP identifier mode.
-   With an allele-aware panel, also replace `A1` and `A2` with the panel alleles.
+   With an allele-aware panel, also replace `A1` and `A2` with the panel alleles, except for A/T and C/G rows.
    Because step 5 negates `Z` where the alleles swap, `A1` remains the allele the signed statistic refers to.
 
 If the legacy row carries `FRQ`, it remains a value owned by the summary statistics and is never imputed from panel frequency metadata.
@@ -64,7 +66,7 @@ Row-level failures are dropped and audited without aborting an otherwise usable 
 | no panel row with the source rsID | Drop / `missing_panel_rsid` |
 | no allele-compatible panel candidate | Drop / `incompatible_alleles` |
 | more than one allele-compatible panel candidate | Drop / `ambiguous_panel_mapping` |
-| missing, invalid, or strand-ambiguous source alleles | Drop with the corresponding allele reason |
+| missing or invalid source alleles | Drop with the corresponding allele reason |
 | missing or infinite `Z` or `N`, checked after every other condition | Drop / `nonfinite_statistic` |
 
 Missing required artifact columns, missing required panel identity columns, or zero retained compatibility rows are file-level failures and abort the affected regression. The compatibility layer introduces no new retention-percentage threshold; ordinary regression SNP-count diagnostics continue to apply.

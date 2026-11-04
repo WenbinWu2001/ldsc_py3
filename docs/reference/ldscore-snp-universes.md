@@ -1,6 +1,6 @@
 # Reference and regression SNPs
 
-Last updated on: 2026-10-30
+Last updated on: 2026-11-04
 
 This table distinguishes the SNP sets used by canonical LD score regression (LDSC) and by stratified LD score regression (S-LDSC; Finucane et al. 2015).
 It is especially important for MHC and pericentromeric exclusions.
@@ -45,13 +45,13 @@ A step that did not run, because its option was not set, the identifier mode ski
 
 | Funnel | Backend | Steps in order |
 | --- | --- | --- |
-| `reference_panel` | PLINK | `panel_rows` (BIM rows on the chromosome), `identity_cleanup` (`rsid` and `chr_pos` modes), `ref_panel_snps_file`, `allele_aware_identity_cleanup` (allele-aware modes), `annotation_snp_grid`, `genotype_qc` (monomorphic or all-missing SNPs after `--keep-indivs-file`), `maf_floor` |
-| `reference_panel` | R² matrix | `panel_rows` (sidecar rows), `ref_panel_snps_file`, `maf_floor`, `allele_aware_identity_cleanup`, `annotation_snp_grid` |
+| `reference_panel` | PLINK | `panel_rows` (BIM rows on the chromosome), `identity_cleanup` (see [rows without an allele-aware SNP identity](#reference-panel-rows-without-an-allele-aware-snp-identity)), `ref_panel_snps_file`, `annotation_snp_grid`, `genotype_qc` (monomorphic or all-missing SNPs after `--keep-indivs-file`), `maf_floor` |
+| `reference_panel` | R² matrix | `panel_rows` (sidecar rows), `ref_panel_snps_file`, `maf_floor`, `annotation_snp_grid` |
 | `annotation_snp_grid` | PLINK | `grid_rows`, `annotation_snp_grid` (grid rows with no remaining reference-panel SNP), `genotype_qc`, `maf_floor` |
 | `annotation_snp_grid` | R² matrix | `grid_rows`, `annotation_snp_grid` |
 
 For PLINK panels the grid step runs before genotype QC, so a reference-panel SNP off the grid is counted even when genotype QC would have removed it, and the genotype-QC and MAF counts cover grid SNPs only.
-For R² matrices the MAF floor comes from the sidecar and runs before the grid step.
+For R² matrices the MAF floor comes from the sidecar and runs before the grid step, and identity cleanup ran when `build-r2-matrix` wrote the sidecar, so `panel_rows` counts rows that already passed it.
 Both funnels of a chromosome end at the same count: the reference SNPs that enter LD scores, SNP counts and overlap.
 The counts come from one reference preparation per chromosome per run; later query batches and the gene-list support pass add nothing.
 Sources: `ReferenceSNPFunnel` in [_refpanel/funnel.py](../../src/ldsc/_refpanel/funnel.py), `_align_annotations()` and each panel's `prepare_chromosome()` in [_refpanel/adapters.py](../../src/ldsc/_refpanel/adapters.py), and `_DirectProducer.reduce()` in [_ldscore/calculator.py](../../src/ldsc/_ldscore/calculator.py).
@@ -63,6 +63,28 @@ A whole chromosome without one shared SNP usually indicates a genome-build, alle
 Gene-list runs raise this error in the gene-support pass, before LD-score computation; other runs raise it after the first query batch's reference preparation.
 A chromosome emptied by an earlier step, such as `--ref-panel-snps-file`, or by genotype QC is skipped with a WARNING in `diagnostics/ldscore.log`, and its funnel shows the step that removed its SNPs.
 A run in which no chromosome keeps a reference SNP fails.
+
+## Reference-panel rows without an allele-aware SNP identity
+
+In allele-aware modes a SNP's identity includes its allele pair, so a reference-panel row whose alleles are missing, non-`A/C/G/T` (such as an indel), or identical has no SNP identity.
+Every reference-panel command drops such rows before computing anything: `ldscore --plink-prefix` (including `--export-ref-metadata`), `build-gene-ldscore-index`, `build-r2-matrix` and `annotate`.
+The same identity cleanup also drops multi-allelic positions (`multi_allelic_base_key`) and duplicate identities (`duplicate_identity`) under [the duplicate SNP identity policy](formats/column-schema.md#duplicate-snp-identity-policy); those drops are reported the same way.
+Base modes ignore alleles and keep these rows.
+A/T and C/G SNPs are not affected: their allele pair is a valid identity, so they are reference SNPs and enter the all-SNP and common-SNP counts, as in legacy LDSC.
+
+The drop does not stop the run.
+It is a deliberate exception, confirmed by the maintainer on 2026-11-04, to the repository rule that unrequested filtering that can change the analysis must fail ([AGENTS.md](../../AGENTS.md), "Existing warning, error, and diagnostic policy").
+Raw panels often carry indels and other non-SNP records, and allele-aware SNP identity is defined only for SNPs, so these rows cannot take part in an allele-aware analysis; stopping every such run would make the default SNP identifier mode unusable with them.
+To keep the rows, use a base SNP identifier mode; to remove them explicitly, filter the panel first, for example with `plink2 --snps-only just-acgt`.
+
+The drop is never silent:
+
+- `diagnostics/dropped_snps/` lists every dropped row with its `reason` (`missing_allele`, `invalid_allele`, `multi_allelic_base_key` or `duplicate_identity`) and `stage`;
+- for PLINK panels the reference-SNP funnel counts the rows at the `identity_cleanup` step;
+- a successful command-line run prints one stderr WARNING with the counts by reason and the diagnostics directory, for example `WARNING: ldscore dropped 352 SNP rows (invalid_allele=340, missing_allele=12); each dropped row and its reason is listed in .../diagnostics/dropped_snps. ...`;
+- the workflow log records each chromosome's counts, and Python entry points print nothing.
+
+Sources: `PlinkRefPanel._load_source()` in [_refpanel/adapters.py](../../src/ldsc/_refpanel/adapters.py), `clean_identity_artifact_table()` and `emit_dropped_snps_notice()` in [_core/snp_identity.py](../../src/ldsc/_core/snp_identity.py).
 
 ## Chromosome coverage versus SNP support
 

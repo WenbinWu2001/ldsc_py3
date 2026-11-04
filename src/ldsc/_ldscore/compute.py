@@ -10,8 +10,8 @@
 annotation alignment, LD-window validation, and reader lifetime. This module's
 ``compute_chromosome`` consumes that ``PreparedChromosome`` state and projects
 baseline/query annotations and regression weights in one traversal. It also
-provides annotation parsing, window geometry, and count primitives used by the
-workflow adapters. BED-to-SNP projection belongs to ``ldsc._annotation.builder``.
+provides annotation parsing, window geometry, and the regression-SNP mask used
+by the workflow adapters. BED-to-SNP projection belongs to ``ldsc._annotation.builder``.
 
 Scientific contracts
 --------------------
@@ -266,34 +266,6 @@ def _zero_pairs_outside_window(values, row_start, col_start, block_left):
     for q in np.flatnonzero((first > 0) | (stop < n_rows)):
         values[:max(first[q], 0), q] = 0.0
         values[max(stop[q], 0):, q] = 0.0
-
-
-def compute_counts(
-    metadata: pd.DataFrame,
-    annotations: pd.DataFrame,
-    common_maf_min: float = 0.05,
-) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Compute LDSC-style annotation count vectors ``M`` and common-SNP counts.
-
-    ``M`` is the column-wise sum over the retained reference SNPs.
-    The common-SNP count vector is the same sum restricted to rows with
-    ``MAF >= common_maf_min`` (inclusive; deviates from legacy LDSC's strict
-    ``0.05 < FRQ < 0.95`` on canonical folded MAF). ``metadata`` must carry
-    MAF for every row; both reference-panel adapters guarantee it.
-    """
-    if "MAF" not in metadata.columns or metadata["MAF"].isna().any():
-        raise LDSCInternalError(
-            "LD-score counts received reference metadata without MAF for every SNP, so the "
-            "common-SNP counts cannot be computed. Most likely a custom reference-panel adapter "
-            "dropped the MAF column or returned missing values. Supply MAF for every retained "
-            "SNP; for the built-in panels, re-run with DEBUG logging and report the traceback."
-        )
-    annot_matrix = annotations.to_numpy(dtype=np.float32, copy=False)
-    M = np.asarray(annot_matrix.sum(axis=0), dtype=np.float64)
-    common = metadata["MAF"] >= common_maf_min
-    M_5_50 = np.asarray(annot_matrix[common.to_numpy(), :].sum(axis=0), dtype=np.float64)
-    return M, M_5_50
 
 
 def regression_mask_from_keys(

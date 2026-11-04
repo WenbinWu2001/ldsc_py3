@@ -45,7 +45,9 @@ from ..._runtime.parallelism import (
 from ..._runtime.progress import report_phase
 from .. import compute as kernel_ldscore
 from ..diagnostics import emit_reference_snp_funnel_notice, log_reference_snp_funnel_warning
-from ..._annotation.overlap import compute_overlap
+from ..outputs import snp_universe_policy_record
+from ..._annotation.overlap import annotation_statistics
+from ..._annotation.semantics import combine_annotation_types
 from ..._refpanel.adapters import PlinkRefPanel, resolve_keep_individuals
 from ..._refpanel.funnel import concat_funnels, funnel_from_records, funnel_records, with_grid_rows
 from ..._refpanel.prepared import ChromosomeAnnotations
@@ -58,7 +60,7 @@ from .atoms import (
     validate_ldscore_operator,
 )
 from ..._core.chromosomes import normalize_chromosome
-from ..._core.regions import RegionIntervals
+from ..._core.regions import RegionIntervals, region_exclusion_keep_mask
 from ..._core.identifiers import read_snp_restriction_keys
 from ..._core.plink_files import PlinkFAMFile
 from ..._core.snp_identity import (
@@ -690,6 +692,8 @@ def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, c
         "maf_removed": maf_removed,
         "genotype_qc_or_maf_removed": genotype_qc_removed + maf_removed,
         "regression_rows": int(len(record.baseline_rows)),
+        "regression_selected_rows": int(record.regression_selected_snp_count),
+        "annotation_types": dict(record.annotation_types),
         "baseline_plink_identity": f"inner_join_by_{config.snp_identifier}",
         "catalog_genes": catalog_genes,
         "genes_with_padded_atoms": genes_with_atoms,
@@ -875,6 +879,20 @@ def _run_gene_ldscore_index_build(
     )
     index_path = Path(config.output_dir)
     index_id = calculate_index_id(index_identity)
+    # Indexed ldscore output records these exactly as a direct run on the same inputs would.
+    annotation_types = combine_annotation_types(
+        sources.baseline_columns, [values["annotation_types"] for values in evidence_by_chrom.values()])
+    snp_universe_policy = snp_universe_policy_record(
+        ref_panel_snps_file=None,
+        regr_snps_file=config.regr_snps_file,
+        regression_regions=regression_regions,
+        retained_snp_count=sum(values["retained_reference_rows"] for values in evidence_by_chrom.values()),
+        selected_snp_count_before_region_exclusion=sum(
+            values["regression_selected_rows"] for values in evidence_by_chrom.values()),
+        region_excluded_snp_count=sum(
+            values["regression_selected_rows"] - values["regression_rows"] for values in evidence_by_chrom.values()),
+        written_snp_count=total_regression_rows,
+    )
     elapsed = time.perf_counter() - started
     import resource
 
@@ -950,6 +968,8 @@ def _run_gene_ldscore_index_build(
             index_identity=index_identity,
             gene_catalog=embedded_catalog,
             chromosomes=staged_chromosomes,
+            annotation_types=annotation_types,
+            snp_universe_policy=snp_universe_policy,
             diagnostic_payload=diagnostic_payload,
         )
         published_path = _publish_staged_gene_ldscore_index(staged_index, index_path)
@@ -1465,6 +1485,9 @@ def build_plink_index_chromosome(
     Sparse float64 operator blocks remain live until horizontal assembly, so
     ``atom_batch_size`` does not bound the final operator or assembly copies.
     The chromosome baseline matrix is also explicitly materialized in float64.
+    Baseline counts, overlaps and ``annotation_types`` classifications come
+    from the same ``annotation_statistics`` call as in direct ``ldscore``, so
+    counts and overlaps accumulate in float64.
     """
     snp_identifier = ref_panel.global_config.snp_identifier
     snp_batch_size = ldscore_config.snp_batch_size
@@ -1474,12 +1497,11 @@ def build_plink_index_chromosome(
         baseline = np.asarray(prepared.annotations.read(), dtype=np.float64)
         geno = prepared.reader
 
-        persisted = kernel_ldscore.regression_mask_from_keys(
-            metadata,
-            regression_keys,
-            snp_identifier,
-            region_intervals=regression_regions,
-        ).astype(bool)
+        selected = kernel_ldscore.regression_mask_from_keys(metadata, regression_keys, snp_identifier).astype(bool)
+        persisted = selected
+        if regression_regions is not None and regression_regions.intervals:
+            # The same membership with excluded regions removed, without matching the keys again.
+            persisted = selected & np.asarray(region_exclusion_keep_mask(metadata, regression_regions), dtype=bool)
         n_baseline_columns = baseline.shape[1]
         output_rows = np.flatnonzero(persisted)
         geno._currentSNP = 0
@@ -1498,18 +1520,14 @@ def build_plink_index_chromosome(
         baseline_scores = combined_scores[:, :n_baseline_columns]
         regression_scores = combined_scores[:, n_baseline_columns]
 
-        baseline_frame = pd.DataFrame(baseline, columns=baseline_bundle.baseline_columns)
-        baseline_count_all, baseline_count_common = kernel_ldscore.compute_counts(
-            metadata,
-            baseline_frame,
-            common_maf_min=common_maf_min,
-        )
-        overlap = compute_overlap(
-            metadata,
-            baseline_frame,
-            n_baseline=len(baseline_bundle.baseline_columns),
-            common_maf_min=common_maf_min,
-        )
+        baseline_count_all, baseline_count_common, overlap, annotation_types = annotation_statistics(
+            metadata, prepared.annotations, n_baseline_columns, common_maf_min=common_maf_min)
+        if baseline_count_common is None:
+            raise LDSCInternalError(
+                f"Gene-index construction received reference metadata without MAF on chromosome {chrom}, "
+                "so the common-SNP counts the index stores cannot be computed. PLINK panel preparation "
+                "always supplies MAF; re-run with DEBUG logging and report the traceback."
+            )
         common_mask = metadata["MAF"].to_numpy(dtype=np.float64) >= float(common_maf_min)
 
         atom_model = build_disjoint_atoms(
@@ -1570,6 +1588,8 @@ def build_plink_index_chromosome(
             selected_individual_count=prepared.selected_individual_count,
             cm_source=prepared.cm_source,
             reference_snp_funnel=prepared.reference_snp_funnel,
+            annotation_types=annotation_types,
+            regression_selected_snp_count=int(selected.sum()),
         )
 
 

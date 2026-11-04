@@ -40,10 +40,10 @@ from ldsc._ldscore.calculator import (
 )
 from ldsc._core import plink_files as kernel_formats
 from ldsc._ldscore import compute as kernel_ldscore
-from ldsc._annotation.overlap import compute_overlap
+from ldsc._annotation.overlap import annotation_statistics
 from ldsc._refpanel import plink as plink_bed
 from ldsc._refpanel import adapters as ref_panel_adapters, r2_format, windows as ld_windows
-from ldsc._refpanel.prepared import ChromosomeAnnotations
+from ldsc._refpanel.prepared import ArrayAnnotations, ChromosomeAnnotations
 from ldsc._refpanel.windows import (
     assert_cm_usable,
     validate_window_positions_sorted,
@@ -1049,28 +1049,16 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 ]
             )
 
-    def test_compute_counts_common_mask_is_inclusive_greater_equal(self):
+    def test_common_counts_use_an_inclusive_maf_threshold(self):
         metadata = pd.DataFrame({"MAF": [0.05, 0.0500001, 0.2, 0.04]})
-        annotations = pd.DataFrame({"base": [1.0, 1.0, 1.0, 1.0], "cat": [1.0, 0.0, 1.0, 1.0]})
+        values = np.array([[1.0, 1.0], [1.0, 0.0], [1.0, 1.0], [1.0, 1.0]], dtype=np.float32)
 
-        M, M_5_50 = kernel_ldscore.compute_counts(metadata, annotations, common_maf_min=0.05)
+        M, M_5_50, _, _ = annotation_statistics(
+            metadata, ArrayAnnotations(values, ("base", "cat")), 2, common_maf_min=0.05)
 
         # MAF == 0.05 is included (inclusive >=), so rows 0, 1 and 2 are common.
         np.testing.assert_allclose(M, [4.0, 3.0])
         np.testing.assert_allclose(M_5_50, [3.0, 2.0])
-
-    def test_compute_counts_rejects_metadata_without_complete_maf(self):
-        # Both reference adapters always supply MAF, so a gap means a custom or
-        # broken adapter; dropping the common counts would silently change the
-        # default regression counts.
-        annotations = pd.DataFrame({"base": [1.0, 1.0]})
-        for label, metadata in {
-            "no MAF column": pd.DataFrame({"SNP": ["rs1", "rs2"]}),
-            "all missing": pd.DataFrame({"MAF": [np.nan, np.nan]}),
-            "one missing": pd.DataFrame({"MAF": [0.2, np.nan]}),
-        }.items():
-            with self.subTest(label), self.assertRaisesRegex(LDSCInternalError, "MAF"):
-                kernel_ldscore.compute_counts(metadata, annotations)
 
     def test_count_config_records_inclusive_operator(self):
         from ldsc._ldscore.outputs import common_count_config
@@ -2499,7 +2487,8 @@ def test_regression_region_mask_leaves_reference_counts_and_ld_contributors_inta
     mask = kernel_ldscore.regression_mask_from_keys(
         metadata, {"near_mhc", "in_mhc", "outside"}, "rsid", region_intervals=intervals
     )
-    counts, common_counts = kernel_ldscore.compute_counts(metadata, annotations)
+    counts, common_counts, _, _ = annotation_statistics(
+        metadata, ArrayAnnotations(annotations.to_numpy(dtype=np.float32), tuple(annotations.columns)), 1)
 
     np.testing.assert_array_equal(mask, np.array([1.0, 0.0, 1.0], dtype=np.float32))
     np.testing.assert_array_equal(counts, np.array([2.0, 2.0]))
@@ -2576,8 +2565,8 @@ def test_gene_list_mhc_query_keeps_reference_counts_but_not_regression_row(tmp_p
         "rsid",
         region_intervals=intervals,
     )
-    counts, common_counts = kernel_ldscore.compute_counts(metadata, annotations)
-    overlap = compute_overlap(metadata, annotations, n_baseline=1)
+    counts, common_counts, overlap, _ = annotation_statistics(
+        metadata, ArrayAnnotations(annotations.to_numpy(dtype=np.float32), tuple(annotations.columns)), 1)
 
     assert fixture_values(bundle, 'query')["hla"].tolist() == [0.0, 1.0, 0.0]
     np.testing.assert_array_equal(regression_mask, np.array([1.0, 0.0, 1.0], dtype=np.float32))

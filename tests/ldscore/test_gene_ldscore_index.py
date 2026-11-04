@@ -28,7 +28,6 @@ from ldsc._ldscore.gene_index.artifact import _canonical_frame_sha256, _catalog_
 from ldsc.config import GeneLDScoreIndexBuildConfig, GlobalConfig, LDScoreConfig, reset_global_config, set_global_config
 from ldsc._core.plink_files import PlinkFAMFile
 from ldsc._ldscore import compute as kernel_ldscore
-from ldsc._annotation.overlap import compute_overlap
 from ldsc._refpanel.prepared import ChromosomeAnnotations
 from ldsc._ldscore.gene_index.atoms import AtomStatistics, build_disjoint_atoms
 from ldsc.errors import LDSCInputError, LDSCUsageError
@@ -179,6 +178,8 @@ def _artifact_payload():
         ),
         reference_metadata=pd.DataFrame(),
         reference_snp_funnel=_fixture_funnel("22"),
+        annotation_types={"base": "binary"},
+        regression_selected_snp_count=2,
     )
     catalog = pd.DataFrame(
         {
@@ -579,33 +580,15 @@ def test_direct_plink_projects_annotations_and_regression_weights_in_one_travers
         atol=np.finfo(np.float32).eps,
     )
     pd.testing.assert_frame_equal(result.metadata, prepared.metadata.loc[regression_mask.astype(bool)].reset_index(drop=True))
-    expected_frame = pd.DataFrame(
-        prepared.annotations.read(),
-        columns=["base", "baseline_aux", "query"],
-    )
-    expected_M, expected_M_5_50 = kernel_ldscore.compute_counts(
-        prepared.metadata, expected_frame, common_maf_min=config.common_maf_min
-    )
-    expected_overlap = compute_overlap(
-        prepared.metadata,
-        expected_frame,
-        n_baseline=2,
-        common_maf_min=config.common_maf_min,
-    )
-    np.testing.assert_array_equal(result.M, expected_M)
-    np.testing.assert_array_equal(result.M_5_50, expected_M_5_50)
-    np.testing.assert_array_equal(
-        result.overlap.baseline_block_all, expected_overlap.baseline_block_all
-    )
-    np.testing.assert_array_equal(
-        result.overlap.baseline_block_common, expected_overlap.baseline_block_common
-    )
-    np.testing.assert_array_equal(
-        result.overlap.query_diagonal_all, expected_overlap.query_diagonal_all
-    )
-    np.testing.assert_array_equal(
-        result.overlap.query_diagonal_common, expected_overlap.query_diagonal_common
-    )
+    # Dense float64 counts and overlap blocks over all and common reference SNPs.
+    values = prepared.annotations.read().astype(np.float64)
+    common = (prepared.metadata["MAF"] >= config.common_maf_min).to_numpy()
+    np.testing.assert_array_equal(result.M, values.sum(axis=0))
+    np.testing.assert_array_equal(result.M_5_50, values[common].sum(axis=0))
+    np.testing.assert_array_equal(result.overlap.baseline_block_all, values[:, :2].T @ values)
+    np.testing.assert_array_equal(result.overlap.baseline_block_common, values[common, :2].T @ values[common])
+    np.testing.assert_array_equal(result.overlap.query_diagonal_all, (values[:, 2:] ** 2).sum(axis=0))
+    np.testing.assert_array_equal(result.overlap.query_diagonal_common, (values[common, 2:] ** 2).sum(axis=0))
     public = LDScoreCalculator()._wrap_chrom_result(result, GlobalConfig(snp_identifier="rsid"))
     assert public.baseline_table.columns.tolist() == [
         "CHR", "SNP", "POS", "A1", "A2", "regression_ld_scores", "base", "baseline_aux"
@@ -842,13 +825,13 @@ def test_plink_index_fuses_baseline_and_regression_weights_but_keeps_atom_batche
     expected_rows["baseline_aux"] = expected_baseline[persisted, 1]
     pd.testing.assert_frame_equal(result.baseline_rows, expected_rows)
     pd.testing.assert_frame_equal(result.reference_metadata, prepared.metadata)
-    expected_counts = kernel_ldscore.compute_counts(
-        prepared.metadata,
-        pd.DataFrame(baseline64, columns=bundle.baseline_columns),
-        common_maf_min=config.common_maf_min,
-    )
-    np.testing.assert_array_equal(result.baseline_count_all, expected_counts[0])
-    np.testing.assert_array_equal(result.baseline_count_common, expected_counts[1])
+    common = (prepared.metadata["MAF"] >= config.common_maf_min).to_numpy()
+    np.testing.assert_array_equal(result.baseline_count_all, baseline64.sum(axis=0))
+    np.testing.assert_array_equal(result.baseline_count_common, baseline64[common].sum(axis=0))
+    np.testing.assert_array_equal(result.baseline_overlap_all, baseline64.T @ baseline64)
+    np.testing.assert_array_equal(result.baseline_overlap_common, baseline64[common].T @ baseline64[common])
+    assert result.annotation_types == {"base": "binary", "baseline_aux": "binary"}
+    assert result.regression_selected_snp_count == int(persisted.sum())
 
 
 def test_build_index_command_requires_explicit_identity_and_build(capsys):
@@ -1487,6 +1470,26 @@ def test_public_loader_rejects_partial_index_before_gene_resolution(tmp_path, mo
 
     narrow_index_chromosomes(monkeypatch, AUTOSOMES)
     with pytest.raises(LDSCInputError, match="autosomes 1 through 22"):
+        load_gene_ldscore_index(index_dir)
+
+
+@pytest.mark.parametrize("field, value", [
+    ("annotation_types", None), ("annotation_types", {"other": "binary"}),
+    ("annotation_types", {"base": "unknown"}), ("snp_universe_policy", None),
+])
+def test_index_loader_requires_root_annotation_types_and_snp_universe_policy(tmp_path, field, value):
+    chromosome, catalog, index_identity = _artifact_payload()
+    index_dir = write_gene_ldscore_index(
+        tmp_path / "index", index_identity=index_identity, gene_catalog=catalog,
+        chromosomes={"22": chromosome},
+    )
+    loaded = load_gene_ldscore_index(index_dir)
+    assert loaded.annotation_types == {"base": "binary"}
+    assert loaded.snp_universe_policy["regression_rows_and_weights"]["written_snp_count"] == 2
+    root = json.loads((index_dir / "metadata.json").read_text(encoding="utf-8"))
+    root[field] = value
+    (index_dir / "metadata.json").write_text(json.dumps(root), encoding="utf-8")
+    with pytest.raises(LDSCInputError, match="annotation_types or snp_universe_policy"):
         load_gene_ldscore_index(index_dir)
 
 

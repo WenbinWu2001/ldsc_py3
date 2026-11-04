@@ -205,6 +205,10 @@ class _IndexedProducer:
             query_statuses=(), gene_list_batch=self.gene_batch, chromosome_scope=self.scope,
             index_provenance={"index_id": index.index_id, "index_snp_identifier": index.snp_identifier,
                               "index_genome_build": index.genome_build},
+            # gene_control and the gene-list queries are Boolean atom unions, so binary.
+            annotation_types={**index.annotation_types,
+                              **dict.fromkeys(all_columns[len(index.baseline_columns):], "binary")},
+            snp_universe_policy=index.snp_universe_policy,
             # The index has no whole-chromosome override.
             ld_window={**index.index_identity["ld_window"], "whole_chromosome_ok": False},
             reference_snp_funnel=index.reference_snp_funnel)

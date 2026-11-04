@@ -68,6 +68,12 @@ class LoadedGeneLDScoreIndex:
     reference_snp_funnel : pandas.DataFrame
         Reference-SNP funnel of every chromosome, recorded when the index was
         built; indexed scoring reports it rather than recomputing it.
+    annotation_types : dict of str to {"binary", "quantitative"}
+        Classification of each baseline column, made at build time as direct
+        ``ldscore`` makes it, in baseline-column order.
+    snp_universe_policy : dict
+        Reference-SNP and regression-SNP record of the build, in the form
+        direct ``ldscore`` writes to ``metadata.json``.
     """
 
     index_id: str
@@ -80,6 +86,8 @@ class LoadedGeneLDScoreIndex:
     baseline_columns: tuple[str, ...]
     gene_support: pd.Series
     reference_snp_funnel: pd.DataFrame
+    annotation_types: dict[str, str]
+    snp_universe_policy: dict
 
     @property
     def global_config(self) -> GlobalConfig:
@@ -135,7 +143,7 @@ def load_gene_ldscore_index(
     Parameters
     ----------
     index_dir : path-like
-        Directory containing one complete format-version-4 index covering
+        Directory containing one complete format-version-6 index covering
         autosomes 1 through 22. Earlier formats require a complete rebuild;
         no profile discovery or compatibility migration is performed.
 
@@ -158,7 +166,9 @@ def load_gene_ldscore_index(
         raise LDSCInputError(
             f"Unsupported gene LD-score index format version {root.get('format_version')!r} "
             f"(this package reads version {_INDEX_FORMAT_VERSION}). Rebuild the complete index with the "
-            "current package; earlier indexes cannot be reused or migrated. Version 5 gives each SNP's "
+            "current package; earlier indexes cannot be reused or migrated. Version 6 sums baseline "
+            "annotation counts in float64, as direct ldscore does, and stores the annotation_types and "
+            "snp_universe_policy that indexed ldscore output records; version 5 gives each SNP's "
             "minor allele as A1, as other PLINK-derived files do; version 4 stores each "
             "chromosome's reference-SNP funnel, which indexed scoring reports; version 3 made PLINK LD "
             "windows exact, and earlier indexes' LD scores differ slightly from current direct ldscore runs."
@@ -351,6 +361,17 @@ def load_gene_ldscore_index(
         ))
         error.input_issues = pd.DataFrame(issues)
         raise error
+    annotation_types = root.get("annotation_types")
+    snp_universe_policy = root.get("snp_universe_policy")
+    if (not isinstance(annotation_types, dict) or set(annotation_types) != set(baseline_columns)
+            or not set(annotation_types.values()) <= {"binary", "quantitative"}
+            or not isinstance(snp_universe_policy, dict)):
+        raise LDSCInputError(
+            "Gene LD-score index root annotation_types or snp_universe_policy is missing or invalid."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
+        )
     return LoadedGeneLDScoreIndex(
         index_id=index_id,
         chromosomes=chromosomes,
@@ -362,6 +383,8 @@ def load_gene_ldscore_index(
         baseline_columns=baseline_columns,
         gene_support=support,
         reference_snp_funnel=concat_funnels(funnels),
+        annotation_types={name: annotation_types[name] for name in baseline_columns},
+        snp_universe_policy=snp_universe_policy,
     )
 
 

@@ -6,8 +6,9 @@ import pandas as pd
 import pytest
 
 
-def test_compute_overlap_blocks_binary_and_continuous():
-    from ldsc._annotation.overlap import compute_overlap
+def test_annotation_statistics_overlap_blocks_binary_and_continuous():
+    from ldsc._annotation.overlap import annotation_statistics
+    from ldsc._refpanel.prepared import ArrayAnnotations
     # 4 SNPs, baseline = [base(all ones), catA], query = [q, cont]
     annotations = pd.DataFrame({
         "base": [1.0, 1.0, 1.0, 1.0],
@@ -18,7 +19,8 @@ def test_compute_overlap_blocks_binary_and_continuous():
     metadata = pd.DataFrame({"MAF": [0.05, 0.06, 0.2, 0.3]})  # row 0 (MAF==0.05) IS common (inclusive >=)
     A = annotations.to_numpy(dtype=np.float64)
 
-    contribution = compute_overlap(metadata, annotations, n_baseline=2, common_maf_min=0.05)
+    _, _, contribution, _ = annotation_statistics(
+        metadata, ArrayAnnotations(A.astype(np.float32), tuple(annotations.columns)), 2, common_maf_min=0.05)
 
     np.testing.assert_allclose(contribution.baseline_block_all, A[:, :2].T @ A)
     np.testing.assert_allclose(contribution.query_diagonal_all, (A[:, 2:] ** 2).sum(axis=0))
@@ -31,11 +33,14 @@ def test_compute_overlap_blocks_binary_and_continuous():
     assert contribution.n_common == 4
 
 
-def test_compute_overlap_without_maf_has_no_common_universe():
-    from ldsc._annotation.overlap import compute_overlap
-    annotations = pd.DataFrame({"base": [1.0, 1.0], "q": [1.0, 0.0]})
+def test_annotation_statistics_without_maf_has_no_common_universe():
+    from ldsc._annotation.overlap import annotation_statistics
+    from ldsc._refpanel.prepared import ArrayAnnotations
+    values = np.array([[1.0, 1.0], [1.0, 0.0]], dtype=np.float32)
     metadata = pd.DataFrame({"CHR": ["1", "1"]})  # no MAF
-    contribution = compute_overlap(metadata, annotations, n_baseline=1, common_maf_min=0.05)
+    _, common_counts, contribution, _ = annotation_statistics(
+        metadata, ArrayAnnotations(values, ("base", "q")), 1, common_maf_min=0.05)
+    assert common_counts is None
     assert contribution.baseline_block_common is None
     assert contribution.query_diagonal_common is None
     assert contribution.n_common is None

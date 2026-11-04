@@ -38,37 +38,6 @@ class OverlapContribution:
     n_common: int | None
 
 
-def compute_overlap(
-    metadata: pd.DataFrame,
-    annotations: pd.DataFrame,
-    n_baseline: int,
-    common_maf_min: float = 0.05,
-) -> OverlapContribution:
-    """Compute baseline-rows overlap blocks and query self-overlaps.
-
-    ``annotations`` columns are ordered ``baseline + query`` with ``n_baseline``
-    leading baseline columns. The common reference SNPs have ``MAF >= common_maf_min``
-    (inclusive, matching the common-count mask); their blocks are omitted when MAF metadata
-    is absent or all-missing.
-    """
-    A = annotations.to_numpy(dtype=np.float64, copy=False)
-    A_baseline = A[:, :n_baseline]
-    block_all = A_baseline.T @ A
-    query_diag_all = np.einsum("sq,sq->q", A[:, n_baseline:], A[:, n_baseline:])
-    n_all = int(A.shape[0])
-    if "MAF" not in metadata.columns or metadata["MAF"].isna().all():
-        return OverlapContribution(block_all, None, query_diag_all, None, n_all, None)
-    common = (metadata["MAF"] >= common_maf_min).to_numpy()
-    A_common = A[common]
-    block_common = A_common[:, :n_baseline].T @ A_common
-    query_diag_common = np.einsum(
-        "sq,sq->q", A_common[:, n_baseline:], A_common[:, n_baseline:]
-    )
-    return OverlapContribution(
-        block_all, block_common, query_diag_all, query_diag_common, n_all, int(common.sum())
-    )
-
-
 def sum_overlap_contributions(contributions: list[OverlapContribution]) -> OverlapContribution:
     """Sum per-chromosome overlap contributions into one aggregate.
 

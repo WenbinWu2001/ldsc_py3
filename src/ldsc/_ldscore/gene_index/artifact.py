@@ -14,7 +14,7 @@ import logging
 import os
 import shutil
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
 
@@ -32,13 +32,16 @@ from ...errors import LDSCInputError, LDSCInternalError
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
 
 
-# Version 5: row A1 is the minor allele in the retained reference individuals,
-# not the .bim A1; index_id hashes only the inputs, so the version marks the
-# change. Version 4: each chromosome stores its reference-SNP funnel, which
-# indexed scoring reports. Version 3 made PLINK LD windows exact; version 2
-# operators used legacy LDSC's chunk-rounded windows, which depended on
-# --snp-batch-size.
-_INDEX_FORMAT_VERSION = 5
+# Version 6: baseline counts and overlaps accumulate in float64, as in direct
+# ldscore, and root metadata stores the annotation_types classification of the
+# baseline columns and the snp_universe_policy that indexed output records.
+# Version 5: row A1 is the minor
+# allele in the retained reference individuals, not the .bim A1; index_id
+# hashes only the inputs, so the version marks the change. Version 4: each
+# chromosome stores its reference-SNP funnel, which indexed scoring reports.
+# Version 3 made PLINK LD windows exact; version 2 operators used legacy
+# LDSC's chunk-rounded windows, which depended on --snp-batch-size.
+_INDEX_FORMAT_VERSION = 6
 # Chromosomes every published index covers. Callers read it through this
 # module when they run, so small test indexes can narrow it.
 INDEX_CHROMOSOMES = AUTOSOMES
@@ -202,7 +205,11 @@ class IndexChromosomeData:
     """Validated in-memory scientific payload for one index chromosome.
 
     ``reference_snp_funnel`` counts the SNPs each reference-preparation step
-    removed; writing a payload requires it.
+    removed; writing a payload requires it. ``annotation_types`` (each
+    baseline column's ``binary`` or ``quantitative`` classification on this
+    chromosome) and ``regression_selected_snp_count`` (regression SNPs before
+    the region subtraction) are build results the coordinator combines into
+    root metadata; the payload does not store them.
     """
 
     baseline_rows: pd.DataFrame
@@ -222,6 +229,8 @@ class IndexChromosomeData:
     selected_individual_count: int = 0
     cm_source: str = "bim_cm"
     reference_snp_funnel: pd.DataFrame | None = None
+    annotation_types: dict[str, str] = field(default_factory=dict)
+    regression_selected_snp_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -412,6 +421,8 @@ def _finalize_staged_index_artifact(
     index_identity: dict,
     gene_catalog: pd.DataFrame,
     chromosomes: dict[str, StagedIndexChromosome],
+    annotation_types: dict[str, str],
+    snp_universe_policy: dict,
     diagnostic_payload: dict | None = None,
 ) -> None:
     """Finalize coordinator-owned metadata for a complete staged index.
@@ -419,6 +430,9 @@ def _finalize_staged_index_artifact(
     ``chromosomes`` is already in canonical requested order. This function
     writes root identity, component identity, the gene coordinate catalog, and successful
     diagnostics only after every payload-only shard is durable.
+    ``annotation_types`` (one classification per baseline column) and
+    ``snp_universe_policy`` are root metadata outside ``index_identity``;
+    indexed ``ldscore`` output records them.
     """
     _write_json(
         index_path / "metadata.json",
@@ -430,6 +444,8 @@ def _finalize_staged_index_artifact(
             "genome_build": index_identity["genome_build"],
             "index_identity": index_identity,
             "chromosomes": list(chromosomes),
+            "annotation_types": dict(annotation_types),
+            "snp_universe_policy": dict(snp_universe_policy),
         },
     )
     gene_catalog.to_parquet(index_path / "gene_catalog.parquet", index=False)

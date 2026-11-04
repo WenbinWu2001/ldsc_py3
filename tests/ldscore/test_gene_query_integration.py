@@ -1,6 +1,7 @@
 """Whole-workflow gene viability with real PLINK and immutable index artifacts."""
 
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -199,6 +200,11 @@ def test_plink_glob_routes_by_validated_contents_not_names(tmp_path, inputs):
 
 @pytest.mark.parametrize("policy", ["strict", "resolved-only"])
 def test_real_direct_and_indexed_outputs_agree(tmp_path, inputs, policy):
+    # A continuous baseline column next to the all-ones `base`: its counts are
+    # float64 sums of float32 values in both modes, and both classify it.
+    baseline = pd.read_csv(inputs[1], sep="\t")
+    baseline["cont"] = [0.1234567, 0.7654321, 0.3333333, 0.9876543, 0.2468013, 0.1357913, 0.8642097, 0.5555555]
+    baseline.to_csv(inputs[1], sep="\t", index=False)
     mixed, empty, zero, control = [tmp_path / f"{name}.txt" for name in ("mixed", "empty", "zero", "control")]
     mixed.write_text("G1\nONE\nG0\n" + ("UNKNOWN\n" if policy == "resolved-only" else ""))
     empty.write_text("")
@@ -214,17 +220,30 @@ def test_real_direct_and_indexed_outputs_agree(tmp_path, inputs, policy):
     assert [s.reason for s in direct.query_statuses] == [s.reason for s in indexed.query_statuses] == [
         "partial_gene_resolution" if policy == "resolved-only" else "partial_snp_support", "empty_gene_list", "zero_annotation_snps"]
     np.testing.assert_allclose(direct.read_queries(["mixed"])["mixed"], indexed.read_queries(["mixed"])["mixed"], rtol=1e-6, atol=1e-7)
-    np.testing.assert_allclose(direct.baseline_table[["base", "gene_control", "regression_ld_scores"]],
-                               indexed.baseline_table[["base", "gene_control", "regression_ld_scores"]], rtol=1e-6, atol=1e-7)
+    np.testing.assert_allclose(direct.baseline_table["gene_control"], indexed.baseline_table["gene_control"],
+                               rtol=1e-6, atol=1e-7)
+    pd.testing.assert_frame_equal(direct.baseline_table[["base", "cont", "regression_ld_scores"]],
+                                  indexed.baseline_table[["base", "cont", "regression_ld_scores"]])
     assert direct.count_records == indexed.count_records
+    # Every reference SNP is a regression SNP here, so the written rows are the reference SNPs.
+    values = baseline.set_index("SNP")["cont"].astype(np.float32)
+    expected = math.fsum(float(values[snp]) for snp in direct.baseline_table["SNP"])
+    cont_count = next(record for record in indexed.count_records if record["column"] == "cont")
+    assert cont_count["all_reference_snp_count"] == pytest.approx(expected, rel=1e-15)
     pd.testing.assert_frame_equal(direct.overlap.baseline_block_all, indexed.overlap.baseline_block_all)
     pd.testing.assert_frame_equal(direct.gene_list_batch.summary, indexed.gene_list_batch.summary)
+    recorded = {}
     for name in ("direct", "indexed"):
         scope = json.loads((tmp_path / name / "diagnostics/chromosome_scope.json").read_text())
         assert scope["chromosomes"] == ["1"]
         metadata = json.loads((tmp_path / name / "metadata.json").read_text())
         assert metadata["query_columns"] == ["mixed"]
         assert all((tmp_path / name / path).exists() for path in metadata["files"].values())
+        recorded[name] = metadata["annotation_types"], metadata["snp_universe_policy"]
+    assert recorded["indexed"] == recorded["direct"]
+    assert recorded["direct"][0] == {"base": "binary", "cont": "quantitative", "gene_control": "binary", "mixed": "binary"}
+    assert indexed.annotation_types == direct.annotation_types
+    assert indexed.snp_universe_policy == direct.snp_universe_policy
     log = (tmp_path / "direct/diagnostics/ldscore.log").read_text()
     assert "Chromosomes resolved and entering the analysis: 1" in log
 

@@ -198,13 +198,15 @@ def test_complete_autosomal_index_build_and_reload(tmp_path, build, mode, unit, 
             dropped = pd.read_csv(path / 'diagnostics' / 'dropped_snps' / f'chr{chrom}_dropped.tsv.gz', sep='\t')
             assert len(dropped) == 1 and dropped.iloc[0].SNP == f'invalid_{chrom}'
     root = json.loads((path / 'metadata.json').read_text())
-    assert root['format_version'] == 5
-    # Version 4 indexes store the .bim allele order.
-    root['format_version'] = 4
+    assert root['format_version'] == 6
+    assert root['annotation_types'] == {'base': 'binary'}
+    assert root['snp_universe_policy']['regression_rows_and_weights']['regr_snps_file'] == str(restriction)
+    # Version 5 indexes sum continuous baseline counts in float32 and store no annotation_types.
+    root['format_version'] = 5
     (path / 'metadata.json').write_text(json.dumps(root))
     with pytest.raises(LDSCInputError, match='Rebuild the complete index') as rejected:
         load_gene_ldscore_index(path)
-    assert 'minor allele' in str(rejected.value)
+    assert 'float64' in str(rejected.value)
     root.pop('format_version')
     (path / 'metadata.json').write_text(json.dumps(root))
     with pytest.raises(LDSCInputError, match='Rebuild the complete index'):

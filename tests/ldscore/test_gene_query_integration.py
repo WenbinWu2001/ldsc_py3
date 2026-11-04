@@ -69,6 +69,16 @@ def build_index(tmp_path, inputs, *, mode="rsid", common_maf_min="0.05"):
     return index_workflow.run_build_gene_ldscore_index_from_args(args)
 
 
+def test_direct_and_indexed_metadata_record_the_ld_window(tmp_path, inputs):
+    focal = tmp_path / "focal.txt"
+    focal.write_text("G1\n")
+    run_ldscore_from_args(direct_args(tmp_path, inputs, [focal]))
+    run_indexed_ldscore(build_index(tmp_path, inputs), query_gene_list_sources=[focal], output_dir=tmp_path / "indexed")
+    for name in ("direct", "indexed"):
+        metadata = json.loads((tmp_path / name / "metadata.json").read_text())
+        assert metadata["ld_window"] == {"unit": "cm", "value": 0.2, "whole_chromosome_ok": False}
+
+
 def test_index_build_rejects_a_whole_chromosome_window_without_an_override(tmp_path, inputs):
     prefix, baseline, regression, catalog = inputs
     args = index_workflow.build_parser().parse_args([

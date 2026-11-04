@@ -164,6 +164,13 @@ def test_snp_count_window_computes_same_position_snps_in_panel_order(tmp_path):
 WARNING_TEXT = "counts positions in the R2 matrix"
 
 
+def test_r2_matrix_run_records_its_own_window_and_override(tmp_path, panels):
+    output = tmp_path / "out"
+    assert _ldscore(output, "--r2-matrix-dir", str(panels["kb200"]), "--ld-wind-kb", "150", "--yes-really") == 0
+    metadata = json.loads((output / "metadata.json").read_text())
+    assert metadata["ld_window"] == {"unit": "kb", "value": 150.0, "whole_chromosome_ok": True}
+
+
 def test_snp_count_window_records_panel_and_kept_counts_and_warns_once(tmp_path, panels):
     output = tmp_path / "out"
     assert _ldscore(output, "--r2-matrix-dir", str(panels["snps6"]), "--ld-wind-snps", "2", "--maf-min", "0.3") == 0

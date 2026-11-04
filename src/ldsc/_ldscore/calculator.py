@@ -267,6 +267,11 @@ class LDScoreResult:
     legacy_ldscore_conversion : dict or None, optional
         Explicit converter provenance for a legacy LD-score suite. ``None``
         for natively computed LDSC3 results.
+    ld_window : dict or None, optional
+        The run's LD window and whole-chromosome override, recorded in
+        ``metadata.json``: ``unit``, ``value`` and ``whole_chromosome_ok``.
+        Indexed runs take the index's window. ``None`` for converted legacy
+        LD scores, whose window is unknown.
     annotation_types : dict of str to str, optional
         Per-column semantic classification used for interpretation only.
     ld_window_snp_counts : pandas.DataFrame or None, optional
@@ -300,6 +305,7 @@ class LDScoreResult:
     snp_universe_policy: dict[str, Any] | None = None
     index_provenance: dict[str, str] | None = None
     legacy_ldscore_conversion: dict[str, Any] | None = None
+    ld_window: dict[str, Any] | None = None
     identity_drops_by_chrom: dict[str, TsvDiagnostics] = field(default_factory=dict, repr=False)
     annotation_types: dict[str, str] = field(default_factory=dict)
     chromosome_scope: dict[str, Any] = field(default_factory=dict)
@@ -895,6 +901,7 @@ class _DirectProducer:
             identity_drops_by_chrom={**batch.source_drops, **result.identity_drops_by_chrom},
             gene_list_batch=getattr(batch.bundle, "gene_list_batch", None),
             chromosome_scope=dict(batch.bundle.source_summary.get("chromosome_scope", {})),
+            ld_window={**ldscore_config.ld_window.record(), "whole_chromosome_ok": ldscore_config.whole_chromosome_ok},
         )
         if batch.ordinal == 0:  # every batch shares the reference and regression SNPs; batch 1 records them
             result = dataclass_replace(

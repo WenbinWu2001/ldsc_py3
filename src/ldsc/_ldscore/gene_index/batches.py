@@ -205,6 +205,8 @@ class _IndexedProducer:
             query_statuses=(), gene_list_batch=self.gene_batch, chromosome_scope=self.scope,
             index_provenance={"index_id": index.index_id, "index_snp_identifier": index.snp_identifier,
                               "index_genome_build": index.genome_build},
+            # The index has no whole-chromosome override.
+            ld_window={**index.index_identity["ld_window"], "whole_chromosome_ok": False},
             reference_snp_funnel=index.reference_snp_funnel)
         return staged, [item.variation for item in summaries]
 

@@ -193,6 +193,7 @@ def _artifact_payload():
     index_identity = {
         "chromosomes": ["22"], "baseline": "fixture", "plink": "fixture",
         "snp_identifier": "rsid", "genome_build": "hg19", "common_maf_min": 0.05,
+        "ld_window": {"unit": "kb", "value": 1000.0},
         "catalog": _catalog_identity_records(catalog),
         "projection_build": "hg19", "padding_bp": 100000, "gene_exclude_regions": "mhc",
     }
@@ -1429,8 +1430,8 @@ def test_canonical_table_identity_ignores_row_order_when_key_sort_is_declared():
 @pytest.mark.parametrize(
     "snp_identifier, expected_index_id",
     [
-        ("rsid", "03c3143a86dfa28a23a02f3beccd2de477d4a4f71c2e839209a5353be8802824"),
-        ("chr_pos", "d3b2d6ca4a3dda71028970e90ded1e14d297477917eb88cc18234ae57ef8add5"),
+        ("rsid", "459bebf2468238a9b9f1b6dfd4aff40de908235efbada9b579bfb6cfd40efe02"),
+        ("chr_pos", "86e5db6816456b71bdce54574177f4c1ce7fef2c54d5f8f38fce1435ea3d4f0d"),
     ],
 )
 def test_index_artifact_round_trip_uses_approved_tree_and_payloads(tmp_path, snp_identifier, expected_index_id):

@@ -151,6 +151,7 @@ class _LDScorePublication:
     snp_universe_policy: dict | None
     legacy_ldscore_conversion: dict | None
     overlap: LDScoreOverlap | None
+    ld_window: dict | None = None
     ld_window_snp_counts: pd.DataFrame | None = None
     reference_snp_funnel: pd.DataFrame | None = None
     query_columns: list[str] = field(default_factory=list)
@@ -369,6 +370,7 @@ class LDScoreDirectoryWriter:
                             snp_universe_policy=result.snp_universe_policy,
                             legacy_ldscore_conversion=None if streamed else result.legacy_ldscore_conversion,
                             overlap=None if result.overlap is None else result.overlap.select_queries([]),
+                            ld_window=result.ld_window,
                             ld_window_snp_counts=result.ld_window_snp_counts,
                             reference_snp_funnel=result.reference_snp_funnel,
                         )
@@ -661,4 +663,6 @@ class LDScoreDirectoryWriter:
             payload["snp_universe_policy"] = dict(publication.snp_universe_policy)
         if publication.legacy_ldscore_conversion is not None:
             payload["legacy_ldscore_conversion"] = dict(publication.legacy_ldscore_conversion)
+        if publication.ld_window is not None:
+            payload["ld_window"] = dict(publication.ld_window)
         return payload

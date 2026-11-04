@@ -123,6 +123,7 @@ def test_unpartitioned_conversion_writes_reloadable_canonical_suite_with_nullabl
     assert baseline.columns.tolist() == ["CHR", "POS", "SNP", "regression_ld_scores", "base"]
     assert baseline["SNP"].tolist() == [f"rs{chrom}" for chrom in range(1, 23)]
     metadata = json.loads((output / "metadata.json").read_text(encoding="utf-8"))
+    assert "ld_window" not in metadata  # legacy LD-score files do not record their window
     assert metadata["count_config"] == {
         "common_reference_snp_maf_min": 0.05,
         "common_reference_snp_maf_operator": ">",

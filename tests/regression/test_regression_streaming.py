@@ -138,7 +138,7 @@ def batch_inputs(tmp_path):
                           "common_reference_snp_count": count}
                          for group, column, count in [("baseline", "base", 1000.), ("query", "first", 250.),
                                                       ("query", "second", 300.), ("query", "third", 400.)]],
-        ["base"], ["first", "second", "third"], frozenset(), frozenset(baseline.SNP), [],
+        ["base"], ["first", "second", "third"],
         config_snapshot=workflow.GlobalConfig(snp_identifier="rsid"), overlap=overlap,
     )
     LDScoreDirectoryWriter().write_batches([source], LDScoreOutputConfig(output_dir=tmp_path))
@@ -248,8 +248,7 @@ def test_regression_across_query_files_matches_single_file(tmp_path, generation_
                 count_records=[record for record in original.count_records
                                if record["group"] == "baseline" or record["column"] in columns],
                 config_snapshot=original.config_snapshot, count_config=original.count_config,
-                overlap=original.overlap.select_queries(columns), chromosome_results=[],
-                ld_reference_snps=frozenset(), ld_regression_snps=original.ld_regression_snps)
+                overlap=original.overlap.select_queries(columns))
     saved = LDScoreDirectoryWriter().write_batches(batches(), LDScoreOutputConfig(tmp_path / "batches"))
     runner = workflow.RegressionRunner(original.config_snapshot, workflow.RegressionConfig(num_blocks=6))
     expected = runner.estimate_partitioned_h2_batch(table, original, output_dir=tmp_path / "expected",
@@ -296,7 +295,7 @@ def two_baseline_inputs(tmp_path):
     )
     counts = [{"group": "baseline", "column": column, "all_reference_snp_count": 1000.,
                "common_reference_snp_count": 1000.} for column in ("base", "second")]
-    source = LDScoreResult(baseline, None, counts, ["base", "second"], [], frozenset(), frozenset(baseline.SNP), [],
+    source = LDScoreResult(baseline, None, counts, ["base", "second"], [],
                            config_snapshot=workflow.GlobalConfig(snp_identifier="rsid"))
     LDScoreDirectoryWriter().write_batches([source], LDScoreOutputConfig(output_dir=tmp_path))
 
@@ -452,7 +451,7 @@ def test_functional_command_keeps_complete_model_at_root(tmp_path):
                             np.array([]), np.array([]), 1000, 1000), baseline_columns=["base", "first"], query_columns=[],
     )
     result = LDScoreResult(baseline, None, [{**r, "group": "baseline"} for r in source.count_records if r["column"] in ("base", "first")],
-                          ["base", "first"], [], frozenset(), source.ld_regression_snps, [], config_snapshot=source.config_snapshot,
+                          ["base", "first"], [], config_snapshot=source.config_snapshot,
                           overlap=overlap)
     LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=tmp_path / "ld", overwrite=True))
     summary = cli.main(args).summary
@@ -557,7 +556,7 @@ def _near_collinear_rg_inputs(tmp_path, *, with_overlap, shared_rows_only=False)
     source = LDScoreResult(
         baseline, None, [{"group": "baseline", "column": column, "all_reference_snp_count": count,
                           "common_reference_snp_count": count} for column, count in [("base", 1000.), ("dup", 2000.)]],
-        ["base", "dup"], [], frozenset(), frozenset(baseline.SNP), [],
+        ["base", "dup"], [],
         config_snapshot=workflow.GlobalConfig(snp_identifier="rsid"), overlap=overlap,
     )
     LDScoreDirectoryWriter().write_batches([source], LDScoreOutputConfig(output_dir=tmp_path))

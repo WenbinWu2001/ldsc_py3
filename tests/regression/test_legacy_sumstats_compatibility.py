@@ -31,9 +31,6 @@ def _panel(frame: pd.DataFrame, mode: str) -> LDScoreResult:
         ],
         baseline_columns=["base"],
         query_columns=[],
-        ld_reference_snps=frozenset(),
-        ld_regression_snps=frozenset(frame["SNP"]),
-        chromosome_results=[],
         config_snapshot=GlobalConfig(
             snp_identifier=mode,
             genome_build="hg38" if mode.startswith("chr_pos") else None,

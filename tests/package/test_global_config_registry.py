@@ -71,9 +71,6 @@ def _make_ldscore_result() -> LDScoreResult:
         ],
         baseline_columns=["base"],
         query_columns=[],
-        ld_reference_snps=frozenset(),
-        ld_regression_snps=frozenset({"rs1", "rs2"}),
-        chromosome_results=[],
     )
 
 

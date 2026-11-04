@@ -14,12 +14,9 @@ from dataclasses import dataclass, replace
 from collections import Counter
 from typing import Any, Sequence
 
-import numpy as np
-
 import pandas as pd
 
 from .gene_lists import summary_source_masks
-from .overlap import OverlapContribution
 from ..errors import LDSCInternalError
 
 LOGGER = logging.getLogger("LDSC.query_annotations")
@@ -226,77 +223,18 @@ def finalize_query_statuses(
     overlap = result.overlap
     if overlap is not None:
         overlap = overlap.select_queries(retained_queries)
-    chromosome_results = [
-        _select_chromosome_result_queries(chromosome_result, retained_queries)
-        for chromosome_result in result.chromosome_results
-    ]
     finalized_result = replace(
         result,
         query_table=query_table,
         query_columns=retained_queries,
         count_records=count_records,
         overlap=overlap,
-        chromosome_results=chromosome_results,
         query_statuses=tuple(finalized),
         annotation_types={name: kind for name, kind in result.annotation_types.items()
                           if name in [*result.baseline_columns, *retained_queries]},
     )
     finalized_result.validate()
     return finalized_result
-
-
-
-def _select_chromosome_result_queries(
-    result: Any,
-    retained_queries: Sequence[str],
-) -> Any:
-    """Return one chromosome result restricted to final usable query columns."""
-    retained = list(retained_queries)
-    original = list(result.query_columns)
-    query_positions = [original.index(column) for column in retained]
-    query_table = None
-    if retained and result.query_table is not None:
-        metadata_columns = [column for column in result.query_table.columns if column not in original]
-        query_table = result.query_table.loc[:, [*metadata_columns, *retained]].copy()
-    keep_positions = [*range(len(result.baseline_columns)), *[len(result.baseline_columns) + pos for pos in query_positions]]
-    snp_count_totals = {
-        key: np.asarray(values)[keep_positions]
-        for key, values in result.snp_count_totals.items()
-    }
-    overlap = result.overlap
-    if overlap is not None:
-        overlap = OverlapContribution(
-            baseline_block_all=np.asarray(overlap.baseline_block_all)[:, keep_positions],
-            baseline_block_common=(
-                None
-                if overlap.baseline_block_common is None
-                else np.asarray(overlap.baseline_block_common)[:, keep_positions]
-            ),
-            query_diagonal_all=np.asarray(overlap.query_diagonal_all)[query_positions],
-            query_diagonal_common=(
-                None
-                if overlap.query_diagonal_common is None
-                else np.asarray(overlap.query_diagonal_common)[query_positions]
-            ),
-            n_all=overlap.n_all,
-            n_common=overlap.n_common,
-        )
-    selected = replace(
-        result,
-        query_table=query_table,
-        query_columns=retained,
-        count_records=[
-            record
-            for record in result.count_records
-            if record.get("group") != "query" or record.get("column") in retained
-        ],
-        snp_count_totals=snp_count_totals,
-        overlap=overlap,
-        annotation_types={name: kind for name, kind in result.annotation_types.items()
-                          if name in [*result.baseline_columns, *retained]},
-    )
-    selected.validate()
-    return selected
 
 
 def log_gene_catalog_issues(issues: pd.DataFrame) -> None:

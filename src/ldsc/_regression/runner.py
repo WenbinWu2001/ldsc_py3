@@ -195,7 +195,6 @@ class RegressionDataset:
     retained_ld_columns: list[str]
     dropped_zero_variance_ld_columns: list[str]
     trait_names: list[str]
-    chromosomes_aggregated: list[str]
     config_snapshot: GlobalConfig | None = None
     effective_snp_identifier: str = "chr_pos_allele_aware"
     identity_downgrade_applied: bool = False
@@ -589,7 +588,6 @@ class RegressionRunner:
             retained_ld_columns=ref_ld_columns,
             dropped_zero_variance_ld_columns=[],
             trait_names=[_trait_label(sumstats_table)],
-            chromosomes_aggregated=[result.chrom for result in ldscore_result.chromosome_results],
             config_snapshot=ldscore_result.config_snapshot,
             effective_snp_identifier=identifier_mode,
             identity_downgrade_applied=identity.downgrade_applied,
@@ -787,7 +785,6 @@ class RegressionRunner:
             **_select_model_columns(merged, ref_ld_columns, ldscore_result.count_records,
                                     config.use_common_counts, command="rg"),
             trait_names=[_trait_label(sumstats_table_1), _trait_label(sumstats_table_2)],
-            chromosomes_aggregated=[result.chrom for result in ldscore_result.chromosome_results],
             config_snapshot=ldscore_result.config_snapshot,
             effective_snp_identifier=identifier_mode,
             identity_downgrade_applied=identity.downgrade_applied,

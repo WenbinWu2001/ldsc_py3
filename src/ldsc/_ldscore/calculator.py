@@ -108,7 +108,7 @@ from .._annotation.overlap import OverlapContribution, sum_overlap_contributions
 from .._annotation.semantics import combine_annotation_types
 from .._core.regions import REGR_SNPS_EXCLUDE_REGIONS_CHOICES, regr_snps_exclude_regions_choice_to_presets
 from .._refpanel.r2_format import SIDECAR_FLOAT_FORMAT
-from .._core.identifiers import build_snp_id_series, read_snp_restriction_keys
+from .._core.identifiers import read_snp_restriction_keys
 from .._core.snp_identity import RestrictionIdentityKeys
 from .._core.row_alignment import assert_same_snp_rows, concat_chromosome_tables, sort_frame_by_genomic_position
 from ..errors import EmptyReferenceSNPs, LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
@@ -147,15 +147,12 @@ class ChromLDScoreResult:
     query_table : pandas.DataFrame or None
         Optional table with ``CHR``, ``SNP``, ``POS``, and query LD-score
         columns.
-    count_records : list of dict
-        Manifest-ready count records keyed by annotation column.
-    count_config : dict, optional
-        Manifest-ready metadata describing how optional common-SNP counts were
-        computed, including the inclusive common-MAF threshold.
     baseline_columns, query_columns : list of str
         Ordered annotation LD-score columns in the baseline and query tables.
-    ld_reference_snps, ld_regression_snps : frozenset of str
-        Reference SNPs used for count records, and regression SNPs.
+    snp_count_totals : dict of str to numpy.ndarray, optional
+        All-SNP (``all_reference_snp_counts``) and common-SNP
+        (``common_reference_snp_counts``) count vectors over the reference
+        SNPs, one entry per baseline column followed by each query column.
     annotation_types : dict of str to str, optional
         Per-column ``binary`` or ``quantitative`` classification used only for
         interpretation messages and persisted provenance.
@@ -166,14 +163,9 @@ class ChromLDScoreResult:
     chrom: str
     baseline_table: pd.DataFrame
     query_table: pd.DataFrame | None
-    count_records: list[dict[str, Any]]
     baseline_columns: list[str]
     query_columns: list[str]
-    ld_reference_snps: frozenset[str]
-    ld_regression_snps: frozenset[str]
     snp_count_totals: dict[str, np.ndarray] = field(default_factory=dict, repr=False)
-    count_config: dict[str, Any] = field(default_factory=dict)
-    output_paths: dict[str, str] = field(default_factory=dict)
     config_snapshot: GlobalConfig | None = None
     overlap: OverlapContribution | None = field(default=None, repr=False)
     reference_snp_count: int = 0
@@ -182,40 +174,6 @@ class ChromLDScoreResult:
     identity_drops: TsvDiagnostics | None = field(default=None, repr=False)
     annotation_types: dict[str, str] = field(default_factory=dict)
     reference_snp_funnel: pd.DataFrame | None = field(default=None, repr=False)
-
-    def validate(self) -> None:
-        """Check the normalized public contract for chromosome-level results."""
-        required = {"CHR", "SNP", "POS", REGRESSION_LD_SCORE_COLUMN, *self.baseline_columns}
-        missing = required - set(self.baseline_table.columns)
-        if missing:
-            raise LDSCInternalError(
-                "LD-score result validation failed in ChromLDScoreResult.validate(): "
-                f"baseline_table is missing required columns {sorted(missing)}. "
-                "Most likely an internal result assembly step dropped metadata or LD-score columns. "
-                "Re-run with DEBUG logging and report the traceback."
-            )
-        if self.query_columns and self.query_table is None:
-            raise LDSCInternalError(
-                "LD-score result validation failed in ChromLDScoreResult.validate(): "
-                "query columns are present but query_table is missing. Most likely an internal "
-                "split-table assembly step lost the query table. Re-run with DEBUG logging and "
-                "report the traceback."
-            )
-        if self.query_table is not None:
-            missing_query = {"CHR", "SNP", "POS", *self.query_columns} - set(self.query_table.columns)
-            if missing_query:
-                raise LDSCInternalError(
-                    "LD-score result validation failed in ChromLDScoreResult.validate(): "
-                    f"query_table is missing required columns {sorted(missing_query)}. "
-                    "Most likely an internal query-table assembly step dropped metadata or "
-                    "annotation columns. Re-run with DEBUG logging and report the traceback."
-                )
-            assert_same_snp_rows(
-                self.baseline_table,
-                self.query_table,
-                context="query rows must match baseline rows on CHR/SNP/POS",
-                snp_identifier=getattr(self.config_snapshot, "snp_identifier", "chr_pos_allele_aware"),
-            )
 
 
 @dataclass(frozen=True)
@@ -245,10 +203,6 @@ class LDScoreResult:
         computed, including the inclusive common-MAF threshold.
     baseline_columns, query_columns : list of str
         Ordered LD-score columns available to regression workflows.
-    ld_reference_snps, ld_regression_snps : frozenset of str
-        Reference SNPs used for count records, and persisted regression SNPs.
-    chromosome_results : list of ChromLDScoreResult
-        Per-chromosome components used to build the aggregate result.
     output_paths : dict, optional
         Paths written by ``LDScoreDirectoryWriter`` when output was requested.
     config_snapshot : GlobalConfig or None, optional
@@ -295,9 +249,6 @@ class LDScoreResult:
     count_records: list[dict[str, Any]]
     baseline_columns: list[str]
     query_columns: list[str]
-    ld_reference_snps: frozenset[str]
-    ld_regression_snps: frozenset[str]
-    chromosome_results: list[ChromLDScoreResult]
     output_paths: dict[str, str] = field(default_factory=dict)
     count_config: dict[str, Any] = field(default_factory=dict)
     config_snapshot: GlobalConfig | None = None
@@ -631,7 +582,6 @@ class LDScoreCalculator:
         """
         reference_metadata = chrom_result.metadata
         ld_scores = pd.DataFrame(chrom_result.ld_scores, columns=list(chrom_result.ldscore_columns))
-        ld_regression_snps = frozenset(build_snp_id_series(reference_metadata, global_config.snp_identifier))
         metadata_columns = ["CHR", "SNP", "POS", *[column for column in ("A1", "A2") if column in reference_metadata.columns]]
         regression_weights = np.asarray(chrom_result.w_ld, dtype=np.float32).reshape(-1)
         ldscore_table = pd.concat(
@@ -658,17 +608,9 @@ class LDScoreCalculator:
             chrom=str(chrom_result.chrom),
             baseline_table=baseline_table,
             query_table=query_table,
-            count_records=_count_records_from_totals(
-                baseline_columns=list(chrom_result.baseline_columns),
-                query_columns=list(chrom_result.query_columns),
-                count_totals=count_map,
-            ),
             baseline_columns=list(chrom_result.baseline_columns),
             query_columns=list(chrom_result.query_columns),
-            ld_reference_snps=frozenset(),
-            ld_regression_snps=ld_regression_snps,
             snp_count_totals=count_map,
-            count_config={},
             config_snapshot=global_config,
             overlap=getattr(chrom_result, "overlap", None),
             reference_snp_count=chrom_result.reference_snp_count,
@@ -772,9 +714,6 @@ class LDScoreCalculator:
         result = LDScoreResult(
             baseline_table=baseline_table,
             query_table=query_table,
-            ld_reference_snps=frozenset(),
-            ld_regression_snps=frozenset().union(*(result.ld_regression_snps for result in chromosome_results)),
-            chromosome_results=list(chromosome_results),
             **shared,
         )
         result.validate()

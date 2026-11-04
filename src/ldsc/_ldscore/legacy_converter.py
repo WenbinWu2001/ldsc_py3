@@ -427,9 +427,6 @@ class LegacyLDScoreConverter:
             count_records=count_records,
             baseline_columns=["base"],
             query_columns=[],
-            ld_reference_snps=frozenset(),
-            ld_regression_snps=frozenset(),  # not written; the published directory is reloaded for use
-            chromosome_results=[],
             count_config=dict(_COUNT_CONFIG),
             config_snapshot=GlobalConfig(snp_identifier=mode, genome_build=effective_build),
             legacy_ldscore_conversion=provenance,
@@ -686,9 +683,6 @@ class LegacyLDScoreConverter:
             count_records=count_records,
             baseline_columns=list(reference_columns),
             query_columns=[],
-            ld_reference_snps=frozenset(seen_annotations),
-            ld_regression_snps=frozenset(),  # not written; the published directory is reloaded for use
-            chromosome_results=[],
             count_config=dict(_COUNT_CONFIG),
             config_snapshot=GlobalConfig(snp_identifier=mode, genome_build=effective_build),
             overlap=overlap,

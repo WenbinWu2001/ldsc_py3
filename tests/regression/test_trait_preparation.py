@@ -23,7 +23,7 @@ def panel(mode="chr_pos_allele_aware"):
         frame, None,
         [{"group": "baseline", "column": "base", "all_reference_snp_count": 1000.0,
           "common_reference_snp_count": 900.0}],
-        ["base"], [], frozenset(), frozenset(frame.SNP), [],
+        ["base"], [],
         config_snapshot=GlobalConfig(snp_identifier=mode, genome_build="hg38"),
     )
 

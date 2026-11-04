@@ -157,7 +157,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(result.baseline_table.columns.tolist(), ["CHR", "SNP", "POS", "regression_ld_scores", "base"])
         self.assertEqual(query.columns.tolist(), ["CHR", "SNP", "POS", "query"])
         self.assertEqual(result.count_records[0]["column"], "base")
-        self.assertEqual(result.ld_regression_snps, frozenset({"rs1"}))
+        self.assertEqual(result.baseline_table["SNP"].tolist(), ["rs1"])
         self.assertEqual(result.config_snapshot, GlobalConfig(snp_identifier="rsid"))
 
     def test_load_ldscore_from_dir_rejects_baseline_without_pos(self):
@@ -318,9 +318,6 @@ class RegressionWorkflowTest(unittest.TestCase):
             ],
             baseline_columns=["base"],
             query_columns=["query1", "query2"],
-            ld_reference_snps=frozenset(),
-            ld_regression_snps=frozenset({"rs1", "rs2", "rs3"}),
-            chromosome_results=[],
             config_snapshot=GlobalConfig(snp_identifier="rsid"),
             overlap=self._overlap_fixture(),
         )
@@ -385,9 +382,6 @@ class RegressionWorkflowTest(unittest.TestCase):
             ],
             baseline_columns=["base"],
             query_columns=[],
-            ld_reference_snps=frozenset(),
-            ld_regression_snps=frozenset(frame["SNP"].astype(str)),
-            chromosome_results=[],
             config_snapshot=GlobalConfig(snp_identifier=snp_identifier, genome_build="hg38"),
         )
 
@@ -1921,7 +1915,6 @@ class RegressionWorkflowTest(unittest.TestCase):
             retained_ld_columns=["base"],
             dropped_zero_variance_ld_columns=[],
             trait_names=["trait"],
-            chromosomes_aggregated=[],
             ldscore_overlap=LDScoreOverlap.from_contribution(
                 OverlapContribution(
                     baseline_block_all=np.array([[10.0]]), baseline_block_common=np.array([[10.0]]),
@@ -2070,7 +2063,6 @@ class RegressionWorkflowTest(unittest.TestCase):
             retained_ld_columns=["catA", "catA_dup"],
             dropped_zero_variance_ld_columns=[],
             trait_names=["trait"],
-            chromosomes_aggregated=[],
             ldscore_overlap=overlap,
         )
         x = np.array([[1.0, 1.0001], [2.0, 2.0001], [3.0, 3.0001], [4.0, 4.0002]])
@@ -2094,7 +2086,6 @@ class RegressionWorkflowTest(unittest.TestCase):
             retained_ld_columns=["base", "query"],
             dropped_zero_variance_ld_columns=[],
             trait_names=["trait"],
-            chromosomes_aggregated=[],
             ldscore_overlap=LDScoreOverlap.from_contribution(
                 OverlapContribution(
                     baseline_block_all=np.array([[10.0, 8.0]]), baseline_block_common=np.array([[10.0, 8.0]]),

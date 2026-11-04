@@ -34,7 +34,7 @@ def panel():
     return LDScoreResult(
         frame, None, [{"group": "baseline", "column": column, "all_reference_snp_count": count,
                        "common_reference_snp_count": count} for column, count in counts],
-        ["base", "confined"], [], frozenset(), frozenset(frame.SNP), [],
+        ["base", "confined"], [],
         config_snapshot=GlobalConfig(snp_identifier="rsid"),
     )
 

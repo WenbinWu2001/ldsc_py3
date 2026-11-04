@@ -420,7 +420,7 @@ Root `metadata.json.query_batches` records each file, ordered query columns, and
 Baseline, counts, and overlap are shared once.
 `LDScoreDirectoryWriter.write_batches()` in `_ldscore/outputs.py` stages all query files inside the output directory, publishes after successful computation, and writes metadata last.
 Its `_LDScorePublication` record retains only the shared baseline, counts, overlap, provenance, and diagnostic descriptors needed for publication.
-Materialized query tables, the LD-score producer's SNP sets, chromosome results, and staged query paths remain with the active batch and can be released before the next batch is requested.
+Materialized query tables, the LD-score producer's chromosome results, and staged query paths remain with the active batch and can be released before the next batch is requested.
 `_ldscore.source.validate_ldscore_baseline_table()` checks the shared baseline once, from the first batch; `validate_ldscore_query_table()` checks a complete materialized query table against it.
 Each fragment of every batch must repeat the identity columns (`CHR`, `SNP`, `POS`, `A1`, `A2`) of the matching first-batch baseline rows exactly and in order, which also catches a different SNP label or allele order that the identifier-mode key would accept; a mismatch fails the run before publication.
 Later batches no longer recompute the baseline, so there is no cross-batch comparison of baseline values.

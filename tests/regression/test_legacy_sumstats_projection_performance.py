@@ -49,9 +49,6 @@ def test_allele_unaware_legacy_projection_scales_without_per_row_pandas_work() -
         count_records=[],
         baseline_columns=["base"],
         query_columns=[],
-        ld_reference_snps=frozenset(),
-        ld_regression_snps=frozenset(panel_rsids),
-        chromosome_results=[],
         config_snapshot=GlobalConfig(snp_identifier="rsid", genome_build=None),
     )
     legacy = SumstatsTable(

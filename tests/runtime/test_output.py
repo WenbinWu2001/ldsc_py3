@@ -12,6 +12,7 @@ import numpy as np
 
 
 from ldsc.config import GlobalConfig
+from ldsc._core.identifiers import build_snp_id_series
 from ldsc.errors import LDSCInputError, LDSCInternalError
 from ldsc._ldscore.calculator import LDScoreResult
 from ldsc._regression.outputs import (
@@ -80,9 +81,6 @@ def make_split_ldscore_result(query: bool = True) -> LDScoreResult:
         count_records=count_records,
         baseline_columns=["base"],
         query_columns=query_columns,
-        ld_reference_snps=frozenset(),
-        ld_regression_snps=frozenset({"rs1", "rs2"}),
-        chromosome_results=[],
         config_snapshot=GlobalConfig(genome_build="hg38", snp_identifier="rsid"),
     )
 
@@ -136,9 +134,6 @@ def make_multi_chrom_result(chromosomes: list[str] | None = None) -> LDScoreResu
         count_records=[],
         baseline_columns=["base"],
         query_columns=["query"],
-        ld_reference_snps=frozenset(),
-        ld_regression_snps=frozenset(),
-        chromosome_results=[],
         config_snapshot=GlobalConfig(genome_build="hg38", snp_identifier="rsid"),
     )
 
@@ -339,7 +334,8 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             loaded = load_ldscore_from_dir(str(output_dir))
 
         self.assertEqual(loaded.config_snapshot, GlobalConfig(snp_identifier="rsid_allele_aware"))
-        self.assertEqual(loaded.ld_regression_snps, frozenset({"rs1:A:C", "rs2:A:G"}))
+        self.assertEqual(frozenset(build_snp_id_series(loaded.baseline_table, "rsid_allele_aware")),
+                         frozenset({"rs1:A:C", "rs2:A:G"}))
 
     def test_one_row_group_per_chromosome(self):
         import pyarrow.parquet as pq

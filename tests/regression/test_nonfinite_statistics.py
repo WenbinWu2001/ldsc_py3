@@ -69,7 +69,7 @@ def functional_panel():
         baseline, None,
         [{"group": "baseline", "column": column, "all_reference_snp_count": count,
           "common_reference_snp_count": count} for column, count in (("base", 1000.0), ("b2", 300.0))],
-        ["base", "b2"], [], frozenset(), frozenset(baseline.SNP), [], config_snapshot=source.config_snapshot,
+        ["base", "b2"], [], config_snapshot=source.config_snapshot,
         overlap=LDScoreOverlap.from_contribution(
             OverlapContribution(block, block, np.array([]), np.array([]), 1000, 1000),
             baseline_columns=["base", "b2"], query_columns=[]),

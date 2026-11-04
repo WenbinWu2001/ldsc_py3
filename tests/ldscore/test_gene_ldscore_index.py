@@ -607,11 +607,8 @@ def test_direct_plink_projects_annotations_and_regression_weights_in_one_travers
     assert public.reference_snp_count == len(prepared.metadata)
     assert public.regression_selected_snp_count == int(regression_mask.sum())
     assert public.regression_region_removed_snp_count == 0
-    assert [(record["group"], record["column"]) for record in public.count_records] == [
-        ("baseline", "base"),
-        ("baseline", "baseline_aux"),
-        ("query", "query"),
-    ]
+    assert (public.baseline_columns, public.query_columns) == (["base", "baseline_aux"], ["query"])
+    assert public.snp_count_totals["all_reference_snp_counts"].shape == (3,)
 
 
 def test_direct_plink_output_writes_header_only_duplicate_audit_when_no_rows_drop(tmp_path, monkeypatch):

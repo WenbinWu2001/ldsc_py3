@@ -49,6 +49,7 @@ from ldsc._refpanel.windows import (
     validate_window_positions_sorted,
     window_coordinates,
 )
+from ldsc._core.identifiers import build_snp_id_series
 from ldsc._core.snp_identity import RestrictionIdentityKeys, empty_identity_drop_frame
 
 
@@ -326,24 +327,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
             chrom=chrom,
             baseline_table=baseline_table,
             query_table=query_table,
-            count_records=[
-                {
-                    "group": "baseline",
-                    "column": "base",
-                    "all_reference_snp_count": count,
-                    "common_reference_snp_count": count - 1.0,
-                },
-                {
-                    "group": "query",
-                    "column": "query",
-                    "all_reference_snp_count": count + 1.0,
-                    "common_reference_snp_count": count,
-                },
-            ],
             baseline_columns=["base"],
             query_columns=["query"],
-            ld_reference_snps=frozenset(),
-            ld_regression_snps=frozenset({f"rs{chrom}"}),
             snp_count_totals={
                 "all_reference_snp_counts": np.array([count, count + 1.0]),
                 "common_reference_snp_counts": np.array([count - 1.0, count]),
@@ -364,18 +349,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 }
             ),
             query_table=None,
-            count_records=[
-                {
-                    "group": "baseline",
-                    "column": "base",
-                    "all_reference_snp_count": count,
-                    "common_reference_snp_count": count - 1.0,
-                }
-            ],
             baseline_columns=["base"],
             query_columns=[],
-            ld_reference_snps=frozenset(),
-            ld_regression_snps=frozenset({f"rs{chrom}"}),
             snp_count_totals={
                 "all_reference_snp_counts": np.array([count]),
                 "common_reference_snp_counts": np.array([count - 1.0]),
@@ -449,14 +424,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     "query": [2.0],
                 }
             ),
-            count_records=[
-                {"group": "baseline", "column": "base", "all_reference_snp_count": 10.0},
-                {"group": "query", "column": "query", "all_reference_snp_count": 11.0},
-            ],
             baseline_columns=["base"],
             query_columns=["query"],
-            ld_reference_snps=frozenset(),
-            ld_regression_snps=frozenset({"rs1"}),
             snp_count_totals={"all_reference_snp_counts": np.array([10.0, 11.0])},
             config_snapshot=GlobalConfig(snp_identifier="rsid"),
         )
@@ -498,14 +467,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     {"CHR": [chrom], "SNP": [snp], "POS": [10], "regression_ld_scores": [3.0], "base": [1.0]}
                 ),
                 query_table=pd.DataFrame({"CHR": [chrom], "SNP": [snp], "POS": [10], "query": [2.0]}),
-                count_records=[
-                    {"group": "baseline", "column": "base", "all_reference_snp_count": 10.0},
-                    {"group": "query", "column": "query", "all_reference_snp_count": 11.0},
-                ],
                 baseline_columns=["base"],
                 query_columns=["query"],
-                ld_reference_snps=frozenset(),
-                ld_regression_snps=frozenset({snp}),
                 snp_count_totals={"all_reference_snp_counts": np.array([10.0, 11.0])},
                 overlap=contribution,
                 config_snapshot=cfg,
@@ -534,13 +497,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     {"CHR": [chrom], "SNP": [snp], "POS": [10], "regression_ld_scores": [3.0], "base": [1.0]}
                 ),
                 query_table=None,
-                count_records=[
-                    {"group": "baseline", "column": "base", "all_reference_snp_count": 10.0},
-                ],
                 baseline_columns=["base"],
                 query_columns=[],
-                ld_reference_snps=frozenset(),
-                ld_regression_snps=frozenset({snp}),
                 snp_count_totals={"all_reference_snp_counts": np.array([10.0])},
                 overlap=contribution,
                 config_snapshot=cfg,
@@ -555,7 +513,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         )
         self.assertIsNone(result.overlap)
 
-    def test_wrap_legacy_result_derives_allele_aware_regression_ids_before_split(self):
+    def test_wrap_chrom_result_keeps_allele_aware_identity_after_split(self):
         legacy_result = kernel_ldscore.ChromComputationResult(
             chrom="1",
             metadata=pd.DataFrame(
@@ -584,7 +542,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
         )
 
         self.assertEqual(result.baseline_table.columns.tolist(), ["CHR", "SNP", "POS", "A1", "A2", "regression_ld_scores", "base"])
-        self.assertEqual(result.ld_regression_snps, frozenset({"1:10:A:C", "1:20:A:G"}))
+        self.assertEqual(frozenset(build_snp_id_series(result.baseline_table, "chr_pos_allele_aware")),
+                         frozenset({"1:10:A:C", "1:20:A:G"}))
         self.assertEqual(result.baseline_table["A1"].tolist(), ["A", "A"])
         self.assertEqual(result.baseline_table["A2"].tolist(), ["C", "G"])
 
@@ -696,9 +655,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
             ],
             baseline_columns=["base"],
             query_columns=["q_zero", "q_constant", "q_good"],
-            ld_reference_snps=frozenset({"rs1", "rs2"}),
-            ld_regression_snps=frozenset({"rs1", "rs2"}),
-            chromosome_results=[],
             config_snapshot=GlobalConfig(snp_identifier="rsid"),
         )
         statuses = (
@@ -1229,7 +1185,9 @@ class LDScoreWorkflowTest(unittest.TestCase):
             rtol=0,
             atol=0,
         )
-        self.assertEqual(bool_result.count_records, float_result.count_records)
+        for key, values in bool_result.snp_count_totals.items():
+            np.testing.assert_array_equal(values, float_result.snp_count_totals[key])
+        self.assertEqual(bool_result.snp_count_totals.keys(), float_result.snp_count_totals.keys())
 
     def test_run_rejects_annotation_bundle_snapshot_mismatch(self):
         calc = ldscore_workflow.LDScoreCalculator()
@@ -1333,9 +1291,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 count_records=[{"group": "baseline", "column": "base", "all_reference_snp_count": 1.0}],
                 baseline_columns=["base"],
                 query_columns=[],
-                ld_reference_snps=frozenset({"rs1"}),
-                ld_regression_snps=frozenset({"rs1"}),
-                chromosome_results=[],
                 config_snapshot=GlobalConfig(snp_identifier="rsid"),
                 query_statuses=(status,),
             )
@@ -1426,14 +1381,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 query_table=pd.DataFrame(
                     {"CHR": ["1", "1"], "SNP": ["rs1", "rs2"], "POS": [65419, 80000], "immune": [1.0, 2.0]}
                 ),
-                count_records=[
-                    {"group": "baseline", "column": "base", "all_reference_snp_count": 2.0},
-                    {"group": "query", "column": "immune", "all_reference_snp_count": 1.0},
-                ],
                 baseline_columns=["base"],
                 query_columns=["immune"],
-                ld_reference_snps=frozenset({"rs1", "rs2"}),
-                ld_regression_snps=frozenset({"rs1", "rs2"}),
                 snp_count_totals={"all_reference_snp_counts": np.array([2.0, 1.0])},
                 config_snapshot=GlobalConfig(snp_identifier="rsid"),
             )
@@ -1911,7 +1860,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
             regression.write_text('SNP\nrs2\n')
             result = ldscore_workflow.run_ldscore_from_args(build_parser().parse_args(argv))
             self.assertEqual(result.baseline_table.SNP.tolist(),['rs2'])
-            self.assertEqual(result.ld_regression_snps,frozenset({'rs2'}))
             np.testing.assert_array_equal(result.baseline_table.base,np.array([1+24576/32767],dtype=np.float32))
             np.testing.assert_array_equal(result.baseline_table.regression_ld_scores,[1])
             pd.testing.assert_frame_equal(pd.read_parquet(result.output_paths['baseline']),result.baseline_table)
@@ -2110,7 +2058,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
         )
 
         self.assertGreater(len(result.baseline_table), 0)
-        self.assertTrue(all(key.startswith("22:") for key in result.ld_regression_snps))
+        keys = build_snp_id_series(result.baseline_table, "chr_pos_allele_aware")
+        self.assertTrue(keys.str.startswith("22:").all())
 
     @unittest.skipUnless(_HAS_BITARRAY, "bitarray is not installed")
     def test_ldscore_calculator_run_applies_keep_filter_by_fam_iid(self):
@@ -2167,7 +2116,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
             )
 
             self.assertEqual(result.baseline_table["SNP"].tolist(), ["rs_6"])
-            self.assertEqual(result.ld_regression_snps, frozenset({"rs_6"}))
             self.assertEqual(result.count_records[0]["all_reference_snp_count"], 1.0)
 
     @unittest.skipUnless(_HAS_BITARRAY, "bitarray is not installed")
@@ -2523,7 +2471,7 @@ def test_regression_region_mask_leaves_reference_counts_and_ld_contributors_inta
     wrapped = ldscore_workflow.LDScoreCalculator()._wrap_chrom_result(legacy, GlobalConfig(snp_identifier="rsid"))
     assert wrapped.baseline_table["SNP"].tolist() == ["near_mhc", "outside"]
     np.testing.assert_allclose(wrapped.baseline_table["regression_ld_scores"], [1.0, 1.0])
-    assert wrapped.count_records[0]["all_reference_snp_count"] == 2.0
+    assert wrapped.snp_count_totals["all_reference_snp_counts"][0] == 2.0
     assert wrapped.regression_region_removed_snp_count == 1
 
 
@@ -2656,8 +2604,8 @@ def test_public_plink_calculation_prepares_genotypes_once():
     assert len(readers) == 1
     assert readers[0]._fh.closed
     assert len(result.baseline_table) == 4
-    assert result.count_records[0]["all_reference_snp_count"] == 4.0
-    assert result.count_records[0]["common_reference_snp_count"] == 4.0
+    assert result.snp_count_totals["all_reference_snp_counts"][0] == 4.0
+    assert result.snp_count_totals["common_reference_snp_counts"][0] == 4.0
 
 
 def test_build_parser_accepts_genetic_map_and_export_flags():

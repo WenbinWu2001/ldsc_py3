@@ -24,7 +24,7 @@ def h2_dataset():
                              'base': ld, 'weight': np.ones(60)}),
         ref_ld_columns=['base'], retained_ld_columns=['base'], dropped_zero_variance_ld_columns=[],
         weight_column='weight', reference_snp_count_totals={'common_reference_snp_counts': np.array([1000.])},
-        count_key_used_for_regression='common_reference_snp_counts', trait_names=['trait'], chromosomes_aggregated=['1'],
+        count_key_used_for_regression='common_reference_snp_counts', trait_names=['trait'],
         config_snapshot=GlobalConfig(snp_identifier='rsid'), effective_snp_identifier='rsid',
     )
 
@@ -62,7 +62,7 @@ def _regression_fit(command, config):
     merged["N2"] = 1500 + 5 * merged.base
     fields = {name: getattr(dataset, name) for name in (
         "ref_ld_columns", "retained_ld_columns", "dropped_zero_variance_ld_columns", "weight_column",
-        "reference_snp_count_totals", "count_key_used_for_regression", "chromosomes_aggregated", "config_snapshot",
+        "reference_snp_count_totals", "count_key_used_for_regression", "config_snapshot",
     )}
     rg_dataset = workflow.RegressionDataset(merged=merged, trait_names=["one", "two"], **fields)
     return runner.estimate_rg(rg_dataset)
@@ -166,7 +166,7 @@ def test_rg_outcome_uses_explicit_product_filter_not_h2_cap():
     merged.loc[2, ['Z1', 'Z2']] = [2., 5.]  # product 100: inclusive boundary
     fields = {name: getattr(h2, name) for name in (
         'ref_ld_columns', 'retained_ld_columns', 'dropped_zero_variance_ld_columns', 'weight_column',
-        'reference_snp_count_totals', 'count_key_used_for_regression', 'chromosomes_aggregated', 'config_snapshot',
+        'reference_snp_count_totals', 'count_key_used_for_regression', 'config_snapshot',
     )}
     dataset = workflow.RegressionDataset(merged=merged, trait_names=['one', 'two'], **fields)
     runner = workflow.RegressionRunner(GlobalConfig(snp_identifier='rsid'), RegressionConfig(chisq_max=10, num_blocks=5, use_intercept=False))

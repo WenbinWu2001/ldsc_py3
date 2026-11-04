@@ -22,7 +22,6 @@ from ..config import ConfigMismatchError, GlobalConfig
 from .._core.snp_identity import normalize_snp_identifier_mode
 from ..errors import LDSCInputError, LDSCInternalError
 from .._core.row_alignment import assert_same_snp_rows, first_identity_mismatch
-from .._core.identifiers import build_snp_id_series
 from .._core.snp_identity import (
     effective_merge_key_series,
     is_allele_aware_mode,
@@ -247,14 +246,11 @@ class LDScoreSource:
     baseline_columns: list[str]
     query_columns: list[str]
     count_records: list[dict]
-    config_snapshot: GlobalConfig | None
+    config_snapshot: GlobalConfig
     count_config: dict
     overlap: object | None
     output_paths: dict[str, str]
     annotation_types: dict[str, str]
-    ld_regression_snps: frozenset[str]
-    chromosome_results: tuple = ()
-    ld_reference_snps: frozenset[str] = frozenset()
     query_statuses: tuple = ()
     gene_list_batch: object | None = None
     chromosome_scope: dict = field(default_factory=dict)
@@ -349,9 +345,9 @@ def load_ldscore_from_dir(
         and the query files declared by the current ``query_batches`` manifest.
         Older directories without this manifest must be regenerated.
     snp_identifier : {"rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"} or None, optional
-        Identifier mode used to reconstruct the public regression SNP set from
-        the baseline table. When omitted, the metadata value is used. An
-        explicit value must agree with the saved identity configuration.
+        Identifier mode used to check the saved allele identity. When
+        omitted, the metadata value is used. An explicit value must agree
+        with the saved identity configuration.
 
     Returns
     -------
@@ -420,10 +416,10 @@ def load_ldscore_from_dir(
             total_all_reference_snps=overlap_config.get("total_all_reference_snps"),
             total_common_reference_snps=overlap_config.get("total_common_reference_snps"),
         )
-    metadata_identifier = config_snapshot.snp_identifier if config_snapshot is not None else metadata.get("snp_identifier")
+    metadata_identifier = config_snapshot.snp_identifier
     if snp_identifier is not None:
         requested_identifier = normalize_snp_identifier_mode(snp_identifier)
-        if metadata_identifier is not None and requested_identifier != metadata_identifier:
+        if requested_identifier != metadata_identifier:
             raise ConfigMismatchError(
                 "snp_identifier mismatch when loading LD-score directory: "
                 f"override {requested_identifier!r} vs metadata {metadata_identifier!r}. "
@@ -431,7 +427,7 @@ def load_ldscore_from_dir(
             )
         effective_identifier = requested_identifier
     else:
-        effective_identifier = metadata_identifier or "chr_pos_allele_aware"
+        effective_identifier = metadata_identifier
     validate_ldscore_allele_columns(
         baseline_table,
         table_name="baseline_table",
@@ -462,9 +458,6 @@ def load_ldscore_from_dir(
         count_records=count_records,
         baseline_columns=baseline_columns,
         query_columns=query_columns,
-        ld_reference_snps=frozenset(),
-        ld_regression_snps=frozenset(build_snp_id_series(baseline_table, effective_identifier)),
-        chromosome_results=[],
         output_paths={
             "metadata": str(metadata_path),
             "baseline": str(root / baseline_rel),
@@ -484,7 +477,7 @@ def load_ldscore_from_dir(
     query_rows = 0 if query_table is None else len(query_table)
     LOGGER.info(
         f"Loaded LD-score directory '{root}' with {len(baseline_table)} baseline rows, "
-        f"{query_rows} query rows, and config provenance {'present' if config_snapshot is not None else 'unknown'}."
+        f"{query_rows} query rows, and config provenance present."
     )
     return result
 
@@ -513,8 +506,8 @@ def _validate_count_overlap_config(metadata: dict[str, Any], root: Path) -> None
         )
 
 
-def _global_config_from_metadata(metadata: dict[str, Any]) -> GlobalConfig | None:
-    """Recreate a GlobalConfig snapshot when LD-score metadata contains one."""
+def _global_config_from_metadata(metadata: dict[str, Any]) -> GlobalConfig:
+    """Recreate the GlobalConfig snapshot recorded in LD-score metadata."""
     if "artifact_type" not in metadata:
         raise LDSCInputError(
             "Could not read LD-score directory provenance: metadata lacks `artifact_type`. "

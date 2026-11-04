@@ -116,6 +116,56 @@ def common_count_config(common_maf_min: float) -> dict[str, Any]:
 DEFAULT_COUNT_CONFIG = common_count_config(0.05)
 
 
+def snp_universe_policy_record(
+    *,
+    ref_panel_snps_file: str | PathLike[str] | None,
+    regr_snps_file: str | PathLike[str] | None,
+    regression_regions: Any,
+    retained_snp_count: int,
+    selected_snp_count_before_region_exclusion: int,
+    region_excluded_snp_count: int,
+    written_snp_count: int,
+) -> dict[str, Any]:
+    """Describe the independently selected reference SNPs and regression SNPs.
+
+    This is persisted as ``snp_universe_policy`` in ``metadata.json`` so an
+    LD-score directory cannot make a regression-SNP exclusion look like a
+    change to its LD-reference estimand. Direct runs record their computed
+    chromosomes; a gene LD-score index records its build, and indexed runs
+    copy that record.
+
+    Parameters
+    ----------
+    ref_panel_snps_file, regr_snps_file : path-like or None
+        The explicit reference-panel and regression-SNP restrictions, or
+        ``None`` for no reference-panel restriction and for the HM3 map as
+        the regression SNPs.
+    regression_regions : RegionIntervals or None
+        Named regions subtracted from the regression SNPs.
+    retained_snp_count : int
+        Reference SNPs on the annotation SNP grid; the reference-SNP funnel
+        records what each step, including the grid, removed.
+    selected_snp_count_before_region_exclusion, region_excluded_snp_count, written_snp_count : int
+        Regression SNPs before the region subtraction, removed by it, and
+        written after it.
+    """
+    return {
+        "ld_reference_universe": {
+            "ref_panel_snps_file": None if ref_panel_snps_file is None else str(ref_panel_snps_file),
+            "retained_snp_count": int(retained_snp_count),
+        },
+        "regression_rows_and_weights": {
+            "selection": "bundled_hm3_default" if regr_snps_file is None else "explicit_regr_snps_file",
+            "regr_snps_file": None if regr_snps_file is None else str(regr_snps_file),
+            "region_exclusion_sources": [] if regression_regions is None else list(regression_regions.source_labels),
+            "selected_snp_count_before_region_exclusion": int(selected_snp_count_before_region_exclusion),
+            "region_excluded_snp_count": int(region_excluded_snp_count),
+            "written_snp_count": int(written_snp_count),
+            "weight_contributors": "same_filtered_regression_set",
+        },
+    }
+
+
 @dataclass(frozen=True)
 class QueryDiagnostics:
     """Diagnostics of an LD-score run that stopped before publication.

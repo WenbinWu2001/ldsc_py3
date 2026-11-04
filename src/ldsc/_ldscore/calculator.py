@@ -81,6 +81,7 @@ from .outputs import (
     REGRESSION_LD_SCORE_COLUMN,
     common_count_config,
     ref_metadata_file,
+    snp_universe_policy_record,
 )
 from .._runtime.paths import (
     ensure_output_directory,
@@ -104,6 +105,7 @@ from .._refpanel.funnel import (
 from .._refpanel.prepared import ChromosomeAnnotations
 from .._core import regions as kernel_regions
 from .._annotation.overlap import OverlapContribution, sum_overlap_contributions
+from .._annotation.semantics import combine_annotation_types
 from .._core.regions import REGR_SNPS_EXCLUDE_REGIONS_CHOICES, regr_snps_exclude_regions_choice_to_presets
 from .._refpanel.r2_format import SIDECAR_FLOAT_FORMAT
 from .._core.identifiers import build_snp_id_series, read_snp_restriction_keys
@@ -731,15 +733,8 @@ class LDScoreCalculator:
                 sum_overlap_contributions(overlaps), baseline_columns, query_columns,
                 include_baseline=include_baseline,
             )
-        annotation_names = [*counted_baseline, *query_columns]
-        annotation_types = {
-            name: (
-                "quantitative"
-                if any(chrom_result.annotation_types.get(name) == "quantitative" for chrom_result in chromosome_results)
-                else "binary"
-            )
-            for name in annotation_names
-        }
+        annotation_types = combine_annotation_types(
+            [*counted_baseline, *query_columns], [result.annotation_types for result in chromosome_results])
         shared = dict(
             baseline_columns=baseline_columns,
             query_columns=query_columns,
@@ -2195,36 +2190,20 @@ def _snp_universe_policy(
     regression_regions: kernel_regions.RegionIntervals | None,
     chromosome_results: Sequence[ChromLDScoreResult | DirectChromosomeFragment],
 ) -> dict[str, Any]:
-    """Describe the independently selected reference SNPs and regression SNPs.
+    """Describe the computed chromosomes' reference SNPs and regression SNPs.
 
-    This is persisted in ``metadata.json`` so an LD-score directory cannot make
-    a regression-SNP exclusion look like a change to its LD-reference
-    estimand. ``retained_snp_count`` counts the reference SNPs on the
-    annotation SNP grid; the reference-SNP funnel records what each step,
-    including the grid, removed. Regression counts are before and after the
-    regression-region subtraction respectively.
+    See ``snp_universe_policy_record`` for the persisted fields.
     """
-    ref_panel_snps_file = getattr(getattr(ref_panel, "spec", None), "ref_panel_snps_file", None)
-    custom_regression_file = ldscore_config.regr_snps_file
-    return {
-        "ld_reference_universe": {
-            "ref_panel_snps_file": None if ref_panel_snps_file is None else str(ref_panel_snps_file),
-            "retained_snp_count": int(sum(result.reference_snp_count for result in chromosome_results)),
-        },
-        "regression_rows_and_weights": {
-            "selection": "bundled_hm3_default" if custom_regression_file is None else "explicit_regr_snps_file",
-            "regr_snps_file": None if custom_regression_file is None else str(custom_regression_file),
-            "region_exclusion_sources": [] if regression_regions is None else list(regression_regions.source_labels),
-            "selected_snp_count_before_region_exclusion": int(
-                sum(result.regression_selected_snp_count for result in chromosome_results)
-            ),
-            "region_excluded_snp_count": int(
-                sum(result.regression_region_removed_snp_count for result in chromosome_results)
-            ),
-            "written_snp_count": int(sum(len(result.baseline_table) for result in chromosome_results)),
-            "weight_contributors": "same_filtered_regression_set",
-        },
-    }
+    return snp_universe_policy_record(
+        ref_panel_snps_file=getattr(getattr(ref_panel, "spec", None), "ref_panel_snps_file", None),
+        regr_snps_file=ldscore_config.regr_snps_file,
+        regression_regions=regression_regions,
+        retained_snp_count=sum(result.reference_snp_count for result in chromosome_results),
+        selected_snp_count_before_region_exclusion=sum(
+            result.regression_selected_snp_count for result in chromosome_results),
+        region_excluded_snp_count=sum(result.regression_region_removed_snp_count for result in chromosome_results),
+        written_snp_count=sum(len(result.baseline_table) for result in chromosome_results),
+    )
 
 
 def _ld_window_snp_counts(ref_panel, ldscore_config: LDScoreConfig, chromosome_results) -> pd.DataFrame | None:

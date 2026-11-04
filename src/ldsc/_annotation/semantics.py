@@ -76,7 +76,33 @@ def classify_annotation_values(values: pd.DataFrame) -> dict[str, str]:
     return classifications
 
 
+def combine_annotation_types(
+    names: Sequence[str], chromosome_types: Sequence[dict[str, str]]
+) -> dict[str, str]:
+    """Combine per-chromosome classifications into one classification per column.
+
+    Parameters
+    ----------
+    names : sequence of str
+        Ordered annotation names to classify.
+    chromosome_types : sequence of dict
+        One ``classify_annotation_values``-style mapping per chromosome. A
+        name a chromosome does not classify counts as binary there.
+
+    Returns
+    -------
+    dict of str to {"binary", "quantitative"}
+        ``"quantitative"`` when any chromosome classifies the column as
+        quantitative, otherwise ``"binary"``, in ``names`` order.
+    """
+    return {
+        name: "quantitative" if any(types.get(name) == "quantitative" for types in chromosome_types) else "binary"
+        for name in names
+    }
+
+
 __all__ = [
     "classify_annotation_values",
+    "combine_annotation_types",
     "require_unique_annotation_names",
 ]

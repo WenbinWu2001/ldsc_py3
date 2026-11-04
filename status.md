@@ -1,9 +1,53 @@
 # Status
 
-Last updated on: 2026-11-03
+Last updated on: 2026-11-04
 
-Branch `restructure`; checked on 2026-11-03.
+Branch `restructure`; checked on 2026-11-04.
 Nothing below is in progress; each open item needs the user's go-ahead.
+
+## Completed: A/T and C/G SNPs are valid identities (2026-11-04)
+
+The default `chr_pos_allele_aware` mode stopped every PLINK-panel command (`ldscore --plink-prefix`, `--export-ref-metadata`, `build-gene-ldscore-index`) on standard 1000 Genomes panels, where 14-15% of SNPs are A/T or C/G, while `build-r2-matrix` and `annotate` dropped those SNPs with a log line only, and the documentation said they were dropped everywhere.
+Root cause: `PlinkRefPanel._load_source()` cleaned identities only in base modes and then validated every row with the strict key builder; the cleanup that would have dropped the rows was never reached, and the 32-SNP fixture had no such SNP.
+The user chose option A on 2026-11-03 (keep A/T and C/G as identities; every signed use treats their strand as unknown; `h2` and `partitioned-h2` add no strand check) and decided the follow-ups on 2026-11-04: no artifact markers or version checks, drop and report unusable panel alleles as a recorded exception, and record rg's two alignment counts.
+The evidence and question record are in the shared side-session note `strand-ambiguous-evidence.md`, outside the repository.
+
+- `4d0af69`: `h2` and `partitioned-h2` no longer orient `Z` to the LD-score alleles; the step fit nothing ($\chi^2 = Z^2$) and would have dropped every A/T SNP through `MATCH_ALLELES`.
+  `RegressionDataset.merged["Z"]` keeps the summary statistics' `A1` orientation.
+- `4c890f9` (breaking): SNP identity accepts A/T and C/G; the canonical allele sets are `A:C`, `A:G`, `A:T`, `C:G`, and the drop reason `strand_ambiguous_allele` is gone.
+  `VALID_SNPS` moves to `_regression/estimators.py`, its only user.
+- `662d02b`: `query-r2-matrix` leaves `sign_r` and `r` empty for a pair with an A/T or C/G endpoint; the old rule reported an aligned sign.
+- `be15419`: legacy `.sumstats` projection no longer drops A/T rows (it did so for `h2` too, in every panel mode); against an allele-aware panel they keep their source alleles, `Z` and `FRQ`, because the flip rule always reversed them.
+- `e298694`: `rg` records per pair `dropped_orientation_unknown_rows` (A/T and C/G, expected) and `dropped_incompatible_allele_rows` (different allele pairs, base modes only) in root `metadata.json`, includes both in the error of a pair that keeps no SNP, and prints one stderr WARNING from the command line; `run_from_kwargs` marks Python calls so they never print.
+- `0a03f69`: in allele-aware modes PLINK panel rows with missing, non-ACGT or identical alleles are dropped in `_load_source()` (every mode now cleans there) instead of stopping the run; the redundant cleanup in `_align_annotations()` and its funnel step `allele_aware_identity_cleanup` are gone.
+  `ldscore`, `build-r2-matrix`, `annotate` and `build-gene-ldscore-index` print one stderr WARNING that sums the run's `diagnostics/dropped_snps/` tables by reason (`emit_dropped_snps_notice()`).
+- `22792bb`: reference, user-guide and developer pages; the new recorded exception in `ldscore-snp-universes.md` and `AGENTS.md`; the proposed vocabulary term "A/T or C/G SNP".
+- This commit: this record and a `lessons.md` entry.
+
+### Decisions taken during implementation
+
+- `query-r2-matrix` adds no `status` value for an A/T endpoint; the empty sign is documented.
+- Munging keeps A/T SNPs in every mode: it writes `Z` for the file's own `A1` and compares no strands.
+- The HM3 curation tool follows the package identity; the packaged map is unchanged and has no A/T SNP.
+- The stderr dropped-SNP notice reports every reason in the tables, so it also shows duplicate and multi-allelic drops in any mode and liftover drops in `build-r2-matrix`; only the unusable-allele drop is the new recorded exception, the others were already documented policy.
+
+### Evidence
+
+- Harness on `git archive` exports of `0d42f89` (before) and `22792bb` (after): 13 commands x 4 modes x 2 panels (the fixture with two SNPs relabelled A/T and C/G, and the same plus an indel and an identical pair).
+  Base modes are identical before and after.
+  In allele-aware modes the 7 commands that exited 1 now succeed; `build-r2-matrix`, `annotate` and R² `ldscore` keep 32 rows instead of 30; the query pair with an A/T endpoint returns R² 0.0489 with no sign instead of `not_in_matrix`; with the second panel 2 rows are dropped as `invalid_allele`, and each command prints the WARNING.
+  After the change the four modes give identical LD scores on the first panel.
+- 1000 Genomes EUR Phase 3 chr22 (141,123 SNPs, 20,351 A/T or C/G), `--ld-wind-cm 1`: `chr_pos_allele_aware` exited 1 before; now its 17,382 LD scores equal `chr_pos` exactly, and both count 141,123 SNPs and 83,323 common SNPs, as legacy `M` and `M_5_50` do.
+  `rsid_allele_aware` (with `--regr-snps-exclude-regions none`) gives the same counts and equal LD scores on its 17,482 rows.
+- Tests: each commit ran its focused tests before it was committed (for example 416 regression tests for `4d0af69`, 772 for `4c890f9`, 478 for `e298694`, 806 refpanel and ldscore plus 720 annotation, runtime and package tests for `0a03f69`).
+  The full suite in the working tree at `22792bb` passed 2,615 tests with none skipped.
+
+### Open items
+
+- The commits are local and not pushed; the HPC package copy does not have them.
+- `run_build_r2_matrix()` (Python) ignores the registered `GlobalConfig.snp_identifier` and always builds `chr_pos_allele_aware`, although its docstring says the mode comes from the registered config; found while testing, not fixed.
+- `ldscore --snp-identifier rsid_allele_aware --genome-build hg19` with the default region exclusion stops with "Pass `--genome-build hg19`", because rsID-family modes discard the build; the message asks for the option already given.
+- Duplicate and multi-allelic reference-panel drops are documented policy but not listed among the recorded exceptions in `AGENTS.md`; ask whether they should be.
 
 ## Completed: one LD-window rule (2026-11-03)
 

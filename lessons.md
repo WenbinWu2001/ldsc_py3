@@ -1,7 +1,7 @@
 
 # Lessons
 
-Last updated on: 2026-11-03
+Last updated on: 2026-11-04
 
 ## Refactoring must preserve attribution outside removable banners
 
@@ -347,3 +347,11 @@ Last updated on: 2026-11-03
   Every test of the rule went through the CLI parser, the one route that enforced it.
   `normalize_prevalence_pair()` in `src/ldsc/config.py` now holds the rule, and `RegressionConfig`, the `rg` prevalence parsers and `estimate_rg_pairs()` apply it before any fit.
   When a docstring states a constraint, find the code that enforces it on every public route and test the Python seams, not only the command; see `tests/regression/test_prevalence.py`.
+
+## Fixtures must contain the input classes real data carries
+
+- Summary/root cause/correction: The default `chr_pos_allele_aware` mode stopped every PLINK-panel command on standard 1000 Genomes panels, where about 15% of SNPs are A/T or C/G, while the documentation said such rows were dropped.
+  `PlinkRefPanel._load_source()` cleaned identities only in base modes, then validated every row with the strict key builder, so the allele-aware cleanup in `_align_annotations()` was never reached; the 32-SNP chromosome-22 fixture had no A/T, C/G, indel or identical-allele row, so no test reached the validation either.
+  The rule was also wrong for science: an A/T pair is a valid SNP identity, and only signed comparisons need its strand.
+  Identity now accepts A/T and C/G, cleanup runs before validation in every mode, and `tests/ldscore/test_strand_ambiguous_snps.py` and `tests/ldscore/test_unusable_panel_alleles.py` relabel fixture alleles to cover these classes.
+  When a rule filters a class of rows, test it with a fixture that contains that class on every route, and order cleanup before any strict validation of the same rows.

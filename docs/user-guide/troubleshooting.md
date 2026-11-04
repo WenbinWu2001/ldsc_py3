@@ -586,7 +586,7 @@ or rebuild the index, or remove `--gene-ldscore-index-dir` and supply the
 full direct-mode inputs explicitly. Older gene-index metadata contracts are not
 loaded by the current strict reader and must be rebuilt; ordinary canonical
 LD-score directories already produced from them are unaffected.
-An `Unsupported gene LD-score index format version 2` or `3` error means the index predates the current format: version 3 introduced exact PLINK LD windows and version 4 stores each chromosome's reference-SNP funnel.
+An `Unsupported gene LD-score index format version` error for versions 2 to 5 means the index predates the current format 6: version 3 introduced exact PLINK LD windows, version 4 stores each chromosome's reference-SNP funnel, version 5 gives each SNP's minor allele as `A1`, and version 6 sums baseline annotation counts in float64 and stores the `annotation_types` and `snp_universe_policy` that indexed `ldscore` output records.
 Rebuild it with the current `ldsc build-gene-ldscore-index`.
 
 **Developer reference:** integrity checks include metadata IDs, mode/build agreement, the ordered published-row metadata digest, chromosome coverage, duplicate effective identities, Parquet rows, NPZ members, CSR structure/dtypes, and dimensions.

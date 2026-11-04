@@ -110,8 +110,8 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 | `ldsc._annotation.gene_query_storage` | staged per-source gene selections and complete audit replay with shared gene-coordinate-catalog state |
 | `ldsc._annotation.query_outcomes` | shared gene coverage, resolution/support precedence, required-control and all-skipped failures, ordered diagnostics, and aligned result pruning; does not import workflow orchestration |
 | `ldsc._annotation.in_memory` | small prepared annotations and diagnostics without filesystem writes |
-| `ldsc._annotation.semantics` | global annotation-name uniqueness and advisory binary/continuous classification |
-| `ldsc._annotation.overlap` | annotation overlap-block computation (`OverlapContribution`, `compute_overlap`, `sum_overlap_contributions`); a product of annotations over reference SNPs without LD |
+| `ldsc._annotation.semantics` | global annotation-name uniqueness and advisory binary/continuous classification, combined across chromosomes by `combine_annotation_types` |
+| `ldsc._annotation.overlap` | annotation counts, overlap blocks and classification over reference SNPs without LD (`annotation_statistics`, `OverlapContribution`, `sum_overlap_contributions`), shared by direct `ldscore` and the gene-index build |
 | `ldsc._annotation.outputs` | `AnnotationDirectoryWriter` for the `ldsc annotate` result directory |
 | `ldsc._refpanel.plink` | PLINK genotype reader (`PlinkBEDFile` and its `__GenotypeArrayInMemory__` base): selective SNP reads with fused individual filtering retain only selected packed genotypes; unrestricted panel builds opt into disk streaming instead |
 | `ldsc._refpanel.r2_format` | the R² matrix format: file names (`r2_matrix_file_paths`, `r2_matrix_chromosomes`, `resolve_r2_build_dir`), schema constants, Parquet and sidecar writers, `R2MatrixChromosome` (footer contract, strict sidecar reading, sidecar binding, LD-window and truncation checks for `ldscore` and `query-r2-matrix`), `SortedR2BlockReader` and the pair lookup used by `query-r2-matrix` |

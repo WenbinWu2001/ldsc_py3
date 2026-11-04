@@ -1,6 +1,6 @@
 # Memory and CPU efficiency design
 
-Last updated on: 2026-11-03
+Last updated on: 2026-11-04
 
 <a id="annotation-and-workflow-memory-design"></a>
 
@@ -466,6 +466,7 @@ The [index mathematics](../../reference/methods/gene-ldscore-index-math.md) defi
 It then traverses the genotype blocks again for each atom batch, retaining the resulting float64 sparse operator blocks until their final horizontal assembly.
 Atom batching bounds the active dense projection but does not bound the complete chromosome operator or the final assembly copies.
 This builder also explicitly reads its chromosome baseline matrix into float64.
+Its baseline counts and overlaps come from `annotation_statistics()`, which reads the baseline again in bounded tiles, as in direct `ldscore`.
 Common-SNP atom overlaps multiply the baseline by a common-row indicator instead of a copied common-row baseline, adding the same rows in the same order.
 Each construction task receives only its own chromosome's genetic-map rows.
 These are remaining large allocations, not eliminated by compressed NPZ storage.

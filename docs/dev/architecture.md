@@ -286,7 +286,8 @@ Shared allele-aware cleanup and duplicate-group removal retain audit diagnostics
 Contradictory baseline/PLINK coordinates or usable alleles fail with a repair table before chromosome workers; cross-chromosome rsID checks use a temporary SQLite join.
 Empty intersections fail, PLINK `CHR/POS/SNP/A1/A2` metadata is authoritative, and canonical sorting maps back to preserved physical BIM/BED indices.
 The private kernel owns disjoint half-open atoms, Boolean gene-to-atom CSR membership, bounded SNP-by-atom blocks, sufficient statistics, and float64 `Y @ z` assembly.
-Each index directory is one immutable format-version-4 artifact with no restart, resume, incremental update, component reuse, or legacy-index loader.
+Each index directory is one immutable format-version-6 artifact with no restart, resume, incremental update, component reuse, or legacy-index loader.
+The builder takes baseline counts, overlaps and `annotation_types` from the same `annotation_statistics()` call as direct `ldscore`, and builds its root `annotation_types` and `snp_universe_policy` with the helpers direct `ldscore` uses (`_annotation.semantics.combine_annotation_types()`, `_ldscore.outputs.snp_universe_policy_record()`), so indexed metadata matches a direct run.
 Earlier formats require a complete rebuild.
 Indexed output is still a self-contained LD-score directory written by `LDScoreDirectoryWriter`; it inherits identity/build and rejects live overrides.
 Architecture invariant: online assembly uses only the explicitly named complete index and never discovers an index or falls back to live computation.

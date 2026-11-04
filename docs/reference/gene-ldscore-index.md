@@ -162,6 +162,7 @@ At INFO, the live build log marks annotation input reading, SNP identity checkin
 | Existing regression-weight LD scores | **No.** The builder recomputes $w=PRp$. |
 
 Recomputation guarantees that $L_A$, the atom operator $Y=PRH$, counts, overlaps, and $w$ share the index's selected individuals, genotype and MAF filters, reference intersection, map/window, unbiased-R² implementation, and regression-SNP policy.
+The baseline all-SNP counts, common-SNP counts and overlaps come from the same `annotation_statistics()` call as in direct `ldscore` ([`_annotation/overlap.py`](../../src/ldsc/_annotation/overlap.py)), which sums the float32 annotation values in float64; indexed output therefore gives a continuous baseline annotation the counts a direct run gives it, up to float64 rounding.
 Merely residing beside the annotation shards does not make a legacy `.ldscore.gz`, `.M`, or `.M_5_50` file an index input.
 
 The fixed baseline and weight payload is projected in one PLINK traversal: the
@@ -209,8 +210,15 @@ Batching, workers, logging, output path, and overwrite are resource or publicati
 The input fingerprints behind `index_id` (normalized baseline content, whole PLINK BED file bytes, parsed BIM metadata, selected individual IDs, sorted regression keys, and the genetic map) only define the identity; indexed scoring never re-reads those inputs to check them again.
 Identical inputs and settings must produce identical fingerprints and the same `index_id`; changing what a fingerprint covers changes the identity of every index.
 
-Root and chromosome metadata record `format_version: 5` and repeat the immutable SNP identifier mode and hg19/hg38 build.
-Version 5 gives each row's minor allele as `A1`, as other files derived from PLINK genotypes do; `index_id` hashes only the inputs, so the version is what separates it from version 4.
+Root and chromosome metadata record `format_version: 6` and repeat the immutable SNP identifier mode and hg19/hg38 build.
+Root metadata also stores two records that indexed `ldscore` copies into its `metadata.json` ([LD-score metadata](formats/artifact-metadata.md#ldscore)), outside `index_identity`:
+
+- `annotation_types` classifies each baseline column as `binary` or `quantitative`, as direct `ldscore` classifies it: a column is `quantitative` when any chromosome has a value other than 0 or 1 among its reference SNPs.
+  Indexed output adds `gene_control` and the gene-list queries as `binary`, because they are Boolean unions of atoms.
+- `snp_universe_policy` records the reference SNPs and the regression SNPs of the build in the form direct `ldscore` writes: no reference-panel restriction file, the `--regr-snps-file` path as given at build time (or the HM3 map), the region-exclusion presets, and the regression SNPs before and after the region subtraction.
+
+Version 6 sums the baseline counts in float64, as direct `ldscore` does, where earlier versions summed them in float32, and adds the two root records; `index_id` hashes only the inputs, so a version-5 index of the same inputs has the same `index_id`, and the version is what separates them.
+Version 5 gives each row's minor allele as `A1`, as other files derived from PLINK genotypes do.
 Version 4 added each chromosome's reference-SNP funnel, `reference_snp_funnel.parquet`, which indexed `ldscore` reports; version 3 introduced exact PLINK LD windows, and version 2 operators used legacy LDSC's batch-rounded windows.
 The loader rejects every earlier version and asks for a rebuild.
 Each chromosome records `published_row_metadata_sha256` over ordered `CHR SNP POS A1 A2` metadata for regression SNPs only.

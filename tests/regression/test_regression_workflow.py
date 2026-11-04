@@ -391,7 +391,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             config_snapshot=GlobalConfig(snp_identifier=snp_identifier, genome_build="hg38"),
         )
 
-    def make_rg_kernel_result(self, *, rg=0.25, rg_se=0.05, z=5.0, p=0.01):
+    def make_rg_kernel_result(self, *, rg=0.25, rg_se=0.05, z=5.0, p=0.01, h2_2=0.30):
         hsq1 = mock.Mock(
             tot=np.array([0.20]),
             tot_se=np.array([0.02]),
@@ -403,7 +403,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             ratio_se=0.01,
         )
         hsq2 = mock.Mock(
-            tot=np.array([0.30]),
+            tot=np.array([h2_2]),
             tot_se=np.array([0.03]),
             intercept=np.array([1.02]),
             intercept_se=0.02,
@@ -426,6 +426,8 @@ class RegressionWorkflowTest(unittest.TestCase):
             hsq1=hsq1,
             hsq2=hsq2,
             gencov=gencov,
+            # As the kernel sets it: True when a heritability estimate is at most 0, else None.
+            _negative_hsq=True if h2_2 <= 0 else None,
         )
 
     def make_annotation_bundle(self):
@@ -1621,7 +1623,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertIn("Failed", result.rg.loc[1, "note"])
         self.assertTrue(any("pair exploded" in record for record in logs.output))
 
-    def test_estimate_rg_pairs_converts_kernel_na_to_failed_row_but_preserves_numeric_out_of_range_rg(self):
+    def test_estimate_rg_pairs_marks_out_of_bounds_h2_unestimable_but_preserves_numeric_out_of_range_rg(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         traits = [
             replace(self.make_sumstats_table(), trait_name="A", source_path="A.sumstats.gz"),
@@ -1633,16 +1635,18 @@ class RegressionWorkflowTest(unittest.TestCase):
             regression_runner.reg,
             "RG",
             side_effect=[
-                self.make_rg_kernel_result(rg="NA", rg_se="NA", z="NA", p="NA"),
+                self.make_rg_kernel_result(rg="NA", rg_se="NA", z="NA", p="NA", h2_2=-0.01),
                 self.make_rg_kernel_result(rg=1.5, rg_se=0.1, z=15.0, p=1e-6),
                 self.make_rg_kernel_result(rg=0.2, rg_se=0.1, z=2.0, p=0.04),
             ],
         ):
             result = runner.estimate_rg_pairs(traits, self.make_ldscore_result())
 
-        self.assertEqual(result.rg_full.loc[0, "status"], "failed")
+        self.assertEqual(result.rg_full.loc[0, "status"], "unestimable")
         self.assertTrue(np.isnan(result.rg.loc[0, "rg"]))
-        self.assertIn("non-numeric", result.rg_full.loc[0, "error"])
+        self.assertIn("h2_2_obs (trait 'B') is -0.01", result.rg_full.loc[0, "error"])
+        self.assertEqual(result.rg_full.loc[0, "h2_2_obs"], -0.01)
+        self.assertEqual(result.rg.loc[0, "note"], regression_runner.H2_OUT_OF_BOUNDS_RG_NOTE)
         self.assertEqual(result.rg_full.loc[1, "status"], "ok")
         self.assertEqual(result.rg.loc[1, "rg"], 1.5)
 

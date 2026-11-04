@@ -1020,6 +1020,32 @@ Do not substitute a pseudoinverse or fabricate uncertainty.
 
 **Developer reference:** `_require_rg_alleles()` in `_regression/runner.py` · **Exception:** `LDSCInputError`
 
+### `rg`: a SNP heritability estimate is out of bounds
+
+**Symptom:** an `rg` pair with `status` `unestimable`, `NaN` in `rg`, `rg_se`, `z` and `p`, and `SNP heritability out of bounds: on the pair's ... SNPs, h2_2_obs (trait '...') is ...` in the `error` column of `rg_full.tsv`; its `rg.tsv` note reads `Unestimable: a SNP heritability estimate is not positive (h2 out of bounds)`.
+
+The genetic correlation divides the genetic covariance by the square root of the product of the two traits' SNP heritabilities, so it is undefined when either heritability estimate on the pair's SNPs is zero or negative.
+Legacy LDSC reports the same pair as `h2 out of bounds` (`RG.summary()` in `ldscore/regressions.py`).
+The pair keeps its SNP count and its heritability, genetic covariance and intercept estimates in `rg_full.tsv`, and the other pairs are still fitted; the run exits with code 0.
+A negative heritability estimate is a valid estimate for a trait with little signal.
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | The trait has too little heritability signal for its GWAS sample size | The trait's `total_h2_obs` in `h2_per_trait.tsv` is near zero with a standard error as large as the estimate, and its `mean_chisq` is close to 1 |
+| 2 | The pair shares few SNPs, so the estimate on them is noisier than the trait's own | The pair's `n_snps_used` is much lower than the trait's `n_snps` in `h2_per_trait.tsv`, where its `total_h2_obs` is positive |
+| 3 | A munging error, such as a wrong `N` column or a statistic mistaken for the signed statistic | The column mapping in the munging log, and the trait's `mean_chisq` and `lambda_gc` against published values for the GWAS |
+| 4 | `--intercept-h2` fixes the intercept above the trait's free estimate, which pushes the heritability down | Compare the fixed value with the free-intercept `intercept` that `ldsc h2` reports for the trait |
+
+**Remedies:**
+
+1. Fix a munging error and rerun `ldsc munge-sumstats` and `ldsc rg`.
+2. Use free intercepts, or fixed values that agree with the free estimates.
+3. Otherwise report the pair's genetic correlation as unestimable; do not clip the heritability, take its absolute value or change the intercept only to obtain a number.
+
+**Developer reference:** `_kernel_rg_estimate()` and `_summarize_rg_pair()` in `_regression/runner.py`, which read `RG._negative_hsq` from `_regression/estimators.py` · **Exception:** none; the pair is recorded and the run continues
+
 ### `partitioned-h2`: a query regression fails
 
 **Symptom:** one or more query models could not be fitted or summarized, or their jackknife uncertainty could not be estimated.

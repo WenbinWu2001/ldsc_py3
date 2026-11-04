@@ -432,6 +432,9 @@ See [allele alignment between traits](../regression-options.md#31-allele-alignme
 Root and per-pair `diagnostics/metadata.json` files are provenance only.
 Per-pair metadata records the prevalences supplied for each trait (`samp_prev_1`, `pop_prev_1`, `samp_prev_2`, `pop_prev_2`, each `null` when unset) and a `scale` (`observed` | `liability`) field; the genetic correlation itself is scale-invariant.
 A failed or unestimable pair keeps these inputs, in its metadata and in its `rg_full.tsv` row, although its estimates are missing; `scale` then names the scale the prevalences request.
+Each pair's `status`, in `rg_full.tsv` and in its metadata, is `ok`, `failed` (any other pair-level error), or `unestimable` for one of two causes, named in `error` and in the `rg.tsv` note.
+A singular jackknife block deletion leaves the pair without estimates.
+A SNP heritability estimate that is zero or negative on the pair's SNPs (legacy LDSC: `h2 out of bounds`) leaves `rg`, `rg_se`, `z` and `p` as `NaN`, while the row keeps `n_snps_used` and the heritability, genetic covariance and intercept estimates, and the metadata keeps the fit's SNP and block counts.
 Per-pair metadata also records `effective_two_step_cutoff` (as for [`h2`](#h2); `null` for a pair that failed before its fit) and the `intercept_h2_policy` and `intercept_gencov_policy` of the run.
 
 ### Plot result

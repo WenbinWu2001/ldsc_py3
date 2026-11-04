@@ -149,6 +149,11 @@ UNESTIMABLE_RG_NOTE = (
     "Unestimable: a jackknife block deletion left the fit unidentifiable; "
     "see the rg_full.tsv error column and diagnostics/rg.log."
 )
+H2_OUT_OF_BOUNDS_RG_NOTE = (
+    "Unestimable: a SNP heritability estimate is not positive (h2 out of bounds); "
+    "see the rg_full.tsv error column and diagnostics/rg.log."
+)
+_RG_H2_OUT_OF_BOUNDS_DOC = "docs/user-guide/troubleshooting.md#rg-a-snp-heritability-estimate-is-out-of-bounds"
 REGRESSION_IDENTITY_KEY_COLUMN = "_ldsc_regression_identity_key"
 _REGRESSION_NO_OVERLAP_DOC = (
     "docs/user-guide/troubleshooting.md#regression-no-snps-remain-after-merging-regression-inputs"
@@ -353,7 +358,11 @@ class RgResultFamily:
         pairs keep their row and the traits' input prevalences, set the
         estimates to NaN, and store
         ``status='failed'``, or ``status='unestimable'`` when a jackknife block
-        deletion left the fit unidentifiable, plus an ``error`` message.
+        deletion left the fit unidentifiable, plus an ``error`` message. A pair
+        whose heritability estimate for either trait is not positive is also
+        ``unestimable``: it keeps its SNP count and its heritability, genetic
+        covariance and intercept estimates, and only ``rg``, ``rg_se``, ``z``
+        and ``p`` are NaN.
     h2_per_trait : pandas.DataFrame
         One total-heritability summary per input trait, computed once per trait
         on the trait's single-trait LDSC regression dataset, with ``status``
@@ -1328,7 +1337,10 @@ class RegressionRunner:
         anchor, only anchor-vs-rest pairs are fit, preserving the original input
         order of non-anchor traits. Pair-level failures are recorded as NaN rows
         with ``status='failed'``, or ``status='unestimable'`` for a singular
-        jackknife deletion, and do not stop later pairs. A failure of a trait's
+        jackknife deletion, and do not stop later pairs. A pair whose
+        heritability estimate for either trait is not positive is
+        ``unestimable`` with NaN ``rg``, ``rg_se``, ``z`` and ``p``, and keeps
+        its fitted counts and other estimates. A failure of a trait's
         own heritability fit is recorded the same way in ``h2_per_trait`` and
         does not stop the run.
 
@@ -1456,12 +1468,17 @@ class RegressionRunner:
                         samp_prev_1=prev[i][0], pop_prev_1=prev[i][1],
                         samp_prev_2=prev[j][0], pop_prev_2=prev[j][1],
                     )
+                    note = ""
+                    if full_row["status"] == "unestimable":
+                        note = H2_OUT_OF_BOUNDS_RG_NOTE
+                        LOGGER.warning(f"rg for pair '{trait_1}' vs '{trait_2}' marked unestimable: {full_row['error']}")
                     metadata = _rg_pair_metadata(tables[i], tables[j], full_row, config, pair_kind, (prev[i], prev[j]),
                                                  {**_fit_metadata(outcome, "n_snps_used"), **_dataset_metadata(dataset)})
                 except Exception as exc:
                     drops = getattr(exc, "allele_alignment_drops", drops)
                     error = _format_exception(exc)
                     status = "unestimable" if isinstance(exc, JackknifeIdentifiabilityError) else "failed"
+                    note = UNESTIMABLE_RG_NOTE if status == "unestimable" else FAILED_RG_NOTE
                     LOGGER.warning(f"rg for pair '{trait_1}' vs '{trait_2}' marked {status}: {error}", exc_info=True)
                     if status == "unestimable":
                         LOGGER.error("Pair %r vs %r jackknife diagnostics: %s", trait_1, trait_2, json.dumps(exc.failures))
@@ -1477,7 +1494,7 @@ class RegressionRunner:
                     metadata = _rg_pair_metadata(tables[i], tables[j], full_row, config, pair_kind, (prev[i], prev[j]),
                                                  fit)
                 rg_full_rows.append(full_row)
-                rg_rows.append(_concise_rg_row(full_row))
+                rg_rows.append(_concise_rg_row(full_row, note))
                 per_pair_metadata.append(metadata)
                 alignment_drops.append(drops)
                 progress.advance(outcome=full_row["status"])
@@ -2496,7 +2513,14 @@ def _summarize_rg_pair(
     only when no prevalence was supplied for the run. ``n_snps_used`` is the
     post-product-filter SNP count from the regression fit; it falls
     back to the supplied dataset's row count. Workflows supply the fitted dataset.
+
+    ``status`` is ``'ok'``, or ``'unestimable'`` with an ``error`` naming the
+    out-of-bounds estimate when either heritability estimate is not positive;
+    that row keeps its count and its heritability, genetic covariance and
+    intercept estimates, and its ``rg``/``rg_se``/``z``/``p`` are NaN.
     """
+    n_snps = int(n_snps_used) if n_snps_used is not None else int(len(dataset.merged))
+    estimate, h2_out_of_bounds = _kernel_rg_estimate(rg_result)
     h2_1_obs = _numeric_attr(getattr(rg_result, "hsq1", None), "tot", "h2_1_obs")
     h2_1_obs_se = _numeric_attr(getattr(rg_result, "hsq1", None), "tot_se", "h2_1_obs_se")
     h2_2_obs = _numeric_attr(getattr(rg_result, "hsq2", None), "tot", "h2_2_obs")
@@ -2513,11 +2537,8 @@ def _summarize_rg_pair(
     return {
         "trait_1": trait_1,
         "trait_2": trait_2,
-        "n_snps_used": int(n_snps_used) if n_snps_used is not None else int(len(dataset.merged)),
-        "rg": _required_numeric_scalar(getattr(rg_result, "rg_ratio", None), "rg"),
-        "rg_se": _required_numeric_scalar(getattr(rg_result, "rg_se", None), "rg_se"),
-        "z": _required_numeric_scalar(getattr(rg_result, "z", None), "z"),
-        "p": _required_numeric_scalar(getattr(rg_result, "p", None), "p"),
+        "n_snps_used": n_snps,
+        **estimate,
         "h2_1_obs": h2_1_obs,
         "h2_1_obs_se": h2_1_obs_se,
         "h2_1_liab": h2_1_liab,
@@ -2553,9 +2574,39 @@ def _summarize_rg_pair(
         "mean_chisq_1": _numeric_attr(getattr(rg_result, "hsq1", None), "mean_chisq", "mean_chisq_1"),
         "mean_chisq_2": _numeric_attr(getattr(rg_result, "hsq2", None), "mean_chisq", "mean_chisq_2"),
         "pair_kind": pair_kind,
-        "status": "ok",
-        "error": "",
+        "status": "unestimable" if h2_out_of_bounds else "ok",
+        "error": _h2_out_of_bounds_error(trait_1, trait_2, h2_1_obs, h2_2_obs, n_snps) if h2_out_of_bounds else "",
     }
+
+
+def _kernel_rg_estimate(rg_result) -> tuple[dict[str, float], bool]:
+    """Return a fitted pair's ``rg``, ``rg_se``, ``z`` and ``p``, and whether a heritability is out of bounds.
+
+    When either trait's heritability estimate is at most 0, the ``RG`` kernel
+    ported from legacy LDSC sets ``_negative_hsq`` and stores the string
+    ``'NA'`` in these four fields (legacy ``RG.summary()`` reports the pair as
+    "h2 out of bounds"); they are returned as NaN with the flag set.
+    """
+    fields = {"rg": "rg_ratio", "rg_se": "rg_se", "z": "z", "p": "p"}
+    if rg_result._negative_hsq:
+        return dict.fromkeys(fields, math.nan), True
+    return {column: _required_numeric_scalar(getattr(rg_result, attr), column) for column, attr in fields.items()}, False
+
+
+def _h2_out_of_bounds_error(trait_1: str, trait_2: str, h2_1_obs: float, h2_2_obs: float, n_snps: int) -> str:
+    """Explain an rg pair whose genetic correlation is undefined because a heritability estimate is not positive."""
+    values = " and ".join(
+        f"h2_{index}_obs (trait '{trait}') is {value:.3g}"
+        for index, trait, value in ((1, trait_1, h2_1_obs), (2, trait_2, h2_2_obs)) if value <= 0
+    )
+    return (
+        f"SNP heritability out of bounds: on the pair's {n_snps:,} SNPs, {values}. "
+        "The genetic correlation divides by the square root of the product of the two heritability estimates, "
+        "so rg, rg_se, z and p are NaN; the heritability and genetic covariance estimates are kept. "
+        "Most likely the trait has too little heritability signal on these SNPs for its sample size; "
+        "a munging error, such as a wrong N or signed-statistic column, can also cause it. "
+        f"Other causes & fixes: {_RG_H2_OUT_OF_BOUNDS_DOC}"
+    )
 
 
 def _failed_h2_row(
@@ -2604,9 +2655,8 @@ def _failed_rg_full_row(
     return row
 
 
-def _concise_rg_row(full_row: dict[str, object]) -> dict[str, object]:
-    """Build the concise public rg row from a full row."""
-    status = str(full_row.get("status", ""))
+def _concise_rg_row(full_row: dict[str, object], note: str) -> dict[str, object]:
+    """Build the concise public rg row from a full row and its note: empty for an ``ok`` pair."""
     return {
         "trait_1": full_row["trait_1"],
         "trait_2": full_row["trait_2"],
@@ -2614,7 +2664,7 @@ def _concise_rg_row(full_row: dict[str, object]) -> dict[str, object]:
         "rg": full_row["rg"],
         "rg_se": full_row["rg_se"],
         "p": full_row["p"],
-        "note": {"ok": "", "unestimable": UNESTIMABLE_RG_NOTE}.get(status, FAILED_RG_NOTE),
+        "note": note,
     }
 
 
@@ -3703,8 +3753,9 @@ def run_rg(**kwargs) -> RgResultFamily:
     Notes
     -----
     A pair whose fit fails keeps its row with ``status="failed"``, or
-    ``status="unestimable"`` for a singular jackknife deletion; the other
-    pairs are still fitted. Existing outputs stop the run unless
+    ``status="unestimable"`` for a singular jackknife deletion or a
+    heritability estimate that is not positive; the other pairs are still
+    fitted. Existing outputs stop the run unless
     ``overwrite=True``; a failed authorized overwrite leaves
     ``RUN_FAILED.txt`` naming this call.
     """

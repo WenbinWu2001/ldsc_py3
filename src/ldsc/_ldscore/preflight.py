@@ -36,6 +36,10 @@ SCOPE_REPAIR = (
     "does not filter genes. With --r2-matrix-dir, select a directory whose chromosome set matches the baseline; "
     "directory paths do not expand patterns."
 )
+R2_MATRIX_REPAIR = (
+    "Set --r2-matrix-dir to an R2 matrix built with this run's --snp-identifier and --genome-build, "
+    "or rebuild it with build-r2-matrix; the details name the check that failed."
+)
 NON_AUTOSOMAL_BED_REPAIR = (
     "Remove the BED lines on chromosomes outside autosomes 1-22 and rerun; LD scores for query annotations "
     "use autosomes 1-22 only, and the remaining intervals are used as given."
@@ -67,9 +71,9 @@ def inspect_reference_inputs(args, global_config, *, require_autosomes=True, pli
     sets = {"reference": set()}
     reference_prefixes = {}
 
-    def issue(role, source, chrom, reason, details):
+    def issue(role, source, chrom, reason, details, repair=SCOPE_REPAIR):
         issues.append(dict(input_role=role, source=str(source), chrom=chrom,
-                           reason=reason, details=str(details), repair=SCOPE_REPAIR))
+                           reason=reason, details=str(details), repair=repair))
 
     r2_matrix_dir = getattr(args, "r2_matrix_dir", None)
     if r2_matrix_dir:
@@ -83,7 +87,7 @@ def inspect_reference_inputs(args, global_config, *, require_autosomes=True, pli
                     "restore or rebuild the complete R2 matrix if its files are missing."
                 )
         except (OSError, EOFError, ValueError, LDSCUserError) as exc:
-            issue("reference", r2_matrix_dir, "", "invalid_required_input", exc)
+            issue("reference", r2_matrix_dir, "", "invalid_required_input", exc, R2_MATRIX_REPAIR)
             members = []
         panel = RefPanelLoader(global_config).load(RefPanelConfig(backend="r2_matrix", r2_matrix_dir=r2_matrix_dir)) if members else None
         for chrom in members:
@@ -106,7 +110,7 @@ def inspect_reference_inputs(args, global_config, *, require_autosomes=True, pli
                     reader.close()
                 sets["reference"].add(chrom)
             except (OSError, EOFError, ValueError, LDSCUserError) as exc:
-                issue("reference", r2_matrix_dir, chrom, "invalid_required_input", exc)
+                issue("reference", r2_matrix_dir, chrom, "invalid_required_input", exc, R2_MATRIX_REPAIR)
     else:
         plink_tokens = split_cli_path_tokens(getattr(args, "plink_prefix", None))
         declarations.extend(plink_tokens)

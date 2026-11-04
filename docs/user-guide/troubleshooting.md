@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-11-03
+Last updated on: 2026-11-04
 
 This reference expands run-aborting `ldsc` errors with at least three distinct plausible causes, following the [current logging and error-message guide](../dev/design/logging.md#diagnostics-and-troubleshooting).
 It also retains guidance for failed-run artifacts, documented query omissions, and cleanup warnings that users need to interpret.
@@ -50,6 +50,7 @@ See the [helper contract](../reference/snp-identity-and-genome-build.md#standalo
 | Missing path or PLINK companion | A path-resolution failure means no file matched on the executing node; verify the filename, location, and visibility there. Read every `source` and `chrom` in `input_issues.tsv`; restore each selected BED/BIM/FAM trio. Quote globs and preserve dotted prefixes. |
 | Unreadable input | Use the exception type and operating-system error number in `details` to check the named path and access permissions on the executing node. |
 | Wrong header, delimiter, or compressed/Parquet file | Inspect the named file's header and format; restore canonical fields and readable compression. Annotation checks use the existing alias and identity rules. |
+| R² matrix does not match the run | `details` names the failed check, such as a SNP identifier mode or genome build that differs from the one the R² matrix was built with, or a sidecar that no longer matches its Parquet file. Set `--r2-matrix-dir` to an R² matrix built with this run's `--snp-identifier` and `--genome-build`, or rebuild it with `build-r2-matrix`. |
 | Missing or incompatible index component | Restore the complete immutable index with matching chromosome/root metadata; never combine components from separate indexes. |
 | Declared chromosome coverage differs from content | Use matching annotation/reference suites and a covered catalog selection. An explicit `@` requires the workflow's documented chromosome suite; a glob selects actual matches. |
 | Later alignment, identity, or support failure | These checks need scanned rows or filtered intersections. Use the existing chromosome-scope, gene-list, and SNP-drop audits; passing the earlier path gate cannot establish them. |

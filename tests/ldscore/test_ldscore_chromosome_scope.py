@@ -176,6 +176,18 @@ def test_parquet_scope_validates_the_pair_and_sidecar_contents(tmp_path):
     assert result.chromosomes == []
 
 
+def test_r2_matrix_built_in_another_mode_gets_an_r2_matrix_repair(tmp_path):
+    from ldsc._ldscore.preflight import inspect_reference_inputs
+
+    args = write_r2_inputs(tmp_path)
+    issues = inspect_reference_inputs(args, GlobalConfig(snp_identifier="rsid_allele_aware")).issues
+
+    assert issues.reason.tolist() == ["invalid_required_input"]
+    assert "snp_identifier mismatch" in issues.details[0]
+    assert "--snp-identifier" in issues.repair[0] and "build-r2-matrix" in issues.repair[0]
+    assert "'@'" not in issues.repair[0]
+
+
 def test_parquet_orphan_members_are_batched(tmp_path):
     args = write_r2_inputs(tmp_path)
     (tmp_path / "r2/chr21_r2.parquet").write_bytes(b"bad")

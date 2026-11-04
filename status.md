@@ -50,10 +50,11 @@ The evidence and question record are in the shared side-session note `strand-amb
 
 ### Follow-ups closed (2026-11-04)
 
-- This commit: `run_build_r2_matrix()` builds in the registered `GlobalConfig.snp_identifier` mode, as its docstring and `docs/user-guide/python-usage.md` say.
+- `1c46abb`: `run_build_r2_matrix()` builds in the registered `GlobalConfig.snp_identifier` mode, as its docstring and `docs/user-guide/python-usage.md` say.
   Its keyword namespace carried the parser default `chr_pos_allele_aware`, which `config_from_args()` preferred over the registered mode, so a Python build registered as `rsid_allele_aware` was recorded as `chr_pos_allele_aware` and `ldscore` in that mode refused the matrix.
   The command line was not affected.
   The wrapper unit test expects the registered mode again (`a47b676` had changed it to expect the parser default), and the R² test in `tests/ldscore/test_strand_ambiguous_snps.py` now covers `rsid_allele_aware`.
+- This commit: `ldscore --r2-matrix-dir` input issues (an R² matrix built in another SNP identifier mode or build, a sidecar that no longer matches, an empty directory or a non-autosome) now carry an R² repair instead of the chromosome-scope advice about `'@'` and globs, which did not apply; `docs/user-guide/troubleshooting.md` lists the cause under staged input validation.
 
 ## Completed: one LD-window rule (2026-11-03)
 

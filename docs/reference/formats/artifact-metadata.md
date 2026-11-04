@@ -1,6 +1,6 @@
 # Artifact Metadata Field Inventory
 
-Last updated on: 2026-11-03
+Last updated on: 2026-11-04
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](../munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -426,7 +426,8 @@ two-sided p-values from each genetic-correlation fit. They do not include
 package-computed corrected p-value columns; downstream users choose any
 multiple-testing correction appropriate for their analysis.
 
-Root `diagnostics/metadata.json` records `trait_names` (the labels after any `label@<suffix>` relabeling, in input order; plotting reads them), `sumstats_files` (each trait's source path, aligned with `trait_names`), `ldscore_dir`, `pair_kind`, `n_pairs`, `n_traits` and `dropped_nonfinite_statistic_rows` (each trait's rows dropped because `Z` or `N` was missing or infinite, aligned with `trait_names`).
+Root `diagnostics/metadata.json` records `trait_names` (the labels after any `label@<suffix>` relabeling, in input order; plotting reads them), `sumstats_files` (each trait's source path, aligned with `trait_names`), `ldscore_dir`, `pair_kind`, `n_pairs`, `n_traits`, `dropped_nonfinite_statistic_rows` (each trait's rows dropped because `Z` or `N` was missing or infinite, aligned with `trait_names`), and two counts aligned with `rg_full.tsv` rows of the SNPs each pair dropped because it could not align the traits' alleles: `dropped_orientation_unknown_rows` (A/T and C/G SNPs, whose strand is unknown; an expected loss) and `dropped_incompatible_allele_rows` (SNPs whose two traits list different allele pairs; usually an input error).
+See [allele alignment between traits](../regression-options.md#31-allele-alignment-between-traits).
 
 Root and per-pair `diagnostics/metadata.json` files are provenance only.
 Per-pair metadata records the prevalences supplied for each trait (`samp_prev_1`, `pop_prev_1`, `samp_prev_2`, `pop_prev_2`, each `null` when unset) and a `scale` (`observed` | `liability`) field; the genetic correlation itself is scale-invariant.

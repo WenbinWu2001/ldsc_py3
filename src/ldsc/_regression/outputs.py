@@ -904,8 +904,10 @@ class RgDirectoryWriter:
         result : RgResultFamily
             The family ``estimate_rg_pairs`` returns. ``rg`` and ``rg_full``
             must contain the canonical rg concise and full schemas; the root
-            metadata also records its ``sumstats_files``, ``ldscore_dir`` and
-            ``dropped_nonfinite_statistic_rows`` when they are set, and its
+            metadata also records its ``sumstats_files``, ``ldscore_dir``,
+            ``dropped_nonfinite_statistic_rows``,
+            ``dropped_orientation_unknown_rows`` and
+            ``dropped_incompatible_allele_rows`` when they are set, and its
             ``legacy_sumstats_drops`` are written to
             ``diagnostics/dropped_snps/legacy_sumstats.tsv.gz``.
         output_config : RgOutputConfig
@@ -1100,8 +1102,10 @@ def _rg_root_metadata(result: RgResultFamily, *, files: dict[str, str]) -> dict[
         payload["ldscore_dir"] = result.ldscore_dir
     if result.sumstats_files is not None:
         payload["sumstats_files"] = list(result.sumstats_files)
-    if result.dropped_nonfinite_statistic_rows is not None:
-        payload["dropped_nonfinite_statistic_rows"] = list(result.dropped_nonfinite_statistic_rows)
+    for name in ("dropped_nonfinite_statistic_rows", "dropped_orientation_unknown_rows",
+                 "dropped_incompatible_allele_rows"):
+        if getattr(result, name) is not None:
+            payload[name] = list(getattr(result, name))
     return payload
 
 

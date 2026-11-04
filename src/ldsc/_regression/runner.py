@@ -56,6 +56,7 @@ import json
 import logging
 import math
 import numbers
+import sys
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -175,6 +176,11 @@ class RegressionDataset:
     One trait name marks an h2 dataset with ``Z`` and ``N``; two mark an rg
     pair with ``Z1``, ``N1``, ``Z2`` and ``N2``, trait 2 already harmonized to
     trait 1. ``ldscore_overlap`` lets either fit apply the collinearity check.
+    An rg pair also counts the SNPs that harmonization dropped:
+    ``dropped_orientation_unknown_rows`` are A/T or C/G SNPs, one SNP in both
+    traits whose strand, and so the sign of its statistic, cannot be aligned;
+    ``dropped_incompatible_allele_rows`` are SNPs whose two traits list
+    different allele pairs, usually an input error. Both are zero for h2.
     """
     merged: pd.DataFrame
     ref_ld_columns: list[str]
@@ -189,6 +195,8 @@ class RegressionDataset:
     effective_snp_identifier: str = "chr_pos_allele_aware"
     identity_downgrade_applied: bool = False
     ldscore_overlap: "LDScoreOverlap | None" = None
+    dropped_orientation_unknown_rows: int = 0
+    dropped_incompatible_allele_rows: int = 0
 
     def validate(self) -> None:
         """Validate that the merged table contains the columns its estimator reads."""
@@ -370,6 +378,16 @@ class RgResultFamily:
         Each trait's rows dropped because ``Z`` or ``N`` was missing or
         infinite, aligned with ``h2_per_trait`` rows. Recorded in the root
         ``metadata.json``.
+    dropped_orientation_unknown_rows : list of int or None, optional
+        Each pair's A/T or C/G SNPs that harmonization dropped because their
+        strand, and so the sign of their statistic, cannot be aligned; an
+        expected loss of the method. Aligned with ``rg_full`` rows and
+        recorded in the root ``metadata.json``.
+    dropped_incompatible_allele_rows : list of int or None, optional
+        Each pair's SNPs that harmonization dropped because the two traits
+        list different allele pairs, usually an input error that only a base
+        SNP identifier mode lets through. Aligned with ``rg_full`` rows and
+        recorded in the root ``metadata.json``.
     output_paths : dict of str to str, optional
         Files the run wrote, keyed as ``RgDirectoryWriter.write`` returns
         them, including ``legacy_sumstats_drops`` for a legacy input. Empty
@@ -384,6 +402,8 @@ class RgResultFamily:
     ldscore_dir: str | None = None
     legacy_sumstats_drops: pd.DataFrame | None = None
     dropped_nonfinite_statistic_rows: list[int] | None = None
+    dropped_orientation_unknown_rows: list[int] | None = None
+    dropped_incompatible_allele_rows: list[int] | None = None
     output_paths: dict[str, str] = field(default_factory=dict)
 
 
@@ -719,18 +739,28 @@ class RegressionRunner:
             )
 
         compatible, flip = _allele_pair_flags([merged["A1"], merged["A2"], merged["A1x"], merged["A2x"]])
-        if not compatible.all():
+        orientation_unknown = ~compatible & _same_strand_ambiguous_pair(merged)
+        drops = (int(orientation_unknown.sum()), int((~compatible & ~orientation_unknown).sum()))
+        if drops[0] or drops[1]:
+            LOGGER.warning(
+                f"rg dropped {drops[0]} A/T or C/G SNPs whose strand cannot be aligned between "
+                f"'{_trait_label(sumstats_table_1)}' and '{_trait_label(sumstats_table_2)}', and {drops[1]} SNPs whose "
+                "two traits list different allele pairs."
+            )
             merged = merged.take(np.flatnonzero(compatible))
             merged.index = pd.RangeIndex(len(merged))
         flip = flip[compatible]
         if merged.empty:
-            raise LDSCInputError(
-                "rg regression retained no allele-compatible SNPs after harmonizing the two summary-statistics tables. "
-                "Most likely the two traits' A1/A2 columns (A1 is the effect allele, the allele the signed statistic "
-                "refers to) hold different allele pairs for the shared SNPs, for example because one trait was munged "
-                "from columns that are not its alleles. Re-run `ldsc munge-sumstats` for both traits with "
-                "--a1 <effect-allele column> --a2 <other column> and the same SNP identifier mode."
+            error = LDSCInputError(
+                "rg regression retained no allele-compatible SNPs after harmonizing the two summary-statistics tables "
+                f"({drops[0]} A/T or C/G SNPs whose strand cannot be aligned, {drops[1]} SNPs whose two traits list "
+                "different allele pairs). Most likely the two traits' A1/A2 columns (A1 is the effect allele, the "
+                "allele the signed statistic refers to) hold different allele pairs for the shared SNPs, for example "
+                "because one trait was munged from columns that are not its alleles. Re-run `ldsc munge-sumstats` for "
+                "both traits with --a1 <effect-allele column> --a2 <other column> and the same SNP identifier mode."
             )
+            error.allele_alignment_drops = drops
+            raise error
         # The integer signs keep the legacy result dtype (float32 Z widens to float64).
         merged["Z2"] = merged["Z2"].to_numpy() * np.where(flip, -1, 1)
         if "FRQ2" in merged.columns:
@@ -753,6 +783,8 @@ class RegressionRunner:
             effective_snp_identifier=identifier_mode,
             identity_downgrade_applied=identity.downgrade_applied,
             ldscore_overlap=ldscore_result.overlap,
+            dropped_orientation_unknown_rows=drops[0],
+            dropped_incompatible_allele_rows=drops[1],
         )
         dataset.validate()
         return dataset
@@ -1403,15 +1435,18 @@ class RegressionRunner:
         rg_full_rows: list[dict[str, object]] = []
         rg_rows: list[dict[str, object]] = []
         per_pair_metadata: list[dict[str, object]] = []
+        alignment_drops: list[tuple[int, int]] = []
         pair_kind = "anchor" if anchor_index is not None else "all_pairs"
         pair_count = len(tables) - 1 if anchor_index is not None else len(tables) * (len(tables) - 1) // 2
         with suppress_global_config_banner(), PhaseProgress(LOGGER, "computation", "rg pairs", pair_count) as progress:
             for i, j in _iter_rg_pairs(len(tables), anchor_index):
                 trait_1 = _trait_label(tables[i])
                 trait_2 = _trait_label(tables[j])
+                drops = (0, 0)
                 try:
                     # Pair-specific keyed rows are built here, so an error fails only this pair.
                     dataset = self._rg_dataset(traits[i], traits[j], ldscores, config, build_checked=True)
+                    drops = (dataset.dropped_orientation_unknown_rows, dataset.dropped_incompatible_allele_rows)
                     outcome = self.estimate_rg(dataset, config=config)
                     fitted, dataset = outcome.estimator, outcome.dataset
                     n_snps_used = outcome.n_snps
@@ -1424,6 +1459,7 @@ class RegressionRunner:
                     metadata = _rg_pair_metadata(tables[i], tables[j], full_row, config, pair_kind, (prev[i], prev[j]),
                                                  {**_fit_metadata(outcome, "n_snps_used"), **_dataset_metadata(dataset)})
                 except Exception as exc:
+                    drops = getattr(exc, "allele_alignment_drops", drops)
                     error = _format_exception(exc)
                     status = "unestimable" if isinstance(exc, JackknifeIdentifiabilityError) else "failed"
                     LOGGER.warning(f"rg for pair '{trait_1}' vs '{trait_2}' marked {status}: {error}", exc_info=True)
@@ -1443,6 +1479,7 @@ class RegressionRunner:
                 rg_full_rows.append(full_row)
                 rg_rows.append(_concise_rg_row(full_row))
                 per_pair_metadata.append(metadata)
+                alignment_drops.append(drops)
                 progress.advance(outcome=full_row["status"])
                 dataset = outcome = fitted = None  # release this pair before the next is built
 
@@ -1455,6 +1492,8 @@ class RegressionRunner:
             ldscore_dir=_ldscore_dir_of(ldscore_result),
             legacy_sumstats_drops=pd.concat(legacy_drops, ignore_index=True) if legacy_drops else None,
             dropped_nonfinite_statistic_rows=[trait.dropped_nonfinite_statistic_rows for trait in traits],
+            dropped_orientation_unknown_rows=[unknown for unknown, _ in alignment_drops],
+            dropped_incompatible_allele_rows=[incompatible for _, incompatible in alignment_drops],
         )
 
 
@@ -2002,6 +2041,13 @@ def _allele_pair_flags(columns: Sequence[pd.Series]) -> tuple[np.ndarray, np.nda
     flip = np.zeros(len(pairs), dtype=bool)
     flip[compatible] = pairs[compatible].map(reg.FLIP_ALLELES).astype(bool).to_numpy()
     return compatible[inverse], flip[inverse]
+
+
+def _same_strand_ambiguous_pair(merged: pd.DataFrame) -> np.ndarray:
+    """Mark rg rows where both traits list the same A/T or C/G pair, in either order."""
+    a1, a2, a1x, a2x = (merged[column] for column in ("A1", "A2", "A1x", "A2x"))
+    same_pair = (a1.eq(a1x) & a2.eq(a2x)) | (a1.eq(a2x) & a2.eq(a1x))
+    return (a1.map(reg.COMPLEMENT).eq(a2) & same_pair).to_numpy(dtype=bool, na_value=False)
 
 
 def _nonfinite_columns(frame: pd.DataFrame, columns: Sequence[str], snps: pd.Series) -> list[str]:
@@ -3408,7 +3454,9 @@ def run_rg_from_args(args):
     -------
     RgResultFamily
         Complete in-memory result family, with ``output_paths`` naming the
-        files written. The function itself never prints.
+        files written. From the command line, a run whose harmonization
+        dropped SNPs also prints one WARNING with the counts to stderr; the
+        Python wrapper ``run_rg`` never prints.
 
     Raises
     ------
@@ -3493,7 +3541,29 @@ def run_rg_from_args(args):
             f"Finished rg regression for {len(result.rg)} trait pairs "
             f"and {len(result.h2_per_trait)} traits."
         )
+    if getattr(args, "_emit_console_notices", True):
+        _emit_rg_alignment_notice(result)
     return replace(result, output_paths=written)
+
+
+def _emit_rg_alignment_notice(result: RgResultFamily) -> None:
+    """Print one stderr WARNING when harmonization dropped SNPs from any rg pair.
+
+    The workflow log already holds each pair's line; the notice exists because
+    batch-scheduler users rarely read logs after a successful run.
+    """
+    unknown = sum(result.dropped_orientation_unknown_rows or [])
+    incompatible = sum(result.dropped_incompatible_allele_rows or [])
+    if not unknown and not incompatible:
+        return
+    print(
+        f"WARNING: rg could not align {unknown + incompatible:,} SNPs between traits and dropped them: "
+        f"{unknown:,} A/T or C/G SNPs whose strand, and so the sign of their statistic, is unknown (expected), "
+        f"and {incompatible:,} SNPs whose two traits list different allele pairs (check the inputs if nonzero). "
+        "Per-pair counts are dropped_orientation_unknown_rows and dropped_incompatible_allele_rows in "
+        "diagnostics/metadata.json.",
+        file=sys.stderr,
+    )
 
 
 def run_h2(**kwargs) -> H2Result:

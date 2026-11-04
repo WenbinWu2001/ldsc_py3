@@ -1,6 +1,6 @@
 # Regression Configuration Reference (Advanced)
 
-Last updated on: 2026-11-01
+Last updated on: 2026-11-04
 
 This document describes the tunable configuration of the regression module (`ldsc h2`, `ldsc rg`, `ldsc partitioned-h2`).
 **You do not need any of this for a standard run.**
@@ -208,6 +208,26 @@ Because `rg` has no default cap, `effective_chisq_max` simply **echoes** `config
 
 *Mechanism:* `RegressionRunner.estimate_rg` and `estimate_rg_pairs` in
 `_regression/runner.py`.
+
+### 3.1 Allele alignment between traits
+
+Before each pair is fitted, `rg` aligns the second trait's `Z` to the first trait's `A1` (the effect allele), reversing its sign where the two traits list the alleles in opposite order or on opposite strands.
+Two kinds of SNP cannot be aligned and are dropped from that pair:
+
+- **A/T and C/G SNPs.**
+  Their two alleles are each other's strand complements, so both traits name the same SNP, but nothing shows whether they report the same strand, and the sign of `Z₂` relative to `Z₁` is unknown.
+  Dropping them is part of the method, as in legacy LDSC (`_filter_alleles` in `ldscore/sumstats.py`), and the count is `dropped_orientation_unknown_rows`.
+  The packaged HM3 map has no A/T or C/G SNP, so with the default regression SNPs this count is 0.
+- **SNPs whose two traits list different allele pairs.**
+  This is usually an input error, such as allele columns mapped wrongly during munging.
+  It can only happen in a base mode (`rsid`, `chr_pos`), because an allele-aware mode never matches such SNPs; the count is `dropped_incompatible_allele_rows`.
+
+Root `diagnostics/metadata.json` records both counts, one integer per pair in `rg_full.tsv` row order, and 0 when nothing was dropped.
+A pair that keeps no SNP fails with both counts in its error message; a pair that fails earlier records 0.
+When either count is nonzero, the command prints one WARNING with the totals to stderr; the workflow log has one line per pair, and the Python function `run_rg` prints nothing.
+`h2` and `partitioned-h2` fit $\chi^2 = Z^2$, so they never align alleles and keep A/T and C/G SNPs.
+
+*Mechanism:* `_rg_dataset`, `_allele_pair_flags` and `_same_strand_ambiguous_pair` in `_regression/runner.py`; `MATCH_ALLELES` in `_regression/estimators.py`.
 
 ---
 

@@ -4,14 +4,16 @@
 # the PLINK LD-score block sums moved here from the genotype reader.
 # See NOTICE for attribution and dated modifications.
 
-"""LD-score projection primitives and streaming R2 matrix reader.
+"""LD-score projection primitives over PLINK genotypes and streamed R2 pairs.
 
 ``RefPanel.prepare_chromosome`` owns source resolution, reference filtering,
 annotation alignment, LD-window validation, and reader lifetime. This module's
 ``compute_chromosome`` consumes that ``PreparedChromosome`` state and projects
 baseline/query annotations and regression weights in one traversal. It also
-provides annotation parsing, window geometry, and the regression-SNP mask used
-by the workflow adapters. BED-to-SNP projection belongs to ``ldsc._annotation.builder``.
+provides the regression-SNP mask. Annotation parsing lives in
+``ldsc._annotation.parsing``, window geometry in ``ldsc._refpanel.windows``,
+the streaming R2 pair reader in ``ldsc._refpanel.r2_format``, and BED-to-SNP
+projection in ``ldsc._annotation.interval_projection``.
 
 Scientific contracts
 --------------------
@@ -36,7 +38,7 @@ and the diagonal is added internally as one.
 
 This module returns in-memory results and writes no artifacts. Public result
 normalization and aggregation live in ``ldsc._ldscore.calculator``; canonical
-output layout belongs to ``ldsc._regression.outputs``. See
+output layout belongs to ``ldsc._ldscore.outputs``. See
 ``docs/reference/formats/r2-matrices.md`` for the file contract.
 """
 

@@ -335,10 +335,6 @@ class LDScoreCalculator:
     including when numerical computation fails.
     """
 
-    def __init__(self, output_writer: LDScoreDirectoryWriter | None = None) -> None:
-        """Initialize the calculator with the directory writer used for LD-score outputs."""
-        self.output_writer = output_writer or LDScoreDirectoryWriter()
-
     def run(
         self, annotation_bundle, ref_panel, ldscore_config: LDScoreConfig,
         global_config: GlobalConfig, output_config: LDScoreOutputConfig | None = None,
@@ -510,7 +506,7 @@ class LDScoreCalculator:
                 producer, annotation_bundle.query_columns, tuple(annotation_bundle.query_statuses),
                 width=ldscore_config.query_batch_size, pool=pool, workers=worker_count,
                 scratch_root=output_config.output_dir)
-            result = self.output_writer.write_batches(results, output_config,
+            result = LDScoreDirectoryWriter().write_batches(results, output_config,
                 query_status_order=[status.query for status in annotation_bundle.query_statuses],
                 ref_metadata_dir=export_root)
             _log_annotation_classification(result)
@@ -1308,11 +1304,8 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
     has_queries = any(_has_cli_tokens(getattr(args, name, None)) for name in (
         "query_annot_gene_list_sources", "query_annot_bed_sources", "query_annot_sources",
     ))
-    option_values = dict(vars(args))
-    option_values.update(bfile=getattr(args, 'plink_prefix', None), keep=getattr(args, 'keep_indivs_file', None))
-    _validate_run_args(argparse.Namespace(**option_values))
+    _validate_run_args(args)
     ld_window = _ldscore_config_from_args(args).ld_window
-    normalized_args = global_config = None
     output_config = _output_config_from_args(args)
     output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
     log_path = output_dir / LDSCORE_LOG
@@ -1349,8 +1342,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
                 batch = validate_gene_query_names(batch, annotation_columns(declared_inputs))
                 if batch.has_fatal_gate_a_issues:
                     fail_gene_list_resolution(batch, output_config)
-            if normalized_args is None:
-                normalized_args, global_config = _normalize_run_args(args,gene_catalog=catalog)
+            normalized_args, global_config = _normalize_run_args(args,gene_catalog=catalog)
             print_global_config_banner("run_ldscore_from_args",global_config)
             _validate_run_args(normalized_args)
             ldscore_config = _ldscore_config_from_args(normalized_args)
@@ -1691,8 +1683,8 @@ def _validate_run_args(args: argparse.Namespace) -> None:
         or _has_cli_tokens(getattr(args, "query_annot_gene_list_sources", None))
     ):
         raise LDSCUsageError(_QUERY_REQUIRES_BASELINE_MESSAGE)
-    keep = getattr(args, "keep", None)
-    if _uses_parquet_reference(args) == bool(args.bfile):
+    keep = getattr(args, "keep_indivs_file", None)
+    if _uses_parquet_reference(args) == bool(getattr(args, "plink_prefix", None)):
         raise LDSCUsageError(
             "ldscore could not choose a reference-panel backend. Most likely both R2 matrix "
             "input and PLINK input were supplied, or neither was supplied. Pass exactly "
@@ -1867,9 +1859,6 @@ def _normalize_run_args(
     """Normalize CLI-style args and derive the shared ``GlobalConfig`` object."""
     normalized_mode = normalize_snp_identifier_mode(args.snp_identifier)
     normalized_args = argparse.Namespace(**vars(args))
-    for attr in ("query_annot_chr", "baseline_annot_chr", "bfile_chr", "r2_table_chr", "frqfile_chr"):
-        if not hasattr(normalized_args, attr):
-            setattr(normalized_args, attr, None)
     for attr in (
         "query_annot_sources",
         "baseline_annot_sources",
@@ -1910,9 +1899,6 @@ def _normalize_run_args(
     normalized_args.ref_panel_snps_file = normalize_optional_path_token(getattr(args, "ref_panel_snps_file", None))
     normalized_args.regr_snps_file = normalize_optional_path_token(getattr(args, "regr_snps_file", None))
     normalized_args.regr_snps_exclude_regions = getattr(args, "regr_snps_exclude_regions", None)
-    # The numerical kernel still consumes the historical namespace shape.
-    normalized_args.bfile = normalized_args.plink_prefix
-    normalized_args.keep = normalized_args.keep_indivs_file
     has_gene_lists = _has_cli_tokens(normalized_args.query_annot_gene_list_sources)
     normalized_args.gene_catalog_build = None
     if identity_mode_family(normalized_mode) == "rsid":
@@ -2252,13 +2238,17 @@ def _bundle_diagnostics(bundle, input_issues=None) -> QueryDiagnostics:
 
 
 def _write_one_ref_metadata_sidecar(metadata: pd.DataFrame, chrom: str, output_dir: str) -> None:
-    """Write one opt-in reference-metadata sidecar (PLINK backend).
+    """Write one opt-in reference-metadata file (PLINK backend).
 
-    The format matches the R2 matrix sidecar: a gzip TSV with
-    ``CHR POS SNP A1 A2 CM MAF`` columns and the minor allele as ``A1``, so an
-    exported sidecar can seed a future ``build-r2-matrix`` or a QC diff.
-    Written from inside the per-chromosome worker so the lean cross-process
-    result does not carry per-SNP metadata.
+    The file is a gzip TSV with the ``CHR POS SNP A1 A2 CM MAF`` columns,
+    the minor allele in the retained reference individuals as ``A1``, and
+    the float format of an R2 matrix sidecar. It is not an R2 matrix
+    sidecar: it has no ``# ldsc:`` metadata lines, and ``CM`` is the value
+    this run used, interpolated from a supplied genetic map for a cM window
+    and otherwise the ``.bim`` value (often 0), where ``build-r2-matrix``
+    writes ``NA`` without a genetic map. Written from
+    inside the per-chromosome worker so the lean cross-process result does
+    not carry per-SNP metadata.
     """
     columns = [c for c in ("CHR", "POS", "SNP", "A1", "A2", "CM", "MAF") if c in metadata.columns]
     path = Path(output_dir) / ref_metadata_file(chrom)

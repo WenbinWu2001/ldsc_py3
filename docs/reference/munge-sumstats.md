@@ -49,6 +49,9 @@ Name any other allele column with `--a1` and `--a2`.
 | A base mode, with no allele column and none of the names above | The run munges without alleles and writes no `A1`/`A2` columns, so an absent column always means the orientation is unknown. The printed summary says `No A1/A2 columns written: rg cannot use this output.` `h2` and `partitioned-h2` accept the output; `rg` rejects it. |
 | An allele-aware mode, with no allele column | The run stops and asks for `--a1`/`--a2` or a base mode. |
 
+Munging writes `A1` and `A2` in uppercase in every SNP identifier mode, as legacy LDSC `munge_sumstats.py` does, so the Parquet file, the `.sumstats.gz` file and the returned table of one run carry the same letters.
+Base modes do not otherwise check allele values: a row with a missing or non-`A/C/G/T` allele is kept, and a column of numeric allele codes is written as parsed.
+
 `--infer-only` reports these cases as `A1/A2 orientation`, `A1/A2 pair` or `A1/A2` under `Missing fields`, explains them, and never puts `--a1`, `--a2` or `--ignore` into its suggested command.
 The `INC_ALLELE`/`DEC_ALLELE` check reads data, so only the run performs it.
 Remedies are collected in [troubleshooting](../user-guide/troubleshooting.md#munge-sumstats-a1-cannot-be-identified).

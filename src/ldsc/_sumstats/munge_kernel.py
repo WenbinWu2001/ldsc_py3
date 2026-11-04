@@ -276,6 +276,24 @@ def _coerce_info_list_columns(dat, columns):
     return dat
 
 
+def _uppercase_alleles(alleles, mode):
+    """Return one chunk's ``A1`` or ``A2`` column in uppercase, in every SNP identifier mode.
+
+    Legacy ``munge_sumstats.py`` uppercases both allele columns whenever they
+    exist, so the letters a munged file lists, and so the allele comparison in
+    ``rg``, do not depend on the mode. ``astype("string")`` reads every parsed
+    value as text and keeps missing alleles missing. Allele-aware modes store
+    the pandas string dtype; base modes, which do not validate alleles, store
+    Python objects and leave a column without letters (numeric allele codes,
+    or only missing values) as parsed.
+    """
+    if is_allele_aware_mode(mode):
+        return alleles.astype("string").str.upper()
+    if pd.api.types.is_numeric_dtype(alleles):
+        return alleles
+    return alleles.astype("string").str.upper().astype(object)
+
+
 @report_phase(LOGGER, "preparation", "summary-statistic rows")
 def parse_dat(dat_gen, request: ResolvedMungeInput) -> _ParsedChunks:
     """Parse chunks once, returning their retained rows and exclusive counts."""
@@ -343,9 +361,9 @@ def parse_dat(dat_gen, request: ResolvedMungeInput) -> _ParsedChunks:
             new = ii.sum()
             drops['P'] += old - new
             old = new
-            if is_allele_aware_mode(mode):
-                dat.A1 = dat.A1.astype("string").str.upper()
-                dat.A2 = dat.A2.astype("string").str.upper()
+            for allele in ('A1', 'A2'):
+                if allele in dat.columns:
+                    dat[allele] = _uppercase_alleles(dat[allele], mode)
 
             if ii.sum() == 0:
                 continue

@@ -106,7 +106,7 @@ truth for any computation or validation.
 |-----------|-------|-------|
 | `CHR` | `str` (pandas `object`) | No `chr` prefix: `"1"`, `"22"`, `"X"`, `"MT"` |
 | `SNP`, `SNP_1`, `SNP_2` | `str` | |
-| `A1`, `A2` | `str` | Always uppercased on read |
+| `A1`, `A2` | `str` | `munge-sumstats` writes them uppercase in every SNP identifier mode; allele-aware identity keys ignore letter case |
 | `POS`, `POS_1`, `POS_2` | `np.int64` | Explicit `astype(np.int64)`, not plain `int` |
 | `CM` | `float64` | |
 | `MAF` | `float64` | Values ∈ [0, 0.5]; always minor-allele frequency |
@@ -248,10 +248,10 @@ The public SNP identifier modes are exactly `rsid`, `rsid_allele_aware`,
 Base modes ignore alleles entirely.
 `rsid` uses only `SNP`; `chr_pos` uses only `CHR:POS`.
 If `A1/A2` columns are present in base modes, they may be preserved for output or signed-statistic orientation, but they do not affect identity, duplicate filtering, retention, or drop reasons.
+`munge-sumstats` writes `A1` and `A2` in uppercase in every SNP identifier mode, as legacy `munge_sumstats.py` does, so `rg` compares the same letters whichever mode munged each trait.
 
-Allele-aware modes use `A1/A2` only to build safer internal merge keys; they do
-not rewrite the written `A1`/`A2` columns or make `A1` the minor allele. The
-key builder treats `(A1, A2)` as an unordered, strand-aware set:
+Allele-aware modes use `A1/A2` only to build safer internal merge keys; they do not swap the written `A1`/`A2` columns or make `A1` the minor allele.
+The key builder treats `(A1, A2)` as an unordered, strand-aware set:
 
 1. Clean each allele by trimming whitespace and uppercasing it.
 2. Reject missing, non-`A/C/G/T`, or identical pairs.

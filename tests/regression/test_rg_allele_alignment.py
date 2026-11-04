@@ -11,9 +11,14 @@ import gzip
 import json
 
 import numpy as np
+import pandas as pd
+from scipy.stats import norm
 
+from ldsc import GlobalConfig, MungeConfig, SumstatsMunger, load_sumstats
 from ldsc.cli import run_cli
 from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
+from ldsc._regression.runner import RegressionRunner
+from ldsc.config import RegressionConfig
 from tests.regression.test_trait_preparation import N_SNPS, panel, signed_statistics
 
 STRAND_UNKNOWN_ROWS = (0, 1, 2)
@@ -86,3 +91,33 @@ def test_python_rg_records_the_counts_without_printing(tmp_path, capsys):
     assert result.dropped_orientation_unknown_rows == [3]
     assert result.dropped_incompatible_allele_rows == [2]
     assert capsys.readouterr().err == ""
+
+
+def test_rg_keeps_every_snp_from_both_outputs_of_a_lowercase_base_mode_munge(tmp_path):
+    # Both traits list the same pair a/c for every SNP, so rg can align all of them.
+    ld_scores = panel("rsid")
+    loaded = {"parquet": [], "sumstats.gz": []}
+    for name, seed in (("t1", 41), ("t2", 42)):
+        # Each magnitude appears with both signs, so the median Z, which munging checks, is 0.
+        magnitude = np.abs(signed_statistics(np.random.default_rng(seed), ld_scores.baseline_table["base"]))
+        z = np.repeat(magnitude[: N_SNPS // 2], 2) * np.tile([1, -1], N_SNPS // 2)
+        raw = pd.DataFrame({"SNP": [f"rs{i}" for i in range(N_SNPS)], "A1": "a", "A2": "c",
+                            "P": 2 * norm.sf(np.abs(z)), "Z": z, "N": 10_000})
+        raw.to_csv(tmp_path / f"{name}.txt", sep="\t", index=False)
+        SumstatsMunger().run(
+            MungeConfig(raw_sumstats_file=tmp_path / f"{name}.txt", output_dir=tmp_path / name, trait_name=name,
+                        no_snp_restriction=True, output_format="both"),
+            global_config=GlobalConfig(snp_identifier="rsid"),
+        )
+        for suffix in loaded:
+            loaded[suffix].append(load_sumstats(tmp_path / name / f"{name}.{suffix}"))
+    runner = RegressionRunner(global_config=GlobalConfig(snp_identifier="rsid"),
+                              regression_config=RegressionConfig(num_blocks=10))
+
+    datasets = {suffix: runner.build_rg_dataset(*tables, ld_scores) for suffix, tables in loaded.items()}
+
+    for dataset in datasets.values():
+        assert dataset.dropped_orientation_unknown_rows == 0
+        assert dataset.dropped_incompatible_allele_rows == 0
+        assert sorted(dataset.merged["SNP"]) == sorted(f"rs{i}" for i in range(N_SNPS))
+    assert datasets["parquet"].merged["SNP"].tolist() == datasets["sumstats.gz"].merged["SNP"].tolist()

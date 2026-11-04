@@ -127,3 +127,18 @@ def test_a1_inc_runs_with_increasing_allele_columns(tmp_path):
     table = _run(path, tmp_path, "rsid_allele_aware", a1_inc=True)
     assert table.data.A1.tolist() == ["A"]
     assert (table.data.Z > 0).all()
+
+
+@pytest.mark.parametrize("mode", ["rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"])
+def test_alleles_are_written_uppercase_in_every_mode(tmp_path, mode):
+    # Legacy munge_sumstats.py uppercases A1 and A2 whenever the file has them.
+    path = _raw(tmp_path, "SNP CHR POS A1 A2 P BETA N",
+                rows="rs1 1 100 a g 0.05 0.1 1000\nrs2 1 200 C t 0.5 -0.2 1000\n")
+    builds = {"source_genome_build": "hg19", "output_genome_build": "hg19"} if "chr_pos" in mode else {}
+    table = _run(path, tmp_path, mode, output_format="both", **builds)
+    parquet = pd.read_parquet(tmp_path / "out" / "sumstats.parquet")
+    text = pd.read_csv(tmp_path / "out" / "sumstats.gz", sep="\t")
+    for frame in (table.data, parquet, text):
+        assert frame.SNP.tolist() == ["rs1", "rs2"]
+        assert frame.A1.tolist() == ["A", "C"]
+        assert frame.A2.tolist() == ["G", "T"]

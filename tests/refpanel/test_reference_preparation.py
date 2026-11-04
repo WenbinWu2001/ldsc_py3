@@ -1,4 +1,3 @@
-from tests.annotation_fixtures import build_annotation_fixture, make_annotation_bundle, fixture_metadata, fixture_values, fixture_ids
 """Reference policies and numerical projection share the production preparation seam."""
 from pathlib import Path
 
@@ -6,7 +5,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ldsc import AnnotationBundle, GlobalConfig, LDScoreCalculator, LDScoreConfig, RefPanelConfig
+from ldsc import GlobalConfig, LDScoreCalculator, LDScoreConfig, RefPanelConfig
 from ldsc.config import LDWindow
 from ldsc._ldscore import compute as ldscore
 from ldsc._refpanel.prepared import ChromosomeAnnotations
@@ -15,6 +14,7 @@ from ldsc._refpanel.adapters import PlinkRefPanel, R2MatrixRefPanel
 from ldsc._refpanel.r2_format import write_r2_parquet, write_runtime_metadata_sidecar
 from ldsc._core.snp_identity import sidecar_identity_sha256
 from ldsc.errors import LDSCInputError, LDSCUsageError
+from tests.annotation_fixtures import make_annotation_bundle
 from tests.ref_panel_helpers import write_tiny_plink
 
 

@@ -6,7 +6,6 @@ from tests.ref_panel_helpers import compute_plink, plink_panel, write_r2_matrix_
 
 from argparse import Namespace
 from dataclasses import replace as dataclass_replace
-import gzip
 import importlib.util
 from io import StringIO
 import json

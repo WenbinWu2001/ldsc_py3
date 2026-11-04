@@ -2,7 +2,7 @@ from __future__ import annotations
 from ldsc._runtime.serial_calculation import serial_calculation
 from tests.annotation_fixtures import build_annotation_fixture, make_annotation_bundle, fixture_metadata, fixture_values, replace_fixture_queries
 
-from tests.ref_panel_helpers import compute_plink, write_r2_matrix_chromosome, write_tiny_plink
+from tests.ref_panel_helpers import compute_plink, plink_panel, write_r2_matrix_chromosome, write_tiny_plink
 
 from argparse import Namespace
 from dataclasses import replace as dataclass_replace
@@ -1112,19 +1112,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 baseline_columns=workflow_bundle.baseline_columns,
                 query_columns=workflow_bundle.query_columns,
             )
-            args = Namespace(
-                bfile=str(prefix),
-                keep=None,
-                maf_min=None,
-                maf=None,
-                ld_wind_snps=10,
-                ld_wind_kb=None,
-                ld_wind_cm=None,
-                yes_really=True,
-                snp_batch_size=50,
-                common_maf_min=0.05,
-                snp_identifier="rsid",
-            )
+            panel = plink_panel(prefix)
+            config = LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True, snp_batch_size=50)
             restriction = RestrictionIdentityKeys(
                 keys={"rs_1", "rs_2"},
                 match_kind="base",
@@ -1133,7 +1122,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 n_retained_keys=2,
             )
 
-            result = compute_plink("1", bundle, args, restriction)
+            result = compute_plink("1", bundle, panel, config, restriction)
 
             self.assertEqual(result.chrom, "1")
             self.assertGreater(result.reference_snp_count, 0)
@@ -1154,22 +1143,13 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 baseline_columns=wb.baseline_columns,
                 query_columns=wb.query_columns,
             )
-            args = Namespace(
-                bfile=str(prefix), keep=None, maf_min=None, maf=None,
-                ld_wind_snps=10, ld_wind_kb=None, ld_wind_cm=None,
-                yes_really=True, snp_batch_size=50, common_maf_min=0.05,
-                snp_identifier="rsid",
-            )
+            panel = plink_panel(prefix)
+            config = LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True, snp_batch_size=50)
             with self.assertRaisesRegex(LDSCInternalError, "non-decreasing order"):
-                compute_plink("1", bundle, args, None)
+                compute_plink("1", bundle, panel, config, None)
 
-    def _plink_cm_args(self, prefix: Path, genetic_map) -> Namespace:
-        return Namespace(
-            bfile=str(prefix), keep=None, maf_min=None, maf=None,
-            ld_wind_snps=None, ld_wind_kb=None, ld_wind_cm=1.0,
-            yes_really=True, snp_batch_size=50, common_maf_min=0.05,
-            snp_identifier="rsid", genetic_map=genetic_map,
-        )
+    def _plink_cm(self, prefix: Path):
+        return plink_panel(prefix), LDScoreConfig(ld_wind_cm=1.0, whole_chromosome_ok=True, snp_batch_size=50)
 
     def test_plink_cm_window_rejects_all_zero_bim_cm_without_map(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1182,7 +1162,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             # The fixture .bim CM is all zero; without a map this must error even under
             # --yes-really (yes_really=True below).
             with self.assertRaisesRegex(LDSCInputError, "uninformative|all zero"):
-                compute_plink("1", bundle, self._plink_cm_args(prefix, None), None)
+                compute_plink("1", bundle, *self._plink_cm(prefix), None)
 
     def test_plink_cm_window_uses_genetic_map(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1193,7 +1173,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 baseline_columns=wb.baseline_columns, query_columns=wb.query_columns,
             )
             gmap = pd.DataFrame({"CHR": ["1", "1"], "POS": [1, 8], "CM": [0.0, 4.0]})
-            result = compute_plink("1", bundle, self._plink_cm_args(prefix, gmap), None)
+            result = compute_plink("1", bundle, *self._plink_cm(prefix), None, genetic_map=gmap)
             self.assertGreater(len(result.metadata), 0)
             # interpolated CM is non-degenerate -> a real cM window, not whole-chromosome
             self.assertGreaterEqual(result.metadata["CM"].nunique(), 2)

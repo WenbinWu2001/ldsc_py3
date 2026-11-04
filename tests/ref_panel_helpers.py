@@ -3,7 +3,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ldsc import GlobalConfig, LDScoreConfig, PlinkRefPanel, RefPanelConfig
+from ldsc import GlobalConfig, PlinkRefPanel, RefPanelConfig
 from ldsc.config import LDWindow
 from ldsc._core.snp_identity import sidecar_identity_sha256
 from ldsc._ldscore import compute as ldscore
@@ -88,26 +88,18 @@ def write_counted_plink(prefix, rows, *, chrom="1"):
     return prefix
 
 
-def prepare_plink(chrom, bundle, args):
-    global_options = {"snp_identifier": args.snp_identifier}
-    if hasattr(args, "genome_build"):
-        global_options["genome_build"] = args.genome_build
-    panel = PlinkRefPanel(
-        GlobalConfig(**global_options),
-        RefPanelConfig(backend="plink", plink_prefix=args.bfile,
-                       keep_indivs_file=getattr(args, "keep", None), maf_min=getattr(args, "maf_min", None)),
-    )
-    config = LDScoreConfig(
-        ld_wind_snps=args.ld_wind_snps, ld_wind_kb=args.ld_wind_kb, ld_wind_cm=args.ld_wind_cm,
-        whole_chromosome_ok=args.yes_really,
-    )
-    return panel.prepare_chromosome(chrom, bundle, config, genetic_map=getattr(args, "genetic_map", None))
+def plink_panel(prefix, snp_identifier="rsid", *, genome_build=None):
+    """Return a PLINK reference panel over one fixture prefix."""
+    options = {} if genome_build is None else {"genome_build": genome_build}
+    return PlinkRefPanel(GlobalConfig(snp_identifier=snp_identifier, **options),
+                         RefPanelConfig(backend="plink", plink_prefix=str(prefix)))
 
 
-def compute_plink(chrom, bundle, args, regression_keys, regression_regions=None):
-    with prepare_plink(chrom, bundle, args) as prepared:
+def compute_plink(chrom, bundle, panel, ldscore_config, regression_keys, regression_regions=None, *, genetic_map=None):
+    """Prepare one chromosome of ``panel`` and compute its LD scores."""
+    with panel.prepare_chromosome(chrom, bundle, ldscore_config, genetic_map=genetic_map) as prepared:
         return ldscore.compute_chromosome(
-            chrom, prepared, snp_identifier=args.snp_identifier, snp_batch_size=args.snp_batch_size,
-            common_maf_min=getattr(args, "common_maf_min", 0.05), regression_keys=regression_keys,
-            regression_regions=regression_regions,
+            chrom, prepared, snp_identifier=panel.global_config.snp_identifier,
+            snp_batch_size=ldscore_config.snp_batch_size, common_maf_min=ldscore_config.common_maf_min,
+            regression_keys=regression_keys, regression_regions=regression_regions,
         )

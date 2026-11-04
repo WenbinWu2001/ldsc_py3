@@ -200,8 +200,7 @@ def test_parquet_genetic_maps_are_ignored_at_preparation(tmp_path, caplog):
 
 def test_plink_preparation_maps_sorted_annotations_to_physical_bed_columns(tmp_path):
     pytest.importorskip("bitarray")
-    from tests.ref_panel_helpers import prepare_plink
-    from argparse import Namespace
+    from tests.ref_panel_helpers import plink_panel
     source = Path(__file__).parents[1] / "fixtures" / "plink" / "plink"
     metadata = pd.read_csv(source.with_suffix(".bim"), sep=r"\s+", header=None,
                            names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
@@ -212,9 +211,8 @@ def test_plink_preparation_maps_sorted_annotations_to_physical_bed_columns(tmp_p
     prefix.with_suffix(".bed").write_bytes(source.with_suffix(".bed").read_bytes())
     prefix.with_suffix(".fam").write_bytes(source.with_suffix(".fam").read_bytes())
     metadata = metadata.sort_values("POS").reset_index(drop=True)
-    args = Namespace(bfile=str(prefix), snp_identifier="rsid", ld_wind_snps=10,
-                     ld_wind_kb=None, ld_wind_cm=None, yes_really=True)
-    with prepare_plink("1", ChromosomeAnnotations(metadata, pd.DataFrame({"base": metadata.POS}), ["base"], []), args) as prepared:
+    bundle = ChromosomeAnnotations(metadata, pd.DataFrame({"base": metadata.POS}), ["base"], [])
+    with plink_panel(prefix).prepare_chromosome("1", bundle, LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True)) as prepared:
         assert prepared.metadata["SNP"].tolist() == ["rs_7", "rs_6", "rs_5", "rs_4"]
         np.testing.assert_array_equal(prepared.annotations.read()[:, 0], [1, 2, 3, 4])
         golden = np.load(source.parents[1] / "golden" / "reader_golden.npz")

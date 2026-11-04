@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.ref_panel_helpers import prepare_plink, compute_plink
+from tests.ref_panel_helpers import compute_plink, plink_panel
 from tests.runtime.test_path_resolution import _write_plink_trio
 
 from argparse import Namespace
@@ -25,7 +25,7 @@ from ldsc._ldscore.gene_index import build as gene_ldscore_index
 from ldsc._ldscore import calculator as ldscore_calculator
 from ldsc._ldscore.gene_index import scoring as _gene_index_scoring
 from ldsc._ldscore.gene_index.artifact import _canonical_frame_sha256, _catalog_identity_records
-from ldsc.config import GeneLDScoreIndexBuildConfig, GlobalConfig, reset_global_config, set_global_config
+from ldsc.config import GeneLDScoreIndexBuildConfig, GlobalConfig, LDScoreConfig, reset_global_config, set_global_config
 from ldsc._core.plink_files import PlinkFAMFile
 from ldsc._ldscore import compute as kernel_ldscore
 from ldsc._annotation.overlap import compute_overlap
@@ -473,23 +473,11 @@ def test_prepared_plink_chromosome_is_reused_by_direct_ldscore():
     metadata = bim[["CHR", "SNP", "CM", "POS"]].copy()
     annotations = pd.DataFrame({"base": metadata["POS"].astype(np.float64)})
     bundle = ChromosomeAnnotations(metadata, annotations, ["base"], [])
-    args = Namespace(
-        bfile=str(prefix),
-        keep=None,
-        maf_min=None,
-        maf=None,
-        ld_wind_snps=10,
-        ld_wind_kb=None,
-        ld_wind_cm=None,
-        yes_really=True,
-        snp_batch_size=3,
-        common_maf_min=0.05,
-        snp_identifier="rsid",
-        genetic_map=None,
-    )
+    panel = plink_panel(prefix)
+    config = LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True, snp_batch_size=3)
 
-    prepared = prepare_plink("1", bundle, args)
-    direct = compute_plink("1", bundle, args, None)
+    prepared = panel.prepare_chromosome("1", bundle, config)
+    direct = compute_plink("1", bundle, panel, config, None)
 
     assert prepared.annotations.read().shape == (len(prepared.metadata), 1)
     np.testing.assert_array_equal(
@@ -500,7 +488,7 @@ def test_prepared_plink_chromosome_is_reused_by_direct_ldscore():
     reused_scores = kernel_ldscore.ld_scores_from_genotypes(
         prepared.reader,
         prepared.block_left,
-        args.snp_batch_size,
+        config.snp_batch_size,
         annot=prepared.annotations.read(),
     )
     np.testing.assert_array_equal(reused_scores.astype(np.float32), direct.ld_scores)
@@ -528,30 +516,26 @@ def test_direct_plink_projects_annotations_and_regression_weights_in_one_travers
         ["base", "baseline_aux"],
         ["query"],
     )
-    args = Namespace(
-        bfile=str(prefix), keep=None, maf_min=None, maf=None,
-        ld_wind_snps=10, ld_wind_kb=None, ld_wind_cm=None,
-        yes_really=True, snp_batch_size=3, common_maf_min=0.05,
-        snp_identifier="rsid", genetic_map=None,
-    )
+    panel = plink_panel(prefix)
+    config = LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True, snp_batch_size=3)
 
     # The former two-pass calculation is the numerical oracle for this
     # optimization: only traversal reuse may change, never the score values.
-    prepared = prepare_plink("1", bundle, args)
+    prepared = panel.prepare_chromosome("1", bundle, config)
     regression_keys = set(prepared.metadata.loc[::2, "SNP"].astype(str))
     regression_mask = kernel_ldscore.regression_mask_from_keys(
-        prepared.metadata, regression_keys, args.snp_identifier
+        prepared.metadata, regression_keys, panel.global_config.snp_identifier
     )
     prepared.reader._currentSNP = 0
     expected_ld_scores = kernel_ldscore.ld_scores_from_genotypes(
         prepared.reader,
-        prepared.block_left, args.snp_batch_size, annot=prepared.annotations.read()
+        prepared.block_left, config.snp_batch_size, annot=prepared.annotations.read()
     )
     assert prepared.reader._currentSNP == prepared.reader.m
     prepared.reader._currentSNP = 0
     expected_w_ld = kernel_ldscore.ld_scores_from_genotypes(
         prepared.reader,
-        prepared.block_left, args.snp_batch_size, annot=regression_mask.reshape(-1, 1)
+        prepared.block_left, config.snp_batch_size, annot=regression_mask.reshape(-1, 1)
     )
     assert prepared.reader._currentSNP == prepared.reader.m
 
@@ -565,8 +549,7 @@ def test_direct_plink_projects_annotations_and_regression_weights_in_one_travers
         return scores
 
     monkeypatch.setattr(kernel_ldscore, "ld_scores_from_genotypes", traced_ldscore)
-    result = compute_plink(
-        "1", bundle, args, regression_keys
+    result = compute_plink("1", bundle, panel, config, regression_keys
     )
 
     assert len(calls) == 1
@@ -600,13 +583,13 @@ def test_direct_plink_projects_annotations_and_regression_weights_in_one_travers
         columns=["base", "baseline_aux", "query"],
     )
     expected_M, expected_M_5_50 = kernel_ldscore.compute_counts(
-        prepared.metadata, expected_frame, common_maf_min=args.common_maf_min
+        prepared.metadata, expected_frame, common_maf_min=config.common_maf_min
     )
     expected_overlap = compute_overlap(
         prepared.metadata,
         expected_frame,
         n_baseline=2,
-        common_maf_min=args.common_maf_min,
+        common_maf_min=config.common_maf_min,
     )
     np.testing.assert_array_equal(result.M, expected_M)
     np.testing.assert_array_equal(result.M_5_50, expected_M_5_50)
@@ -687,14 +670,10 @@ def test_direct_plink_duplicate_group_is_dropped_and_recorded(tmp_path):
         ["base"],
         [],
     )
-    args = Namespace(
-        bfile=str(prefix), keep=None, maf_min=None, maf=None,
-        ld_wind_snps=10, ld_wind_kb=None, ld_wind_cm=None,
-        yes_really=True, snp_batch_size=3, common_maf_min=0.05,
-        snp_identifier="rsid", genetic_map=None,
-    )
+    panel = plink_panel(prefix)
+    config = LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True, snp_batch_size=3)
 
-    result = compute_plink("1", bundle, args, None)
+    result = compute_plink("1", bundle, panel, config, None)
 
     assert len(result.identity_drops) == 2
     assert set(result.identity_drops["reason"]) == {"duplicate_identity"}
@@ -720,15 +699,8 @@ def test_plink_atom_operator_matches_direct_union_in_atom_batches(tmp_path, snp_
     metadata = bim[["CHR", "SNP", "CM", "POS"]].copy()
     baseline = pd.DataFrame({"base": np.ones(len(metadata), dtype=np.float64)})
     base_bundle = ChromosomeAnnotations(metadata, baseline, ["base"], [])
-    args = Namespace(
-        bfile=str(prefix), keep=None, maf_min=None, maf=None,
-        ld_wind_snps=None, ld_wind_kb=None, ld_wind_cm=None,
-        yes_really=False, snp_batch_size=3, common_maf_min=0.05,
-        snp_identifier=snp_identifier, genetic_map=None,
-    )
-    setattr(args, f"ld_wind_{unit}", value)
-    if snp_identifier.startswith("chr_pos"):
-        args.genome_build = build
+    panel = plink_panel(prefix, snp_identifier, genome_build=build if snp_identifier.startswith("chr_pos") else None)
+    config = LDScoreConfig(**{f"ld_wind_{unit}": value}, snp_batch_size=3)
     regression_keys = (
         set(metadata["SNP"].astype(str))
         if snp_identifier.startswith("rsid")
@@ -741,7 +713,7 @@ def test_plink_atom_operator_matches_direct_union_in_atom_batches(tmp_path, snp_
     indexed_one = build_plink_index_chromosome(
         "1",
         base_bundle,
-        args,
+        panel, config,
         regression_keys=regression_keys,
         regression_regions=None,
         gene_intervals=gene_intervals,
@@ -752,7 +724,7 @@ def test_plink_atom_operator_matches_direct_union_in_atom_batches(tmp_path, snp_
     indexed_many = build_plink_index_chromosome(
         "1",
         base_bundle,
-        args,
+        panel, config,
         regression_keys=regression_keys,
         regression_regions=None,
         gene_intervals=gene_intervals,
@@ -771,7 +743,7 @@ def test_plink_atom_operator_matches_direct_union_in_atom_batches(tmp_path, snp_
         ["base"],
         ["query"],
     )
-    direct = compute_plink("1", direct_bundle, args, regression_keys)
+    direct = compute_plink("1", direct_bundle, panel, config, regression_keys)
     persisted = kernel_ldscore.regression_mask_from_keys(
         direct.metadata, regression_keys, snp_identifier
     ).astype(bool)
@@ -802,28 +774,24 @@ def test_plink_index_fuses_baseline_and_regression_weights_but_keeps_atom_batche
     bundle = ChromosomeAnnotations(
         metadata, baseline_frame, ["base", "baseline_aux"], []
     )
-    args = Namespace(
-        bfile=str(prefix), keep=None, maf_min=None, maf=None,
-        ld_wind_snps=10, ld_wind_kb=None, ld_wind_cm=None,
-        yes_really=True, snp_batch_size=3, common_maf_min=0.05,
-        snp_identifier="rsid", genetic_map=None,
-    )
+    panel = plink_panel(prefix)
+    config = LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True, snp_batch_size=3)
 
-    prepared = prepare_plink("1", bundle, args)
+    prepared = panel.prepare_chromosome("1", bundle, config)
     regression_keys = set(prepared.metadata.loc[::2, "SNP"].astype(str))
     persisted = kernel_ldscore.regression_mask_from_keys(
-        prepared.metadata, regression_keys, args.snp_identifier
+        prepared.metadata, regression_keys, panel.global_config.snp_identifier
     ).astype(bool)
     baseline64 = np.asarray(prepared.annotations.read(), dtype=np.float64)
     prepared.reader._currentSNP = 0
     expected_baseline = kernel_ldscore.ld_scores_from_genotypes(
         prepared.reader,
-        prepared.block_left, args.snp_batch_size, annot=baseline64
+        prepared.block_left, config.snp_batch_size, annot=baseline64
     )
     prepared.reader._currentSNP = 0
     expected_weights = kernel_ldscore.ld_scores_from_genotypes(
         prepared.reader,
-        prepared.block_left, args.snp_batch_size, annot=persisted.reshape(-1, 1)
+        prepared.block_left, config.snp_batch_size, annot=persisted.reshape(-1, 1)
     ).reshape(-1)
 
     calls = []
@@ -842,7 +810,7 @@ def test_plink_index_fuses_baseline_and_regression_weights_but_keeps_atom_batche
     result = build_plink_index_chromosome(
         "1",
         bundle,
-        args,
+        panel, config,
         regression_keys=regression_keys,
         regression_regions=None,
         gene_intervals=np.array([[0, 4], [2, 7], [3, 5]], dtype=np.int64),
@@ -876,7 +844,7 @@ def test_plink_index_fuses_baseline_and_regression_weights_but_keeps_atom_batche
     expected_counts = kernel_ldscore.compute_counts(
         prepared.metadata,
         pd.DataFrame(baseline64, columns=bundle.baseline_columns),
-        common_maf_min=args.common_maf_min,
+        common_maf_min=config.common_maf_min,
     )
     np.testing.assert_array_equal(result.baseline_count_all, expected_counts[0])
     np.testing.assert_array_equal(result.baseline_count_common, expected_counts[1])
@@ -1297,15 +1265,11 @@ def test_plink_operator_matches_independent_dense_adjusted_r2_reference(snp_batc
         ["base"],
         [],
     )
-    args = Namespace(
-        bfile=str(prefix), keep=None, maf_min=None, maf=None,
-        ld_wind_snps=1, ld_wind_kb=None, ld_wind_cm=None,
-        yes_really=True, snp_batch_size=snp_batch_size, common_maf_min=0.05,
-        snp_identifier="rsid", genetic_map=None,
-    )
+    panel = plink_panel(prefix)
+    config = LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True, snp_batch_size=snp_batch_size)
     persisted_keys = {"rs_5", "rs_6"}
     indexed = build_plink_index_chromosome(
-        "1", bundle, args,
+        "1", bundle, panel, config,
         regression_keys=persisted_keys,
         regression_regions=None,
         gene_intervals=np.array([[4, 5], [5, 6], [6, 7], [7, 8]], dtype=np.int64),
@@ -1313,7 +1277,7 @@ def test_plink_operator_matches_independent_dense_adjusted_r2_reference(snp_batc
         padding_bp=0,
         atom_batch_size=2,
     )
-    prepared = prepare_plink("1", bundle, args)
+    prepared = panel.prepare_chromosome("1", bundle, config)
     prepared.reader._currentSNP = 0
     x = prepared.reader.nextSNPs(prepared.reader.m)
     correlation = x.T @ x / prepared.reader.n

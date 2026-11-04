@@ -46,7 +46,7 @@ from ..._runtime.progress import report_phase
 from .. import compute as kernel_ldscore
 from ..diagnostics import emit_reference_snp_funnel_notice, log_reference_snp_funnel_warning
 from ..._annotation.overlap import compute_overlap
-from ..._refpanel.adapters import resolve_keep_individuals
+from ..._refpanel.adapters import PlinkRefPanel, resolve_keep_individuals
 from ..._refpanel.funnel import concat_funnels, funnel_from_records, funnel_records, with_grid_rows
 from ..._refpanel.prepared import ChromosomeAnnotations
 from ..._refpanel.windows import WholeChromosomeWindowError
@@ -86,7 +86,9 @@ from ..._annotation.sources import prepare_annotation_sources
 from ..._core.chromosomes import normalize_chromosome, normalize_chromosome_series
 from ..._core.coordinates import positive_int_position_series
 from ..._core.columns import normalize_genome_build
-from ...config import DEFAULT_SNP_BATCH_SIZE, GeneLDScoreIndexBuildConfig, GlobalConfig, get_global_config
+from ...config import (
+    DEFAULT_SNP_BATCH_SIZE, GeneLDScoreIndexBuildConfig, GlobalConfig, LDScoreConfig, RefPanelConfig, get_global_config,
+)
 from ...errors import LDSCInputError, LDSCInternalError
 from ..._annotation.gene_lists import (
     GeneCatalog,
@@ -599,19 +601,16 @@ def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, c
         baseline = pd.DataFrame(shard.read(columns=baseline_columns), columns=baseline_columns)
         if metadata.empty:
             raise LDSCInputError(f"No baseline annotation rows were found for chromosome {chrom}.")
-        kernel_args = argparse.Namespace(
-            bfile=chromosome_prefixes[chrom],
-            keep=config.keep_indivs_file,
-            maf_min=config.maf_min,
-            snp_identifier=config.snp_identifier,
-            genome_build=config.genome_build,
-            ld_wind_snps=config.ld_wind_snps,
-            ld_wind_kb=config.ld_wind_kb,
-            ld_wind_cm=config.ld_wind_cm,
-            yes_really=False,
-            snp_batch_size=config.snp_batch_size,
-            common_maf_min=config.common_maf_min,
-            genetic_map=genetic_map,
+        ref_panel = PlinkRefPanel(
+            GlobalConfig(snp_identifier=config.snp_identifier, genome_build=config.genome_build),
+            RefPanelConfig(backend="plink", plink_prefix=chromosome_prefixes[chrom],
+                           keep_indivs_file=config.keep_indivs_file, maf_min=config.maf_min),
+            chromosome_prefixes=chromosome_prefixes,
+        )
+        # whole_chromosome_ok stays False: the index has no whole-chromosome override.
+        ldscore_config = LDScoreConfig(
+            ld_wind_snps=config.ld_wind_snps, ld_wind_kb=config.ld_wind_kb, ld_wind_cm=config.ld_wind_cm,
+            snp_batch_size=config.snp_batch_size, common_maf_min=config.common_maf_min,
         )
         prefix = chromosome_prefixes[chrom]
         bim_rows = _read_bim_identity(prefix)
@@ -645,8 +644,9 @@ def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, c
         record = build_plink_index_chromosome(
             chrom,
             kernel_bundle,
-            kernel_args,
-            chromosome_prefixes=chromosome_prefixes,
+            ref_panel,
+            ldscore_config,
+            genetic_map=genetic_map,
             regression_keys=regression_keys,
             regression_regions=regression_regions,
             gene_intervals=intervals,
@@ -1437,7 +1437,8 @@ def _publish_staged_gene_ldscore_index(staged_index: Path, destination: Path) ->
 def build_plink_index_chromosome(
     chrom: str,
     baseline_bundle: ChromosomeAnnotations,
-    args,
+    ref_panel: PlinkRefPanel,
+    ldscore_config: LDScoreConfig,
     *,
     regression_keys: set[str] | RestrictionIdentityKeys,
     regression_regions: RegionIntervals | None,
@@ -1445,15 +1446,16 @@ def build_plink_index_chromosome(
     included: np.ndarray,
     padding_bp: int,
     atom_batch_size: int,
-    chromosome_prefixes: dict[str, str] | None = None,
+    genetic_map: pd.DataFrame | None = None,
 ) -> IndexChromosomeData:
     """Construct exact common and atom payloads from one PLINK chromosome.
 
-    ``chromosome_prefixes`` is the optional workflow-validated mapping from
-    normalized BIM chromosome labels to complete prefixes. Supplying it avoids
-    resolving ``args.bfile`` again; direct callers may omit it to use the same
-    content validation lazily through ``PlinkRefPanel``. Genotype alignment,
-    windowing, regression SNPs, and atom projection are unchanged.
+    ``ref_panel`` prepares the chromosome with ``ldscore_config``, which gives
+    the LD window, the whole-chromosome policy, the genotype batch size and
+    the common-SNP MAF threshold. ``genetic_map`` is a preloaded map for cM
+    windows; without one the panel resolves its own. Genotype alignment,
+    windowing, regression SNPs, and atom projection are those of direct
+    PLINK LD-score preparation.
 
     Baseline and regression-weight scores share one traversal. Each atom batch
     repeats genotype traversal, bounding the active dense atom projection.
@@ -1461,25 +1463,10 @@ def build_plink_index_chromosome(
     ``atom_batch_size`` does not bound the final operator or assembly copies.
     The chromosome baseline matrix is also explicitly materialized in float64.
     """
-    from ...config import LDScoreConfig, RefPanelConfig
-    from ..._refpanel.adapters import PlinkRefPanel
-
-    global_options = {"snp_identifier": args.snp_identifier}
-    if hasattr(args, "genome_build"):
-        global_options["genome_build"] = args.genome_build
-    panel = PlinkRefPanel(
-        GlobalConfig(**global_options),
-        RefPanelConfig(backend="plink", plink_prefix=args.bfile,
-                       keep_indivs_file=getattr(args, "keep", None), maf_min=getattr(args, "maf_min", None)),
-        chromosome_prefixes=chromosome_prefixes,
-    )
-    config = LDScoreConfig(
-        ld_wind_snps=args.ld_wind_snps, ld_wind_kb=args.ld_wind_kb, ld_wind_cm=args.ld_wind_cm,
-        snp_batch_size=args.snp_batch_size, common_maf_min=getattr(args, "common_maf_min", 0.05),
-        whole_chromosome_ok=args.yes_really,
-    )
-    with panel.prepare_chromosome(chrom, baseline_bundle, config,
-                                  genetic_map=getattr(args, "genetic_map", None)) as prepared:
+    snp_identifier = ref_panel.global_config.snp_identifier
+    snp_batch_size = ldscore_config.snp_batch_size
+    common_maf_min = ldscore_config.common_maf_min
+    with ref_panel.prepare_chromosome(chrom, baseline_bundle, ldscore_config, genetic_map=genetic_map) as prepared:
         metadata = prepared.metadata
         baseline = np.asarray(prepared.annotations.read(), dtype=np.float64)
         geno = prepared.reader
@@ -1487,7 +1474,7 @@ def build_plink_index_chromosome(
         persisted = kernel_ldscore.regression_mask_from_keys(
             metadata,
             regression_keys,
-            args.snp_identifier,
+            snp_identifier,
             region_intervals=regression_regions,
         ).astype(bool)
         n_baseline_columns = baseline.shape[1]
@@ -1497,7 +1484,7 @@ def build_plink_index_chromosome(
             kernel_ldscore.ld_scores_from_genotypes(
                 geno,
                 prepared.block_left,
-                args.snp_batch_size,
+                snp_batch_size,
                 annot=baseline,
                 output_rows=output_rows,
                 n_baseline=n_baseline_columns,
@@ -1512,17 +1499,15 @@ def build_plink_index_chromosome(
         baseline_count_all, baseline_count_common = kernel_ldscore.compute_counts(
             metadata,
             baseline_frame,
-            common_maf_min=getattr(args, "common_maf_min", 0.05),
+            common_maf_min=common_maf_min,
         )
         overlap = compute_overlap(
             metadata,
             baseline_frame,
             n_baseline=len(baseline_bundle.baseline_columns),
-            common_maf_min=getattr(args, "common_maf_min", 0.05),
+            common_maf_min=common_maf_min,
         )
-        common_mask = metadata["MAF"].to_numpy(dtype=np.float64) >= float(
-            getattr(args, "common_maf_min", 0.05)
-        )
+        common_mask = metadata["MAF"].to_numpy(dtype=np.float64) >= float(common_maf_min)
 
         atom_model = build_disjoint_atoms(
             chrom,
@@ -1543,7 +1528,7 @@ def build_plink_index_chromosome(
                 kernel_ldscore.ld_scores_from_genotypes(
                     geno,
                     prepared.block_left,
-                    args.snp_batch_size,
+                    snp_batch_size,
                     annot=atom_block,
                     output_rows=output_rows,
                 ),

@@ -1562,8 +1562,10 @@ def _project_legacy_sumstats_to_panel(
 
     Legacy ``SNP`` values are treated only as rsID lookup keys. The supplied
     LD-score panel owns output coordinates and identifier mode. Allele-aware
-    panels also own allele order; allele-unaware panels retain the source
-    alleles so two traits can still be harmonized for genetic correlation.
+    panels also own allele order, except for A/T and C/G SNPs, whose strand
+    against the panel is unknown: they keep their source alleles and ``Z``.
+    Allele-unaware panels retain the source alleles so two traits can still
+    be harmonized for genetic correlation.
 
     Parameters
     ----------
@@ -1678,13 +1680,6 @@ def _project_legacy_sumstats_to_panel(
             ~source["A1"].isin(valid_bases) | ~source["A2"].isin(valid_bases) | source["A1"].eq(source["A2"]),
             "invalid_allele",
         )
-        assign_reason(
-            ((source["A1"] == "A") & (source["A2"] == "T"))
-            | ((source["A1"] == "T") & (source["A2"] == "A"))
-            | ((source["A1"] == "C") & (source["A2"] == "G"))
-            | ((source["A1"] == "G") & (source["A2"] == "C")),
-            "strand_ambiguous",
-        )
     assign_reason(source_candidate_count.eq(0), "missing_panel_rsid")
 
     eligible = reasons.isna()
@@ -1704,8 +1699,8 @@ def _project_legacy_sumstats_to_panel(
             sort=False,
             validate="many_to_many",
         )
-        complement_a1 = pairs["A1"].map({"A": "T", "T": "A", "C": "G", "G": "C"})
-        complement_a2 = pairs["A2"].map({"A": "T", "T": "A", "C": "G", "G": "C"})
+        complement_a1 = pairs["A1"].map(reg.COMPLEMENT)
+        complement_a2 = pairs["A2"].map(reg.COMPLEMENT)
         direct = pairs["A1"].eq(pairs["_legacy_panel_A1"]) & pairs["A2"].eq(pairs["_legacy_panel_A2"])
         complemented = complement_a1.eq(pairs["_legacy_panel_A1"]) & complement_a2.eq(
             pairs["_legacy_panel_A2"]
@@ -1718,7 +1713,10 @@ def _project_legacy_sumstats_to_panel(
         )
         compatible = direct | complemented | swapped | swapped_complement
         compatible_pairs = pairs.take(np.flatnonzero(compatible.to_numpy()))
-        compatible_pairs["_legacy_flip"] = (swapped | swapped_complement).loc[compatible_pairs.index].to_numpy()
+        # An A/T or C/G pair is its own strand complement, so it matches both
+        # ways round and its orientation is unknown: it is never flipped.
+        flip = (swapped | swapped_complement) & complement_a1.ne(pairs["A2"])
+        compatible_pairs["_legacy_flip"] = flip.loc[compatible_pairs.index].to_numpy()
         compatible_counts = compatible_pairs.groupby("_legacy_source_row", sort=False).size()
         compatible_count_by_source = source.index.to_series().map(compatible_counts).fillna(0).astype("int64")
         assign_reason(eligible & compatible_count_by_source.eq(0), "incompatible_alleles")
@@ -1753,8 +1751,11 @@ def _project_legacy_sumstats_to_panel(
     projected_frame["POS"] = selected_panel.loc[accepted_rows, panel_column("POS")].to_numpy()
     projected_frame["SNP"] = selected_panel.loc[accepted_rows, panel_column("SNP")].to_numpy()
     if allele_aware:
-        projected_frame["A1"] = selected_panel.loc[accepted_rows, panel_column("A1")].to_numpy()
-        projected_frame["A2"] = selected_panel.loc[accepted_rows, panel_column("A2")].to_numpy()
+        # A/T and C/G rows keep their source alleles, the orientation their Z refers to.
+        oriented = projected_frame["A1"].map(reg.COMPLEMENT).ne(projected_frame["A2"]).to_numpy()
+        for column in ("A1", "A2"):
+            panel_alleles = selected_panel.loc[accepted_rows, panel_column(column)].to_numpy()
+            projected_frame[column] = np.where(oriented, panel_alleles, projected_frame[column].to_numpy())
         flipped_rows = flip_by_source.loc[accepted_rows]
         projected_frame.loc[flipped_rows, "Z"] = -pd.to_numeric(
             projected_frame.loc[flipped_rows, "Z"], errors="raise"

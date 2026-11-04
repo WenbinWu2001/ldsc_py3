@@ -241,17 +241,20 @@ def test_legacy_allele_aware_projection_matches_scalar_compatibility_snapshot() 
 
     projected, drops = _project_legacy_sumstats_to_panel(_legacy(source), panel)
 
+    # The palindromic (A/T) row is kept with its source alleles, Z and FRQ:
+    # its strand against the panel is unknown, so it is never reoriented.
     expected = pd.DataFrame(
         {
-            "SNP": ["direct", "complement", "swap", "swap_complement", "disambiguated", "invalid_frq", "missing_frq"],
-            "A1": ["A"] * 7,
-            "A2": ["C", "C", "C", "C", "G", "C", "C"],
-            "Z": [1.0, 2.0, -3.0, -4.0, 5.0, 14.0, 15.0],
-            "N": [1000.0] * 7,
-            "FRQ": [0.1, 0.2, 0.7, 0.6, 0.5, np.nan, np.nan],
-            "EXTRA": [0, 1, 2, 3, 4, 13, 14],
-            "CHR": ["1"] * 7,
-            "POS": pd.Series([10, 20, 30, 40, 51, 120, 130], dtype="int64"),
+            "SNP": ["direct", "complement", "swap", "swap_complement", "disambiguated", "palindromic", "invalid_frq",
+                    "missing_frq"],
+            "A1": ["A"] * 8,
+            "A2": ["C", "C", "C", "C", "G", "T", "C", "C"],
+            "Z": [1.0, 2.0, -3.0, -4.0, 5.0, 10.0, 14.0, 15.0],
+            "N": [1000.0] * 8,
+            "FRQ": [0.1, 0.2, 0.7, 0.6, 0.5, 0.1, np.nan, np.nan],
+            "EXTRA": [0, 1, 2, 3, 4, 9, 13, 14],
+            "CHR": ["1"] * 8,
+            "POS": pd.Series([10, 20, 30, 40, 51, 100, 120, 130], dtype="int64"),
         }
     )
     pd.testing.assert_frame_equal(projected.data, expected)
@@ -261,13 +264,45 @@ def test_legacy_allele_aware_projection_matches_scalar_compatibility_snapshot() 
         "incompatible_alleles",
         "invalid_allele",
         "missing_allele",
-        "strand_ambiguous",
         "missing_panel_rsid",
         "duplicate_source_rsid",
         "duplicate_source_rsid",
     ]
-    assert audit["panel_candidate_count"].tolist() == [2, 1, 1, 1, 1, 0, 1, 1]
+    assert audit["panel_candidate_count"].tolist() == [2, 1, 1, 1, 0, 1, 1]
     pd.testing.assert_frame_equal(source, original)
+
+
+def test_legacy_h2_with_a_base_mode_panel_keeps_a_t_and_c_g_rows() -> None:
+    panel = _panel(
+        pd.DataFrame(
+            {
+                "CHR": ["1", "1", "1"],
+                "POS": [10, 20, 30],
+                "SNP": ["rs1", "rs2", "rs3"],
+                "regression_ld_scores": [1.0, 1.1, 1.2],
+                "base": [1.0, 2.0, 3.0],
+            }
+        ),
+        "chr_pos",
+    )
+    sumstats = _legacy(
+        pd.DataFrame(
+            {
+                "SNP": ["rs1", "rs2", "rs3"],
+                "A1": ["A", "C", "A"],
+                "A2": ["T", "G", "G"],
+                "Z": [2.0, 3.0, 4.0],
+                "N": [1000.0] * 3,
+            }
+        )
+    )
+
+    projected, drops = _project_legacy_sumstats_to_panel(sumstats, panel)
+
+    # h2 fits Z^2, so an unknown strand is no reason to drop a SNP.
+    assert projected.data["SNP"].tolist() == ["rs1", "rs2", "rs3"]
+    assert projected.data["Z"].tolist() == [2.0, 3.0, 4.0]
+    assert drops.empty
 
 
 def test_legacy_allele_unaware_projection_requires_one_panel_row_per_rsid() -> None:

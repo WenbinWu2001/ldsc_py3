@@ -20,7 +20,7 @@ Two headers tied at the best rank stop the run with an error instead of a guess.
 
 ### Shared metadata columns
 
-These aliases apply to annotation files, SNP restriction files and coordinate inference.
+These aliases apply to annotation files, SNP restriction files, `quantile-h2` target annotations and reference metadata, and coordinate inference.
 
 | Canonical | Accepted aliases |
 | --- | --- |
@@ -32,7 +32,7 @@ These aliases apply to annotation files, SNP restriction files and coordinate in
 
 `MAF` accepts only the name `MAF`, a folded minor-allele frequency.
 
-Allele columns in SNP restriction files also accept genome-oriented names, because SNP identity treats the two alleles as an unordered set:
+Allele columns in SNP restriction files and in `quantile-h2` target annotations and reference metadata also accept genome-oriented names, because SNP identity treats the two alleles as an unordered set:
 
 | Canonical | Accepted aliases |
 | --- | --- |

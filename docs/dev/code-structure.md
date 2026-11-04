@@ -1,6 +1,6 @@
 # Code Structure
 
-Last updated on: 2026-11-03
+Last updated on: 2026-11-04
 
 This is the authoritative contributor entry for LDSC3.
 Start here to locate a change.
@@ -78,7 +78,7 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 | `ldsc._core.chromosomes` | canonical chromosome normalization and ordering |
 | `ldsc._core.columns` | resolve header aliases and normalize identifier/build tokens |
 | `ldsc._core.coordinates` | `CHR:POS` keys and coordinate-frame normalization |
-| `ldsc._core.snp_identity`, `ldsc._core.identifiers` | the four SNP identifier modes, base/effective identity keys, allele-aware cleanup, restriction files, `identifier_keys` and retained-identity uniqueness checks |
+| `ldsc._core.snp_identity`, `ldsc._core.identifiers` | the four SNP identifier modes, base/effective identity keys, allele-aware cleanup, restriction files, `identifier_keys`, retained-identity uniqueness checks, and `read_identity_lines`, which consumes the leading `# ldsc:` identity lines of package-written text tables for the R² matrix sidecar reader and `quantile-h2` reference metadata |
 | `ldsc._core.regions` | packaged and user BED interval loading plus region-exclusion masks |
 | `ldsc._core.row_alignment` | row-alignment checks between SNP tables and the shared genomic sort |
 | `ldsc._core.plink_files` | retained PLINK `.bim`/`.fam` and identifier-list readers; obsolete legacy regression-artifact readers are removed |

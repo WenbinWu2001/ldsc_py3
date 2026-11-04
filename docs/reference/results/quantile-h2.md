@@ -1,6 +1,6 @@
 # Continuous-Annotation Quantile Heritability: Technical Contract
 
-Last updated on: 2026-11-03
+Last updated on: 2026-11-04
 
 Quantile calculation runs in one worker with **1 BLAS thread**, including input overlap products and post-fit projection.
 See [parallel execution](../parallel-execution.md) for native-limit verification and Python process startup.
@@ -61,9 +61,13 @@ The command deliberately does not copy original annotation matrices into regress
 - reference metadata with `--ref-metadata-sources`.
 
 Path arguments accept exact files, globs, `@` chromosome placeholders, and existing path-token conventions.
-R² matrix users can supply the existing `chr*_meta.tsv.gz` sidecars.
+R² matrix users can supply the existing `chr*_meta.tsv.gz` sidecars; their leading `# ldsc:` identity lines are skipped.
 PLINK users should supply metadata previously produced with `ldscore --export-ref-metadata`.
-Reference metadata requires `CHR`, `POS` (or `BP`), `SNP`, and `MAF`, and `A1/A2` when the fit is allele-aware: it defines the reference SNPs, so a file without both alleles stops the run with an error that names it.
+Reference metadata is a UTF-8 text table, plain or gzip-compressed, with a whitespace-delimited header.
+It requires `CHR`, `POS` (or `BP`), `SNP`, and `MAF`, and `A1/A2` when the fit is allele-aware: it defines the reference SNPs, so a file without both alleles stops the run with an error that names it.
+Header names resolve through the [shared column aliases](../formats/column-schema.md#shared-metadata-columns).
+`MAF` must be the folded minor-allele frequency, and only a column named `MAF` provides it: a column named `FRQ` is not read as `MAF`, because it usually holds the unfolded frequency of `A1`, which would select the wrong common SNPs.
+A file that cannot be parsed or lacks a required column stops the run; see [troubleshooting](../../user-guide/troubleshooting.md#quantile-h2-reference-metadata-cannot-be-read).
 Fitted and target annotations without alleles are matched by base identity instead, which requires a unique base identity in the reference metadata, and the log names each such file.
 
 Annotation names must be globally unique within one LD-score directory.

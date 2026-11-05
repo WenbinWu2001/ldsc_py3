@@ -323,7 +323,7 @@ Public interface: downstream workflows should consume `SumstatsTable` or the sel
 
 `load_ldscore_from_dir()` opens an `LDScoreSource`, retaining baseline values, identities, counts, and overlap while leaving query LD-score values on disk.
 This module owns manifest/schema checks, count/overlap consistency, and table/identity validation shared by materialized and staged output.
-`validate_ldscore_baseline_table()` validates the complete shared baseline; `validate_ldscore_query_table()` checks a materialized query table against its already-validated baseline rows, and `_ldscore.fragments.write_query_fragments()` requires each staged fragment's identity columns to equal the shared first-batch baseline rows exactly.
+`validate_ldscore_baseline_table()` validates the complete shared baseline; `validate_ldscore_query_table()` checks a materialized query table against its already-validated baseline rows, and `_ldscore.outputs._write_query_fragments()` requires each staged fragment's identity columns to equal the shared first-batch baseline rows exactly.
 `LDScoreSource.read_queries()` returns explicit, uncached selections in requested column order; callers own their memory and must keep the source directory available and unchanged.
 The batch output writer and regression workflows both call this loader; `_ldscore/source.py` has no dependency on output writers or regression orchestration.
 Selected-value validation and alignment to a regression model remain with `RegressionRunner`.
@@ -433,7 +433,7 @@ The writer stores run metadata once, and `_regression.quantile_h2.load_fitted_pa
 | `_ldscore.direct_batches.stage_direct_chromosome` | Stage direct post-kernel float32 query scores and return baseline plus scientific/diagnostic summaries instead of query matrices |
 | `_ldscore.gene_index.batches.indexed_results` | Own the indexed run's persistent pool; `_IndexedProducer` reloads and releases one chromosome operator per task and reduces compact float64 statistics in index order |
 | `_ldscore.query_variation.summarize_variation`, `combine_variation` | Exact global variation from first values and within-chromosome flags, preserving each LD-score producer's precision |
-| `_ldscore.fragments.StagedLDScoreBatch`, `write_query_fragments` | Private batch descriptor and ordered validation/publication from direct float32 or indexed float64 fragments; delete each consumed fragment without a genome-wide query array |
+| `_ldscore.fragments.StagedLDScoreBatch`, `_ldscore.outputs._write_query_fragments` | Private batch descriptor, and its ordered validation/publication from direct float32 or indexed float64 fragments by the writer; delete each consumed fragment without a genome-wide query array |
 | `_ldscore.outputs._LDScorePublication`, `LDScoreDirectoryWriter.write_batches` | Retain explicit shared publication state while releasing each materialized or staged batch; publish the LD-score directory after success and clean owned scratch on handled failure |
 | `LDScoreSource.read_queries` | Explicit selected-query reads across manifest files in requested order, without caching or a width cap |
 

@@ -102,12 +102,12 @@ def test_query_pruning_precedes_float32_narrowing_and_allows_skipped_batch(tmp_p
 
 
 def test_fragment_writer_releases_each_chromosome_before_reading_next(tmp_path, monkeypatch):
-    from ldsc._ldscore import fragments
+    from ldsc._ldscore import outputs
 
     index = two_chromosome_index(tmp_path, monkeypatch)
     query = tmp_path / "query.txt"
     query.write_text("G1\nG3\n")
-    original = fragments.pd.read_parquet
+    original = outputs.pd.read_parquet
     live = []
 
     def read(path, *args, **kwargs):
@@ -119,7 +119,7 @@ def test_fragment_writer_releases_each_chromosome_before_reading_next(tmp_path, 
             return frame
         return original(path, *args, **kwargs)
 
-    monkeypatch.setattr(fragments.pd, "read_parquet", read)
+    monkeypatch.setattr(outputs.pd, "read_parquet", read)
     result = run_indexed_ldscore(index, query_gene_list_sources=[query], output_dir=tmp_path / "out")
     assert len(live) == 2 and all(ref() is None for ref in live)
     assert [entry["chrom"] for entry in result.query_batches[0]["row_groups"]] == ["21", "22"]

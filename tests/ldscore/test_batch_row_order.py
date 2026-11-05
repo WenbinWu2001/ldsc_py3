@@ -17,7 +17,7 @@ import pytest
 from ldsc import AnnotationBundle, GlobalConfig, LDScoreCalculator, LDScoreConfig, PlinkRefPanel, RefPanelConfig
 from ldsc._core.row_alignment import concat_chromosome_tables, sort_frame_by_genomic_position
 from ldsc._ldscore import calculator as ldscore_calculator
-from ldsc._ldscore import fragments
+from ldsc._ldscore import outputs
 from ldsc._ldscore.outputs import LDScoreOutputConfig
 from ldsc._refpanel.adapters import R2MatrixRefPanel
 from ldsc.errors import LDSCInputError, LDSCInternalError
@@ -126,7 +126,7 @@ def test_published_rows_follow_genomic_chromosome_order(tmp_path):
 
 
 def _corrupt_second_batch(monkeypatch, change):
-    original = fragments.write_query_fragments
+    original = outputs._write_query_fragments
     calls = []
 
     def write(result, *args, **kwargs):
@@ -137,7 +137,7 @@ def _corrupt_second_batch(monkeypatch, change):
             change(frame).to_parquet(path, index=False)
         return original(result, *args, **kwargs)
 
-    monkeypatch.setattr(fragments, "write_query_fragments", write)
+    monkeypatch.setattr(outputs, "_write_query_fragments", write)
 
 
 @pytest.mark.parametrize("change", [

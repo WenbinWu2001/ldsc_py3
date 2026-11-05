@@ -12,6 +12,7 @@ descriptors survive between batches.
 
 from __future__ import annotations
 
+from contextlib import ExitStack
 import json
 import os
 from dataclasses import dataclass, field, replace
@@ -28,11 +29,13 @@ import pyarrow.parquet as pq
 from .._annotation.query_outcomes import gene_viability_errors
 from .._annotation.semantics import require_unique_annotation_names
 from .._annotation.storage import TsvDiagnostics
+from .._core.row_alignment import first_identity_mismatch
 from .._core.snp_identity import identity_artifact_metadata
 from ..config import normalize_required_path
 from .source import (is_numbered_query_batch_file, load_ldscore_from_dir, query_batch_file_name,
                      validate_ldscore_baseline_table, validate_ldscore_query_table)
 from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError
+from .fragments import StagedLDScoreBatch
 from .._runtime.artifacts import ArtifactFamily, atomic_write_json, declare_artifacts, to_serializable
 from .._runtime.paths import ensure_output_directory, remove_output_artifacts
 
@@ -40,7 +43,6 @@ if TYPE_CHECKING:
     from ..config import GlobalConfig
     from .._annotation.gene_query_storage import StagedGeneListBatch
     from .._annotation.query_outcomes import QueryAnnotationStatus
-    from .fragments import StagedLDScoreBatch
     from .calculator import LDScoreResult
     from .overlap_table import LDScoreOverlap
     from .source import LDScoreSource
@@ -97,6 +99,57 @@ def _write_chromosome_aligned_parquet(
             )
             offset += len(chrom_df)
     return row_group_meta
+
+
+def _write_query_fragments(result: StagedLDScoreBatch, baseline_table: pd.DataFrame, path: Path, compression):
+    """Write finalized queries against the run's already-validated shared baseline.
+
+    ``baseline_table`` is the first batch's baseline. Read one chromosome at a
+    time, require its identity columns to equal the matching baseline rows
+    exactly, narrow its values to float32, and delete the consumed fragment
+    after releasing its frame. The producer keeps the fragment directory alive
+    until consumption or worker shutdown.
+    """
+    identity = [name for name in ("CHR", "SNP", "POS", "A1", "A2") if name in baseline_table]
+    columns = [*identity, *result.query_columns]
+    row_groups, offset = [], 0
+    parquet_writer = None
+    with ExitStack() as stack:
+        for fragment in result.query_fragments:
+            frame = pd.read_parquet(fragment, columns=columns, use_threads=False)
+            _require_baseline_rows(baseline_table.iloc[offset:offset + len(frame)], frame, identity, offset)
+            if not frame.empty:
+                if frame.CHR.astype(str).nunique() != 1:
+                    raise LDSCInternalError("A query fragment must contain exactly one chromosome.")
+                narrowed = _cast_parquet_floats(frame)
+                table = pa.Table.from_pandas(narrowed, preserve_index=False)
+                if parquet_writer is None:
+                    parquet_writer = stack.enter_context(pq.ParquetWriter(path, table.schema, compression=compression))
+                parquet_writer.write_table(table, row_group_size=len(frame))
+                row_groups.append({"chrom": str(frame.CHR.iloc[0]), "row_group_index": len(row_groups),
+                                   "row_offset": offset, "n_rows": len(frame)})
+                offset += len(frame)
+                del table, narrowed
+            del frame
+            fragment.unlink()
+    if offset != len(baseline_table):
+        raise LDSCInternalError("Query fragments do not cover every baseline SNP row.")
+    return row_groups
+
+
+def _require_baseline_rows(baseline: pd.DataFrame, frame: pd.DataFrame, identity: list[str], offset: int) -> None:
+    """Raise unless a query fragment repeats the baseline rows' identity columns exactly, in order."""
+    mismatch = first_identity_mismatch(baseline, frame, identity)
+    if mismatch is not None:
+        row, column = mismatch
+        wanted = baseline[column].iloc[row] if row < len(baseline) else "no row"
+        found = frame[column].iloc[row] if row < len(frame) else "no row"
+        raise LDSCInputError(
+            f"LD-score query batch rows must equal the baseline rows: SNP row mismatch at row {offset + row} "
+            f"in {column} (baseline {wanted!r}, query batch {found!r}). Most likely an input file "
+            "(reference panel, annotations or SNP restriction) changed while the run was in progress, so a "
+            "later query batch selected different SNPs. Rerun with unchanged inputs."
+        )
 
 
 REGRESSION_LD_SCORE_COLUMN = "regression_ld_scores"
@@ -381,8 +434,6 @@ class LDScoreDirectoryWriter:
         adds no rollback for a later filesystem publication failure, and
         completed batches are not resumable checkpoints.
         """
-        from .fragments import StagedLDScoreBatch, write_query_fragments
-
         root = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
         self.artifact_family(root).preflight(overwrite=output_config.overwrite)
         compression = None if output_config.parquet_compression in {None, "none"} else output_config.parquet_compression
@@ -441,7 +492,7 @@ class LDScoreDirectoryWriter:
                     statuses.extend(result.query_statuses)
                     if result.query_columns:
                         filename = f"query-{len(query_batches) + 1}.parquet"
-                        groups = (write_query_fragments(result, shared.baseline_table, stage / filename, compression)
+                        groups = (_write_query_fragments(result, shared.baseline_table, stage / filename, compression)
                                   if streamed else
                                   _write_chromosome_aligned_parquet(result.query_table, stage / filename, compression))
                         query_batches.append({"file": filename, "query_columns": list(result.query_columns), "row_groups": groups})

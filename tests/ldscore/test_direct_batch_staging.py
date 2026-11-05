@@ -53,10 +53,10 @@ def test_direct_global_filtering_matches_materialized_output(tmp_path, width, em
 
 
 def test_direct_parent_releases_and_deletes_each_consumed_fragment(tmp_path, monkeypatch):
-    from ldsc._ldscore import fragments
+    from ldsc._ldscore import outputs
 
     metadata, baseline, queries, config, panel, numerical = prepared_case(tmp_path)
-    read = fragments.pd.read_parquet
+    read = outputs.pd.read_parquet
     live, consumed = [], []
 
     def measured(path, *args, **kwargs):
@@ -70,7 +70,7 @@ def test_direct_parent_releases_and_deletes_each_consumed_fragment(tmp_path, mon
             return frame
         return read(path, *args, **kwargs)
 
-    monkeypatch.setattr(fragments.pd, "read_parquet", measured)
+    monkeypatch.setattr(outputs.pd, "read_parquet", measured)
     with AnnotationBundle.from_frames(metadata, baseline, queries, config_snapshot=config) as bundle:
         LDScoreCalculator().run(bundle, panel, replace(numerical, query_batch_size=2), config,
                                output_config=LDScoreOutputConfig(tmp_path / "out"))
@@ -87,12 +87,12 @@ def _fail_last_batch(*args, **kwargs):
 
 @pytest.mark.parametrize("failure", ["worker", "alignment", "writer"])
 def test_direct_final_batch_failure_removes_private_outputs(tmp_path, monkeypatch, failure):
-    from ldsc._ldscore import fragments
+    from ldsc._ldscore import outputs
     from ldsc.errors import LDSCInputError
 
     metadata, baseline, queries, config, panel, numerical = prepared_case(tmp_path)
     output = tmp_path / "out"
-    original_write = fragments.write_query_fragments
+    original_write = outputs._write_query_fragments
     writes = []
 
     def write(result, baseline_table, path, compression):
@@ -111,7 +111,7 @@ def test_direct_final_batch_failure_removes_private_outputs(tmp_path, monkeypatc
 
     if failure == "worker":
         monkeypatch.setattr(ldscore_calculator, "_compute_one_chromosome", _fail_last_batch)
-    monkeypatch.setattr(fragments, "write_query_fragments", write)
+    monkeypatch.setattr(outputs, "_write_query_fragments", write)
     before = {child.pid for child in multiprocessing.active_children()}
     with AnnotationBundle.from_frames(metadata, baseline, queries, config_snapshot=config) as bundle:
         with pytest.raises((OSError, LDSCInputError), match="injected final-batch|SNP row mismatch"):

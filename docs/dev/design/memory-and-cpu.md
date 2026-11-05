@@ -441,7 +441,7 @@ A task receives a small chromosome loader (`LoadedGeneLDScoreIndex.chromosome_lo
 Each task reloads its chromosome operator, writes lossless float64 Parquet for that batch, and returns only compact counts, overlap blocks, and exact variation summaries.
 Query scores are filled column-major by row blocks of the operator product, which leaves each row's arithmetic unchanged and lets Arrow use each query column without a copy.
 The coordinator reduces those summaries in index order and applies the shared query-status policy before narrowing values.
-[`_ldscore.fragments.write_query_fragments`](../../../src/ldsc/_ldscore/fragments.py) validates, converts, and writes one chromosome at a time, deleting each consumed fragment.
+[`_ldscore.outputs._write_query_fragments`](../../../src/ldsc/_ldscore/outputs.py) validates, converts, and writes one chromosome at a time, deleting each consumed fragment.
 There is no genome-wide query concatenation or retained-column copy in this path.
 All active-batch scratch is removed before another batch is submitted, including when every query in a batch is skipped.
 The score payload bound is proportional to output SNP rows times batch width, while each live query-score array is chromosome-sized.

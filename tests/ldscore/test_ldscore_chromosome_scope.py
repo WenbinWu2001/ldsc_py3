@@ -9,7 +9,29 @@ import pytest
 from ldsc import cli
 from ldsc.config import GlobalConfig
 from ldsc.errors import LDSCInputError
-from ldsc._ldscore.preflight import inspect_direct_inputs
+from ldsc._ldscore.preflight import inspect_direct_inputs, inspect_reference_inputs
+
+
+def inspect(args, config, tmp_path, *, bed_paths=()):
+    """Run the scope gate on inputs prepared as direct ``ldscore`` prepares them."""
+    from ldsc._annotation.interval_queries import prepare_bed_queries
+    from ldsc._annotation.preflight import resolve_annotation_inputs
+    from ldsc._annotation.sources import prepare_annotation_sources
+    from ldsc._annotation.storage import AnnotationWorkspace
+
+    reference = inspect_reference_inputs(args, config)
+    paths, declared, issues = resolve_annotation_inputs(args.baseline_annot_sources)
+    with AnnotationWorkspace(tmp_path) as workspace:
+        bed_sources = prepare_bed_queries(list(bed_paths), workspace)
+        try:
+            prepared = prepare_annotation_sources(workspace, paths, [], mode=config.snp_identifier,
+                                                  declared_chromosomes=declared, input_issues=issues,
+                                                  autosomes_only=True)
+        except LDSCInputError as exc:
+            return inspect_direct_inputs(args, config, annotation_issues=exc.input_issues.to_dict("records"),
+                                         bed_sources=bed_sources, reference_inputs=reference)
+        return inspect_direct_inputs(args, config, annotation_sources=prepared, bed_sources=bed_sources,
+                                     reference_inputs=reference)
 
 
 def write_inputs(tmp_path):
@@ -51,23 +73,11 @@ def check_non_autosomal_issues(issues):
     assert not issues.reason.eq("incomplete_chromosome_coverage").any()
 
 
-def test_bed_lines_outside_autosomes_are_reported_for_every_file(tmp_path):
-    args = write_inputs(tmp_path)
-    args.query_annot_bed_sources = write_beds(tmp_path / "beds")
-    result = inspect_direct_inputs(args, GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"))
-    check_non_autosomal_issues(result.issues)
-
-
 def test_prepared_bed_sources_report_lines_outside_autosomes(tmp_path):
-    from ldsc._annotation.interval_queries import prepare_bed_queries
-    from ldsc._annotation.storage import AnnotationWorkspace
-
     args = write_inputs(tmp_path)
     write_beds(tmp_path / "beds")
-    with AnnotationWorkspace(tmp_path) as workspace:
-        sources = prepare_bed_queries(sorted(Path(tmp_path / "beds").glob("*.bed")), workspace)
-        result = inspect_direct_inputs(args, GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
-                                       bed_sources=sources)
+    result = inspect(args, GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"), tmp_path,
+                     bed_paths=sorted(Path(tmp_path / "beds").glob("*.bed")))
     check_non_autosomal_issues(result.issues)
 
 
@@ -90,31 +100,22 @@ def test_ldscore_stops_before_computation_on_bed_lines_outside_autosomes(tmp_pat
 def test_exact_and_glob_scope_comes_from_contents(tmp_path):
     args = write_inputs(tmp_path)
     args.baseline_annot_sources = str(tmp_path / "*.22.annot")
-    result = inspect_direct_inputs(args, GlobalConfig(snp_identifier="rsid"))
+    result = inspect(args, GlobalConfig(snp_identifier="rsid"), tmp_path)
     assert result.chromosomes == ["22"]
     assert result.issues.empty
     (tmp_path / "baseline.22.annot").write_text("CHR\tSNP\tPOS\tbase\n21\trs1\t10\t1\n")
-    result = inspect_direct_inputs(args, GlobalConfig(snp_identifier="rsid"))
+    result = inspect(args, GlobalConfig(snp_identifier="rsid"), tmp_path)
     assert result.scope["baseline_chromosomes"] == ["21"]
     assert "chromosome_set_mismatch" in result.issues.reason.tolist()
 
 
-def test_scope_scan_logs_ignored_metadata_once_across_chunks(tmp_path, caplog):
-    args = write_inputs(tmp_path)
-    (tmp_path / "baseline.22.annot").write_text("CHR SNP POS MAF base\n" + "22 rs1 10 .2 1\n" * 65537)
-    with caplog.at_level("DEBUG", logger="LDSC"):
-        result = inspect_direct_inputs(args, GlobalConfig(snp_identifier="rsid"))
-    assert result.issues.empty
-    assert sum("contains CM/MAF" in record.getMessage() for record in caplog.records) == 1
-
-
 def test_at_requires_all_autosomes_and_collects_missing_files(tmp_path):
-    args = write_inputs(tmp_path)
-    args.baseline_annot_sources = str(tmp_path / "baseline.@.annot")
-    result = inspect_direct_inputs(args, GlobalConfig(snp_identifier="rsid"))
-    missing = result.issues.loc[result.issues.reason.eq("missing_required_input")]
-    assert missing.chrom.tolist() == list(map(str, range(1, 22)))
-    assert result.scope["requires_all_autosomes"] is True
+    from ldsc._annotation.preflight import resolve_annotation_inputs
+
+    write_inputs(tmp_path)
+    _paths, _declared, issues = resolve_annotation_inputs(str(tmp_path / "baseline.@.annot"))
+    missing = [row for row in issues if row["reason"] == "missing_required_input"]
+    assert [row["chrom"] for row in missing] == list(map(str, range(1, 22)))
 
 
 def test_multiple_plink_trios_for_one_chromosome_fail_preflight(tmp_path):
@@ -122,7 +123,7 @@ def test_multiple_plink_trios_for_one_chromosome_fail_preflight(tmp_path):
     for suffix in (".bed", ".bim", ".fam"):
         (tmp_path / ("extra22" + suffix)).write_bytes((tmp_path / ("panel22" + suffix)).read_bytes())
     args.plink_prefix = str(tmp_path / "*22")
-    result = inspect_direct_inputs(args, GlobalConfig(snp_identifier="rsid"))
+    result = inspect(args, GlobalConfig(snp_identifier="rsid"), tmp_path)
     assert "ambiguous_chromosome_input" in result.issues.reason.tolist()
 
 
@@ -130,7 +131,7 @@ def test_invalid_required_members_are_all_reported(tmp_path):
     args = write_inputs(tmp_path)
     (tmp_path / "panel22.bed").write_bytes(b"bad")
     (tmp_path / "baseline.22.annot").write_text("CHR\tSNP\tPOS\tbase\n22\trs1\t10\tbad\n")
-    result = inspect_direct_inputs(args, GlobalConfig(snp_identifier="rsid"))
+    result = inspect(args, GlobalConfig(snp_identifier="rsid"), tmp_path)
     assert {"baseline", "reference"} <= set(result.issues.input_role)
     assert result.issues.reason.eq("invalid_required_input").sum() >= 2
 
@@ -143,7 +144,7 @@ def test_truncated_gzip_does_not_hide_other_input_failures(tmp_path):
     compressed.write_bytes(gzip.compress(b"CHR\tSNP\tPOS\tbase\n22\trs1\t10\t1\n")[:-5])
     args.baseline_annot_sources = str(compressed)
     (tmp_path / "panel22.bed").write_bytes(b"bad")
-    result = inspect_direct_inputs(args, GlobalConfig(snp_identifier="rsid"))
+    result = inspect(args, GlobalConfig(snp_identifier="rsid"), tmp_path)
     assert {"baseline", "reference"} <= set(result.issues.input_role)
     assert result.issues.reason.eq("invalid_required_input").sum() >= 2
 
@@ -167,18 +168,16 @@ def write_r2_inputs(tmp_path):
 
 def test_parquet_scope_validates_the_pair_and_sidecar_contents(tmp_path):
     args = write_r2_inputs(tmp_path)
-    result = inspect_direct_inputs(args, GlobalConfig(snp_identifier="rsid"))
+    result = inspect(args, GlobalConfig(snp_identifier="rsid"), tmp_path)
     assert result.issues.empty
     assert result.chromosomes == ["22"]
     (tmp_path / "r2/chr22_r2.parquet").write_bytes(b"broken parquet")
-    result = inspect_direct_inputs(args, GlobalConfig(snp_identifier="rsid"))
+    result = inspect(args, GlobalConfig(snp_identifier="rsid"), tmp_path)
     assert result.issues.input_role.eq("reference").any()
     assert result.chromosomes == []
 
 
 def test_r2_matrix_built_in_another_mode_gets_an_r2_matrix_repair(tmp_path):
-    from ldsc._ldscore.preflight import inspect_reference_inputs
-
     args = write_r2_inputs(tmp_path)
     issues = inspect_reference_inputs(args, GlobalConfig(snp_identifier="rsid_allele_aware")).issues
 
@@ -192,7 +191,7 @@ def test_parquet_orphan_members_are_batched(tmp_path):
     args = write_r2_inputs(tmp_path)
     (tmp_path / "r2/chr21_r2.parquet").write_bytes(b"bad")
     (tmp_path / "r2/chr20_meta.tsv.gz").write_bytes(b"bad")
-    result = inspect_direct_inputs(args, GlobalConfig(snp_identifier="rsid"))
+    result = inspect(args, GlobalConfig(snp_identifier="rsid"), tmp_path)
     assert set(result.issues.chrom) == {"20", "21"}
 
 

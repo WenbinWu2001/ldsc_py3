@@ -7,21 +7,15 @@ This workflow helper collects independent artifact failures without treating
 unreadable inputs as scientific zero support.
 """
 
-from collections import Counter
 from dataclasses import dataclass
-import glob
 import logging
-import gzip
-from pathlib import Path
 
 import pandas as pd
 
-from .._annotation.parsing import normalize_annotation_chunk
-from .._core.chromosomes import AUTOSOMES, chrom_sort_key, normalize_chromosome
+from .._core.chromosomes import AUTOSOMES, chrom_sort_key
 from ..config import RefPanelConfig
 from ..errors import LDSCInputError, LDSCUserError
-from .._runtime.paths import inspect_plink_inputs, normalize_path_token, split_cli_path_tokens
-from .._core import regions
+from .._runtime.paths import inspect_plink_inputs, split_cli_path_tokens
 from .._refpanel.adapters import RefPanelLoader
 from .._refpanel.r2_format import r2_matrix_chromosomes, resolve_r2_build_dir
 
@@ -128,12 +122,15 @@ def inspect_reference_inputs(args, global_config, *, require_autosomes=True, pli
         pd.DataFrame(issues, columns=ISSUE_COLUMNS))
 
 
-def inspect_direct_inputs(args, global_config, *, annotation_sources=None, bed_sources=None, annotation_issues=(), reference_inputs=None):
-    """Inspect all selected annotation and reference artifacts before filtering.
+def inspect_direct_inputs(args, global_config, *, bed_sources, reference_inputs, annotation_sources=None, annotation_issues=()):
+    """Combine prepared annotation, BED and reference evidence into one scope decision.
 
-    Validate BED/BIM/FAM integrity or the complete R2 matrix sidecar binding, without
-    computing correlations. Errors from independent files accumulate in one
-    table. Input chromosomes are never inferred from annotation filenames.
+    ``annotation_sources`` are the prepared baseline/query annotations, or
+    ``annotation_issues`` the input issues of a failed preparation.
+    ``bed_sources`` are the prepared BED queries and ``reference_inputs`` the
+    result of ``inspect_reference_inputs``. Errors from independent files
+    accumulate in one table. Input chromosomes come from validated contents,
+    never from annotation filenames.
     """
     issues = list(annotation_issues)
     declarations = []
@@ -158,77 +155,24 @@ def inspect_direct_inputs(args, global_config, *, annotation_sources=None, bed_s
             ))
         query_sets.append((source, {chrom for chrom in line_counts if chrom in AUTOSOMES}))
 
-    def files(tokens, role):
-        selected = []
-        for raw in split_cli_path_tokens(tokens):
-            token = normalize_path_token(raw)
-            declarations.append(token)
-            expanded = [(token.replace("@", chrom), chrom) for chrom in AUTOSOMES] if "@" in token else [(token, "")]
-            for pattern, chrom in expanded:
-                matches = sorted(glob.glob(pattern)) if glob.has_magic(pattern) else ([pattern] if Path(pattern).is_file() else [])
-                if not matches:
-                    issue(role, pattern, chrom, "missing_required_input", "No selected input exists.")
-                selected.extend((path, chrom) for path in matches)
-        return list(dict.fromkeys(selected))
-
     sets = {"baseline": set(), "reference": set()}
-    reference_prefixes = {}
     query_sets = []
     declarations.extend(split_cli_path_tokens(getattr(args, 'baseline_annot_sources', None)))
     declarations.extend(split_cli_path_tokens(getattr(args, 'query_annot_sources', None)))
     if annotation_sources is not None:
         sets['baseline'].update(annotation_sources.scope_chromosomes)
         query_sets.extend((path, set(chroms)) for path,role,chroms in annotation_sources.input_chromosomes if role == 'query')
-    elif not annotation_issues:
-        for role, attribute in (("baseline", "baseline_annot_sources"), ("query", "query_annot_sources")):
-            for path, declared_chrom in files(getattr(args, attribute, None), role):
-                try:
-                    width = len(pd.read_csv(path, sep=r"\s+", nrows=0).columns)
-                    chunk_rows = max(1,min(65536,16*1024*1024//(8*max(1,width))))
-                    chroms = set()
-                    with pd.read_csv(path,sep=r"\s+",chunksize=chunk_rows) as reader:
-                        for chunk_index, chunk in enumerate(reader):
-                            metadata, _ = normalize_annotation_chunk(chunk,path,global_config.snp_identifier, log_ignored_metadata=chunk_index == 0)
-                            chroms.update(metadata.CHR.astype(str))
-                    if not chroms or not chroms <= set(AUTOSOMES):
-                        raise LDSCInputError(
-                            f"Annotation file '{path}' does not identify a nonempty set of autosomes 1 through 22. "
-                            "Supply an annotation file with valid CHR values for the requested autosomal analysis."
-                        )
-                    if declared_chrom and chroms != {declared_chrom}:
-                        raise LDSCInputError(
-                            f"Annotation file '{path}' selected by @ for chromosome {declared_chrom} "
-                            f"contains chromosomes {sorted(chroms, key=int)}. "
-                            "Restore the matching chromosome file or correct the path template; "
-                            "renaming a file does not change its SNP coordinates."
-                        )
-                    if role == "baseline":
-                        sets[role].update(chroms)
-                    else:
-                        query_sets.append((path, chroms))
-                except (OSError, EOFError, ValueError, LDSCUserError) as exc:
-                    issue(role, path, declared_chrom, "invalid_required_input", exc)
 
-    if bed_sources is not None:
-        for source in bed_sources:
-            if source.failure_reason:
-                issue('query',source.source,'','invalid_required_input',source.details)
-            else:
-                bed_query(source.source, {chrom: spool.n_rows for chrom, spool in source.shards.items()})
-    else:
-        for path, _ in files(getattr(args, "query_annot_bed_sources", None), "query"):
-            try:
-                with (gzip.open(path, "rt") if path.endswith(".gz") else open(path)) as stream:
-                    line_counts = Counter(normalize_chromosome(row.chrom) for row in regions.iter_bed_rows(stream, label=path))
-                bed_query(path, line_counts)
-            except (OSError, EOFError, ValueError, LDSCUserError) as exc:
-                issue("query", path, "", "invalid_required_input", exc)
+    for source in bed_sources:
+        if source.failure_reason:
+            issue('query',source.source,'','invalid_required_input',source.details)
+        else:
+            bed_query(source.source, {chrom: spool.n_rows for chrom, spool in source.shards.items()})
 
-    reference = reference_inputs or inspect_reference_inputs(args, global_config)
-    issues.extend(reference.issues.to_dict('records'))
-    declarations.extend(reference.scope['declarations'])
-    sets['reference'].update(reference.chromosomes)
-    reference_prefixes = reference.scope['reference_prefixes_by_chrom']
+    issues.extend(reference_inputs.issues.to_dict('records'))
+    declarations.extend(reference_inputs.scope['declarations'])
+    sets['reference'].update(reference_inputs.chromosomes)
+    reference_prefixes = reference_inputs.scope['reference_prefixes_by_chrom']
 
     requires_all = any("@" in token for token in declarations)
     if sets["baseline"] != sets["reference"] or (requires_all and sets["baseline"] != set(AUTOSOMES)):

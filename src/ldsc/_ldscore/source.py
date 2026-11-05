@@ -407,8 +407,11 @@ def load_ldscore_from_dir(
         )
     _validate_row_groups(
         root / baseline_rel, metadata.get("baseline_row_groups"),
-        f"LD-score baseline file {baseline_rel} has inconsistent row-group metadata. Restore the complete "
-        "LD-score directory with metadata and data files from the same run, or regenerate it with ldsc ldscore.",
+        f"LD-score baseline file {baseline_rel} has inconsistent row-group metadata: metadata.json does not "
+        "describe its row groups. Most likely an earlier LDSC3 version wrote the directory, splitting a "
+        "chromosome of more than 1,048,576 rows into several row groups, or metadata.json and the data files "
+        "come from different runs. Regenerate the directory with the current ldsc ldscore. "
+        f"Other causes & fixes: {_LDSCORE_SCHEMA_DOC}",
     )
     baseline_table = pd.read_parquet(root / baseline_rel)
     baseline_columns = [str(column) for column in metadata.get("baseline_columns", [])]

@@ -270,8 +270,10 @@ def test_baseline_row_groups_must_describe_the_baseline_file(tmp_path, tamper):
     else:
         payload.pop("baseline_row_groups")
     path.write_text(json.dumps(payload))
-    with pytest.raises(LDSCInputError, match="baseline file ldscore.baseline.parquet has inconsistent row-group metadata"):
+    with pytest.raises(LDSCInputError, match="baseline file ldscore.baseline.parquet has inconsistent row-group metadata") as caught:
         load_ldscore_from_dir(str(tmp_path))
+    # Directories an earlier LDSC3 version wrote fail here too, so the repair is to regenerate.
+    assert "earlier LDSC3 version" in str(caught.value) and "Regenerate the directory" in str(caught.value)
 
 
 def test_exported_reference_metadata_is_published_with_the_directory(tmp_path):

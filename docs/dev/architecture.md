@@ -182,7 +182,7 @@ The same module owns the small `RUN_FAILED` marker helper used at public
 materializing boundaries. The helper adds failure visibility for authorized
 overwrites but performs no rollback, restoration, quarantine, or action-order
 change. See [logs-and-outputs.md](../reference/logs-and-outputs.md).
-Each run has one marker scope, opened by its workflow (`materializing_overwrite_guard()` or `overwrite_failure_marker()`) from parsed arguments, or by `run_build_r2_matrix_from_args()` after `R2MatrixBuilder._inspect_inputs()` has assigned chromosomes from BIM contents.
+Each run has one marker scope, opened by its workflow (`materializing_overwrite_guard()` or `overwrite_failure_marker()`) from parsed arguments, or, for `build-r2-matrix`, by the `_build()` body that both entry points call, after `R2MatrixBuilder._inspect_inputs()` has assigned chromosomes from BIM contents.
 A scope opened inside an open one neither writes nor removes, so the outermost public entry point decides the marker and its label.
 The CLI opens no scope; `run_cli()` wraps dispatch in `cli_command()`, and the marker records that command line.
 `serial_calculation()` returns a workflow log path opened in its worker, so a marker written in the calling process names that log.

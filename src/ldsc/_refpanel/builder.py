@@ -1553,19 +1553,12 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def config_from_args(args: argparse.Namespace) -> tuple[R2MatrixBuildConfig, GlobalConfig]:
-    """Normalize CLI args into public config objects.
+def config_from_args(args: argparse.Namespace) -> R2MatrixBuildConfig:
+    """Return the build configuration of parsed ``build-r2-matrix`` arguments.
 
-    ``--ref-panel-snps-file`` uses the parsed ``--snp-identifier`` value,
-    falling back to the registered :class:`GlobalConfig` identifier mode only
-    for programmatic namespaces that omit the attribute.
     The PLINK source build remains local to this workflow and is inferred from
-    ``.bim`` coordinates during :meth:`R2MatrixBuilder.run` when set to
-    ``"auto"``.
-    ``GlobalConfig.genome_build`` is ignored by ``build-r2-matrix``.
+    ``.bim`` coordinates during the build when set to ``"auto"``.
     """
-    registered_config = get_global_config()
-    snp_identifier = normalize_snp_identifier_mode(args.snp_identifier or registered_config.snp_identifier)
     source_genome_build = normalize_genome_build(args.source_genome_build)
     if source_genome_build not in {"auto", "hg19", "hg38"}:
         raise LDSCConfigError(
@@ -1573,8 +1566,7 @@ def config_from_args(args: argparse.Namespace) -> tuple[R2MatrixBuildConfig, Glo
             "Most likely the source build was misspelled or is unsupported. Pass "
             "`--source-genome-build auto`, `hg19`, or `hg38`."
         )
-
-    build_config = R2MatrixBuildConfig(
+    return R2MatrixBuildConfig(
         plink_prefix=args.plink_prefix,
         source_genome_build=source_genome_build,
         genetic_map_hg19_sources=args.genetic_map_hg19_sources,
@@ -1590,14 +1582,26 @@ def config_from_args(args: argparse.Namespace) -> tuple[R2MatrixBuildConfig, Glo
         ref_panel_snps_file=args.ref_panel_snps_file,
         keep_indivs_file=args.keep_indivs_file,
         snp_batch_size=args.snp_batch_size,
-        r2_min=getattr(args, "r2_min", 0.0),
+        r2_min=args.r2_min,
     )
-    global_config = GlobalConfig(
+
+
+def _global_config_from_args(args: argparse.Namespace) -> GlobalConfig:
+    """Return the run's ``GlobalConfig`` from the parsed SNP identifier mode and log level.
+
+    The SNP identifier mode interprets ``--ref-panel-snps-file`` and is the
+    identity the R2 matrix records. ``build-r2-matrix`` reads no genome build
+    from ``GlobalConfig``; the PLINK build is ``--source-genome-build``, and
+    the recorded ``genome_build`` is ``"auto"`` in coordinate-family modes and
+    ``None`` in rsID-family modes. On the Python route the namespace carries
+    the registered values (see ``run_build_r2_matrix``).
+    """
+    snp_identifier = normalize_snp_identifier_mode(args.snp_identifier)
+    return GlobalConfig(
         snp_identifier=snp_identifier,
         genome_build="auto" if identity_mode_family(snp_identifier) == "chr_pos" else None,
         log_level=args.log_level,
     )
-    return build_config, global_config
 
 
 def run_build_r2_matrix_from_args(args: argparse.Namespace) -> R2MatrixBuildResult:
@@ -1614,12 +1618,13 @@ def run_build_r2_matrix_from_args(args: argparse.Namespace) -> R2MatrixBuildResu
     output has been replaced, and a marker name chosen then could not be the
     one a successful retry removes.
     """
-    return _build_from_args(args, command="run_build_r2_matrix_from_args(...)")
+    return _build(config_from_args(args), _global_config_from_args(args), command="run_build_r2_matrix_from_args(...)")
 
 
-def _build_from_args(args: argparse.Namespace, *, command: str) -> R2MatrixBuildResult:
-    """Run the parsed workflow; ``command`` names the entry point in a failure marker."""
-    build_config, global_config = config_from_args(args)
+def _build(
+    build_config: R2MatrixBuildConfig, global_config: GlobalConfig, *, command: str,
+) -> R2MatrixBuildResult:
+    """Run one build from its configs; ``command`` names the entry point in a failure marker."""
     builder = R2MatrixBuilder(global_config=global_config)
     output_dir, chrom_sources, resolved_prefixes = builder._inspect_inputs(build_config)
     with overwrite_failure_marker(
@@ -1638,8 +1643,8 @@ def run_build_r2_matrix(**kwargs: Any) -> R2MatrixBuildResult:
     """Run the R2 matrix builder with CLI-equivalent keyword arguments.
 
     The wrapper accepts the same modern I/O and build names as
-    ``ldsc build-r2-matrix``. The shared identifier mode comes from the
-    registered ``GlobalConfig``; call ``set_global_config(...)`` before
+    ``ldsc build-r2-matrix``. The SNP identifier mode and log level come from
+    the registered ``GlobalConfig``; call ``set_global_config(...)`` before
     invoking this wrapper. ``GlobalConfig.genome_build`` is ignored here; pass
     ``source_genome_build`` for the PLINK input build. Both ``plink_prefix``
     and ``output_dir`` are required because this public workflow materializes
@@ -1659,13 +1664,10 @@ def run_build_r2_matrix(**kwargs: Any) -> R2MatrixBuildResult:
         **GLOBAL_CONFIG_RUNTIME_OPTIONS,
         "genome_build": "pass source_genome_build for the PLINK input build; GlobalConfig.genome_build is not used",
     }
-    registered_config = get_global_config()
     args = namespace_from_kwargs(
-        "run_build_r2_matrix", build_parser(), kwargs, rejected=rejected, registered=registered_config,
+        "run_build_r2_matrix", build_parser(), kwargs, rejected=rejected, registered=get_global_config(),
     )
-    # The namespace holds the parser default, which would override the registered mode.
-    args.snp_identifier = registered_config.snp_identifier
-    return _build_from_args(args, command="run_build_r2_matrix(...)")
+    return _build(config_from_args(args), _global_config_from_args(args), command="run_build_r2_matrix(...)")
 
 
 def main(argv: Sequence[str] | None = None) -> R2MatrixBuildResult:

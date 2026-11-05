@@ -419,7 +419,7 @@ must supply `genome_build="auto"` or a concrete build.
 | `config.py` | field defaults | `genome_build = "auto"` |
 | `config.py` | `__post_init__` | Raise for coordinate-family `genome_build=None` with fix-it message |
 | `config.py` | `_GLOBAL_CONFIG` and `reset_global_config()` | `GlobalConfig()` — no explicit args needed |
-| `_refpanel/builder.py` | `config_from_args` | Add `genome_build="auto"` (satisfies invariant; value is ignored by the workflow) |
+| `_refpanel/builder.py` | `_global_config_from_args` | Add `genome_build="auto"` (satisfies invariant; value is ignored by the workflow) |
 | `_sumstats/munger.py` | `_effective_sumstats_config` | Guard: `genome_build = coordinate_metadata.get("genome_build") or config.genome_build` so the effective in-memory snapshot uses inferred or lifted coordinates when available; new sidecars serialize only minimal identity provenance used to reconstruct that snapshot on reload |
 | `_ldscore/source.py` | LD-score metadata loading | Current root metadata must carry minimal identity provenance; old package-written artifacts should be regenerated |
 | `_regression/runner.py` | `build_dataset` empty-merge error | Append `f"Active config: {self.global_config!r}."` |

@@ -724,11 +724,11 @@ class R2MatrixBuildConfigFromArgsTest(unittest.TestCase):
             "--ld-wind-kb", "1",
             "--snp-batch-size", "64",
         ])
-        build_config, _ = r2_matrix_builder.config_from_args(args)
+        build_config = r2_matrix_builder.config_from_args(args)
         self.assertEqual(build_config.snp_batch_size, 64)
 
 
-    def test_config_from_args_uses_parser_default_identifier_for_restriction_file(self):
+    def test_cli_global_config_uses_parser_default_identifier_not_the_registered_one(self):
         parser = r2_matrix_builder.build_parser()
         args = parser.parse_args(
             [
@@ -747,7 +747,8 @@ class R2MatrixBuildConfigFromArgsTest(unittest.TestCase):
 
         set_global_config(GlobalConfig(snp_identifier="chr_pos"))
         try:
-            build_config, global_config = r2_matrix_builder.config_from_args(args)
+            build_config = r2_matrix_builder.config_from_args(args)
+            global_config = r2_matrix_builder._global_config_from_args(args)
         finally:
             reset_global_config()
 
@@ -773,11 +774,11 @@ class R2MatrixBuildConfigFromArgsTest(unittest.TestCase):
             ]
         )
 
-        build_config, _global_config = r2_matrix_builder.config_from_args(args)
+        build_config = r2_matrix_builder.config_from_args(args)
 
         self.assertEqual(build_config.source_genome_build, "auto")
 
-    def test_config_from_args_uses_explicit_snp_identifier_for_restriction_file(self):
+    def test_cli_global_config_uses_explicit_snp_identifier(self):
         parser = r2_matrix_builder.build_parser()
         args = parser.parse_args(
             [
@@ -798,13 +799,14 @@ class R2MatrixBuildConfigFromArgsTest(unittest.TestCase):
             ]
         )
 
-        build_config, global_config = r2_matrix_builder.config_from_args(args)
+        build_config = r2_matrix_builder.config_from_args(args)
+        global_config = r2_matrix_builder._global_config_from_args(args)
 
         self.assertEqual(build_config.source_genome_build, "hg19")
         self.assertIsNone(global_config.genome_build)
         self.assertEqual(global_config.snp_identifier, "rsid")
 
-    def test_config_from_args_does_not_require_genome_build_for_chr_pos_mode(self):
+    def test_cli_global_config_records_auto_build_for_chr_pos_mode(self):
         parser = r2_matrix_builder.build_parser()
         args = parser.parse_args(
             [
@@ -825,7 +827,8 @@ class R2MatrixBuildConfigFromArgsTest(unittest.TestCase):
             ]
         )
 
-        build_config, global_config = r2_matrix_builder.config_from_args(args)
+        build_config = r2_matrix_builder.config_from_args(args)
+        global_config = r2_matrix_builder._global_config_from_args(args)
 
         self.assertEqual(build_config.source_genome_build, "hg19")
         self.assertEqual(global_config.snp_identifier, "chr_pos")

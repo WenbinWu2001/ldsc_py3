@@ -28,7 +28,7 @@ LOGGER = logging.getLogger("LDSC.quantile_h2")
 
 @dataclass(frozen=True)
 class QuantileTarget:
-    """The target annotation that defines the quantiles, checked when it is built, before anything is written.
+    """The target annotation that defines the quantiles, checked when it is built, before the output preflight.
 
     ``sources`` holds the ``--target-annot-sources`` path tokens, ``column``
     the ``--target-annot-column``, ``num_quantiles`` the ``--num-quantiles``,

@@ -86,7 +86,8 @@ No target value is excluded by default. A nonnumeric, `NaN`, or infinite target 
 
 ## Reconstruction and provenance checks
 
-Before anything is written, `_configs_from_args()` in [_regression/quantile_h2.py](../../../src/ldsc/_regression/quantile_h2.py) checks `--num-quantiles` (an integer of at least 2) and the gene-list settings and parses `--target-missing-value` once; an invalid value stops the run without an output directory.
+Before the output preflight, `_configs_from_args()` in [_regression/quantile_h2.py](../../../src/ldsc/_regression/quantile_h2.py) checks `--num-quantiles` (an integer of at least 2) and the gene-list settings and parses `--target-missing-value` once.
+An invalid value stops the run before the output directory or its log is created; with `--overwrite`, the failed run still leaves its `RUN_FAILED.txt` marker.
 The checks below run after the output preflight.
 
 The workflow inherits the linked LD-score directory's inclusive common-MAF threshold; it has no common-MAF override.

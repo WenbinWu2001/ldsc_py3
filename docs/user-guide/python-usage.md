@@ -838,6 +838,7 @@ if __name__ == "__main__":
 ```
 
 `run_h2` accepts the `h2` option names without the leading `--`, for example `trait_name`, `count_kind`, `intercept_h2`, `two_step_cutoff`, `chisq_max`, `num_blocks`, `samp_prev`, `pop_prev` and `overwrite`; see [regression options](../reference/regression-options.md).
+Pass `samp_prev` and `pop_prev` as numbers: a keyword call skips the command line's conversion, so `run_h2` and `run_partitioned_h2` stop with `LDSCConfigError` on a string such as `"0.5"` instead of reading it.
 It writes `h2.tsv`, the regression-bin diagnostic, `diagnostics/metadata.json` and `diagnostics/h2.log`, and returns an `H2Result`.
 `result.summary` is the one-row table saved in `h2.tsv`, `result.output_paths` names the files written, and `result.legacy_sumstats_drops` lists the rows the projection of a legacy `.sumstats(.gz)` input dropped (`None` for other inputs).
 `plot_result()` and `convert_h2_scale()` read that directory; the conversion above writes the liability-scale table under `results/trait_h2/postprocessing/liability-scale/`.

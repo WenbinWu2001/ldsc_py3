@@ -581,7 +581,7 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
     Preparation and projection share one worker with 1 BLAS thread.
 
     The resupplied annotation settings become an ``AnnotationBuildConfig`` and
-    the target settings a ``QuantileTarget`` before anything is written, so an
+    the target settings a ``QuantileTarget`` before the output preflight, so an
     invalid ``--num-quantiles`` or gene-list setting stops the run first.
     The workflow reconstructs the fitted model's common reference
     SNPs from the original annotation sources and reference metadata,
@@ -595,8 +595,10 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
     Parameters
     ----------
     args : argparse.Namespace
-        Parsed command arguments registered by
-        :func:`add_quantile_h2_arguments`. For gene-list reconstruction, omitting
+        Parsed command arguments holding every option of
+        :func:`add_quantile_h2_arguments`, as ``ldsc quantile-h2`` and
+        :func:`run_quantile_h2` supply them; a missing option raises
+        ``AttributeError``. For gene-list reconstruction, omitting
         ``--allow-unresolved-genes`` sets ``gene_list_resolution_policy`` to
         ``"strict"``; supplying that value-free flag sets ``"resolved-only"``.
         Resupply the original LD-score resolution policy and gene inputs so the
@@ -611,6 +613,10 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
 
     Raises
     ------
+    LDSCConfigError
+        Before the output preflight, if the resupplied annotation settings are
+        invalid, for example gene-list settings without
+        ``--query-annot-gene-list-sources`` or two query source types.
     LDSCInputError
         If the fitted model is unsupported, required sources cannot be aligned,
         provenance checks fail, target values are invalid, ``--num-quantiles``
@@ -628,7 +634,7 @@ def _configs_from_args(args) -> tuple[AnnotationBuildConfig, QuantileTarget]:
     """Return the resupplied annotation sources and the quantile target of parsed ``quantile-h2`` arguments.
 
     Building them checks the gene-list settings and ``--num-quantiles`` and
-    parses ``--target-missing-value`` once, before anything is written. The
+    parses ``--target-missing-value`` once, before the output preflight. The
     SNP identifier mode and genome build come from the fitted model's
     LD-score directory, so no ``GlobalConfig`` is built here.
     """

@@ -3377,8 +3377,8 @@ def add_rg_arguments(parser) -> None:
 def run_h2_from_args(args):
     """Run single-trait heritability estimation from parsed CLI arguments.
 
-    The regression settings become a ``RegressionConfig`` before anything is
-    written. The workflow requires ``args.output_dir`` and preflights
+    The regression settings become a ``RegressionConfig`` before the output
+    preflight. The workflow requires ``args.output_dir`` and preflights
     ``h2.tsv``, the LD score regression-bin diagnostic, metadata, and
     ``diagnostics/h2.log`` before loading inputs. A successful overwrite
     removes default plots and liability-scale post-processing derived from the
@@ -3555,8 +3555,8 @@ def _run_partitioned_h2(
 def run_rg_from_args(args):
     """Run multi-trait genetic-correlation estimation from parsed CLI args.
 
-    The regression settings become a ``RegressionConfig`` before anything is
-    written. The workflow requires ``--output-dir`` and writes the rg result
+    The regression settings become a ``RegressionConfig`` before the output
+    preflight. The workflow requires ``--output-dir`` and writes the rg result
     family: ``rg.tsv``, ``rg_full.tsv``, ``h2_per_trait.tsv``, optional
     ``diagnostics/pairs/``, and workflow-owned ``diagnostics/rg.log``. A
     successful overwrite removes the default plot root derived from the
@@ -3565,10 +3565,10 @@ def run_rg_from_args(args):
     Parameters
     ----------
     args : argparse.Namespace
-        Parsed rg options. Required fields are ``sumstats_sources`` and
-        ``ldscore_dir`` and ``output_dir``. Optional fields include ``anchor_trait``,
-        ``write_per_pair_detail``, intercept settings, and
-        common regression options.
+        Parsed ``rg`` options holding every option of
+        :func:`add_rg_arguments`, as ``ldsc rg`` and :func:`run_rg` supply
+        them; a missing option raises ``AttributeError``. ``sumstats_sources``,
+        ``ldscore_dir`` and ``output_dir`` must be set.
 
     Returns
     -------
@@ -3580,8 +3580,15 @@ def run_rg_from_args(args):
 
     Raises
     ------
-    ValueError
-        If fewer than two summary-statistics paths resolve or ``output_dir`` is absent.
+    LDSCConfigError
+        Before the output preflight, if a regression setting such as
+        ``num_blocks`` or ``chisq_max`` is invalid.
+    LDSCUsageError
+        If ``output_dir`` is unset, or if the prevalence lists, the prevalence
+        manifest or ``anchor_trait`` do not match the resolved traits.
+    LDSCUserError
+        If fewer than two summary-statistics paths resolve. A declared input
+        that is missing or unreadable raises ``LDSCInputError``.
     """
     global_config, config = _configs_from_args(args, "rg")
     return _run_rg(
@@ -3746,6 +3753,12 @@ def run_h2(**kwargs) -> H2Result:
         Before anything is written, when a keyword is unknown, a required one
         is missing, a value is outside the command's choices, a flag is not a
         bool, or ``log_level``, ``snp_identifier`` or ``genome_build`` is passed.
+    LDSCConfigError
+        Before the output preflight, when a regression setting is invalid,
+        such as ``num_blocks`` below 2, half a prevalence pair, or a
+        prevalence that is not a number in ``(0, 1)``; a keyword call skips
+        the command line's float conversion, so a string such as ``"0.5"``
+        is rejected too.
 
     Notes
     -----
@@ -3799,6 +3812,12 @@ def run_partitioned_h2(**kwargs) -> PartitionedH2BatchResult:
     ValueError
         Before anything is written, when ``workers`` is not a nonzero integer
         or exceeds the detected available CPU count.
+    LDSCConfigError
+        Before the output preflight, when a regression setting is invalid,
+        such as ``num_blocks`` below 2, half a prevalence pair, or a
+        prevalence that is not a number in ``(0, 1)``; a keyword call skips
+        the command line's float conversion, so a string such as ``"0.5"``
+        is rejected too.
 
     Notes
     -----

@@ -21,7 +21,7 @@ from .._runtime.progress import report_phase, advance
 from .storage import FrameSpool
 from .gene_lists import (
     AUDIT_COLUMNS, SUMMARY_COLUMNS, RESOLVED_ONLY_REASONS, GeneSourceSelection,
-    _expand_focal_gene_list_sources, _resolution_candidates, _resolve_rows, _summarize_sources,
+    _empty_source_summaries, _expand_focal_gene_list_sources, _resolution_candidates, _resolve_rows,
     gene_list_query_name, summary_source_masks,
 )
 from ..errors import LDSCInputError
@@ -204,7 +204,7 @@ def resolve_gene_lists_staged(focal_paths, catalog, workspace, *, control_path=N
     catalog_indices = catalog.frame.reset_index().drop_duplicates('gene_id').set_index('gene_id')['index']
     seed = pd.DataFrame([{**declaration, 'source_status': 'ok', 'source_reasons': ''} for declaration in declarations],
                         columns=SUMMARY_COLUMNS[:7])
-    empty_summaries = _summarize_sources(pd.DataFrame(columns=AUDIT_COLUMNS), seed, resolution_policy, support_evaluated=False)
+    empty_summaries = _empty_source_summaries(seed, resolution_policy)
     candidates = _resolution_candidates(catalog)
     summaries, spools, fatal = [], [], False
     for source_index, declaration in enumerate(declarations):

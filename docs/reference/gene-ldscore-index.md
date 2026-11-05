@@ -237,7 +237,7 @@ Any input or configuration change requires a complete new 1–22 build.
 Partial production indexes are unsupported.
 The incremental appearance of chromosome shards in a private run stage is only a memory and durability strategy; it is not restart, resume, checkpoint reuse, or incremental index-update support.
 
-Online assembly and direct gene-list workflows share `_annotation.query_outcomes.assess_gene_coverage()`, `gene_query_statuses()`, `gene_viability_errors()`, and `finalize_query_statuses()`. Indexed support comes from gene-to-atom counts; direct support comes from the prepared reference/annotation intersection. Shared finalization prunes query tables, counts, overlap blocks, and classification metadata together. Online outputs include `diagnostics/chromosome_scope.json`; invalid indexes produce `diagnostics/input_issues.tsv` in the requested LD-score output directory without altering the index.
+Online assembly and direct gene-list workflows share the coverage check `with_coverage()` of the staged gene-list batch (`_annotation.gene_query_storage`) and `_annotation.query_outcomes.gene_query_statuses()`, `gene_viability_errors()`, and `finalize_query_statuses()`. Indexed support comes from gene-to-atom counts; direct support comes from the prepared reference/annotation intersection. Shared finalization prunes query tables, counts, overlap blocks, and classification metadata together. Online outputs include `diagnostics/chromosome_scope.json`; invalid indexes produce `diagnostics/input_issues.tsv` in the requested LD-score output directory without altering the index.
 
 ## Output preflight, logging, and replacement
 

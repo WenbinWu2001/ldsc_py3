@@ -827,83 +827,30 @@ def _resolve_rows(
     return audit.reindex(columns=AUDIT_COLUMNS).reset_index(drop=True)
 
 
+def _empty_source_summaries(source_seed: pd.DataFrame, resolution_policy: str) -> pd.DataFrame:
+    """Return one summary row per gene-list source before any row is read.
 
-
-def _summarize_sources(
-    audit: pd.DataFrame,
-    source_seed: pd.DataFrame,
-    resolution_policy: str,
-    *,
-    support_evaluated: bool,
-) -> pd.DataFrame:
+    Readable sources start with zero row and gene counts; support counts and
+    the resolution fraction stay missing. The staged resolver adds each
+    source's counts as it reads the source's chunks.
+    """
     seed_columns = ["argument", "input_role", "query", "source", "source_ordinal", "source_status", "source_reasons"]
     summary = source_seed.loc[:, seed_columns].copy()
     summary["resolution_policy"] = resolution_policy
-    key = ["input_role", "source_ordinal"]
-    if audit.empty:
-        counts = pd.DataFrame(
-            columns=[
-                *key,
-                "nonblank_input_rows",
-                "uniquely_resolved_rows",
-                "rejected_rows",
-                "unique_resolved_genes",
-                "duplicate_rows",
-                "excluded_genes",
-                "zero_support_genes",
-                "genes_with_snp_support",
-            ]
-        )
-    else:
-        enriched = audit.assign(
-            _uniquely_resolved=audit["canonical_gene_id"].notna() & ~audit["disposition"].eq("rejected"),
-            _rejected=audit["disposition"].eq("rejected"),
-            _duplicate=audit["disposition"].eq("duplicate"),
-            _excluded=audit["disposition"].eq("excluded"),
-            _unsupported=audit["disposition"].eq("unsupported"),
-            _supported=audit["disposition"].eq("retained"),
-        )
-        enriched["_resolved_gene_id"] = enriched["canonical_gene_id"].where(
-            enriched["_uniquely_resolved"]
-        )
-        counts = enriched.groupby(key, sort=False).agg(
-            nonblank_input_rows=("line", "size"),
-            uniquely_resolved_rows=("_uniquely_resolved", "sum"),
-            rejected_rows=("_rejected", "sum"),
-            unique_resolved_genes=("_resolved_gene_id", "nunique"),
-            duplicate_rows=("_duplicate", "sum"),
-            excluded_genes=("_excluded", "sum"),
-            zero_support_genes=("_unsupported", "sum"),
-            genes_with_snp_support=("_supported", "sum"),
-        ).reset_index()
-    summary = summary.merge(counts, on=key, how="left", sort=False)
     readable = summary["source_status"].eq("ok")
-    count_columns = [
+    for column in (
         "nonblank_input_rows",
         "uniquely_resolved_rows",
         "rejected_rows",
         "unique_resolved_genes",
         "duplicate_rows",
         "excluded_genes",
-    ]
-    for column in count_columns:
-        summary[column] = pd.to_numeric(summary[column], errors="coerce").astype("Int64")
-        summary.loc[readable & summary[column].isna(), column] = 0
-        summary.loc[~readable, column] = pd.NA
-    if support_evaluated:
-        for column in ("zero_support_genes", "genes_with_snp_support"):
-            summary[column] = pd.to_numeric(summary[column], errors="coerce").astype("Int64")
-            summary.loc[readable & summary[column].isna(), column] = 0
-            summary.loc[~readable, column] = pd.NA
-    else:
-        summary["zero_support_genes"] = pd.NA
-        summary["genes_with_snp_support"] = pd.NA
+    ):
+        summary[column] = pd.Series(pd.NA, index=summary.index, dtype="Int64")
+        summary.loc[readable, column] = 0
+    summary["zero_support_genes"] = pd.NA
+    summary["genes_with_snp_support"] = pd.NA
     summary["resolution_fraction"] = pd.NA
-    nonempty = readable & summary["nonblank_input_rows"].gt(0).fillna(False)
-    summary.loc[nonempty, "resolution_fraction"] = (
-        summary.loc[nonempty, "uniquely_resolved_rows"].astype(float)
-        / summary.loc[nonempty, "nonblank_input_rows"].astype(float)
-    )
     summary["_role_order"] = summary["input_role"].map({"focal": 0, "control": 1})
     return summary.sort_values(["_role_order", "source_ordinal"], kind="stable").drop(columns="_role_order").reindex(columns=SUMMARY_COLUMNS)
 

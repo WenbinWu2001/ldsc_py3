@@ -337,9 +337,8 @@ def test_resolved_only_does_not_relax_outside_index_coverage(tmp_path):
         resolution_policy="resolved-only",
      output_dir=tmp_path)
 
-    from ldsc._annotation.query_outcomes import assess_gene_coverage
 
-    result, errors = assess_gene_coverage(result, ("22",))
+    result, errors = result.with_coverage(("22",))
     assert fixture_gene_audit(result).loc[0, "coverage_status"] == "uncovered"
     assert fixture_gene_audit(result).loc[0, "reason"] == ""
     assert not result.has_fatal_gate_a_issues

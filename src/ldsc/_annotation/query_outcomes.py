@@ -66,16 +66,6 @@ class QueryAnnotationStatus:
         }
 
 
-def assess_gene_coverage(batch, chromosomes):
-    """Assess unique post-exclusion selections without altering resolver truth.
-
-    ``chromosomes`` must come from validated inputs. Support is deliberately
-    left unknown here, including for genes outside the evaluated scope.
-    Return the enriched batch and every query/control coverage failure.
-    """
-    return batch.with_coverage(chromosomes)
-
-
 def gene_query_statuses(batch):
     """Apply shared resolution, coverage, and measured-support precedence."""
     statuses = []

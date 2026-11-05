@@ -509,7 +509,6 @@ def _run_indexed_ldscore_in_workspace(
     """Own staged gene selections until the canonical result has been written."""
     from ..._annotation.gene_query_storage import resolve_gene_lists_staged
     from ..._annotation.query_outcomes import (
-    assess_gene_coverage,
     gene_query_statuses,
     gene_control_errors,
     gene_viability_errors,
@@ -548,7 +547,7 @@ def _run_indexed_ldscore_in_workspace(
     batch = validate_gene_query_names(batch, index.baseline_columns)
     if batch.has_fatal_gate_a_issues:
         fail_gene_list_resolution(batch, output_config)
-    batch, coverage_errors = assess_gene_coverage(batch, index.chromosomes)
+    batch, coverage_errors = batch.with_coverage(index.chromosomes)
     scope = {"chromosomes": list(index.chromosomes), "analysis_chromosomes": list(index.chromosomes),
              "selection": "validated_immutable_index", "index_id": index.index_id,
              "validation_status": "passed"}

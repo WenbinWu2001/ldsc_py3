@@ -107,8 +107,8 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 | `ldsc._annotation.saved_results` | `AnnotationResult`, the record `run_annotate()` returns: saved baseline/query descriptors with no original-input dependencies, construction-owner detachment, and explicit preparation with `prepared_in(directory)` |
 | `ldsc._annotation.bim_grid` | metadata-only standalone BIM grid scans using shared identity cleanup; no genotype companions or value synthesis |
 | `ldsc._annotation.gene_lists` | required/embedded gene-coordinate-catalog validation and vectorized query/control resolution into exact IDs, intervals, audits, and summaries |
-| `ldsc._annotation.gene_query_storage` | staged per-source gene selections and complete audit replay with shared gene-coordinate-catalog state |
-| `ldsc._annotation.query_outcomes` | shared gene coverage, resolution/support precedence, required-control and all-skipped failures, ordered diagnostics, and aligned result pruning; does not import workflow orchestration |
+| `ldsc._annotation.gene_query_storage` | staged per-source gene selections, complete audit replay with shared gene-coordinate-catalog state, and the shared gene coverage check (`with_coverage`) |
+| `ldsc._annotation.query_outcomes` | shared resolution/support precedence, required-control and all-skipped failures, ordered diagnostics, and aligned result pruning; does not import workflow orchestration |
 | `ldsc._annotation.in_memory` | small prepared annotations and diagnostics without filesystem writes |
 | `ldsc._annotation.semantics` | global annotation-name uniqueness and advisory binary/continuous classification, combined across chromosomes by `combine_annotation_types` |
 | `ldsc._annotation.overlap` | annotation counts, overlap blocks and classification over reference SNPs without LD (`annotation_statistics`, `OverlapContribution`, `sum_overlap_contributions`), shared by direct `ldscore` and the gene-index build |

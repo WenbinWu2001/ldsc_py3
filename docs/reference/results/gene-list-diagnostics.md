@@ -1,6 +1,6 @@
 # Gene-list diagnostics and repair
 
-Last updated on: 2026-10-31
+Last updated on: 2026-11-04
 
 This guide is the detailed reference for diagnosing direct and indexed
 gene-list `ldscore` runs. The design assumes that users do not inspect a file
@@ -268,7 +268,7 @@ Indexed mode obtains support from the stored gene-to-atom membership and atom SN
 Support is measured on the reference SNPs, whereas LD-score variation is checked on the regression SNPs.
 Agreement between modes requires matching catalogs, projection settings, and retained reference SNPs; a matching gene-list filename alone does not establish equivalence.
 
-Implementation references: [`_annotation/query_outcomes.py`](../../../src/ldsc/_annotation/query_outcomes.py), `assess_gene_coverage()`, `gene_query_statuses()`, `gene_viability_errors()`, and `finalize_query_statuses()` own shared policy and aligned pruning. [`_ldscore/preflight.py`](../../../src/ldsc/_ldscore/preflight.py), `inspect_direct_inputs()` validates scope; [`_ldscore/calculator.py`](../../../src/ldsc/_ldscore/calculator.py), `_apply_direct_gene_gate_b()` measures direct support; [`_ldscore/gene_index/build.py`](../../../src/ldsc/_ldscore/gene_index/build.py), `_indexed_gene_support()` measures indexed support.
+Implementation references: the staged gene-list batch's `with_coverage()` in [`_annotation/gene_query_storage.py`](../../../src/ldsc/_annotation/gene_query_storage.py) owns the shared coverage check; [`_annotation/query_outcomes.py`](../../../src/ldsc/_annotation/query_outcomes.py), `gene_query_statuses()`, `gene_viability_errors()`, and `finalize_query_statuses()` own shared policy and aligned pruning. [`_ldscore/preflight.py`](../../../src/ldsc/_ldscore/preflight.py), `inspect_direct_inputs()` validates scope; [`_ldscore/calculator.py`](../../../src/ldsc/_ldscore/calculator.py), `_apply_direct_gene_gate_b()` measures direct support; [`_ldscore/gene_index/scoring.py`](../../../src/ldsc/_ldscore/gene_index/scoring.py), `load_gene_ldscore_index()` collects indexed support from gene-to-atom counts.
 
 ## Recommended list-first repair workflow
 

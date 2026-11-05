@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 from ldsc._annotation.gene_lists import GeneCatalog
-from ldsc._annotation.query_outcomes import assess_gene_coverage, gene_query_statuses
+from ldsc._annotation.query_outcomes import gene_query_statuses
 
 
 @pytest.mark.parametrize("policy", ["strict", "resolved-only"])
@@ -23,7 +23,7 @@ def test_coverage_uses_unique_selected_genes_and_leaves_support_unknown(tmp_path
         path.write_text(content)
         sources.append(path)
     batch = resolve_gene_fixture(sources, GeneCatalog.load(catalog), resolution_policy=policy, output_dir=tmp_path)
-    batch, errors = assess_gene_coverage(batch, ["22"])
+    batch, errors = batch.with_coverage(["22"])
     assert batch.summary.coverage_status.tolist() == ["full", "partial", "none", "empty"]
     assert batch.summary.selected_genes.tolist() == [1, 2, 1, 0]
     assert batch.summary.covered_genes.tolist() == [1, 1, 0, 0]
@@ -56,7 +56,7 @@ def test_exclusions_precede_coverage_and_all_excluded_is_empty(tmp_path):
     excluded.write_text("MHC\n")
     full.write_text("MHC\nG1\nONE\n")
     batch = resolve_gene_fixture([excluded, full], GeneCatalog.load(catalog), gene_exclude_regions="mhc", output_dir=tmp_path)
-    batch, errors = assess_gene_coverage(batch, ["22"])
+    batch, errors = batch.with_coverage(["22"])
     assert not errors
     assert batch.summary.coverage_status.tolist() == ["empty", "full"]
     assert batch.summary.selected_genes.tolist() == [0, 1]

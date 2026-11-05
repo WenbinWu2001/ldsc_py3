@@ -198,13 +198,13 @@ def validate_direct_scope(args, global_config, batch, output_config, **prepared_
     import logging
 
     from .outputs import LDScoreDirectoryWriter, QueryDiagnostics
-    from .._annotation.query_outcomes import assess_gene_coverage, gene_query_statuses, gene_control_errors
+    from .._annotation.query_outcomes import gene_query_statuses, gene_control_errors
 
     logger = logging.getLogger("LDSC.ldscore_calculator")
     evidence = inspect_direct_inputs(args, global_config, **prepared_inputs)
     errors = []
     if batch is not None:
-        batch, coverage_errors = assess_gene_coverage(batch, evidence.chromosomes)
+        batch, coverage_errors = batch.with_coverage(evidence.chromosomes)
         errors.extend(coverage_errors)
         errors.extend(gene_control_errors(batch))
     for row in evidence.issues.itertuples(index=False):

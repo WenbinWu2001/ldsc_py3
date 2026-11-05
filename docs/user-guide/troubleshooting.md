@@ -986,7 +986,7 @@ with decisive evidence is rejected. See
 3. Check whether intended SNP selection leaves a usable intersection before changing it.
    Rebuild mismatched inputs; broaden an intended SNP selection only if that change is justified for the analysis.
 
-**Developer reference:** `_regression.runner.RegressionRunner.build_dataset()` and `_regression.runner.RegressionRunner.build_rg_dataset()` · **Exception:** `LDSCInputError`
+**Developer reference:** `_regression.alignment._prepare_h2_inputs()` and `_regression.alignment._rg_dataset()`, behind `RegressionRunner.build_dataset()` and `RegressionRunner.build_rg_dataset()` · **Exception:** `LDSCInputError`
 
 ### regression: LD scores or regression weights are missing or infinite
 
@@ -1005,7 +1005,7 @@ A query column is checked on the regression SNPs of its own model, so under `--c
 
 Missing or infinite `Z` or `N` values in summary statistics are dropped and counted instead; see [missing or infinite statistics](../reference/regression-options.md#16-missing-or-infinite-statistics).
 
-**Developer reference:** `_PreparedLDScores` and `_dataset_from_query_values()` in `_regression/runner.py` · **Exception:** `LDSCInputError`
+**Developer reference:** `_PreparedLDScores` and `_dataset_from_query_values()` in `_regression/alignment.py` · **Exception:** `LDSCInputError`
 
 ### regression: a block jackknife deletion is unestimable
 
@@ -1027,7 +1027,7 @@ The log repeats these details as JSON, with support counts before and after the 
 `rg` keeps fitting the other pairs and records the pair as `unestimable`; `h2` stops with exit code 1; `partitioned-h2` follows the query-error policy in [a query regression fails](#partitioned-h2-a-query-regression-fails).
 Do not substitute a pseudoinverse or fabricate uncertainty.
 
-**Developer reference:** `JackknifeIdentifiabilityError` in `_regression/jackknife.py`; `_fit_h2_dataset()` in `_regression/runner.py` and `RegressionRunner.estimate_rg()` add the context · **Exception:** `JackknifeIdentifiabilityError`
+**Developer reference:** `JackknifeIdentifiabilityError` in `_regression/jackknife.py`; `_fit_h2_dataset()` and `_fit_rg_dataset()` in `_regression/fitting.py` add the context · **Exception:** `JackknifeIdentifiabilityError`
 
 ### `rg`: a trait has no A1/A2 columns
 
@@ -1050,7 +1050,7 @@ Do not substitute a pseudoinverse or fabricate uncertainty.
 2. Munge the raw summary statistics again with `--a1 <effect-allele column> --a2 <other column>`.
 3. Keep allele-less files for `h2` and `partitioned-h2` only.
 
-**Developer reference:** `_require_rg_alleles()` in `_regression/runner.py` · **Exception:** `LDSCInputError`
+**Developer reference:** `_require_rg_alleles()` in `_regression/alignment.py` · **Exception:** `LDSCInputError`
 
 ### `rg`: a SNP heritability estimate is not positive
 
@@ -1076,7 +1076,7 @@ A negative heritability estimate is a valid estimate for a trait with little sig
 2. Use free intercepts, or fixed values that agree with the free estimates.
 3. Otherwise report the pair's genetic correlation as unestimable; do not clip the heritability, take its absolute value or change the intercept only to obtain a number.
 
-**Developer reference:** `_kernel_rg_estimate()` and `_summarize_rg_pair()` in `_regression/runner.py`, which read `RG._negative_hsq` from `_regression/estimators.py` · **Exception:** none; the pair is recorded and the run continues
+**Developer reference:** `_kernel_rg_estimate()` and `_summarize_rg_pair()` in `_regression/fitting.py`, which read `RG._negative_hsq` from `_regression/estimators.py` · **Exception:** none; the pair is recorded and the run continues
 
 ### `partitioned-h2`: a query regression fails
 
@@ -1154,7 +1154,7 @@ such a directory cannot be partitioned.
    check, for `h2` and for each `rg` trait pair, uses it only when present),
    so they run on unpartitioned or older directories.
 
-**Developer reference:** `_regression.runner.RegressionRunner.estimate_partitioned_h2_batch()` / `summarize_partitioned_h2()` · **Exception:** `LDSCInputError`
+**Developer reference:** `_regression.partitioned.estimate_partitioned_h2_batch()` / `_regression.fitting.summarize_partitioned_h2()` · **Exception:** `LDSCInputError`
 
 ## `quantile-h2`
 

@@ -15,7 +15,7 @@ This document summarizes the user-visible file streams for each public workflow.
 | Workflow | yes | workflow modules in the domain packages (`ldsc._annotation`, `ldsc._refpanel`, `ldsc._sumstats`, `ldsc._ldscore`, `ldsc._regression`) | build aligned in-memory tables |
 | Computation | no | computation modules in those packages, such as `ldsc._ldscore.compute`, `ldsc._refpanel.r2_format` and `ldsc._regression.estimators` | low-level readers and numerical work |
 | Artifact access | yes | `ldsc._ldscore.source` | open LD-score directories, validate schemas/identities, and read selected query columns |
-| Postprocessing | yes | each domain's `outputs` writer on `ldsc._runtime.artifacts`, `ldsc._plotting.dispatch`, `ldsc._regression.h2_scale`, pandas writers in `ldsc._regression.runner`, `ldsc._runtime.workflow_logging` | preflight fixed output paths, emit core/derived results, and write workflow audit logs/failure markers |
+| Postprocessing | yes | each domain's `outputs` writer on `ldsc._runtime.artifacts`, `ldsc._plotting.dispatch`, `ldsc._regression.h2_scale`, `ldsc._runtime.workflow_logging` | preflight fixed output paths, emit core/derived results, and write workflow audit logs/failure markers |
 
 ## Package Overview
 
@@ -44,7 +44,7 @@ flowchart LR
     K3[Run estimators]
   end
 
-  subgraph OUT[Postprocessing (public)<br/>domain outputs writers / _regression.runner]
+  subgraph OUT[Postprocessing (public)<br/>domain outputs writers]
     O1[Write LDSC3 artifacts]
     O2[Write summary tables]
     O3[Write workflow logs]
@@ -595,7 +595,7 @@ flowchart LR
     E3[Open LDScoreSource and read selected queries]
   end
 
-  subgraph W5[Workflow (public)<br/>ldsc._regression.runner]
+  subgraph W5[Workflow (public)<br/>ldsc._regression.alignment + fitting]
     E4[Merge on effective SNP identity key]
     E5[Drop zero-variance columns]
   end
@@ -635,11 +635,11 @@ For column definitions and interpretation, see
 ### Modules used
 
 - Preprocessing: `ldsc._runtime.paths`, `ldsc._core.columns`
-- Workflow: `ldsc._regression.runner`, `ldsc._sumstats.table.load_sumstats()`
+- Workflow: `ldsc._regression.commands` (the three commands), `ldsc._regression.alignment` (dataset assembly), `ldsc._regression.fitting` (fits and result rows), `ldsc._regression.partitioned` and `ldsc._regression.rg` (batch and pair runs), the `RegressionRunner` facade in `ldsc._regression.runner`, and `ldsc._sumstats.table.load_sumstats()`
 - Artifact access: `ldsc._ldscore.source.load_ldscore_from_dir()` and `LDScoreSource.read_queries()`
 - Kernel: `ldsc._regression.estimators`, `ldsc._regression.jackknife`, `ldsc._regression.irwls`
-- Postprocessing: pandas TSV writers in `ldsc._regression.runner`; `partitioned-h2`
-  and `rg` directory writing in `ldsc._regression.outputs`
+- Postprocessing: `h2`, `partitioned-h2` and `rg` directory writing in
+  `ldsc._regression.outputs`
 
 ## 7. `quantile-h2`: One Fitted Model To Target Quantiles
 

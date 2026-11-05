@@ -38,7 +38,7 @@ Every successful folder contains one model's coefficients and jackknife delete v
 Worker count does not change the quantile reconstruction inputs.
 See [concurrent query fitting](partitioned-heritability.md#fit-queries-concurrently).
 
-If regression used `--continue-on-query-error`, failed queries appear only in `diagnostics/query_status.tsv` and the regression log; they have no fitted model or uncertainty estimates to supply to `quantile-h2`. Select a successful query from `diagnostics/query_annotations/manifest.tsv`. Without this flag, any query error prevents new scientific publication. See [query failure handling](partitioned-heritability.md#when-a-query-fails); source: `RegressionRunner.estimate_partitioned_h2_batch()` in [_regression/runner.py](../../../src/ldsc/_regression/runner.py).
+If regression used `--continue-on-query-error`, failed queries appear only in `diagnostics/query_status.tsv` and the regression log; they have no fitted model or uncertainty estimates to supply to `quantile-h2`. Select a successful query from `diagnostics/query_annotations/manifest.tsv`. Without this flag, any query error prevents new scientific publication. See [query failure handling](partitioned-heritability.md#when-a-query-fails); source: `estimate_partitioned_h2_batch()` in [_regression/partitioned.py](../../../src/ldsc/_regression/partitioned.py).
 
 ## 2. Prepare the resupplied sources
 

@@ -498,7 +498,7 @@ Writing workflows return `LDScoreSource` directly; `read_queries(columns)` may s
 `LDScoreResult` remains the explicitly materialized result, including small prepared no-output calculations; writing workflows use private fragment descriptors instead.
 Downstream `h2`, `rg`, and partitioned workflows consume only the columns they need.
 
-The private [`_PreparedRegressionInputs`](../../../src/ldsc/_regression/runner.py) shares trait alignment, baseline LD scores, row mappings, and count lookup across a batch.
+The private [`_PreparedRegressionInputs`](../../../src/ldsc/_regression/alignment.py) shares trait alignment, baseline LD scores, row mappings, and count lookup across a batch.
 Each query batch is loaded/aligned once.
 Each model still fits its complete retained genome-wide SNP set; variance filtering, outlier filtering, counts, regression weights, and jackknife work remain model-specific.
 No chromosome-wise regression estimates are substituted for the genome-wide model.
@@ -549,7 +549,7 @@ For $J$ blocks and $p$ predictors, the retained block summaries scale as $O(Jp^2
 Each delete fit still solves a small system; aligned block boundaries, weighting, singular-design errors, and estimator semantics remain unchanged.
 [`test_jackknife.py`](../../../tests/regression/test_jackknife.py) supplies numerical comparisons rather than asserting only that an allocation disappeared.
 
-Legacy summary-statistic projection in [`_regression/runner.py`](../../../src/ldsc/_regression/runner.py) uses column-wise identity/allele masks rather than row-wise Python processing.
+Legacy summary-statistic projection in [`_regression/alignment.py`](../../../src/ldsc/_regression/alignment.py) uses column-wise identity/allele masks rather than row-wise Python processing.
 It preserves alignment and drop diagnostics; it still materializes the trait and projection-drop table.
 [`test_legacy_sumstats_projection_performance.py`](../../../tests/regression/test_legacy_sumstats_projection_performance.py) guards both agreement and a local performance budget, not a universal machine-independent runtime.
 Saved fit coefficients, counts, overlaps, and delete values support quantile analysis, heritability-scale conversion, and plotting without refitting the model.

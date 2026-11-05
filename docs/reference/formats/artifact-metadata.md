@@ -385,7 +385,7 @@ Baseline-only runs omit these query-worker fields and the status table.
 | `query_workers_effective` | Resolved process count after the shared worker policy and query/batch work cap; 1 means one worker. |
 | `query_worker_native_threads` | The fixed target of 1 BLAS thread per worker, including serial execution; runtime logs separately report verification. |
 
-These fields describe execution, not scientific filtering or jackknife construction. Worker completion order does not change status order or the stable summary/manifest order. Source: `RegressionRunner.estimate_partitioned_h2_batch()` in [_regression/runner.py](../../../src/ldsc/_regression/runner.py); see [query workers and memory](../regression-options.md#43-query-workers-and-memory).
+These fields describe execution, not scientific filtering or jackknife construction. Worker completion order does not change status order or the stable summary/manifest order. Source: `estimate_partitioned_h2_batch()` in [_regression/partitioned.py](../../../src/ldsc/_regression/partitioned.py); see [query workers and memory](../regression-options.md#43-query-workers-and-memory).
 
 The root coefficient-delete file is present for a baseline-only fitted model. In the cell-type regime, each written per-query directory contains the delete values for that complete baseline-plus-query fit. Metadata records the block count, fitted annotation order, and relative file path. These float64 matrices are required by `quantile-h2` and must never be concatenated across query runs.
 

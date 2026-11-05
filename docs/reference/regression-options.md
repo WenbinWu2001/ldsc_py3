@@ -12,9 +12,11 @@ For the plain argument list (paths, output flags) see
 the *statistical* configuration and what each knob does to the estimator.
 
 Source of truth in code: `RegressionConfig` in `src/ldsc/config.py`,
-`_configs_from_args` / `estimate_h2` / `estimate_rg` /
-`estimate_partitioned_h2_batch` in `src/ldsc/_regression/runner.py`, and the
-kernel in `src/ldsc/_regression/estimators.py`.
+`_configs_from_args` in `src/ldsc/_regression/commands.py`, the fits
+`_fit_h2_dataset` and `_fit_rg_dataset` (behind `RegressionRunner.estimate_h2`
+and `RegressionRunner.estimate_rg`) in `src/ldsc/_regression/fitting.py`,
+`estimate_partitioned_h2_batch` in `src/ldsc/_regression/partitioned.py`, and
+the kernel in `src/ldsc/_regression/estimators.py`.
 
 Importing regression or munging workflows preserves the caller's NumPy floating-point error policy. The kernel uses local error contexts for its existing zero-SE fallback, invalid genetic-covariance weight handling, and ratio-jackknife zero-denominator errors; these contexts restore the caller's settings on both success and failure.
 
@@ -138,7 +140,7 @@ Explicit `--two-step-cutoff` also remains incompatible with fixed intercepts and
 
 The public Python `RegressionConfig.use_intercept=False` option remains supported.
 It selects a heritability intercept of 1 and a covariance intercept of 0; the CLI now uses only `intercept_h2` and `intercept_gencov` for fixed values.
-Sources: `_fit_policy()` and `_FitPolicy.two_step_cutoff()`, which `_fit_h2_dataset` and `RegressionRunner.estimate_rg` use, and `_configs_from_args` in [`_regression/runner.py`](../../src/ldsc/_regression/runner.py).
+Sources: `_fit_policy()` and `_FitPolicy.two_step_cutoff()`, which `_fit_h2_dataset` and `_fit_rg_dataset` use, in [`_regression/fitting.py`](../../src/ldsc/_regression/fitting.py), and `_configs_from_args` in [`_regression/commands.py`](../../src/ldsc/_regression/commands.py).
 Result metadata records the policy applied: `intercept_h2_policy` (`free` or `fixed:<value>`) for `h2` and `partitioned-h2`, both intercept policies for each `rg` pair, and `effective_two_step_cutoff` beside `effective_chisq_max`.
 
 > **Boundary convention.** Every `χ²` threshold in this module is **inclusive**
@@ -161,7 +163,7 @@ This is a recorded exception to the rule that filtering a user did not request m
 A row without a finite statistic carries nothing the model can use, and dropping it matches legacy LDSC.
 Missing or infinite LD scores and regression weights are not dropped: they mean the LD-score directory is damaged, so the run stops before any fit, and a damaged query column fails only that query; see [LD scores or regression weights are missing or infinite](../user-guide/troubleshooting.md#regression-ld-scores-or-regression-weights-are-missing-or-infinite).
 
-*Mechanism:* `_prepare_trait_sumstats`, `_project_legacy_sumstats_to_panel` and `_PreparedLDScores` in `_regression/runner.py`.
+*Mechanism:* `_prepare_trait_sumstats`, `_project_legacy_sumstats_to_panel` and `_PreparedLDScores` in `_regression/alignment.py`.
 
 ## 2. `h2` — single-trait heritability
 
@@ -185,7 +187,7 @@ Single-annotation diagnostic bins use this same population, including SNPs outsi
 `partitioned-h2` model metadata and `rg` pair metadata likewise consume their actual regression fits; reporting never reapplies a filter.
 Public `estimate_h2` and `estimate_rg` return that `RegressionFit`; its `estimator` is the kernel estimator.
 
-*Mechanism:* `RegressionRunner.estimate_h2` in `_regression/runner.py`.
+*Mechanism:* `_fit_h2_dataset`, behind `RegressionRunner.estimate_h2`, in `_regression/fitting.py`.
 
 ---
 
@@ -206,8 +208,8 @@ scores.
 Per-pair metadata reports the post-filter `n_snps_used` / `n_blocks_used`, an `effective_chisq_max` field and the `effective_two_step_cutoff` of the genetic-correlation fit.
 Because `rg` has no default cap, `effective_chisq_max` simply **echoes** `config.chisq_max` (or `null`); there is no hidden default to reveal.
 
-*Mechanism:* `RegressionRunner.estimate_rg` and `estimate_rg_pairs` in
-`_regression/runner.py`.
+*Mechanism:* `_fit_rg_dataset` (behind `RegressionRunner.estimate_rg`) in
+`_regression/fitting.py`, and `estimate_rg_pairs` in `_regression/rg.py`.
 
 ### 3.1 Allele alignment between traits
 
@@ -227,7 +229,7 @@ A pair that keeps no SNP fails with both counts in its error message; a pair tha
 When either count is nonzero, the command prints one WARNING with the totals to stderr; the workflow log has one line per pair, and the Python function `run_rg` prints nothing.
 `h2` and `partitioned-h2` fit $\chi^2 = Z^2$, so they never align alleles and keep A/T and C/G SNPs.
 
-*Mechanism:* `_rg_dataset`, `_allele_pair_flags` and `_same_strand_ambiguous_pair` in `_regression/runner.py`; `MATCH_ALLELES` in `_regression/estimators.py`.
+*Mechanism:* `_rg_dataset`, `_allele_pair_flags` and `_same_strand_ambiguous_pair` in `_regression/alignment.py`; `MATCH_ALLELES` in `_core/snp_identity.py`.
 
 ---
 
@@ -274,7 +276,7 @@ The log reports detected CPU budget, requested/resolved concurrency, backend set
 Per-query times summed across workers can exceed elapsed wall time.
 `query_worker_native_threads` records the fixed target of 1, not proof of backend verification; runtime logs carry verification details.
 
-Mechanisms: [`RegressionRunner`](../../src/ldsc/_regression/runner.py), [`_QueryWorkers`](../../src/ldsc/_regression/partitioned_parallel.py), and [`_runtime.worker_runtime`](../../src/ldsc/_runtime/worker_runtime.py).
+Mechanisms: [`estimate_partitioned_h2_batch`](../../src/ldsc/_regression/partitioned.py), [`_QueryWorkers`](../../src/ldsc/_regression/partitioned_parallel.py), and [`_runtime.worker_runtime`](../../src/ldsc/_runtime/worker_runtime.py).
 The earlier [query-worker benchmark](../dev/validation/performance.md#partitioned-heritability-regression) remains historical evidence; it does not define the current serial policy.
 
 ### Defaults (both regimes)
@@ -301,8 +303,8 @@ The aggregate `metadata.json` also records the `intercept_h2_policy`.
 > partitioned analysis. The cell-type regime always fits `baseline + one query`
 > (`n_annot >= 2`) and so never degenerates.
 
-*Mechanism:* `RegressionRunner.estimate_partitioned_h2_batch` in
-`_regression/runner.py`.
+*Mechanism:* `estimate_partitioned_h2_batch` in
+`_regression/partitioned.py`.
 
 ---
 

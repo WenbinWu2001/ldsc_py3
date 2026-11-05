@@ -112,6 +112,27 @@ def test_restriction_tolerates_unusable_panel_alleles_that_cleanup_then_drops(tm
         assert drops["reason"].tolist() == ["invalid_allele"]
 
 
+@pytest.mark.parametrize("command", ["ldscore", "build-r2-matrix"])
+def test_non_integral_bim_position_stops_every_plink_route_before_computation(tmp_path, caplog, command):
+    bim = read_fixture_bim().astype({"POS": float})
+    bim.loc[5, "POS"] += 0.5  # .bim line 6
+    prefix = write_panel(tmp_path / "panel", bim)
+    output = tmp_path / "out"
+    window = ["--snp-identifier", "chr_pos_allele_aware", "--ld-wind-kb", "1000", "--output-dir", str(output)]
+    if command == "ldscore":
+        argv = ["ldscore", "--plink-prefix", str(prefix), "--genome-build", "hg38", *window,
+                "--regr-snps-file", str(prefix.parent / "regression_snps.tsv"), "--regr-snps-exclude-regions", "none"]
+    else:
+        argv = ["build-r2-matrix", "--plink-prefix", str(prefix), "--source-genome-build", "hg38", *window]
+
+    status = run_cli(argv)
+
+    # Truncating the position or dropping the row would change the reference SNPs, so the run stops.
+    assert status == 1
+    assert f"line 6 (SNP {bim.loc[5, 'SNP']}, BP {bim.loc[5, 'POS']})" in caplog.text
+    assert not list(output.rglob("*.parquet"))
+
+
 def write_two_chromosome_panel(tmp_path: Path) -> tuple[Path, pd.DataFrame, pd.DataFrame]:
     """Write a chromosome-21 copy of the fixture and a chromosome 22 whose rows 0 and 1 share a position."""
     original = read_fixture_bim()

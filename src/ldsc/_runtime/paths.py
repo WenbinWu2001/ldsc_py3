@@ -361,7 +361,7 @@ def inspect_plink_inputs(
     -------
     PlinkInputResolution
         Concrete prefixes, a chromosome mapping, and all discoverable issues.
-        Validation checks BIM/FAM parsing, positive positions, BED header and
+        Validation checks BIM/FAM parsing, positive whole-number positions, BED header and
         size, explicit ``@`` declarations, and conflicting chromosome sources.
         Filenames never determine chromosome identity. BIM tables are read
         once per prefix during inspection and then released. Call
@@ -401,12 +401,7 @@ def inspect_plink_inputs(
                         "Restore the matching chromosome trio or correct the prefix template; "
                         "renaming files does not change their SNP coordinates."
                     )
-                positions = pd.to_numeric(bim.df.BP, errors="raise")
-                if positions.isna().any() or (positions <= 0).any():
-                    raise LDSCInputError(
-                        f"PLINK SNP table '{prefix}.bim' contains missing or nonpositive BP positions. "
-                        "Use a BIM table with valid genomic positions from the same dataset as its BED/FAM files."
-                    )
+                _require_whole_bim_positions(bim.df, prefix)
                 with open(prefix + ".bed", "rb") as bed:
                     if bed.read(3) != b"\x6c\x1b\x01":
                         raise LDSCInputError(
@@ -435,6 +430,29 @@ def inspect_plink_inputs(
                                            "invalid_required_input", str(exc)))
             progress.advance(object=prefix)
     return PlinkInputResolution(list(declarations), mapping, issues)
+
+
+def _require_whole_bim_positions(bim, prefix: str) -> None:
+    """Reject ``.bim`` rows whose BP is missing, non-numeric, nonpositive or not a whole number.
+
+    Truncating or dropping such a row would silently change the reference
+    SNPs, so every PLINK route stops here, before any computation, and the
+    error names the rows.
+    """
+    import pandas as pd
+
+    positions = pd.to_numeric(bim.BP, errors="coerce")
+    bad = (positions.isna() | (positions <= 0) | (positions % 1 != 0)).to_numpy()
+    if not bad.any():
+        return
+    rows = bad.nonzero()[0]
+    listed = ", ".join(f"line {row + 1} (SNP {bim.SNP.iat[row]}, BP {bim.BP.iat[row]})" for row in rows[:5])
+    more = f" and {len(rows) - 5:,} more" if len(rows) > 5 else ""
+    raise LDSCInputError(
+        f"PLINK SNP table '{prefix}.bim' has {len(rows):,} row{'s' if len(rows) != 1 else ''} whose BP position "
+        f"is not a positive whole number: {listed}{more}. Use a BIM table with whole-number base-pair positions "
+        "from the same dataset as its BED/FAM files."
+    )
 
 
 def _plink_issue(source: str, chrom: str, reason: str, details: str) -> dict[str, str]:

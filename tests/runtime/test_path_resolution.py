@@ -309,3 +309,21 @@ def test_plink_at_declares_content_and_workflow_completeness(tmp_path):
     _write_plink_trio(tmp_path / "panel.22", ["1"])
     with pytest.raises(LDSCInputError, match="contains chromosomes.*1"):
         inspect_plink_inputs(token).require_valid()
+
+
+def test_plink_inspection_names_every_kind_of_bad_bim_position(tmp_path):
+    prefix = tmp_path / "panel"
+    positions = ["10", "11.5", "abc", "0", "14", "15", "16.25", "17.5", "18.5", "19.5"]
+    Path(str(prefix) + ".bed").write_bytes(b"\x6c\x1b\x01" + b"\x00" * len(positions))
+    Path(str(prefix) + ".bim").write_text("".join(f"22 rs{i} 0 {pos} A G\n" for i, pos in enumerate(positions)))
+    Path(str(prefix) + ".fam").write_text("F I 0 0 1 -9\n")
+
+    result = inspect_plink_inputs(str(prefix))
+
+    with pytest.raises(LDSCInputError) as failure:
+        result.require_valid()
+    message = str(failure.value)
+    assert "has 7 rows whose BP position is not a positive whole number" in message
+    assert "line 2 (SNP rs1, BP 11.5), line 3 (SNP rs2, BP abc), line 4 (SNP rs3, BP 0)" in message
+    assert "line 7 (SNP rs6, BP 16.25), line 8 (SNP rs7, BP 17.5) and 2 more" in message
+    assert result.issues[0]["reason"] == "invalid_required_input"

@@ -1466,27 +1466,32 @@ def _publish_staged_gene_ldscore_index(staged_index: Path, destination: Path) ->
     no reader accepts, never a mixture of two builds. Each staged entry
     replaces its counterpart, with ``diagnostics/`` merged entry by entry;
     payloads are moved, not copied, and other files in the destination are
-    kept.
+    kept. The old build's log and ``diagnostics/chromosome-logs/`` are
+    removed here; the caller moves the new build's logs in afterwards.
     """
     load_gene_ldscore_index(staged_index)
     (destination / "metadata.json").unlink(missing_ok=True)
     (destination / "diagnostics" / "build-gene-ldscore-index.log").unlink(missing_ok=True)
-    if (destination / CHROMOSOME_LOG_DIR).is_dir():
-        shutil.rmtree(destination / CHROMOSOME_LOG_DIR)
+    _remove_published_entry(destination / CHROMOSOME_LOG_DIR)
     staged = [entry for entry in staged_index.iterdir() if entry.name not in {"metadata.json", "diagnostics"}]
     if (staged_index / "diagnostics").is_dir():
         staged.extend((staged_index / "diagnostics").iterdir())
     for source in staged:
         target = destination / source.relative_to(staged_index)
-        if target.is_dir() and not target.is_symlink():
-            shutil.rmtree(target)
-        else:
-            target.unlink(missing_ok=True)
+        _remove_published_entry(target)
         target.parent.mkdir(parents=True, exist_ok=True)
         os.replace(source, target)
     os.replace(staged_index / "metadata.json", destination / "metadata.json")
     load_gene_ldscore_index(destination)
     return destination
+
+
+def _remove_published_entry(target: Path) -> None:
+    """Remove an earlier build's file or directory; a symlink is unlinked, never followed."""
+    if target.is_dir() and not target.is_symlink():
+        shutil.rmtree(target)
+    else:
+        target.unlink(missing_ok=True)
 
 
 def build_plink_index_chromosome(

@@ -1768,6 +1768,25 @@ def test_index_publication_requires_overwrite_and_replaces_complete_index(tmp_pa
     assert load_gene_ldscore_index(output).index_id == calculate_index_id(replacement_identity)
 
 
+def test_index_overwrite_replaces_a_symlinked_chromosome_log_directory(tmp_path, monkeypatch):
+    output, args, _identity = _build_fixture_index(tmp_path, monkeypatch)
+    gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
+    chromosome_logs = output / "diagnostics" / "chromosome-logs"
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "keep.txt").write_text("not owned by this build\n", encoding="utf-8")
+    shutil.rmtree(chromosome_logs)
+    chromosome_logs.symlink_to(elsewhere, target_is_directory=True)
+    args.overwrite = True
+
+    gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
+
+    # The link is replaced, not followed: its target keeps its files.
+    assert chromosome_logs.is_dir() and not chromosome_logs.is_symlink()
+    assert (elsewhere / "keep.txt").read_text(encoding="utf-8") == "not owned by this build\n"
+    assert load_gene_ldscore_index(output).index_id
+
+
 def test_post_publication_cleanup_failure_warns_but_published_index_succeeds(tmp_path, monkeypatch):
     output, args, identity = _build_fixture_index(tmp_path, monkeypatch)
     gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)

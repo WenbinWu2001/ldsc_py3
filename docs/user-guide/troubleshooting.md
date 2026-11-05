@@ -513,12 +513,11 @@ If the current version still reports this error, the directory contains an incom
 **Symptom:** the builder reports an empty `rsid` or `chr_pos` baseline/PLINK
 intersection before genotype QC, or warns that duplicate groups were dropped.
 
-The builder uses the same identifier-key inner intersection as direct
-PLINK-backed `ldscore`. Baseline-only and PLINK-only rows are allowed, dropped,
-and counted. For a duplicate effective identity, every row in that source group
-is dropped; no representative is selected. Inspect
-`<index-dir>/diagnostics/dropped_snps/chrN_dropped.tsv.gz` after success (or the
-live log during a failing build). An empty result leaves no reference SNPs for LD scores.
+The builder matches the baseline to the PLINK panel exactly as direct PLINK-backed `ldscore` does.
+Baseline-only and PLINK-only rows are allowed, dropped, and counted.
+For a duplicate effective identity, every row in that source group is dropped; no representative is selected.
+Inspect `<index-dir>/diagnostics/dropped_snps/chrN_dropped.tsv.gz` after success (or the live log during a failing build).
+An empty result leaves no reference SNPs for LD scores.
 Under rsID matching, coordinate disagreements stop the build with a repair table.
 Under coordinate matching, differing SNP labels are reported and the PLINK label is published.
 During or after a failed build, check `<index-dir>/.build/build-gene-ldscore-index.log`; after a successful build, check `<index-dir>/diagnostics/build-gene-ldscore-index.log`.
@@ -538,7 +537,7 @@ SNP contradictions produce `<index-dir>/.build/baseline_plink_issues.tsv` before
 The table identifies shared keys, baseline/PLINK sources, coordinates and usable normalized allele pairs, and a reason such as `coordinate_mismatch`, `allele_mismatch`, or `cross_chromosome_coordinate_mismatch`.
 Verify the reference releases and repair the indicated records; ordinary unmatched SNPs and shared-policy identity cleanup remain separate diagnostics.
 
-**Developer reference:** `_ldscore.gene_index.build._validate_baseline_plink_inputs()` and `_genome.build_policy.GenomeBuildCheck` · **Exception:** `LDSCInputError`
+**Developer reference:** `_ldscore.gene_index.build._validate_baseline_plink_inputs()`, `_check_baseline_plink_chromosome()` and `_genome.build_policy.GenomeBuildCheck` · **Exception:** `LDSCInputError`
 
 ### `build-gene-ldscore-index`: a failed build left `.build/` in the index directory
 

@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 from contextlib import closing, contextmanager
-from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import fcntl
 import gzip
@@ -47,8 +46,8 @@ from ..diagnostics import chromosome_log, emit_reference_snp_funnel_notice, log_
 from ..outputs import CHROMOSOME_LOG_DIR, snp_universe_policy_record
 from ..._annotation.semantics import combine_annotation_types
 from ..._refpanel.adapters import PlinkRefPanel
-from ..._refpanel.funnel import concat_funnels, funnel_from_records, funnel_records, with_grid_rows
-from ..._refpanel.plink_source import keep_individual_indices, read_keep_individuals
+from ..._refpanel.funnel import ANNOTATION_SNP_GRID, REFERENCE_PANEL, concat_funnels, funnel_from_records, funnel_records
+from ..._refpanel.plink_source import keep_individual_indices, read_keep_individuals, select_plink_chromosome
 from ..._refpanel.prepared import ChromosomeAnnotations
 from ..._refpanel.windows import WholeChromosomeWindowError
 from .atoms import (
@@ -65,10 +64,7 @@ from ..._core.snp_identity import (
     RestrictionIdentityKeys,
     allele_set_series,
     base_key_series,
-    clean_identity_artifact_table,
-    effective_merge_key_series,
     emit_dropped_snps_notice,
-    empty_identity_drop_frame,
     normalize_snp_identifier_mode,
     identity_mode_family,
     is_allele_aware_mode,
@@ -630,9 +626,15 @@ def _index_chromosome_task(log_path, chrom, *task):
 
 @report_phase(LOGGER, 'computation', 'gene-index chromosome')
 def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, chrom_catalog,
-                                config, chromosome_prefixes, genetic_map, regression_keys,
-                                regression_regions, staged_index):
-    """Read one staged chromosome and return only its persisted component metadata."""
+                                config, ref_panel, genetic_map, regression_keys,
+                                regression_regions, staged_index, snp_label_discordant_rows):
+    """Read one staged chromosome and return only its persisted component metadata.
+
+    The baseline shard goes to ``ref_panel.prepare_chromosome`` as the
+    annotation SNP grid, as in direct ``ldscore``: the panel selects and
+    cleans the PLINK rows and matches them to the grid. ``snp_label_discordant_rows``
+    comes from the coordinator's baseline/PLINK consistency gate.
+    """
     chrom_started = time.perf_counter()
     phase = "baseline annotation resolution"
     try:
@@ -640,38 +642,19 @@ def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, c
         baseline = pd.DataFrame(shard.read(columns=baseline_columns), columns=baseline_columns)
         if metadata.empty:
             raise LDSCInputError(f"No baseline annotation rows were found for chromosome {chrom}.")
-        ref_panel = PlinkRefPanel(
-            index_global_config(config.snp_identifier, config.genome_build),
-            RefPanelConfig(backend="plink", plink_prefix=chromosome_prefixes[chrom],
-                           keep_indivs_file=config.keep_indivs_file, maf_min=config.maf_min),
-            chromosome_prefixes=chromosome_prefixes,
-        )
+        metadata, baseline = _in_index_row_order(metadata, baseline)
         # whole_chromosome_ok stays False: the index has no whole-chromosome override.
         ldscore_config = LDScoreConfig(
             ld_wind_snps=config.ld_wind_snps, ld_wind_kb=config.ld_wind_kb, ld_wind_cm=config.ld_wind_cm,
             snp_batch_size=config.snp_batch_size, common_maf_min=config.common_maf_min,
         )
-        prefix = chromosome_prefixes[chrom]
-        bim_rows = _read_bim_identity(prefix)
-        phase = "baseline/PLINK identifier intersection"
-        intersection = intersect_baseline_plink_by_identifier(
-            metadata,
-            baseline,
-            bim_rows,
-            snp_identifier=config.snp_identifier,
-            chrom=chrom,
-        )
-        for frame in baseline_drop.frames():
-            intersection.diagnostics["baseline_duplicate_rows_dropped"] += int(frame.reason.eq("duplicate_identity").sum())
-            intersection.diagnostics["baseline_identity_rows_dropped"] += len(frame)
         kernel_bundle = ChromosomeAnnotations(
-            metadata=intersection.metadata,
-            annotations=intersection.annotations,
+            metadata=metadata,
+            annotations=baseline,
             baseline_columns=list(baseline_columns),
             query_columns=[],
         )
-        # Only the intersection is needed from here on.
-        grid_rows, metadata, baseline = len(metadata), None, None
+        grid_rows = len(metadata)
         intervals = np.column_stack(
             [
                 chrom_catalog["start"].to_numpy(dtype=np.int64) - 1,
@@ -680,7 +663,7 @@ def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, c
         )
         included = chrom_catalog["included"].to_numpy(dtype=bool)
         phase = "genotype QC and atomic LD-score construction"
-        record, build_evidence = build_plink_index_chromosome(
+        record, build_evidence, plink_drops = build_plink_index_chromosome(
             chrom,
             kernel_bundle,
             ref_panel,
@@ -706,16 +689,14 @@ def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, c
         raise
     catalog_genes = int(included.sum())
     genes_with_atoms = int(np.count_nonzero(np.diff(record.atom_model.gene_to_atom.indptr)))
-    # Reference preparation saw only the baseline/PLINK intersection; the grid is every baseline row.
-    record = replace(record, reference_snp_funnel=with_grid_rows(record.reference_snp_funnel, grid_rows))
+    plink_drops = plink_drops.assign(stage="gene_index_plink_identity_cleanup")
     evidence = {
-        **intersection.diagnostics,
-        **build_evidence,
-        "baseline_content_sha256": _retained_baseline_content_sha256(
-            intersection.metadata,
-            intersection.annotations,
-            config.snp_identifier,
+        **_baseline_plink_evidence(
+            record.reference_snp_funnel, grid_rows=grid_rows, matched_rows=build_evidence["reference_rows_before_genotype_qc"],
+            baseline_drops=list(baseline_drop.frames()), plink_drops=plink_drops,
+            snp_label_discordant_rows=snp_label_discordant_rows,
         ),
+        **build_evidence,
         "reference_snp_funnel": funnel_records(record.reference_snp_funnel),
         "retained_reference_rows": int(record.total_reference_snps_all),
         "retained_common_reference_rows": int(record.total_reference_snps_common),
@@ -748,7 +729,7 @@ def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, c
             for frame in baseline_drop.frames():
                 frame.to_csv(stream, sep="\t", index=False, header=header, na_rep="")
                 header = False
-            intersection.dropped_rows.to_csv(stream, sep="\t", index=False, header=header, na_rep="")
+            plink_drops.to_csv(stream, sep="\t", index=False, header=header, na_rep="")
     except Exception as exc:
         exc.add_note(f"Chromosome {chrom} failed during durable shard staging.")
         LOGGER.error(
@@ -824,7 +805,16 @@ def _run_gene_ldscore_index_build(
                 if chrom in baseline_drops:
                     baseline_drops[chrom].append(records.assign(stage="gene_index_baseline_identity_cleanup"))
 
-        _validate_baseline_plink_inputs(sources, chromosome_prefixes, config, chromosomes, build_dir)
+        snp_label_discordant = _validate_baseline_plink_inputs(
+            sources, chromosome_prefixes, config, chromosomes, build_dir)
+        # One panel for the run: its keep list is read here, and every task's copy carries it.
+        ref_panel = PlinkRefPanel(
+            global_config,
+            RefPanelConfig(backend="plink", plink_prefix=config.plink_prefix,
+                           keep_indivs_file=config.keep_indivs_file, maf_min=config.maf_min),
+            chromosome_prefixes=chromosome_prefixes,
+        )
+        ref_panel._resolve_run_inputs()
 
         def task_arguments(chrom):
             chrom_catalog = embedded_catalog.loc[embedded_catalog["chrom"].astype(str) == chrom].sort_values(
@@ -833,8 +823,8 @@ def _run_gene_ldscore_index_build(
             chrom_map = (None if genetic_map is None
                          else genetic_map.loc[genetic_map["CHR"] == normalize_chromosome(chrom)])
             return (chrom, sources.shards[chrom], sources.baseline_columns, baseline_drops[chrom],
-                    chrom_catalog, config, chromosome_prefixes, chrom_map, regression_keys,
-                    regression_regions, staged_index)
+                    chrom_catalog, config, ref_panel, chrom_map, regression_keys,
+                    regression_regions, staged_index, snp_label_discordant[chrom])
 
 
         chromosome_logs = _chromosome_log_dir(build_dir)
@@ -1531,15 +1521,18 @@ def build_plink_index_chromosome(
     padding_bp: int,
     atom_batch_size: int,
     genetic_map: pd.DataFrame | None = None,
-) -> tuple[IndexChromosomeData, dict]:
+) -> tuple[IndexChromosomeData, dict, pd.DataFrame]:
     """Construct exact common and atom payloads from one PLINK chromosome.
 
-    Returns the chromosome payload the index stores and the build evidence
-    the coordinator records but the payload does not store: reference rows
+    Returns the chromosome payload the index stores, the build evidence the
+    coordinator records but the payload does not store, and the PLINK rows
+    that SNP identity cleanup dropped. The evidence holds reference rows
     before genotype QC, genotype-QC and MAF removals, regression SNPs before
     the region subtraction (``regression_selected_rows``), each baseline
     column's ``binary`` or ``quantitative`` classification
-    (``annotation_types``) and the CM source.
+    (``annotation_types``), the CM source, and ``baseline_content_sha256``,
+    the ``index_id`` fingerprint of the baseline values on the retained
+    reference SNPs (after genotype QC).
 
     ``ref_panel`` prepares the chromosome with ``ldscore_config``, which gives
     the LD window, the whole-chromosome policy, the genotype batch size and
@@ -1639,91 +1632,93 @@ def build_plink_index_chromosome(
             "regression_selected_rows": int(computed.regression_selected_snp_count),
             "annotation_types": dict(computed.annotation_types),
             "cm_source": prepared.cm_source,
+            "baseline_content_sha256": _retained_baseline_content_sha256(
+                metadata, pd.DataFrame(prepared.annotations.read(), columns=baseline_bundle.baseline_columns),
+                ref_panel.global_config.snp_identifier,
+            ),
         }
-        return payload, build_evidence
+        return payload, build_evidence, prepared.identity_drops
 
 
-@dataclass(frozen=True)
-class BaselinePlinkIntersection:
-    """Baseline annotations aligned to canonical PLINK-authored rows."""
+def _in_index_row_order(metadata: pd.DataFrame, annotations: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Return baseline rows and their annotation values in ``(POS, SNP)`` order.
 
-    metadata: pd.DataFrame
-    annotations: pd.DataFrame
-    diagnostics: dict[str, int]
-    dropped_rows: pd.DataFrame
+    Index rows are stored in that order, which the loader checks, so
+    same-position rows (possible only in rsID modes) reach PLINK preparation,
+    and SNP-count windows, in that order. Matched rows carry the PLINK
+    ``SNP`` label in rsID modes and unique positions in ``chr_pos`` modes.
+    """
+    keys = ["POS", "SNP"] if "SNP" in metadata.columns else ["POS"]
+    order = (metadata.loc[:, keys].astype({key: str for key in keys if key == "SNP"})
+             .sort_values(keys, kind="mergesort").index.to_numpy())
+    if np.array_equal(order, np.arange(len(order))):
+        return metadata, annotations
+    return metadata.take(order).reset_index(drop=True), annotations.take(order).reset_index(drop=True)
 
 
-def intersect_baseline_plink_by_identifier(
-    baseline_rows: pd.DataFrame,
-    baseline_annotations: pd.DataFrame,
-    plink_rows: pd.DataFrame,
-    *,
-    snp_identifier: str,
-    chrom: str,
-) -> BaselinePlinkIntersection:
-    """Validate and align baseline annotations to consistent PLINK identities.
+def _baseline_plink_evidence(funnel, *, grid_rows, matched_rows, baseline_drops, plink_drops,
+                             snp_label_discordant_rows) -> dict[str, int]:
+    """Return one chromosome's baseline/PLINK match counts for the build diagnostics.
 
-    Shared cleanup removes ambiguous identity groups in the selected base or
-    allele-aware mode. If baseline metadata omits both allele columns,
-    matching uses base keys after allele cleanup against the reference panel; one allele column
-    is invalid. Shared rsIDs with different coordinates and shared base keys
-    with incompatible usable normalized alleles raise ``LDSCInputError``
-    carrying an ``input_issues`` repair table. Ordinary unmatched rows are
-    omitted by the inner intersection.
+    The counts come from the reference-SNP funnel of PLINK preparation, the
+    baseline rows annotation preparation dropped, and the PLINK rows identity
+    cleanup dropped. Matching identities are unique on both sides, so the
+    rows each side has without a match are the rows the ``annotation_snp_grid``
+    step removed from it. A coordinate contradiction stops the build first,
+    so ``coordinate_discordant_rows`` is 0.
+    """
+    def step(funnel_name, step_name):
+        rows = funnel.loc[funnel["funnel"].eq(funnel_name) & funnel["step"].eq(step_name)]
+        return int(rows["remaining" if step_name == "panel_rows" else "removed"].iloc[0])
 
-    The returned metadata uses PLINK coordinates, labels, and alleles, in
-    genomic order. Annotation values follow that same row order; diagnostics
-    and dropped rows describe this intersection's identity cleanup. Neither
-    input frame is modified.
+    baseline_duplicates = sum(int(frame.reason.eq("duplicate_identity").sum()) for frame in baseline_drops)
+    return {
+        "baseline_rows": int(grid_rows),
+        "plink_rows": step(REFERENCE_PANEL, "panel_rows"),
+        "baseline_duplicate_rows_dropped": baseline_duplicates,
+        "plink_bim_duplicate_rows_dropped": int(plink_drops.reason.eq("duplicate_identity").sum()),
+        "baseline_identity_rows_dropped": sum(len(frame) for frame in baseline_drops),
+        "plink_bim_identity_rows_dropped": int(len(plink_drops)),
+        "matched_rows": int(matched_rows),
+        "baseline_only_rows": step(ANNOTATION_SNP_GRID, ANNOTATION_SNP_GRID),
+        "plink_only_rows": step(REFERENCE_PANEL, ANNOTATION_SNP_GRID),
+        "coordinate_discordant_rows": 0,
+        "snp_label_discordant_rows": int(snp_label_discordant_rows),
+    }
+
+
+def _selected_plink_rows(prefix: str, chrom: str, snp_identifier: str) -> pd.DataFrame:
+    """Return one chromosome's PLINK rows after identity cleanup, as PLINK panel preparation selects them."""
+    return select_plink_chromosome(prefix, chrom, snp_identifier, stage="gene_index_build_validation").metadata
+
+
+def _check_baseline_plink_chromosome(baseline_rows: pd.DataFrame, plink_rows: pd.DataFrame, *,
+                                     snp_identifier: str, chrom: str) -> int:
+    """Check one chromosome's baseline rows against its cleaned PLINK rows before workers start.
+
+    ``baseline_rows`` are the staged baseline shard's rows, which annotation
+    preparation already cleaned; ``plink_rows`` are the PLINK rows that panel
+    preparation keeps after identity cleanup. Shared rsIDs with different
+    coordinates and shared base keys with incompatible usable alleles raise
+    ``LDSCInputError`` carrying an ``input_issues`` repair table, and so does
+    an empty match. Returns the number of matched positions whose baseline
+    ``SNP`` label differs from the PLINK label in ``chr_pos``-family modes;
+    the PLINK label is the one published.
     """
     snp_identifier = normalize_snp_identifier_mode(snp_identifier)
-    family = identity_mode_family(snp_identifier)
     has_alleles = {"A1", "A2"}.intersection(baseline_rows.columns)
     if len(has_alleles) == 1:
         raise LDSCInputError("Baseline annotations must supply both A1 and A2, or omit both allele columns.")
-    baseline_mode = snp_identifier if has_alleles else family
-    if len(baseline_rows) != len(baseline_annotations):
-        raise LDSCInputError(
-            f"Baseline SNP metadata has {len(baseline_rows)} rows but its annotations have "
-            f"{len(baseline_annotations)} rows before matching the PLINK panel. "
-            "Supply baseline values and SNP metadata with one corresponding row per SNP in the same order."
-        )
-    baseline = _normalize_identity_rows(
-        baseline_rows.assign(_source_row=np.arange(len(baseline_rows), dtype=np.int64)),
-        label="baseline",
-        chrom=chrom,
-        snp_identifier=snp_identifier,
-    )
-    plink = _normalize_identity_rows(
-        plink_rows,
-        label="PLINK BIM",
-        chrom=chrom,
-        snp_identifier=snp_identifier,
-    )
-    baseline_cleanup = clean_identity_artifact_table(
-        baseline,
-        baseline_mode,
-        context=f"gene-index baseline chromosome {chrom}",
-        stage="gene_index_baseline_identity_cleanup",
-        logger=LOGGER,
-    )
-    plink_cleanup = clean_identity_artifact_table(
-        plink,
-        snp_identifier,
-        context=f"gene-index PLINK BIM chromosome {chrom}",
-        stage="gene_index_plink_identity_cleanup",
-        logger=LOGGER,
-    )
-    baseline = baseline_cleanup.cleaned
-    plink = plink_cleanup.cleaned
-    if baseline.empty or plink.empty:
+    baseline = _normalize_identity_rows(baseline_rows, label="baseline", chrom=chrom, snp_identifier=snp_identifier)
+    if baseline.empty or plink_rows.empty:
         raise LDSCInputError(
             f"Gene LD-score index baseline/PLINK {snp_identifier} intersection is empty on chromosome {chrom} "
             "after duplicate identity cleanup. Check whether the baseline annotations and PLINK panel "
             "use the intended SNP identifiers and matching coordinates, and check both inputs for "
             "duplicate identities. Restore compatible inputs rather than dropping ambiguous SNPs to bypass this check."
         )
-    issues = _baseline_plink_contradictions(baseline, plink, mode=snp_identifier, chrom=chrom)
+    pairs = _baseline_plink_pairs(baseline, plink_rows, mode=snp_identifier)
+    issues = _baseline_plink_contradictions(pairs, mode=snp_identifier, chrom=chrom)
     if not issues.empty:
         error = LDSCInputError(
             f"Baseline annotations and PLINK BIM contain {len(issues)} contradictory SNP records on chromosome {chrom}. "
@@ -1731,76 +1726,39 @@ def intersect_baseline_plink_by_identifier(
             "only after verification. No SNP labels, alleles, or coordinates were changed.")
         error.input_issues = issues
         raise error
-    baseline["_identity_key"] = effective_merge_key_series(
-        baseline, baseline_mode, context=f"gene-index baseline chromosome {chrom}"
-    )
-    plink["_identity_key"] = effective_merge_key_series(
-        plink, baseline_mode, context=f"gene-index PLINK BIM chromosome {chrom}"
-    )
-    baseline_keys = set(baseline["_identity_key"])
-    plink_keys = set(plink["_identity_key"])
-    matched = plink["_identity_key"].isin(baseline_keys)
-    if not matched.any():
+    # Without a contradiction, every shared base key is a match under the run's matching mode.
+    if pairs.empty:
         raise LDSCInputError(
             f"Gene LD-score index baseline/PLINK {snp_identifier} intersection is empty on chromosome {chrom}. "
             "Check that baseline annotations and the PLINK panel describe the same SNP population, "
             "use compatible identifiers, and have matching coordinates; supply compatible inputs."
         )
-    matched_plink = (
-        plink.loc[matched]
-        .sort_values(["CHR", "POS", "SNP"], kind="mergesort")
-        .reset_index(drop=True)
-    )
-    baseline_lookup = baseline.set_index("_identity_key", verify_integrity=True)
-    matched_baseline = baseline_lookup.loc[matched_plink["_identity_key"]].reset_index()
-    coordinate_discordant = 0
-    snp_label_discordant = 0
-    if family == "chr_pos" and "SNP" in matched_baseline.columns:
-        snp_label_discordant = int(
-            np.count_nonzero(
-                matched_plink["SNP"].astype(str).to_numpy()
-                != matched_baseline["SNP"].astype(str).to_numpy()
-            )
-        )
-        if snp_label_discordant:
+    discordant = 0
+    if identity_mode_family(snp_identifier) == "chr_pos" and "SNP" in baseline.columns:
+        discordant = int(pairs.SNP_plink.astype(str).ne(pairs.SNP_baseline.astype(str)).sum())
+        if discordant:
             LOGGER.info(
                 f"Baseline/PLINK chr_pos intersection on chromosome {chrom} has "
-                f"{snp_label_discordant} SNP label disagreement row(s); "
+                f"{discordant} SNP label disagreement row(s); "
                 "PLINK SNP labels are authoritative and will be published."
             )
-    annotation_rows = matched_baseline["_source_row"].to_numpy(dtype=np.int64)
-    aligned_annotations = baseline_annotations.take(annotation_rows)
-    aligned_annotations.index = pd.RangeIndex(len(aligned_annotations))
-    diagnostics = {
-        "baseline_rows": int(len(baseline_rows)),
-        "plink_rows": int(len(plink_rows)),
-        "baseline_duplicate_rows_dropped": int(baseline_cleanup.dropped.reason.eq("duplicate_identity").sum()),
-        "plink_bim_duplicate_rows_dropped": int(plink_cleanup.dropped.reason.eq("duplicate_identity").sum()),
-        "baseline_identity_rows_dropped": int(len(baseline_cleanup.dropped)),
-        "plink_bim_identity_rows_dropped": int(len(plink_cleanup.dropped)),
-        "matched_rows": int(len(matched_plink)),
-        "baseline_only_rows": int(len(baseline_keys - plink_keys)),
-        "plink_only_rows": int(len(plink_keys - baseline_keys)),
-        "coordinate_discordant_rows": coordinate_discordant,
-        "snp_label_discordant_rows": snp_label_discordant,
-    }
-    drop_frames = [
-        frame for frame in (baseline_cleanup.dropped, plink_cleanup.dropped) if not frame.empty
-    ]
-    dropped = pd.concat(drop_frames, ignore_index=True) if drop_frames else empty_identity_drop_frame()
-    matched_plink = matched_plink.drop(columns=["_identity_key"])
-    return BaselinePlinkIntersection(matched_plink, aligned_annotations, diagnostics, dropped)
+    return discordant
 
 
-def _validate_baseline_plink_inputs(sources, prefixes, config, chromosomes, build_dir):
-    """Collect metadata conflicts across chromosomes before starting LD workers."""
+def _validate_baseline_plink_inputs(sources, prefixes, config, chromosomes, build_dir) -> dict[str, int]:
+    """Collect metadata conflicts across chromosomes before starting LD workers.
+
+    Returns each chromosome's count of matched positions whose baseline and
+    PLINK ``SNP`` labels differ (``chr_pos``-family modes; 0 otherwise).
+    """
     issues = []
     causes = []
+    label_discordant = {}
     for chrom in chromosomes:
         metadata = sources.shards[chrom].metadata()
         try:
-            intersect_baseline_plink_by_identifier(
-                metadata, pd.DataFrame(index=range(len(metadata))), _read_bim_identity(prefixes[chrom]),
+            label_discordant[chrom] = _check_baseline_plink_chromosome(
+                metadata, _selected_plink_rows(prefixes[chrom], chrom, config.snp_identifier),
                 snp_identifier=config.snp_identifier, chrom=chrom)
         except LDSCInputError as exc:
             causes.append(exc)
@@ -1827,6 +1785,7 @@ def _validate_baseline_plink_inputs(sources, prefixes, config, chromosomes, buil
         LOGGER.error("%s", error)
         raise error from ExceptionGroup("Baseline/PLINK input conflicts", causes)
     path.unlink(missing_ok=True)
+    return label_discordant
 
 
 def _cross_chromosome_rsid_issues(sources, prefixes, config, chromosomes, build_dir):
@@ -1844,9 +1803,7 @@ def _cross_chromosome_rsid_issues(sources, prefixes, config, chromosomes, build_
                 database.execute(f"CREATE INDEX {table}_snp ON {table} (SNP)")
             for chrom in chromosomes:
                 baseline = sources.shards[chrom].metadata()
-                plink = clean_identity_artifact_table(
-                    _read_bim_identity(prefixes[chrom]), config.snp_identifier,
-                    context=f"PLINK chromosome {chrom}", stage="gene_index_build_validation").cleaned
+                plink = _selected_plink_rows(prefixes[chrom], chrom, config.snp_identifier)
                 for table, frame in (("baseline", baseline), ("plink", plink)):
                     frame.loc[:, ["SNP", "CHR", "POS"]].astype({"CHR": str}).to_sql(
                         table, database, if_exists="append", index=False, chunksize=1000)
@@ -1859,15 +1816,19 @@ def _cross_chromosome_rsid_issues(sources, prefixes, config, chromosomes, build_
     return issues
 
 
-def _baseline_plink_contradictions(baseline, plink, *, mode, chrom):
-    """Report conflicting coordinates or usable alleles for shared base keys."""
+def _baseline_plink_pairs(baseline, plink, *, mode):
+    """Pair baseline and PLINK rows that share a base key; both sides have unique base keys after cleanup."""
     left = baseline.copy()
     right = plink.copy()
     for frame in (left, right):
         frame["base_key"] = base_key_series(frame, mode, context="baseline/PLINK consistency")
         frame["allele_set"] = (allele_set_series(frame, context="baseline/PLINK consistency")[0]
                                if {"A1", "A2"}.issubset(frame.columns) else pd.NA)
-    pairs = left.merge(right, on="base_key", suffixes=("_baseline", "_plink"), validate="one_to_one")
+    return left.merge(right, on="base_key", suffixes=("_baseline", "_plink"), validate="one_to_one")
+
+
+def _baseline_plink_contradictions(pairs, *, mode, chrom):
+    """Report conflicting coordinates or usable alleles for shared base keys."""
     masks = {"allele_mismatch": (pairs.allele_set_baseline.notna() & pairs.allele_set_plink.notna()
                                   & pairs.allele_set_baseline.fillna("").ne(pairs.allele_set_plink.fillna("")))}
     if identity_mode_family(mode) == "rsid":
@@ -1884,7 +1845,7 @@ def _normalize_identity_rows(
     snp_identifier: str,
 ) -> pd.DataFrame:
     """Normalize one strict-identity frame without dropping caller columns."""
-    required = {"CHR", "POS"} | ({"SNP"} if identity_mode_family(snp_identifier) == "rsid" or label == "PLINK BIM" else set())
+    required = {"CHR", "POS"} | ({"SNP"} if identity_mode_family(snp_identifier) == "rsid" else set())
     missing = required - set(frame.columns)
     if missing:
         raise LDSCInputError(

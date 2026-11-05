@@ -99,23 +99,32 @@ def test_builder_normalizes_explicit_build_aliases(build, canonical):
 
 @pytest.mark.parametrize("mode", ["rsid_allele_aware", "chr_pos_allele_aware"])
 @pytest.mark.parametrize("with_alleles", [False, True])
-def test_builder_allele_matching_uses_shared_cleanup(mode, with_alleles):
+def test_builder_allele_matching_uses_shared_cleanup(tmp_path, mode, with_alleles):
+    from ldsc._refpanel.plink_source import select_plink_chromosome
+
     reference = pd.DataFrame({"CHR": ["1"] * 6, "POS": [10, 20, 30, 40, 50, 50],
                               "SNP": ["rs1", "rs2", "rs3", "rs4", "rs5", "rs5"],
                               "A1": ["A", "A", "A", "N", "A", "A"],
                               "A2": ["G", "C", "T", "G", "G", "C"]})
+    prefix = tmp_path / "panel"
+    reference.assign(CM=0.0).loc[:, ["CHR", "SNP", "CM", "POS", "A1", "A2"]].to_csv(
+        str(prefix) + ".bim", sep="\t", header=False, index=False)
+    Path(str(prefix) + ".fam").write_text("F I 0 0 1 -9\n")
     baseline = reference.iloc[:4].copy()
     if with_alleles:
         baseline["A1"] = ["C", "T", "A", "N"]
         baseline["A2"] = ["T", "G", "T", "G"]
     else:
         baseline = baseline.drop(columns=["A1", "A2"])
-    result = index.intersect_baseline_plink_by_identifier(
-        baseline, pd.DataFrame({"base": [11, 22, 33, 44]}), reference, snp_identifier=mode, chrom="1")
+
+    # The gate checks the baseline against the PLINK rows that panel preparation keeps.
+    plink = index._selected_plink_rows(str(prefix), "1", mode)
+
     # rs3 is an A/T SNP: a valid identity, kept like any other.
-    assert result.metadata.SNP.tolist() == ["rs1", "rs2", "rs3"]
-    assert result.annotations.base.tolist() == [11, 22, 33]
-    assert {"invalid_allele", "multi_allelic_base_key"}.issubset(set(result.dropped_rows.reason))
+    assert plink.SNP.tolist() == ["rs1", "rs2", "rs3"]
+    drops = select_plink_chromosome(str(prefix), "1", mode, stage="test").identity_drops
+    assert {"invalid_allele", "multi_allelic_base_key"}.issubset(set(drops.reason))
+    assert index._check_baseline_plink_chromosome(baseline, plink, snp_identifier=mode, chrom="1") == 0
 
 
 @pytest.mark.parametrize("mode", ["rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"])
@@ -123,8 +132,7 @@ def test_builder_rejects_contradictory_alleles_with_repair_rows(mode):
     baseline = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "A1": ["A"], "A2": ["G"]})
     reference = baseline.assign(A2="C")
     with pytest.raises(LDSCInputError, match="contradict") as raised:
-        index.intersect_baseline_plink_by_identifier(
-            baseline, pd.DataFrame({"base": [1]}), reference, snp_identifier=mode, chrom="1")
+        index._check_baseline_plink_chromosome(baseline, reference, snp_identifier=mode, chrom="1")
     assert raised.value.input_issues.iloc[0].reason == "allele_mismatch"
 
 
@@ -133,8 +141,7 @@ def test_builder_rejects_shared_rsid_with_different_coordinates(mode):
     baseline = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"]})
     reference = baseline.assign(POS=11, A1="A", A2="G")
     with pytest.raises(LDSCInputError, match="contradict") as raised:
-        index.intersect_baseline_plink_by_identifier(
-            baseline, pd.DataFrame({"base": [1]}), reference, snp_identifier=mode, chrom="1")
+        index._check_baseline_plink_chromosome(baseline, reference, snp_identifier=mode, chrom="1")
     assert raised.value.input_issues.iloc[0].reason == "coordinate_mismatch"
 
 
@@ -152,7 +159,7 @@ def test_builder_reports_shared_rsid_on_different_chromosomes(tmp_path, monkeypa
     reference = {chrom: frame.assign(SNP=[f'rs{chrom}', 'moved' if chrom == '2' else 'ref1'])
                  for chrom, frame in baseline.items()}
     sources = Namespace(shards={chrom: Namespace(metadata=lambda chrom=chrom: baseline[chrom]) for chrom in baseline})
-    monkeypatch.setattr(index, '_read_bim_identity', lambda prefix: reference[prefix])
+    monkeypatch.setattr(index, '_selected_plink_rows', lambda prefix, *_: reference[prefix])
     config = Namespace(snp_identifier='rsid', baseline_annot_sources=('baseline',))
     with pytest.raises(LDSCInputError, match='baseline_plink_issues.tsv'):
         index._validate_baseline_plink_inputs(sources, {'1': '1', '2': '2'}, config, ('1', '2'), tmp_path)
@@ -165,7 +172,7 @@ def test_cross_chromosome_rsid_join_indexes_before_inserting_and_needs_no_tempor
     # SQLite places in the system temporary directory, outside the output directory.
     baseline = {chrom: pd.DataFrame({'CHR': [chrom], 'POS': [10], 'SNP': [f'rs{chrom}']}) for chrom in ('1', '2')}
     sources = Namespace(shards={chrom: Namespace(metadata=lambda chrom=chrom: baseline[chrom]) for chrom in baseline})
-    monkeypatch.setattr(index, '_read_bim_identity', lambda prefix: baseline[prefix].assign(A1='A', A2='G'))
+    monkeypatch.setattr(index, '_selected_plink_rows', lambda prefix, *_: baseline[prefix].assign(A1='A', A2='G'))
     statements, plans, databases = [], [], []
     real_connect = index.sqlite3.connect
 

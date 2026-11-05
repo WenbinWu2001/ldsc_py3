@@ -37,7 +37,6 @@ from ldsc._ldscore.gene_index.build import (
     _genetic_map_identity,
     _selected_individual_ids,
     build_plink_index_chromosome,
-    intersect_baseline_plink_by_identifier,
 )
 from ldsc._ldscore.gene_index.artifact import calculate_index_id, IndexChromosomeData
 from ldsc._annotation.gene_lists import GeneCatalog, GeneCatalogValidationError
@@ -160,10 +159,12 @@ def _fixture_funnel(chrom, rows=2):
 
 def _built(record):
     """Return what ``build_plink_index_chromosome`` returns for a fixture payload with one binary ``base``."""
+    from ldsc._core.snp_identity import empty_identity_drop_frame
+
     rows = len(record.baseline_rows)
     return record, {"reference_rows_before_genotype_qc": record.total_reference_snps_all, "genotype_qc_removed": 0,
                     "maf_removed": 0, "regression_selected_rows": rows, "annotation_types": {"base": "binary"},
-                    "cm_source": "bim_cm"}
+                    "cm_source": "bim_cm", "baseline_content_sha256": "fixture"}, empty_identity_drop_frame()
 
 
 def _artifact_payload():
@@ -254,8 +255,8 @@ def _configure_two_chromosome_builder(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(
         gene_ldscore_index,
-        "_read_bim_identity",
-        lambda prefix: identity_rows.assign(CHR=str(prefix).rsplit(".", 1)[-1],
+        "_selected_plink_rows",
+        lambda prefix, *_: identity_rows.assign(CHR=str(prefix).rsplit(".", 1)[-1],
             SNP=[f"rs{str(prefix).rsplit('.', 1)[-1]}{i}" for i in (1, 2)]),
     )
     monkeypatch.setattr(
@@ -355,119 +356,66 @@ def test_embedded_catalog_keeps_mhc_exclusions_with_empty_gene_rows():
     assert embedded["chromosome_gene_row"].tolist() == [0, 1, 0]
 
 
-def test_baseline_plink_intersection_uses_identifier_mode_and_plink_order(caplog):
-    baseline_metadata = _rows(
-        ("22", 30, "rs3"), ("22", 10, "rs1"), ("22", 20, "baseline_only")
-    )
-    annotations = pd.DataFrame({"base": [3.0, 1.0, 2.0]})
-    plink = _rows(("22", 10, "rs1"), ("22", 30, "rs3"), ("22", 40, "plink_only"))
+def test_index_match_counts_come_from_the_reference_snp_funnel():
+    prefix = Path(__file__).resolve().parents[1] / "fixtures" / "plink" / "plink"
+    bim = pd.read_csv(prefix.with_suffix(".bim"), sep=r"\s+", header=None,
+                      names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+    # The baseline lacks rs_0 (PLINK-only) and has one SNP the panel lacks (baseline-only).
+    metadata = pd.concat([bim.loc[1:, ["CHR", "SNP", "CM", "POS"]],
+                          pd.DataFrame({"CHR": [1], "SNP": ["baseline_only"], "CM": [0.0], "POS": [100]})],
+                         ignore_index=True)
+    bundle = ChromosomeAnnotations(metadata, pd.DataFrame({"base": np.ones(len(metadata))}), ["base"], [])
+    config = LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True)
+    baseline_drop = pd.DataFrame({"reason": ["duplicate_identity", "duplicate_identity", "missing_allele"]})
 
-    result = intersect_baseline_plink_by_identifier(
-        baseline_metadata,
-        annotations,
-        plink,
-        snp_identifier="rsid",
-        chrom="22",
-    )
+    with plink_panel(prefix).prepare_chromosome("1", bundle, config) as prepared:
+        evidence = gene_ldscore_index._baseline_plink_evidence(
+            prepared.reference_snp_funnel, grid_rows=len(metadata),
+            matched_rows=prepared.reference_rows_before_genotype_qc, baseline_drops=[baseline_drop],
+            plink_drops=prepared.identity_drops, snp_label_discordant_rows=0)
 
-    assert result.metadata[["CHR", "POS", "SNP"]].to_records(index=False).tolist() == [
-        ("22", 10, "rs1"),
-        ("22", 30, "rs3"),
-    ]
-    assert result.annotations["base"].tolist() == [1.0, 3.0]
-    assert result.diagnostics == {
-        "baseline_rows": 3,
-        "plink_rows": 3,
-        "baseline_duplicate_rows_dropped": 0,
-        "plink_bim_duplicate_rows_dropped": 0,
-        "matched_rows": 2,
-        "baseline_only_rows": 1,
-        "plink_only_rows": 1,
-        "coordinate_discordant_rows": 0,
-        "baseline_identity_rows_dropped": 0,
-        "plink_bim_identity_rows_dropped": 0,
-        "snp_label_discordant_rows": 0,
+    assert evidence == {
+        "baseline_rows": 8, "plink_rows": 8, "baseline_duplicate_rows_dropped": 2,
+        "plink_bim_duplicate_rows_dropped": 0, "baseline_identity_rows_dropped": 3,
+        "plink_bim_identity_rows_dropped": 0, "matched_rows": 7, "baseline_only_rows": 1,
+        "plink_only_rows": 1, "coordinate_discordant_rows": 0, "snp_label_discordant_rows": 0,
     }
-    assert "coordinate disagreement" not in caplog.text
 
 
-@pytest.mark.parametrize("side", ["baseline", "PLINK BIM"])
-def test_baseline_plink_intersection_drops_duplicate_effective_identifier_group(side, caplog):
-    baseline = _rows(("22", 10, "rs1"), ("22", 20, "rs2"))
-    plink = _rows(("22", 10, "rs1"), ("22", 20, "rs2"))
-    if side == "baseline":
-        baseline = pd.concat([baseline, baseline.iloc[[0]]], ignore_index=True)
-    else:
-        plink = pd.concat([plink, plink.iloc[[0]]], ignore_index=True)
-    result = intersect_baseline_plink_by_identifier(
-        baseline,
-        pd.DataFrame({"base": np.arange(len(baseline), dtype=float)}),
-        plink,
-        snp_identifier="rsid",
-        chrom="22",
-    )
-    assert result.metadata["SNP"].tolist() == ["rs2"]
-    assert result.diagnostics[f"{side.lower().replace(' ', '_')}_duplicate_rows_dropped"] == 2
-    assert "duplicate_identity" in caplog.text
+def test_index_rows_reach_the_panel_in_position_then_snp_order():
+    metadata = _rows(("22", 20, "rs9"), ("22", 10, "rs5"), ("22", 20, "rs10"))
+    annotations = pd.DataFrame({"base": [1.0, 2.0, 3.0]})
+
+    ordered, values = gene_ldscore_index._in_index_row_order(metadata, annotations)
+
+    # Labels compare as text, as the index loader's canonical-order check does.
+    assert ordered.SNP.tolist() == ["rs5", "rs10", "rs9"]
+    assert values.base.tolist() == [2.0, 3.0, 1.0]
 
 
-def test_chr_pos_intersection_ignores_baseline_label_and_publishes_plink_label(caplog):
+def test_chr_pos_gate_counts_baseline_label_disagreements_and_publishes_plink_labels(caplog):
     caplog.set_level("INFO")
-    baseline = _rows(("22", 20, "baseline_twenty"), ("22", 10, "baseline_ten"))
-    plink = _rows(("22", 10, "plink_ten"), ("22", 20, "plink_twenty"))
-    result = intersect_baseline_plink_by_identifier(
-        baseline,
-        pd.DataFrame({"base": [20.0, 10.0]}),
-        plink,
-        snp_identifier="chr_pos",
-        chrom="22",
-    )
-    assert result.metadata[["POS", "SNP"]].to_records(index=False).tolist() == [
-        (10, "plink_ten"), (20, "plink_twenty")
-    ]
-    assert result.annotations["base"].tolist() == [10.0, 20.0]
-    assert result.diagnostics["snp_label_discordant_rows"] == 2
+    baseline = _rows(("22", 20, "baseline_twenty"), ("22", 10, "baseline_ten"), ("22", 30, "same"))
+    # Repeated PLINK labels at distinct coordinates are distinct chr_pos identities.
+    plink = _rows(("22", 10, "repeated"), ("22", 20, "repeated"), ("22", 30, "same"))
+
+    discordant = gene_ldscore_index._check_baseline_plink_chromosome(
+        baseline, plink, snp_identifier="chr_pos", chrom="22")
+
+    assert discordant == 2
     assert "PLINK SNP labels are authoritative and will be published" in caplog.text
 
 
-def test_chr_pos_intersection_drops_all_rows_at_duplicate_coordinate():
-    baseline = _rows(("22", 10, "base_a"), ("22", 20, "base_b"))
-    plink = _rows(("22", 10, "plink_a"), ("22", 10, "plink_b"), ("22", 20, "plink_c"))
-    result = intersect_baseline_plink_by_identifier(
-        baseline,
-        pd.DataFrame({"base": [1.0, 2.0]}),
-        plink,
-        snp_identifier="chr_pos",
-        chrom="22",
-    )
-    assert result.metadata["SNP"].tolist() == ["plink_c"]
-    assert result.diagnostics["plink_bim_duplicate_rows_dropped"] == 2
+def test_rsid_gate_reports_no_label_disagreement():
+    rows = _rows(("22", 10, "rs1"), ("22", 20, "rs2"))
+    assert gene_ldscore_index._check_baseline_plink_chromosome(
+        rows, rows.iloc[:1], snp_identifier="rsid", chrom="22") == 0
 
 
-def test_chr_pos_intersection_allows_repeated_snp_labels_at_distinct_coordinates():
-    baseline = _rows(("22", 10, "baseline-a"), ("22", 20, "baseline-b"))
-    plink = _rows(("22", 10, "repeated-label"), ("22", 20, "repeated-label"))
-    result = intersect_baseline_plink_by_identifier(
-        baseline,
-        pd.DataFrame({"base": [1.0, 2.0]}),
-        plink,
-        snp_identifier="chr_pos",
-        chrom="22",
-    )
-
-    assert result.metadata["POS"].tolist() == [10, 20]
-    assert result.metadata["SNP"].tolist() == ["repeated-label", "repeated-label"]
-
-
-def test_baseline_plink_intersection_rejects_empty_result():
+def test_baseline_plink_gate_rejects_empty_match():
     with pytest.raises(LDSCInputError, match="intersection is empty"):
-        intersect_baseline_plink_by_identifier(
-            _rows(("22", 10, "rs1")),
-            pd.DataFrame({"base": [1.0]}),
-            _rows(("22", 20, "rs2")),
-            snp_identifier="rsid",
-            chrom="22",
-        )
+        gene_ldscore_index._check_baseline_plink_chromosome(
+            _rows(("22", 10, "rs1")), _rows(("22", 20, "rs2")), snp_identifier="rsid", chrom="22")
 
 
 def test_prepared_plink_chromosome_is_reused_by_direct_ldscore():
@@ -697,7 +645,7 @@ def test_plink_atom_operator_matches_direct_union_in_atom_batches(tmp_path, snp_
     regression_keys = RestrictionIdentityKeys(regression_keys, "base", empty_identity_drop_frame(), len(metadata), len(regression_keys))
     gene_intervals = np.array([[0, 4], [2, 7], [3, 5]], dtype=np.int64)
 
-    indexed_one, _ = build_plink_index_chromosome(
+    indexed_one, _, _ = build_plink_index_chromosome(
         "1",
         base_bundle,
         panel, config,
@@ -708,7 +656,7 @@ def test_plink_atom_operator_matches_direct_union_in_atom_batches(tmp_path, snp_
         padding_bp=0,
         atom_batch_size=1,
     )
-    indexed_many, _ = build_plink_index_chromosome(
+    indexed_many, _, _ = build_plink_index_chromosome(
         "1",
         base_bundle,
         panel, config,
@@ -795,7 +743,7 @@ def test_plink_index_fuses_baseline_and_regression_weights_but_keeps_atom_batche
         return scores
 
     monkeypatch.setattr(kernel_ldscore, "ld_scores_from_genotypes", traced_ldscore)
-    result, evidence = build_plink_index_chromosome(
+    result, evidence, _ = build_plink_index_chromosome(
         "1",
         bundle,
         panel, config,
@@ -995,7 +943,7 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
 
     monkeypatch.setattr(gene_ldscore_index, "read_snp_restriction_keys", fake_read_restriction)
     monkeypatch.setattr(gene_ldscore_index.kernel_regions, "load_preset_intervals", lambda *args: None)
-    monkeypatch.setattr(gene_ldscore_index, "_read_bim_identity", lambda _prefix: identity_rows.copy())
+    monkeypatch.setattr(gene_ldscore_index, "_selected_plink_rows", lambda _prefix, *_: identity_rows.copy())
     monkeypatch.setattr(gene_ldscore_index, "build_plink_index_chromosome", lambda *args, **kwargs: _built(chromosome))
     monkeypatch.setattr(gene_ldscore_index, "_builder_index_identity", lambda *args, **kwargs: index_identity)
     _write_plink_trio(tmp_path / "1000G.EUR.QC.22", ["22"])
@@ -1210,15 +1158,15 @@ def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path,
     monkeypatch.setattr(gene_ldscore_index, "_load_builder_genetic_map", lambda *_args: None)
     monkeypatch.setattr(gene_ldscore_index, "read_snp_restriction_keys", lambda *args, **kwargs: {"rs1"})
     monkeypatch.setattr(gene_ldscore_index.kernel_regions, "load_preset_intervals", lambda *args: None)
-    monkeypatch.setattr(gene_ldscore_index, "_read_bim_identity", lambda _prefix: identity_rows.copy())
+    monkeypatch.setattr(gene_ldscore_index, "_selected_plink_rows", lambda _prefix, *_: identity_rows.copy())
     _write_plink_trio(tmp_path / "1000G.EUR.QC.22", ["22"])
 
-    original_intersection = gene_ldscore_index.intersect_baseline_plink_by_identifier
+    original_intersection = gene_ldscore_index._check_baseline_plink_chromosome
 
     def fail_intersection(*args, **kwargs):
         raise LDSCInputError("identifier intersection failure in fixture")
 
-    monkeypatch.setattr(gene_ldscore_index, "intersect_baseline_plink_by_identifier", fail_intersection)
+    monkeypatch.setattr(gene_ldscore_index, "_check_baseline_plink_chromosome", fail_intersection)
     import gzip
     with gzip.open(tmp_path / "catalog.tsv.gz", "wt") as stream:
         stream.write("catalog content supplied by the mocked loader\n")
@@ -1266,7 +1214,7 @@ def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path,
     assert [path.name for path in index_path.iterdir()] == [".build"]
     assert any((build_state / "history").glob("*.log"))
 
-    monkeypatch.setattr(gene_ldscore_index, "intersect_baseline_plink_by_identifier", original_intersection)
+    monkeypatch.setattr(gene_ldscore_index, "_check_baseline_plink_chromosome", original_intersection)
     monkeypatch.setattr(gene_ldscore_index, "build_plink_index_chromosome", lambda *args, **kwargs: _built(chromosome))
     index_dir = gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
     assert (index_dir / "metadata.json").exists()
@@ -1348,7 +1296,7 @@ def test_plink_operator_matches_independent_dense_adjusted_r2_reference(snp_batc
     panel = plink_panel(prefix)
     config = LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True, snp_batch_size=snp_batch_size)
     persisted_keys = {"rs_5", "rs_6"}
-    indexed, _ = build_plink_index_chromosome(
+    indexed, _, _ = build_plink_index_chromosome(
         "1", bundle, panel, config,
         regression_keys=persisted_keys,
         regression_regions=None,

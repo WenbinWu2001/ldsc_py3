@@ -152,7 +152,7 @@ an online regression-SNP or region override; build a complete new index for a
 different policy.
 
 The index build applies the annotation SNP grid rule above to its baseline annotations and stores each chromosome's reference-SNP funnel in the index.
-Its `annotation_snp_grid` funnel starts from every baseline row, before the build's baseline/PLINK identifier intersection.
+Its `annotation_snp_grid` funnel starts from every baseline row, as in direct `ldscore`, because each chromosome's baseline rows go to PLINK panel preparation unmatched.
 The build logs and prints the same WARNING, pointing to `diagnostics/build-gene-ldscore-index.json`.
 Indexed `ldscore` copies the stored funnel to its own `diagnostics/reference_snp_funnel.tsv` and repeats the WARNING; it does not recompute the funnel.
 

@@ -110,23 +110,6 @@ def excluded_reference_snp_counts(frame: pd.DataFrame) -> pd.Series:
     return counts.loc[counts > 0]
 
 
-def with_grid_rows(frame: pd.DataFrame, grid_rows: int) -> pd.DataFrame:
-    """Restart the ``annotation_snp_grid`` funnel at ``grid_rows`` rows, before an earlier intersection.
-
-    Rows dropped between ``grid_rows`` and the rows that reached reference
-    preparation are counted at the grid step; later ``remaining`` values are
-    unchanged.
-    """
-    frame = frame.copy()
-    grid = frame["funnel"].eq(ANNOTATION_SNP_GRID)
-    start = grid & frame["step_index"].eq(0)
-    extra = int(grid_rows) - int(frame.loc[start, "remaining"].iloc[0])
-    frame.loc[start, "remaining"] = int(grid_rows)
-    step = grid & frame["step"].eq(ANNOTATION_SNP_GRID)
-    frame.loc[step, "removed"] = frame.loc[step, "removed"].fillna(0) + extra
-    return _typed(frame)
-
-
 def reference_snp_funnel_warning(frame: pd.DataFrame | None, *, command: str, diagnostics: str) -> str | None:
     """Return the run-level warning when the grid step excluded any panel SNP, else ``None``."""
     if frame is None:

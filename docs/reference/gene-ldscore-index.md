@@ -80,7 +80,7 @@ CHR	POS
 Then pass it as `--regr-snps-file custom_regression_snps.tsv`. For an
 `rsid` build, use the same headered layout with one `SNP` column instead.
 
-The reference SNPs are the inner intersection of baseline and PLINK SNPs under the configured SNP identifier mode, matching ordinary PLINK `ldscore` behavior.
+The reference SNPs are the inner intersection of baseline and PLINK SNPs under the configured SNP identifier mode, computed exactly as in ordinary PLINK `ldscore`: each chromosome's baseline rows are the annotation SNP grid of PLINK panel preparation, which selects and cleans the PLINK rows with the stage `ldscore --plink-prefix` and `build-r2-matrix` use and then matches them to the grid.
 PLINK SNPs off the baseline's annotation SNP grid are excluded and counted in each chromosome's reference-SNP funnel, which the build stores in the index, records in `diagnostics/build-gene-ldscore-index.json` and reports with a WARNING ([reference SNPs on the annotation SNP grid](ldscore-snp-universes.md#reference-snps-on-the-annotation-snp-grid)).
 Every row in a duplicate effective-identity group is dropped, warned, and recorded under `diagnostics/dropped_snps/`; no representative is selected.
 Baseline-only and PLINK-only SNPs are dropped and counted.
@@ -204,10 +204,11 @@ One output directory contains one complete immutable index:
 ```
 
 `index_id` is a canonical SHA-256 identity over scientific content and settings, not file paths or output names.
-It covers normalized baseline data, PLINK BED content and BIM metadata, selected IID order, canonical regression keys and region policy, genetic map, gene coordinate catalog, chromosome coverage, build/identifier, window and MAF rules, padding, and gene-region policy.
+It covers the baseline values on the retained reference SNPs (after genotype QC), PLINK BED content and BIM metadata, selected IID order, canonical regression keys and region policy, genetic map, gene coordinate catalog, chromosome coverage, build/identifier, window and MAF rules, padding, and gene-region policy.
 Batching, workers, logging, output path, and overwrite are resource or publication controls and do not change the identity.
-The input fingerprints behind `index_id` (normalized baseline content, whole PLINK BED file bytes, parsed BIM metadata, selected individual IDs, sorted regression keys, and the genetic map) only define the identity; indexed scoring never re-reads those inputs to check them again.
+The input fingerprints behind `index_id` (baseline content on the retained reference SNPs, whole PLINK BED file bytes, parsed BIM metadata, selected individual IDs, sorted regression keys, and the genetic map) only define the identity; indexed scoring never re-reads those inputs to check them again.
 Identical inputs and settings must produce identical fingerprints and the same `index_id`; changing what a fingerprint covers changes the identity of every index.
+Earlier builds fingerprinted the baseline/PLINK match before genotype QC, so an index built before that change has a different `index_id` from a new build of the same inputs; it stays loadable and scores the same, and only comparisons of `index_id` values across the change differ.
 
 Root and chromosome metadata record `format_version: 6` and repeat the immutable SNP identifier mode and hg19/hg38 build.
 Root metadata also stores two records that indexed `ldscore` copies into its `metadata.json` ([LD-score metadata](formats/artifact-metadata.md#ldscore)), outside `index_identity`:

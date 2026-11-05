@@ -13,7 +13,7 @@ import pytest
 
 from ldsc import GlobalConfig, LDScoreConfig, RefPanelConfig
 from ldsc._refpanel.adapters import R2MatrixRefPanel, PlinkRefPanel
-from ldsc._refpanel.funnel import annotation_snp_grid_emptied, with_grid_rows
+from ldsc._refpanel.funnel import annotation_snp_grid_emptied
 from ldsc._refpanel.prepared import ChromosomeAnnotations
 from ldsc.errors import EmptyReferenceSNPs
 from tests.refpanel.test_reference_preparation import write_panel
@@ -178,15 +178,6 @@ def test_plink_restriction_whose_rows_cleanup_removes_empties_a_skippable_chromo
     # Chromosome skips write no dropped-SNP table, so the message itself names the drops.
     assert "duplicate_identity=2" in str(caught.value)
     assert "dropped_snps" not in str(caught.value)
-
-
-def test_index_grid_funnel_restarts_before_the_baseline_intersection(tmp_path):
-    write_panel(tmp_path)
-    panel = R2MatrixRefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(backend="r2_matrix", r2_matrix_dir=tmp_path))
-    with panel.prepare_chromosome("1", r2_annotations(["rs1", "rs3"]), WINDOW) as prepared:
-        funnel = with_grid_rows(prepared.reference_snp_funnel, 5)
-    assert steps(funnel, "annotation_snp_grid") == {"grid_rows": (None, 5), "annotation_snp_grid": (3, 2)}
-    assert_invariant(funnel, 2)
 
 
 # --- LD-score workflow -------------------------------------------------------

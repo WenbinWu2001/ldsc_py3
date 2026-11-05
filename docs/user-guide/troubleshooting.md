@@ -583,9 +583,9 @@ belong to the immutable index. A failed validation never falls back to direct
 mode. Remove `--padding-bp` entirely rather than passing a zero value. Validation
 is completed before canonical scientific output publication. Restore
 or rebuild the index, or remove `--gene-ldscore-index-dir` and supply the
-full direct-mode inputs explicitly. Older gene-index metadata contracts are not
-loaded by the current strict reader and must be rebuilt; ordinary canonical
-LD-score directories already produced from them are unaffected.
+full direct-mode inputs explicitly.
+Older gene LD-score index formats are not loaded by the current strict reader and must be rebuilt.
+LD-score directories already produced from an earlier index still load, but they record `unknown` baseline `annotation_types` and no `snp_universe_policy`, and their counts of continuous baseline annotations were summed in float32; regenerate them from the rebuilt index before refitting.
 An `Unsupported gene LD-score index format version` error for versions 2 to 5 means the index predates the current format 6: version 3 introduced exact PLINK LD windows, version 4 stores each chromosome's reference-SNP funnel, version 5 gives each SNP's minor allele as `A1`, and version 6 sums baseline annotation counts in float64 and stores the `annotation_types` and `snp_universe_policy` that indexed `ldscore` output records.
 Rebuild it with the current `ldsc build-gene-ldscore-index`.
 

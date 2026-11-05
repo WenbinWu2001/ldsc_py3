@@ -16,6 +16,7 @@ from ldsc import cli, load_ldscore_from_dir
 from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from tests.regression import test_regression_workflow as fixtures
 from tests.regression.test_regression_fit_outcomes import h2_dataset
+from tests.worker_fixtures import LocalQueryWorkers
 from ldsc._ldscore.results import LDScoreResult
 from ldsc._ldscore.overlap_table import LDScoreOverlap
 from ldsc._annotation.overlap import OverlapContribution
@@ -189,6 +190,10 @@ def test_partitioned_continuation_records_query_without_common_counts_as_failed(
 
 @pytest.mark.parametrize("batch_size", [1, 2, 1000])
 def test_batch_fits_match_separate_models_and_release_details(tmp_path, monkeypatch, batch_size):
+    # The fits run in this process, so the patched fit below observes every one of them; spawned
+    # workers would import the unpatched module. Real workers are covered by the worker tests.
+    monkeypatch.setattr("ldsc._runtime.worker_runtime._INITIALIZED", True)
+    monkeypatch.setattr("ldsc._regression.partitioned_parallel._QueryWorkers", LocalQueryWorkers)
     table, source = batch_inputs(tmp_path / "ld")
     runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(num_blocks=6))
     expected = {}
@@ -226,6 +231,7 @@ def test_batch_fits_match_separate_models_and_release_details(tmp_path, monkeypa
                                                 query_batch_size=batch_size, summary_sort_by="category")
     assert preparations == [1]
     assert reads == [source.query_columns[i:i + batch_size] for i in range(0, 3, batch_size)]
+    assert len(live) == len(source.query_columns)
     assert all(ref() is None for ref in live)
     pd.testing.assert_frame_equal(result.summary, pd.concat([expected[q][0] for q in sorted(expected)], ignore_index=True))
     for query, paths in result.per_query_artifacts.items():

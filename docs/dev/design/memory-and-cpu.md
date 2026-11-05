@@ -434,7 +434,7 @@ Process startup, IPC, and one native thread per worker have costs; extra workers
 
 ## Immutable gene LD-score index access
 
-[`LoadedGeneLDScoreIndex`](../../../src/ldsc/_ldscore/gene_index/scoring.py) retains gene-coordinate-catalog and settings metadata, chromosome component paths, and compact support summaries.
+[`LoadedGeneLDScoreIndex`](../../../src/ldsc/_ldscore/gene_index/artifact.py) retains gene-coordinate-catalog and settings metadata, chromosome component paths, and compact support summaries.
 Integrity validation loads and releases one chromosome at a time.
 Assembly uses `_ldscore/gene_index/batches.py` with one active query batch and a persistent chromosome-worker pool.
 A task receives a small chromosome loader (`LoadedGeneLDScoreIndex.chromosome_loader()`) and, for each query in the batch, that chromosome's included gene rows, which the parent resolves once per batch; tasks receive neither the gene coordinate catalog nor the gene-list batch.

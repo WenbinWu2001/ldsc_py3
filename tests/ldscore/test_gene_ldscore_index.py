@@ -42,7 +42,8 @@ from ldsc._ldscore.gene_index.artifact import calculate_index_id, IndexChromosom
 from ldsc._annotation.gene_lists import GeneCatalog, GeneCatalogValidationError
 from tests.cli_parsing import parse_command
 from ldsc._core.chromosomes import AUTOSOMES
-from ldsc._ldscore.gene_index.scoring import load_gene_ldscore_index, run_indexed_ldscore
+from ldsc._ldscore.gene_index.artifact import load_gene_ldscore_index
+from ldsc._ldscore.gene_index.scoring import run_indexed_ldscore
 from tests.gene_index_helpers import narrow_index_chromosomes, write_gene_ldscore_index
 
 

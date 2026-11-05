@@ -1,8 +1,10 @@
-"""The on-disk format of a gene LD-score index.
+"""The on-disk format of a gene LD-score index: writing and reading it.
 
 Per-chromosome index payloads and their metadata, the index identity hash
 (``index_id``) and the published-row hash, staged writes and their
-finalization, and the readers and checks that load one chromosome back.
+finalization, and the readers: ``load_gene_ldscore_index`` verifies a
+complete published index, and ``LoadedGeneLDScoreIndex.chromosome_loader``
+reloads one chromosome for indexed scoring.
 See ``docs/reference/gene-ldscore-index.md`` for the format contract.
 """
 
@@ -22,9 +24,11 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 
+from ..._annotation.gene_lists import GeneCatalog, select_index_eligible_gene_indices
 from ..._core.chromosomes import AUTOSOMES
-from ..._core.snp_identity import identity_cleanup_keys, identity_mode_family
-from ..._refpanel.funnel import FUNNEL_COLUMNS, funnel_from_records, funnel_records
+from ..._core.snp_identity import identity_cleanup_keys, identity_mode_family, normalize_snp_identifier_mode
+from ..._refpanel.funnel import FUNNEL_COLUMNS, concat_funnels, funnel_from_records, funnel_records
+from ..._runtime.progress import advance, report_phase
 from .atoms import AtomStatistics, ChromosomeAtomModel, validate_ldscore_operator
 from ...config import GlobalConfig
 from ...errors import LDSCInputError, LDSCInternalError
@@ -793,3 +797,337 @@ def _load_index_chromosome(
         ),
         reference_snp_funnel=funnel_from_records(funnel_records(funnel)),
     )
+
+
+@dataclass(frozen=True)
+class LoadedGeneLDScoreIndex:
+    """One validated, self-contained gene LD-score index.
+
+    Attributes
+    ----------
+    index_id : str
+        Content-bound scientific identity for the complete index.
+    chromosomes : tuple of str
+        Ordered immutable chromosome coverage.
+    index_identity : dict
+        Scientific settings and canonical input-content identities used to
+        calculate ``index_id``.
+    gene_catalog : pandas.DataFrame
+        Embedded catalog with unpadded zero-based half-open gene coordinates,
+        inclusion flags, and chromosome-local row ordering.
+    chromosome_paths : dict of str to pathlib.Path
+        Validated component locations. No chromosome payload is cached.
+    gene_support : pandas.Series
+        Compact retained-reference support counts collected during validation.
+    reference_snp_funnel : pandas.DataFrame
+        Reference-SNP funnel of every chromosome, recorded when the index was
+        built; indexed scoring reports it rather than recomputing it.
+    annotation_types : dict of str to {"binary", "quantitative"}
+        Classification of each baseline column, made at build time as direct
+        ``ldscore`` makes it, in baseline-column order.
+    snp_universe_policy : dict
+        Reference-SNP and regression-SNP record of the build, in the form
+        direct ``ldscore`` writes to ``metadata.json``.
+    """
+
+    index_id: str
+    chromosomes: tuple[str, ...]
+    snp_identifier: str
+    genome_build: str
+    index_identity: dict
+    gene_catalog: pd.DataFrame
+    chromosome_paths: dict[str, Path]
+    baseline_columns: tuple[str, ...]
+    gene_support: pd.Series
+    reference_snp_funnel: pd.DataFrame
+    annotation_types: dict[str, str]
+    snp_universe_policy: dict
+
+    @property
+    def global_config(self) -> GlobalConfig:
+        """Identity settings the index binds; indexed output records them."""
+        return index_global_config(self.snp_identifier, self.genome_build)
+
+    def chromosome_loader(self) -> "_ChromosomeLoader":
+        """Return the small descriptor that chromosome tasks reload components from."""
+        labels = self.gene_catalog.chrom.astype(str)
+        return _ChromosomeLoader(
+            self.index_id, self.snp_identifier, self.genome_build, len(self.baseline_columns),
+            {str(chrom): path.parent.parent for chrom, path in self.chromosome_paths.items()},
+            {str(chrom): int(labels.eq(str(chrom)).sum()) for chrom in self.chromosome_paths},
+        )
+
+
+@dataclass(frozen=True)
+class _ChromosomeLoader:
+    """Reloads chromosome components without the index catalog, so tasks stay small."""
+
+    index_id: str
+    snp_identifier: str
+    genome_build: str
+    n_baseline_columns: int
+    index_paths: dict[str, Path]
+    expected_gene_rows: dict[str, int]
+
+    def load(self, chrom: str) -> IndexChromosomeData:
+        """Load one owned chromosome payload; callers release it after use.
+
+        The immutable component is checked again when opened. Indexed scoring
+        reloads it for each active query batch and releases it before the next
+        chromosome task; operators are not cached between tasks.
+        """
+        return _load_index_chromosome(
+            self.index_paths[str(chrom)], str(chrom), index_id=self.index_id,
+            snp_identifier=self.snp_identifier, genome_build=self.genome_build,
+            expected_gene_rows=self.expected_gene_rows[str(chrom)],
+        )
+
+
+@report_phase(LOGGER, 'validation', 'index content and compatibility')
+def load_gene_ldscore_index(
+    index_dir: str | Path,
+) -> LoadedGeneLDScoreIndex:
+    """Load and fully validate one explicit gene LD-score index directory.
+
+    Parameters
+    ----------
+    index_dir : path-like
+        Directory containing one complete format-version-6 index covering
+        autosomes 1 through 22. Earlier formats require a complete rebuild;
+        no profile discovery or compatibility migration is performed.
+
+    Returns
+    -------
+    LoadedGeneLDScoreIndex
+        Index components after validating semantic identity,
+        chromosome coverage, catalog and row ordering, shapes, dtypes, finite
+        values, and CSR invariants.
+
+    Raises
+    ------
+    LDSCInputError
+        If any required component is missing, corrupt, structurally invalid,
+        or semantically incompatible.
+    """
+    index_path = Path(index_dir)
+    root = _read_json(index_path / "metadata.json", "root")
+    require_current_index_format(root)
+    if root.get("artifact_type") != "gene_ldscore_index":
+        raise LDSCInputError(
+            "Gene LD-score index root has the wrong artifact_type."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
+        )
+    index_identity = root.get("index_identity")
+    index_id = root.get("index_id")
+    if not isinstance(index_identity, dict) or index_id != calculate_index_id(index_identity):
+        raise LDSCInputError(
+            "Gene LD-score index semantic identity is invalid."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
+        )
+    try:
+        snp_identifier = normalize_snp_identifier_mode(str(index_identity.get("snp_identifier")))
+    except Exception as exc:
+        raise LDSCInputError(
+            "Gene LD-score index SNP identity metadata is invalid."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
+        ) from exc
+    genome_build = index_identity.get("genome_build")
+    if genome_build not in {"hg19", "hg38"}:
+        raise LDSCInputError(
+            "Gene LD-score index genome-build metadata must be explicit hg19 or hg38."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
+        )
+    if root.get("snp_identifier") != snp_identifier or root.get("genome_build") != genome_build:
+        raise LDSCInputError(
+            "Gene LD-score index root identity metadata disagrees with index_identity."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
+        )
+    chromosomes = tuple(str(chrom) for chrom in root.get("chromosomes", ()))
+    expected_coverage = tuple(str(chrom) for chrom in index_identity.get("chromosomes", ()))
+    if not chromosomes or chromosomes != expected_coverage:
+        raise LDSCInputError(
+            "Gene LD-score index chromosome coverage is invalid."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
+        )
+    if chromosomes != INDEX_CHROMOSOMES:
+        raise LDSCInputError(
+            "Gene LD-score index must cover autosomes 1 through 22; partial production indexes are unsupported."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
+        )
+    advance(0, total=len(chromosomes))
+    inspect_index_paths(index_path, metadata=root)
+    catalog_path = index_path / "gene_catalog.parquet"
+    catalog = pd.read_parquet(catalog_path)
+    required_catalog = [
+        "gene_index", "gene_id", "gene_name", "chrom", "start", "end", "genome_build",
+        "catalog_line", "source", "included", "exclusion_reason", "chromosome_gene_row",
+    ]
+    if list(catalog.columns) != required_catalog:
+        raise LDSCInputError(
+            "Gene LD-score index catalog schema is invalid."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
+        )
+    expected_gene_indices = np.arange(len(catalog), dtype=np.int64)
+    if not np.array_equal(catalog["gene_index"].to_numpy(), expected_gene_indices):
+        raise LDSCInputError(
+            "Gene LD-score index catalog gene_index ordering is invalid."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
+        )
+    catalog_authority = GeneCatalog.from_embedded_frame(catalog)
+    if index_identity.get("catalog") != _catalog_identity_records(catalog):
+        raise LDSCInputError(
+            "Gene LD-score index embedded catalog disagrees with its semantic identity."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
+        )
+    if catalog["included"].dtype != np.bool_:
+        raise LDSCInputError(
+            "Gene LD-score index catalog included flags must use Boolean dtype."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
+        )
+    source_values = catalog["source"].fillna("").astype(str)
+    if (
+        source_values.eq("").any()
+        or source_values.nunique() != 1
+        or source_values.str.contains(r"[/\\]", regex=True).any()
+    ):
+        raise LDSCInputError(
+            "Gene LD-score index catalog source must be one nonempty source basename."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
+        )
+    gene_policy = index_identity.get("gene_exclude_regions")
+    if gene_policy not in {"none", "mhc"}:
+        raise LDSCInputError(
+            "Gene LD-score index gene-exclusion policy is invalid."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
+        )
+    eligible = select_index_eligible_gene_indices(
+        catalog_authority,
+        gene_exclude_regions=str(gene_policy),
+    )
+    expected_included = catalog.index.isin(eligible)
+    expected_reasons = np.where(expected_included, "", "excluded_gene_region")
+    if not np.array_equal(catalog["included"].to_numpy(dtype=bool), expected_included):
+        raise LDSCInputError(
+            "Gene LD-score index catalog inclusion policy disagrees with its coordinates and metadata."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
+        )
+    if not np.array_equal(catalog["exclusion_reason"].fillna("").astype(str), expected_reasons):
+        raise LDSCInputError(
+            "Gene LD-score index catalog exclusion reasons disagree with its inclusion policy."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
+        )
+    chromosome_paths = {}
+    baseline_columns = None
+    support = pd.Series(pd.NA, index=catalog["gene_index"].astype(int), dtype="Int64")
+    funnels = []
+    issues = []
+    for chrom in chromosomes:
+        advance(0, object=f'chromosome {chrom}', force=True)
+        record = None
+        try:
+            chromosome_catalog = catalog.loc[catalog["chrom"].astype(str) == str(chrom)]
+            expected_chromosome_rows = np.arange(len(chromosome_catalog), dtype=np.int64)
+            if not np.array_equal(
+                chromosome_catalog["chromosome_gene_row"].to_numpy(), expected_chromosome_rows
+            ):
+                raise LDSCInputError(
+                    f"Gene LD-score index catalog chromosome_gene_row ordering is invalid for chromosome {chrom}."
+                    " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+                    "build-gene-ldscore-index. See "
+                    "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
+                )
+            record = _load_index_chromosome(
+                index_path,
+                chrom,
+                index_id=index_id,
+                snp_identifier=snp_identifier,
+                genome_build=genome_build,
+                expected_gene_rows=len(chromosome_catalog),
+            )
+            columns = tuple(_baseline_columns_from_rows(record.baseline_rows))
+            if baseline_columns is not None and columns != baseline_columns:
+                raise LDSCInputError(
+                    "Gene LD-score index baseline columns disagree across chromosomes."
+                    " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+                    "build-gene-ldscore-index. See "
+                    "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
+                )
+            baseline_columns = columns
+            counts = record.atom_model.gene_to_atom.astype(np.int64) @ record.atom_statistics.atom_count_all
+            support.loc[chromosome_catalog["gene_index"].astype(int)] = np.asarray(counts).reshape(-1)
+            funnels.append(record.reference_snp_funnel)
+            chromosome_paths[chrom] = index_path / "chromosomes" / f"chr{chrom}"
+            advance(object=f'chromosome {chrom}')
+        except (OSError, ValueError, EOFError, LDSCInputError) as exc:
+            issues.append({"input_role": "index", "source": str(index_path / "chromosomes" / f"chr{chrom}"),
+                           "chrom": chrom, "reason": "invalid_required_input", "details": str(exc),
+                           "repair": "Restore or rebuild the complete immutable index."})
+        finally:
+            record = None
+    if issues:
+        error = LDSCInputError("Gene LD-score index chromosome preflight failed: " + "; ".join(
+            f"chromosome {row['chrom']} {row['source']}: {row['details']}" for row in issues
+        ))
+        error.input_issues = pd.DataFrame(issues)
+        raise error
+    annotation_types = root.get("annotation_types")
+    snp_universe_policy = root.get("snp_universe_policy")
+    if (not isinstance(annotation_types, dict) or set(annotation_types) != set(baseline_columns)
+            or not set(annotation_types.values()) <= {"binary", "quantitative"}
+            or not isinstance(snp_universe_policy, dict)):
+        raise LDSCInputError(
+            "Gene LD-score index root annotation_types or snp_universe_policy is missing or invalid."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
+        )
+    return LoadedGeneLDScoreIndex(
+        index_id=index_id,
+        chromosomes=chromosomes,
+        snp_identifier=snp_identifier,
+        genome_build=genome_build,
+        index_identity=index_identity,
+        gene_catalog=catalog,
+        chromosome_paths=chromosome_paths,
+        baseline_columns=baseline_columns,
+        gene_support=support,
+        reference_snp_funnel=concat_funnels(funnels),
+        annotation_types={name: annotation_types[name] for name in baseline_columns},
+        snp_universe_policy=snp_universe_policy,
+    )
+
+
+def _baseline_columns_from_rows(frame: pd.DataFrame) -> list[str]:
+    """Return ordered supplied baseline score columns from one common shard."""
+    reserved = {"CHR", "SNP", "POS", "A1", "A2", "regression_ld_scores"}
+    return [column for column in frame.columns if column not in reserved]

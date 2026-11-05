@@ -62,7 +62,7 @@ def test_workflows_share_detected_budget_and_managed_processes(tmp_path, monkeyp
     from ldsc._ldscore.gene_index import build as builder
     from ldsc._ldscore import workflow as direct
     from ldsc._ldscore.gene_index import scoring as _gene_index_scoring
-    from ldsc._ldscore.gene_index.scoring import load_gene_ldscore_index
+    from ldsc._ldscore.gene_index.artifact import load_gene_ldscore_index
     from ldsc import RegressionRunner, RegressionConfig
     from tests.ldscore.test_plink_workflow_resolution import write_inputs, index_args
     from tests.regression.test_regression_streaming import batch_inputs

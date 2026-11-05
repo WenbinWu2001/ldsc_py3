@@ -5,9 +5,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from ldsc._ldscore.gene_index import scoring as index_scoring, build as index_module
+from ldsc._ldscore.gene_index import artifact as index_artifact, build as index_module
 from ldsc._ldscore import workflow as ldscore_workflow
-from ldsc._ldscore.gene_index.scoring import load_gene_ldscore_index
+from ldsc._ldscore.gene_index.artifact import load_gene_ldscore_index
 from ldsc.errors import LDSCInputError
 from tests.ldscore.test_plink_workflow_resolution import write_inputs, index_args
 
@@ -152,7 +152,7 @@ def test_index_missing_late_component_precedes_any_operator_load(tmp_path, monke
     from tests.ldscore.test_gene_index_streaming import two_chromosome_index
     path = two_chromosome_index(tmp_path, monkeypatch)
     (path / "chromosomes/chr22/ldscore_operator.npz").unlink()
-    monkeypatch.setattr(index_scoring, "_load_index_chromosome", forbid_work)
+    monkeypatch.setattr(index_artifact, "_load_index_chromosome", forbid_work)
     with pytest.raises(LDSCInputError, match="ldscore_operator"):
         load_gene_ldscore_index(path)
 
@@ -235,7 +235,7 @@ def test_index_late_metadata_and_early_header_errors_precede_operator_loading(tm
     metadata['chromosome'] = '21'
     component.write_text(json.dumps(metadata))
     (path/'chromosomes/chr21/atoms.parquet').write_bytes(b'not parquet')
-    monkeypatch.setattr(index_scoring, '_load_index_chromosome', forbid_work)
+    monkeypatch.setattr(index_artifact, '_load_index_chromosome', forbid_work)
     with pytest.raises(LDSCInputError) as failure:
         load_gene_ldscore_index(path)
     assert len(failure.value.input_issues) == 2

@@ -24,6 +24,7 @@ from ..._runtime.parallelism import chromosome_pool, resolve_worker_count
 from ..._runtime.worker_runtime import initialize_worker
 from ..batch_execution import run_query_batches
 from ..diagnostics import chromosome_log
+from ..outputs import common_count_config
 from ..results import StagedLDScoreBatch
 from ..overlap_table import LDScoreOverlap
 from ..query_variation import ScoreVariation, summarize_variation
@@ -216,7 +217,7 @@ class _IndexedProducer:
             baseline_table=self.baseline,
             query_fragments=tuple(directory / f"chr{chrom}" / "query.parquet" for chrom in self.chromosomes),
             count_records=counts, baseline_columns=baseline_columns, query_columns=query_columns,
-            count_config=index.count_config, config_snapshot=index.global_config, overlap=overlap,
+            count_config=common_count_config(index.index_identity["common_maf_min"]), config_snapshot=index.global_config, overlap=overlap,
             query_statuses=(), gene_list_batch=self.gene_batch, chromosome_scope=self.scope,
             index_provenance={"index_id": index.index_id, "index_snp_identifier": index.snp_identifier,
                               "index_genome_build": index.genome_build},

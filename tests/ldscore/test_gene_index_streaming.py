@@ -7,10 +7,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ldsc._ldscore.gene_index import scoring as index_scoring
 from ldsc._ldscore.gene_index import artifact as _gene_index_artifact
 from ldsc._ldscore.gene_index.artifact import _catalog_identity_records
-from ldsc._ldscore.gene_index.scoring import load_gene_ldscore_index, run_indexed_ldscore
+from ldsc._ldscore.gene_index.artifact import load_gene_ldscore_index
+from ldsc._ldscore.gene_index.scoring import run_indexed_ldscore
 from tests.gene_index_helpers import narrow_index_chromosomes, write_gene_ldscore_index
 from tests.ldscore.test_gene_ldscore_index import _artifact_payload, _fixture_funnel
 
@@ -47,7 +47,7 @@ def test_validated_index_releases_operators_and_keeps_support(tmp_path, monkeypa
         live.append(weakref.ref(record.operator))
         return record
 
-    monkeypatch.setattr(index_scoring, "_load_index_chromosome", checked_load)
+    monkeypatch.setattr(_gene_index_artifact, "_load_index_chromosome", checked_load)
     index = load_gene_ldscore_index(path)
     assert all(ref() is None for ref in live)
     assert index.chromosomes == ("21", "22")
@@ -73,7 +73,7 @@ def _observed_index_task(*args, **kwargs):
         if selectors.ndim == 2:
             widths.append(selectors.shape[1])
         return original_assemble(operator, selectors)
-    index_scoring._load_index_chromosome = load
+    _gene_index_artifact._load_index_chromosome = load
     batches.assemble_indexed_ld_scores = assemble
     try:
         result = batches._write_chromosome(*args, **kwargs)
@@ -82,7 +82,7 @@ def _observed_index_task(*args, **kwargs):
             json.dumps({"loads": loads, "widths": widths}))
         return result
     finally:
-        index_scoring._load_index_chromosome = original_load
+        _gene_index_artifact._load_index_chromosome = original_load
         batches.assemble_indexed_ld_scores = original_assemble
 
 
@@ -107,7 +107,7 @@ def test_index_assembly_reloads_and_releases_each_operator_per_batch(tmp_path, m
     events = tmp_path / "events"
     events.mkdir()
     monkeypatch.setenv("LDSC_TEST_INDEX_EVENTS", str(events))
-    monkeypatch.setattr(index_scoring, "_load_index_chromosome", load)
+    monkeypatch.setattr(_gene_index_artifact, "_load_index_chromosome", load)
     monkeypatch.setattr(batches, "_write_chromosome", _observed_index_task)
     result = run_indexed_ldscore(path, query_gene_list_sources=queries,
                                 output_dir=tmp_path / "out", query_batch_size=batch_size)

@@ -16,7 +16,7 @@ from ldsc._ldscore.gene_index.scoring import run_indexed_ldscore
 
 
 def _check_worker_serialization_lifetimes(*args, **kwargs):
-    from ldsc._ldscore.gene_index.scoring import _ChromosomeLoader
+    from ldsc._ldscore.gene_index.artifact import _ChromosomeLoader
 
     original_load = _ChromosomeLoader.load
     original_assemble = batches.assemble_indexed_ld_scores

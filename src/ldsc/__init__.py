@@ -74,7 +74,7 @@ from ._genome.build_inference import (
 from ._genome.hm3 import load_hm3_curated_map
 from ._ldscore.calculator import LDScoreCalculator
 from ._ldscore.gene_index.build import build_gene_ldscore_index
-from ._ldscore.gene_index.scoring import load_gene_ldscore_index
+from ._ldscore.gene_index.artifact import load_gene_ldscore_index
 from ._regression.outputs import (
     H2DirectoryWriter,
     H2OutputConfig,

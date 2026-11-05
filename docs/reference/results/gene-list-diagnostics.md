@@ -246,7 +246,7 @@ Public indexes require a canonical catalog and complete autosomal coverage. Cons
 
 Repeated rows that resolve to the same canonical gene are deduplicated within each source under all four combinations. Genes removed by an explicitly selected gene-region exclusion are recorded as `excluded`, not `rejected`. Neither condition alone triggers strict rejection; subsequent query/control viability checks still apply.
 
-Implementation references: [`_annotation/gene_lists.py`](../../../src/ldsc/_annotation/gene_lists.py), `RESOLVED_ONLY_REASONS`, `_resolve_rows()`, and `GeneCatalog.from_embedded_frame()`; [`_ldscore/gene_index/scoring.py`](../../../src/ldsc/_ldscore/gene_index/scoring.py), `load_gene_ldscore_index()`; [`_annotation/gene_query_storage.py`](../../../src/ldsc/_annotation/gene_query_storage.py), `resolve_gene_lists_staged()` and `StagedGeneListBatch.audit_frames()`.
+Implementation references: [`_annotation/gene_lists.py`](../../../src/ldsc/_annotation/gene_lists.py), `RESOLVED_ONLY_REASONS`, `_resolve_rows()`, and `GeneCatalog.from_embedded_frame()`; [`_ldscore/gene_index/artifact.py`](../../../src/ldsc/_ldscore/gene_index/artifact.py), `load_gene_ldscore_index()`; [`_annotation/gene_query_storage.py`](../../../src/ldsc/_annotation/gene_query_storage.py), `resolve_gene_lists_staged()` and `StagedGeneListBatch.audit_frames()`.
 
 ### Viability checks after resolution
 
@@ -269,7 +269,7 @@ Support is measured on the reference SNPs, whereas LD-score variation is checked
 Agreement between modes requires matching catalogs, projection settings, and retained reference SNPs; a matching gene-list filename alone does not establish equivalence.
 
 Implementation references: the staged gene-list batch's `with_coverage()` in [`_annotation/gene_query_storage.py`](../../../src/ldsc/_annotation/gene_query_storage.py) owns the shared coverage check; [`_annotation/query_outcomes.py`](../../../src/ldsc/_annotation/query_outcomes.py), `gene_query_statuses()`, `gene_viability_errors()`, and `finalize_query_measurements()` own shared policy, and the result records' `select_queries()` in [`_ldscore/results.py`](../../../src/ldsc/_ldscore/results.py) prunes skipped queries.
-[`_ldscore/preflight.py`](../../../src/ldsc/_ldscore/preflight.py), `inspect_direct_inputs()` validates scope; [`_ldscore/workflow.py`](../../../src/ldsc/_ldscore/workflow.py), `_apply_direct_gene_gate_b()` measures direct support with `ChromosomeProjector.counts()`; [`_ldscore/gene_index/scoring.py`](../../../src/ldsc/_ldscore/gene_index/scoring.py), `load_gene_ldscore_index()` collects indexed support from gene-to-atom counts.
+[`_ldscore/preflight.py`](../../../src/ldsc/_ldscore/preflight.py), `inspect_direct_inputs()` validates scope; [`_ldscore/workflow.py`](../../../src/ldsc/_ldscore/workflow.py), `_apply_direct_gene_gate_b()` measures direct support with `ChromosomeProjector.counts()`; [`_ldscore/gene_index/artifact.py`](../../../src/ldsc/_ldscore/gene_index/artifact.py), `load_gene_ldscore_index()` collects indexed support from gene-to-atom counts.
 
 ## Recommended list-first repair workflow
 

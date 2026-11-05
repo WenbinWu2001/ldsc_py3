@@ -143,7 +143,7 @@ def _build_index(inputs, index, monkeypatch, *, prefix="1000G.EUR.QC.", overwrit
 
 
 def test_gene_index_build_writes_only_inside_its_output_directory(tmp_path, index_inputs, empty_cwd, monkeypatch):
-    from ldsc._ldscore.gene_index.scoring import load_gene_ldscore_index
+    from ldsc._ldscore.gene_index.artifact import load_gene_ldscore_index
 
     index = tmp_path / "parent" / "index"
     inputs_before = _tree(index_inputs)
@@ -179,7 +179,7 @@ def test_failed_gene_index_build_keeps_its_state_inside_and_retries(tmp_path, in
 
 
 def test_an_incomplete_gene_index_is_never_read_and_needs_overwrite(tmp_path, index_inputs, monkeypatch):
-    from ldsc._ldscore.gene_index.scoring import load_gene_ldscore_index
+    from ldsc._ldscore.gene_index.artifact import load_gene_ldscore_index
 
     index = tmp_path / "parent" / "index"
     _build_index(index_inputs, index, monkeypatch)
@@ -198,7 +198,7 @@ def test_an_incomplete_gene_index_is_never_read_and_needs_overwrite(tmp_path, in
 
 def test_a_failure_during_publication_leaves_an_index_no_reader_accepts(tmp_path, index_inputs, monkeypatch):
     from ldsc._ldscore.gene_index import build as gene_index_build
-    from ldsc._ldscore.gene_index.scoring import load_gene_ldscore_index
+    from ldsc._ldscore.gene_index.artifact import load_gene_ldscore_index
 
     index = tmp_path / "parent" / "index"
     _build_index(index_inputs, index, monkeypatch)

@@ -4,8 +4,9 @@ The ``build-gene-ldscore-index`` workflow computes a PLINK-backed LD-score
 operator for one fixed baseline, reference panel, regression-SNP policy, and
 gene projection. Completed chromosome payloads become durable in the staged
 index under the hidden ``.build/`` directory and are released from memory; only
-a complete reload-validated stage is published as an index. Loading an index
-and scoring gene lists with it live in ``ldsc._ldscore.gene_index.scoring``.
+a complete reload-validated stage is published as an index. Writing and loading
+the index format live in ``ldsc._ldscore.gene_index.artifact``, scoring gene
+lists with an index in ``ldsc._ldscore.gene_index.scoring``.
 """
 
 from __future__ import annotations
@@ -107,9 +108,9 @@ from .artifact import (
     _stage_index_chromosome,
     calculate_index_id,
     index_global_config,
+    load_gene_ldscore_index,
 )
 from . import artifact as index_artifact
-from .scoring import load_gene_ldscore_index
 from ..._annotation.preflight import inspect_annotation_inputs
 from ..._genome.build_policy import GenomeBuildCheck
 from ..._runtime.preflight import InputGate

@@ -141,7 +141,8 @@ tail -f /path/to/indexes/baseline_100kb/.build/build-gene-ldscore-index.log
 
 The log first reports annotation preparation (`Reading annotation inputs`, then SNP identity checks, then `Annotation preparation complete`) and then each chromosome.
 Its final `Finished` or `Failed` line gives the outcome.
-On success, the closed log moves to `/path/to/indexes/baseline_100kb/diagnostics/build-gene-ldscore-index.log` and `.build/` is removed; the build writes nothing outside the destination.
+Each chromosome worker writes its own log under `.build/chromosome-logs/chrN.log`, which holds that chromosome's detailed records and, if it fails, its full Python traceback.
+On success, the closed log moves to `/path/to/indexes/baseline_100kb/diagnostics/build-gene-ldscore-index.log`, the chromosome logs to `diagnostics/chromosome-logs/`, and `.build/` is removed; the build writes nothing outside the destination.
 Input checks run before any computation, and failed checks write their repair tables, such as `plink_input_issues.tsv`, under `<index-dir>/.build/`.
 If the gene coordinate catalog fails validation, repair it using `<index-dir>/.build/gene_coordinate_catalog_issues.tsv.gz` ([catalog repair](../../reference/results/gene-list-diagnostics.md#gene-coordinate-catalog-repair-and-index-builder-issues)).
 

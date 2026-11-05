@@ -377,9 +377,11 @@ def build_gene_ldscore_index(
     log_level : {"DEBUG", "INFO", "WARNING", "ERROR"}, optional
         Workflow logging threshold. The open log is
         ``<output_dir>/.build/build-gene-ldscore-index.log``, in the hidden
-        build directory beside the index components. After success, the
-        closed log moves into ``<output_dir>/diagnostics`` and ``.build/`` is
-        removed. Default is ``None``: use the registered
+        build directory beside the index components; each chromosome worker
+        writes ``<output_dir>/.build/chromosome-logs/chr<N>.log``. After
+        success, the closed log moves into ``<output_dir>/diagnostics``, the
+        chromosome logs into ``<output_dir>/diagnostics/chromosome-logs``, and
+        ``.build/`` is removed. Default is ``None``: use the registered
         ``GlobalConfig.log_level`` (``"INFO"`` unless changed).
 
     Returns
@@ -425,7 +427,7 @@ def build_gene_ldscore_index(
     leaves no loadable index, because publication removes the old root
     ``metadata.json`` first and writes the new one last. Stages are never
     resumed or reused. After destination reload validation
-    succeeds, failure to move the closed log or remove ``.build/`` is warned
+    succeeds, failure to move the closed logs or remove ``.build/`` is warned
     with its retained path and does not change publication success.
     """
     if not isinstance(config, GeneLDScoreIndexBuildConfig):
@@ -487,8 +489,9 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
 
     The arguments become a ``GeneLDScoreIndexBuildConfig`` before anything is
     written. Every file the build touches is inside ``args.output_dir``: the
-    lock, live log, issue tables and staged index sit in its hidden
-    ``.build/`` directory, which a successful build removes.
+    lock, live log, per-chromosome logs, issue tables and staged index sit in
+    its hidden ``.build/`` directory, which a successful build removes after
+    moving the logs into ``diagnostics/`` and ``diagnostics/chromosome-logs/``.
     """
     config = GeneLDScoreIndexBuildConfig(
         baseline_annot_sources=args.baseline_annot_sources,

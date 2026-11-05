@@ -1,6 +1,6 @@
 # Parallel execution
 
-Last updated on: 2026-10-29
+Last updated on: 2026-11-04
 
 Use `workers` in Python or `--workers` in the CLI to choose task concurrency.
 The default is one worker on both laptops and HPC systems.
@@ -102,7 +102,7 @@ Both direct and indexed writing workflows use this layout, at every worker count
     └── ...
 ```
 
-The main log records overall progress and each chromosome's diagnostic path.
+The main log records overall progress and each chromosome's diagnostic path; the `build-gene-ldscore-index` main log names the chromosome-log directory once instead.
 `build-gene-ldscore-index` workers write the same chromosome logs, under the index's hidden `.build/chromosome-logs/` while it runs and in `<index-dir>/diagnostics/chromosome-logs/` after a successful build ([gene LD-score index](gene-ldscore-index.md#output-preflight-logging-and-replacement)).
 Chromosome logs append across batches in the same run and record detailed execution and full Python exception tracebacks.
 A subsequent run follows `--overwrite`: refuse existing owned artifacts by default, or reset owned logs for an explicitly authorized replacement.

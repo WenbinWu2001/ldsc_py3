@@ -383,7 +383,7 @@ Munging emits one immediate warning per invalid P, INFO, or FRQ category within 
 
 Direct and indexed writing workflows create `diagnostics/ldscore.log` and `diagnostics/chromosome-logs/chrN.log`, including for one worker.
 `build-gene-ldscore-index` workers use the same chromosome logs, written under the index's hidden `.build/chromosome-logs/` and moved to `diagnostics/chromosome-logs/` with the main log after a successful build ([gene LD-score index build log](#exact-gene-ld-score-index-build-log)).
-The main log lists all chromosome log paths and overall progress.
+The `ldscore` main log lists all chromosome log paths and overall progress; the index builder's main log names the chromosome-log directory once.
 Workers append detailed records and Python exception tracebacks to their own chromosome files across query batches within the run.
 Numerical backend verification and independent Arrow CPU/I/O counts are recorded at the task boundary.
 A handled chromosome failure retains logs, reports the chromosome and batch in the main log, cancels pending tasks where possible, and removes temporary results after normal worker shutdown.

@@ -522,6 +522,7 @@ live log during a failing build). An empty result leaves no reference SNPs for L
 Under rsID matching, coordinate disagreements stop the build with a repair table.
 Under coordinate matching, differing SNP labels are reported and the PLINK label is published.
 During or after a failed build, check `<index-dir>/.build/build-gene-ldscore-index.log`; after a successful build, check `<index-dir>/diagnostics/build-gene-ldscore-index.log`.
+A failed chromosome's full Python traceback is in `<index-dir>/.build/chromosome-logs/chrN.log` (in `<index-dir>/diagnostics/chromosome-logs/` after a successful build).
 Confirm that all coordinate sources match the explicit hg19/hg38 build, that `--snp-identifier` matches the intended key, and that the inputs overlap after shared identity cleanup.
 There is no build inference or liftover; declarations must agree and cannot be replaced by the command-line assertion.
 A failed first build leaves only the hidden `.build/` directory in the index destination and can be retried directly; the previous log is archived under `<index-dir>/.build/history/`.

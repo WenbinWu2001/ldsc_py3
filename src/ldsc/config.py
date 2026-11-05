@@ -633,9 +633,11 @@ class GeneLDScoreIndexBuildConfig:
         and ``@`` chromosome suites are also accepted.
     output_dir : str
         Publication destination for one complete immutable gene LD-score index.
-        While running, the lock, live log, issue tables and staged index use
-        the hidden ``<output_dir>/.build/`` directory; after success the closed
-        log moves into ``<output_dir>/diagnostics`` and ``.build/`` is removed.
+        While running, the lock, live log, per-chromosome logs, issue tables
+        and staged index use the hidden ``<output_dir>/.build/`` directory;
+        after success the closed log moves into ``<output_dir>/diagnostics``,
+        the chromosome logs into ``<output_dir>/diagnostics/chromosome-logs``,
+        and ``.build/`` is removed.
         A missing destination is created when the build starts and holds only
         ``.build/`` until a build succeeds.
     genome_build : {"hg19", "hg38"}

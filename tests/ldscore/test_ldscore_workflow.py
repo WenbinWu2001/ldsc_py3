@@ -4,7 +4,8 @@ from tests.annotation_fixtures import build_annotation_fixture, make_annotation_
 
 from tests.ref_panel_helpers import compute_plink, plink_panel, write_r2_matrix_chromosome, write_tiny_plink
 
-from dataclasses import replace as dataclass_replace
+from contextlib import contextmanager
+from dataclasses import fields as dataclass_fields, replace as dataclass_replace
 import importlib.util
 from io import StringIO
 import json
@@ -40,7 +41,8 @@ from ldsc._ldscore.calculator import (
     _resolve_build,
 )
 from ldsc._ldscore import direct_batches
-from ldsc._ldscore.results import ChromLDScoreResult, LDScoreResult
+from ldsc._ldscore.query_variation import summarize_variation
+from ldsc._ldscore.results import ChromLDScoreResult, DirectChromosomeFragment, LDScoreResult, StagedLDScoreBatch
 from ldsc._runtime.workflow_kwargs import parse_command_line
 from ldsc._core import plink_files as kernel_formats
 from ldsc._ldscore import compute as kernel_ldscore
@@ -68,6 +70,42 @@ GENE_LIST_RUN = ("--baseline-annot-sources", "baseline.annot.gz", "--query-annot
 def direct_configs(*argv):
     """Build the configuration of a direct ``ldscore`` run from command-line options, as the boundary does."""
     return _configs_from_args(parse_command_line(build_parser(), ["--output-dir", "out", "--ld-wind-kb", "1", *argv]))
+
+
+@contextmanager
+def recorded_batches():
+    """Record every batch the direct LD-score producer hands to the writer."""
+    aggregate = direct_batches._aggregate_chromosome_results
+    batches = []
+
+    def record(*args, **kwargs):
+        batches.append(aggregate(*args, **kwargs))
+        return batches[-1]
+
+    with mock.patch.object(direct_batches, "_aggregate_chromosome_results", side_effect=record):
+        yield batches
+
+
+def staged_chromosome_task(chrom_result: ChromLDScoreResult):
+    """Stand in for one chromosome task of a writing run, returning ``chrom_result`` staged.
+
+    A writing run's task stages its query scores in the batch's fragment
+    directory and returns a ``DirectChromosomeFragment``, so the producer hands
+    the writer a staged batch, as production direct runs do.
+    """
+    def task(chrom, *args, fragment_dir=None, **kwargs):
+        assert fragment_dir is not None, "a writing run stages every chromosome"
+        path = None
+        if chrom_result.query_table is not None:
+            path = Path(fragment_dir) / f"chr{chrom}.parquet"
+            chrom_result.query_table.to_parquet(path, index=False)
+        fields = {field.name: getattr(chrom_result, field.name)
+                  for field in dataclass_fields(ChromLDScoreResult) if field.name != "query_table"}
+        variation = summarize_variation(
+            chrom_result.query_table[name].to_numpy(copy=False) for name in chrom_result.query_columns)
+        return DirectChromosomeFragment(query_fragment=path, variation=variation, **fields)
+
+    return task
 
 
 def dict_chunks(rows):
@@ -1233,8 +1271,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertIn("empty_input", (output_dir / "diagnostics" / "ldscore.log").read_text(encoding="utf-8"))
 
     def test_run_ldscore_from_args_gene_list_writes_query_and_resolution_diagnostics(self):
-        # Output ownership is tested here with a deliberately mocked chromosome task, which
-        # returns a materialized chromosome result that the writer publishes as such.
+        # Output ownership is tested here with a mocked chromosome task that stages a fixed
+        # chromosome result, so the writer publishes a staged batch as in a real run.
         from tests.worker_fixtures import calculation_body, local_task_pool
         self.enterContext(calculation_body())
         self.enterContext(mock.patch("ldsc._runtime.parallelism.ProcessPoolExecutor", local_task_pool))
@@ -1307,10 +1345,11 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 direct_batches,
                 "compute_direct_chromosome",
                 autospec=True,
-                return_value=chrom_result,
-            ):
+                side_effect=staged_chromosome_task(chrom_result),
+            ), recorded_batches() as batches:
                 result = ldscore_workflow.run_ldscore_from_args(args)
 
+            self.assertTrue(batches and all(isinstance(batch, StagedLDScoreBatch) for batch in batches))
             self.assertEqual(result.query_columns, ["immune"])
             self.assertEqual(result.query_statuses[0].status, "warning")
             self.assertTrue((output_dir / "ldscore.query.parquet").exists())
@@ -1548,8 +1587,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertFalse((output_dir / "diagnostics" / "ldscore.log").exists())
 
     def test_run_ldscore_from_args_overwrite_removes_stale_query_parquet(self):
-        # Output ownership is tested here with a deliberately mocked chromosome task, which
-        # returns a materialized chromosome result that the writer publishes as such.
+        # Output ownership is tested here with a mocked chromosome task that stages a fixed
+        # chromosome result, so the writer publishes a staged batch as in a real run.
         from tests.worker_fixtures import calculation_body, local_task_pool
         self.enterContext(calculation_body())
         self.enterContext(mock.patch("ldsc._runtime.parallelism.ProcessPoolExecutor", local_task_pool))
@@ -1578,9 +1617,11 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 direct_batches,
                 "compute_direct_chromosome",
                 autospec=True,
-                return_value=self.make_baseline_only_chrom_result("1", 10, 1.0, 5.0),
-            ):
+                side_effect=staged_chromosome_task(self.make_baseline_only_chrom_result("1", 10, 1.0, 5.0)),
+            ), recorded_batches() as batches:
                 result = ldscore_workflow.run_ldscore_from_args(args)
+
+            self.assertTrue(batches and all(isinstance(batch, StagedLDScoreBatch) for batch in batches))
 
             self.assertTrue((output_dir / "metadata.json").exists())
             self.assertTrue((output_dir / "diagnostics" / "ldscore.log").exists())
@@ -1588,8 +1629,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertNotIn("query", result.output_paths)
 
     def test_run_ldscore_from_args_overwrite_preserves_current_overlap_artifact(self):
-        # Output ownership is tested here with a deliberately mocked chromosome task, which
-        # returns a materialized chromosome result that the writer publishes as such.
+        # Output ownership is tested here with a mocked chromosome task that stages a fixed
+        # chromosome result, so the writer publishes a staged batch as in a real run.
         from tests.worker_fixtures import calculation_body, local_task_pool
         self.enterContext(calculation_body())
         self.enterContext(mock.patch("ldsc._runtime.parallelism.ProcessPoolExecutor", local_task_pool))
@@ -1651,12 +1692,14 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 direct_batches,
                 "compute_direct_chromosome",
                 autospec=True,
-                return_value=chrom_result,
-            ):
+                side_effect=staged_chromosome_task(chrom_result),
+            ), recorded_batches() as batches:
                 ldscore_workflow.run_ldscore_from_args(parse_command_line(build_parser(), argv))
                 result = ldscore_workflow.run_ldscore_from_args(
                     parse_command_line(build_parser(), [*argv, "--overwrite"])
                 )
+
+            self.assertTrue(batches and all(isinstance(batch, StagedLDScoreBatch) for batch in batches))
 
             metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
             for relative_path in metadata["files"].values():

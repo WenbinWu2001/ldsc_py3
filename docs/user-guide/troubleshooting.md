@@ -1002,7 +1002,7 @@ A query column is checked on the regression SNPs of its own model, so under `--c
 
 Missing or infinite `Z` or `N` values in summary statistics are dropped and counted instead; see [missing or infinite statistics](../reference/regression-options.md#16-missing-or-infinite-statistics).
 
-**Developer reference:** `_PreparedLDScores` and `RegressionRunner._dataset_from_query_values()` in `_regression/runner.py` · **Exception:** `LDSCInputError`
+**Developer reference:** `_PreparedLDScores` and `_dataset_from_query_values()` in `_regression/runner.py` · **Exception:** `LDSCInputError`
 
 ### regression: a block jackknife deletion is unestimable
 

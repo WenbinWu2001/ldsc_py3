@@ -1,6 +1,6 @@
 # Config Design: Immutable Config + Provenance-Carrying Results
 
-Last updated on: 2026-11-03
+Last updated on: 2026-11-04
 
 `--workers` sets the number of managed workers (default one, each with one BLAS thread); CPU budgets, limits and failure handling are in [parallel execution](../../reference/parallel-execution.md).
 
@@ -245,11 +245,11 @@ Annotation bundle rows B                      (AnnotationBuilder)
 
 | Concept | Owner | CLI flag | When applied | Artifact effect |
 | --- | --- | --- | --- | --- |
-| Reference-panel SNP restriction | `RefPanelConfig.ref_panel_snps_file` | `--ref-panel-snps-file` | `RefPanel.prepare_chromosome()` restricts the panel and aligns `B_chrom` before the kernel call | Deliberately shrinks the reference SNPs: after all panel filtering and intersection they are `ld_reference_snps = B ∩ A'`, the annotation rows `B` that are also in the filtered panel `A'`; affects LD scores and count records |
+| Reference-panel SNP restriction | `RefPanelConfig.ref_panel_snps_file` | `--ref-panel-snps-file` | `RefPanel.prepare_chromosome()` restricts the panel and aligns `B_chrom` before the kernel call | Deliberately shrinks the reference SNPs: after all panel filtering and intersection they are the reference SNPs $B \cap A'$, the annotation rows $B$ that are also in the filtered panel $A'$; affects LD scores and count records |
 | Reference-panel MAF/sample filters | `RefPanelConfig.maf_min`, `RefPanelConfig.keep_indivs_file` | `--maf-min`, `--keep-indivs-file` | `RefPanel.prepare_chromosome()` applies configured sample selection before PLINK genotype QC/MAF filtering, or filters parquet sidecar rows by MAF | Affects the prepared panel A' and LD computation with inclusive `MAF >= maf_min`; separate from `LDScoreConfig.common_maf_min` |
 | PLINK genetic map (cM windows) | `RefPanelConfig.genetic_map_hg19_sources`, `genetic_map_hg38_sources` | `--genetic-map-hg19-sources`, `--genetic-map-hg38-sources` | `PlinkRefPanel.prepare_chromosome()` resolves the build/map and interpolates `CM` at retained `.bim` positions (map always wins). Ignored with a warning for parquet. | Defines `CM` for `--ld-wind-cm` when the `.bim` `CM` is uninformative; no effect on SNP/kb windows |
 | Reference-metadata export | `LDScoreConfig.export_ref_metadata` | `--export-ref-metadata` | After each chromosome's compute (PLINK worker), writes `ref_metadata/chrN_meta.tsv.gz`, which `LDScoreDirectoryWriter.write_batches()` publishes with the directory | Opt-in provenance/QC artifact (`CHR POS SNP A1 A2 CM MAF`, with the minor allele as `A1`); rejected for an R² matrix, whose sidecars hold the same metadata; accepted later by `quantile-h2 --ref-metadata-sources` |
-| Regression SNP restriction | `LDScoreConfig.regr_snps_file` or bundled HM3 default | `--regr-snps-file` | After LD computation, when normalized/public rows are selected; `--regr-snps-exclude-regions` subtracts named intervals here | Written rows are `ld_regression_snps = B ∩ A' ∩ C ∩ complement(regions)`; `regression_ld_scores` (`w_ld`) is computed over that same SNP set |
+| Regression SNP restriction | `LDScoreConfig.regr_snps_file` or bundled HM3 default | `--regr-snps-file` | After LD computation, when normalized/public rows are selected; `--regr-snps-exclude-regions` subtracts named intervals here | Written rows are the regression SNPs $B \cap A' \cap C$ outside the excluded regions; `regression_ld_scores` (`w_ld`) is computed over that same SNP set |
 | Common-SNP-count threshold | `LDScoreConfig.common_maf_min` | `--common-maf-min` | During count-vector and overlap-matrix computation after LD scores are computed | Defines the common reference SNPs with inclusive `MAF >= common_maf_min` (deviates from legacy LDSC's strict `0.05 < FRQ < 0.95`); affects `common_reference_snp_count(s)` and the common-SNP overlap matrix, but not LD rows, LD scores, or the stored regression-SNP LD score |
 
 ### What each control does
@@ -270,8 +270,8 @@ When `None`, the workflow uses the full reference panel `A`.
 
 - The explicit restriction file or packaged HM3 map is loaded once into the
   `regression_snps` set `C`.
-- LD scores and count totals are still computed over `ld_reference_snps = B ∩ A'`.
-- Only the persisted LD-score rows are reduced to `ld_regression_snps = B ∩ A' ∩ C`.
+- LD scores and count totals are still computed over the reference SNPs $B \cap A'$.
+- Only the persisted LD-score rows are reduced to the regression SNPs $B \cap A' \cap C$.
 - There is no separate public weight artifact. The selected baseline rows keep
   `regression_ld_scores`, the historical `w_ld` LD score computed over the
   regression SNPs, in `ldscore.baseline.parquet`. Final `h2` and `rg`
@@ -384,8 +384,8 @@ region-exclusion nor HM3 convenience flags.
 - Prebuilt, BED, and gene-list query annotations are valid only with explicit baseline annotations, so the synthetic `base` path is not used for partitioned heritability.
 - BED and gene-list sources are query-local failure units. Only `ok`/`warning` queries enter scientific result objects; every source remains represented in diagnostic status records.
 - Reference-panel SNP restrictions become visible only during LD-score calculation, when `ref_panel.prepare_chromosome()` aligns `B_chrom` to the filtered reference rows.
-- Count records are accumulated over `ld_reference_snps = B ∩ A'` and stored in LD-score root `metadata.json`.
-- Public `ldscore.baseline.parquet` and optional query batch file rows are `ld_regression_snps = B ∩ A' ∩ C ∩ complement(regions)`; `w_ld` uses that same final set.
+- Count records are accumulated over the reference SNPs $B \cap A'$ and stored in LD-score root `metadata.json`.
+- Public `ldscore.baseline.parquet` and optional query batch file rows are the regression SNPs $B \cap A' \cap C$ outside the excluded regions; `w_ld` uses that same final set.
 - LD-score `metadata.json` records `snp_universe_policy`, including independent reference and regression policies plus the regression-region removal count.
 - LD-score `metadata.json` records `ld_window`: the run's window unit and value, and whether windows spanning a whole chromosome were allowed.
 

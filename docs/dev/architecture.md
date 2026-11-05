@@ -378,7 +378,7 @@ See [query workers](../reference/regression-options.md#43-query-workers-and-memo
 
 ### Managed numerical execution
 
-Regression model preparation borrows aligned read-only columns through `RegressionRunner._dataset_from_query_values()`.
+Regression model preparation borrows aligned read-only columns through `_dataset_from_query_values()` in `_regression/runner.py`.
 `_fit_h2_dataset()` applies the model's SNP filter before materializing its design, and the kernel reuses owned work buffers when dtype promotion permits.
 `tests/regression/test_regression_memory.py` covers shared-input immutability, repeated fits, and independent weighted least-squares agreement.
 

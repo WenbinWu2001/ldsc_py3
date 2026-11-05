@@ -1661,7 +1661,7 @@ def run_build_r2_matrix(**kwargs: Any) -> R2MatrixBuildResult:
     }
     registered_config = get_global_config()
     args = namespace_from_kwargs(
-        "run_build_r2_matrix", build_parser(), kwargs, rejected=rejected, log_level=registered_config.log_level,
+        "run_build_r2_matrix", build_parser(), kwargs, rejected=rejected, registered=registered_config,
     )
     # The namespace holds the parser default, which would override the registered mode.
     args.snp_identifier = registered_config.snp_identifier

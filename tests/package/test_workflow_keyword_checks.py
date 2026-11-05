@@ -1,10 +1,13 @@
 """Keyword workflows reject what the command line would reject, before writing anything."""
 
+import argparse
 import re
+from types import SimpleNamespace
 
 import pytest
 
 import ldsc
+from ldsc._runtime.workflow_kwargs import GLOBAL_CONFIG_RUNTIME_OPTIONS, namespace_from_kwargs, parse_command_line
 from ldsc.errors import LDSCUsageError
 
 # Plausible inputs; validation fails before any of them is read.
@@ -52,3 +55,49 @@ def test_keyword_workflows_list_every_missing_required_keyword(function, require
         getattr(ldsc, function)()
     listed = str(raised.value).split("missing required keyword argument(s) ")[1].split(";")[0].rstrip(".").split(", ")
     assert sorted(listed) == required
+
+
+def _command_parser():
+    """A command parser with identity, log-level and ordinary options."""
+    parser = argparse.ArgumentParser(allow_abbrev=False)
+    parser.add_argument("--snp-identifier", default="chr_pos_allele_aware")
+    parser.add_argument("--genome-build", default=None)
+    parser.add_argument("--log-level", default="INFO")
+    parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--maf-min", type=float, default=None)
+    return parser
+
+
+# Any object with the GlobalConfig attributes; the helper reads it without importing ldsc.config.
+_REGISTERED = SimpleNamespace(snp_identifier="rsid_allele_aware", genome_build="hg19", log_level="DEBUG")
+
+
+def test_rejected_options_take_the_registered_value_instead_of_the_parser_default():
+    args = namespace_from_kwargs(
+        "run_x", _command_parser(), {"output_dir": "out"}, rejected=GLOBAL_CONFIG_RUNTIME_OPTIONS,
+        registered=_REGISTERED,
+    )
+    assert (args.snp_identifier, args.genome_build, args.log_level) == ("rsid_allele_aware", "hg19", "DEBUG")
+    assert (args.output_dir, args.maf_min) == ("out", None)
+
+
+def test_a_rejected_option_without_a_registered_value_is_absent():
+    # Reading it fails instead of returning the parser default.
+    args = namespace_from_kwargs(
+        "run_x", _command_parser(), {"output_dir": "out"},
+        rejected={**GLOBAL_CONFIG_RUNTIME_OPTIONS, "maf_min": "the threshold comes from elsewhere"},
+        registered=_REGISTERED,
+    )
+    assert not hasattr(args, "maf_min")
+    assert args.snp_identifier == "rsid_allele_aware"
+
+
+def test_keyword_and_command_line_routes_record_the_same_explicit_options():
+    parser = _command_parser()
+    from_kwargs = namespace_from_kwargs(
+        "run_x", parser, {"output_dir": "out", "maf_min": 0.01}, rejected=GLOBAL_CONFIG_RUNTIME_OPTIONS,
+        registered=_REGISTERED,
+    )
+    from_argv = parse_command_line(parser, ["--output-dir", "out", "--maf-min=0.01"])
+    assert from_kwargs._explicit_cli_options == from_argv._explicit_cli_options == {"--output-dir", "--maf-min"}
+    assert from_argv.maf_min == 0.01

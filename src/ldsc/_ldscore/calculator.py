@@ -1461,13 +1461,6 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> "LDScoreSource":
     }
     if getattr(args, "gene_exclude_regions", "none") != "none":
         forbidden["--gene-exclude-regions"] = getattr(args, "gene_exclude_regions")
-    if "--genome-build" in explicit_options or getattr(args, "genome_build", None) is not None:
-        forbidden["--genome-build"] = getattr(args, "genome_build")
-    if (
-        "--snp-identifier" in explicit_options
-        or getattr(args, "snp_identifier", "chr_pos_allele_aware") != "chr_pos_allele_aware"
-    ):
-        forbidden["--snp-identifier"] = getattr(args, "snp_identifier")
     if getattr(args, "regr_snps_exclude_regions", "mhc-and-centromeres") != "mhc-and-centromeres":
         forbidden["--regr-snps-exclude-regions"] = getattr(args, "regr_snps_exclude_regions")
     if getattr(args, "common_maf_min", 0.05) != 0.05:
@@ -1831,18 +1824,9 @@ def run_ldscore(**kwargs) -> "LDScoreSource":
     """
     from .._runtime.workflow_kwargs import GLOBAL_CONFIG_RUNTIME_OPTIONS, namespace_from_kwargs
 
+    # Indexed mode ignores the registered identity: its live-override check reads explicit options only.
     args = namespace_from_kwargs(
-        "run_ldscore", build_parser(), kwargs, rejected=GLOBAL_CONFIG_RUNTIME_OPTIONS,
-        log_level=get_global_config().log_level,
-    )
-    if args.gene_ldscore_index_dir is None:
-        # Indexed mode inherits identity and build from the index; the parser
-        # defaults stand for "not supplied" in its live-override check.
-        global_config = get_global_config()
-        args.snp_identifier = global_config.snp_identifier
-        args.genome_build = global_config.genome_build
-    args._explicit_cli_options = frozenset(
-        "--" + key.replace("_", "-") for key in kwargs
+        "run_ldscore", build_parser(), kwargs, rejected=GLOBAL_CONFIG_RUNTIME_OPTIONS, registered=get_global_config(),
     )
     args._emit_query_console_notices = False
     # The outer marker scope makes a failed overwrite name this function, not run_ldscore_from_args.
@@ -1852,12 +1836,9 @@ def run_ldscore(**kwargs) -> "LDScoreSource":
 
 def main(argv: Sequence[str] | None = None) -> LDScoreSource:
     """Command-line entry point for the LD-score workflow."""
-    parser = build_parser()
-    argv_list = list(sys.argv[1:] if argv is None else argv)
-    args = parser.parse_args(argv_list)
-    args._explicit_cli_options = frozenset(
-        token.split("=", 1)[0] for token in argv_list if token.startswith("--")
-    )
+    from .._runtime.workflow_kwargs import parse_command_line
+
+    args = parse_command_line(build_parser(), list(sys.argv[1:] if argv is None else argv))
     args._emit_query_console_notices = True
     return run_ldscore_from_args(args)
 

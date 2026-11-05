@@ -71,7 +71,7 @@ DEFERRED_IMPORTS = {
     ("ldsc._ldscore.calculator", "ldsc._refpanel.preflight"):
         "only R2 matrix runs check their sidecar headers",
     ("ldsc._ldscore.calculator", "ldsc._runtime.workflow_kwargs"):
-        "only run_ldscore checks Python keyword arguments",
+        "only the ldscore entry points check keyword arguments and record explicit options",
     ("ldsc._ldscore.gene_index.build", "ldsc._refpanel.preflight"):
         "only an index build checks genetic-map headers",
     ("ldsc._ldscore.gene_index.scoring", "ldsc._ldscore.gene_index.batches"):

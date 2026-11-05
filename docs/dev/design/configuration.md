@@ -475,7 +475,9 @@ results, they will get a `ConfigMismatchError`. This is the intended behavior â€
 error message explains the mismatch clearly. It is not a silent corruption.
 
 **The `run_ldscore()` and `run_build_r2_matrix()` convenience wrappers read the global
-registry at call time.** Explicit `global_config=` arguments are always preferred.
+registry at call time.**
+They take no `global_config=` argument.
+`_runtime.workflow_kwargs.namespace_from_kwargs()` is the one place they read the registered SNP identifier mode, genome build and log level, so a parser default never stands in for them; `build-r2-matrix` records `genome_build="auto"` (`None` in rsID-family modes) and reads the PLINK build from `source_genome_build`.
 
 ## Retired inert configuration
 

@@ -797,7 +797,7 @@ def run_quantile_h2(**kwargs) -> QuantileH2Result:
     """
     return run_from_kwargs(
         "run_quantile_h2", build_parser(), run_quantile_h2_from_args, kwargs,
-        log_level=get_global_config().log_level,
+        registered=get_global_config(),
     )
 
 

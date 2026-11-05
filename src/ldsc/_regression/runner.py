@@ -3649,7 +3649,7 @@ def run_h2(**kwargs) -> H2Result:
     """
     return run_from_kwargs(
         "run_h2", command_parser(add_h2_arguments), run_h2_from_args, kwargs,
-        log_level=get_global_config().log_level,
+        registered=get_global_config(),
     )
 
 
@@ -3697,7 +3697,7 @@ def run_partitioned_h2(**kwargs) -> PartitionedH2BatchResult:
     """
     return run_from_kwargs(
         "run_partitioned_h2", command_parser(add_partitioned_h2_arguments), run_partitioned_h2_from_args, kwargs,
-        log_level=get_global_config().log_level,
+        registered=get_global_config(),
     )
 
 
@@ -3761,7 +3761,7 @@ def run_rg(**kwargs) -> RgResultFamily:
             kwargs[name] = ",".join(str(item) for item in value)
     return run_from_kwargs(
         "run_rg", command_parser(add_rg_arguments), run_rg_from_args, kwargs,
-        log_level=get_global_config().log_level,
+        registered=get_global_config(),
     )
 
 

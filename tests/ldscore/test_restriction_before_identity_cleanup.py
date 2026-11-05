@@ -2,9 +2,10 @@
 
 Identity cleanup runs within the restricted panel: a position is multi-allelic
 only if the restriction keeps more than one of its allele pairs. So, without
-liftover or duplicate positions, ``ldscore --plink-prefix`` and
-``build-r2-matrix`` followed by ``ldscore --r2-matrix-dir`` keep the same
-reference SNPs from one panel and one restriction.
+liftover, duplicate positions or non-integral positions,
+``ldscore --plink-prefix`` and ``build-r2-matrix`` followed by
+``ldscore --r2-matrix-dir`` keep the same reference SNPs from one panel and
+one restriction.
 
 Each test copies the 32-SNP chromosome-22 fixture (one row per position, all
 allele pairs valid) and edits its ``.bim``. Expected SNP sets follow from the

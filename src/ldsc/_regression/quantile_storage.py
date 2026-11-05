@@ -85,8 +85,10 @@ _REFERENCE_TROUBLESHOOTING = "docs/user-guide/troubleshooting.md#quantile-h2-ref
 def _reference_columns(header, path):
     """Map reference-metadata header names to CHR, POS, SNP, MAF and, when both exist, A1/A2.
 
-    Only a column named ``MAF`` gives the frequency: ``FRQ`` usually holds the
-    unfolded A1 frequency, which would select the wrong common SNPs.
+    The frequency comes from the column named ``MAF`` or, when there is none,
+    the one column whose name ends in ``MAF`` (the shared suffix rule).
+    ``FRQ`` is never read as ``MAF``: it usually holds the unfolded A1
+    frequency, which would select the wrong common SNPs.
     """
     found = {spec.canonical: resolve_optional_column(header, spec, context=path)
              for spec in (CHR_COLUMN_SPEC, POS_COLUMN_SPEC, SNP_COLUMN_SPEC, MAF_COLUMN_SPEC)}

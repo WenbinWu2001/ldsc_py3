@@ -53,7 +53,8 @@ Annotation names must be unique across all baseline and query sources in one LD-
 
 Reference metadata is used only to reconstruct SNP identity and apply the inherited common-SNP MAF threshold; it is not a genotype or LD input.
 Each file therefore needs `CHR`, `POS` (or `BP`), `SNP`, and `MAF`, and in an allele-aware mode also `A1` and `A2`, because it defines the reference SNPs.
-`MAF` must be the folded minor-allele frequency under that name; a column named `FRQ` is not read as `MAF`, because it usually holds the unfolded frequency of `A1`.
+`MAF` must be the folded minor-allele frequency, in the column named `MAF` or, when there is none, in the one column whose name ends in `MAF`, such as `EUR_MAF`.
+A column named `FRQ` is not read as `MAF`, because it usually holds the unfolded frequency of `A1`.
 No CM, genotype, or LD-score columns are required.
 The R² matrix sidecars and the `--export-ref-metadata` files from step 2 carry these columns; the leading `# ldsc:` identity lines of the sidecars are skipped.
 

@@ -1177,7 +1177,7 @@ Keep the saved comparison metadata faithful to the fit that produced it.
 | # | Likely cause | How to check |
 |---|---|---|
 | 1 | The file is not SNP metadata of the reference panel used for the fit, for example an annotation or summary-statistics table | Compare its header with the R² matrix sidecar columns `CHR POS SNP A1 A2 CM MAF` |
-| 2 | Its frequency column is named `FRQ` or another name instead of `MAF` | Read the header; `FRQ` is not read as `MAF`, because it usually holds the unfolded frequency of `A1` |
+| 2 | Its frequency column is named `FRQ` or another name that neither is `MAF` nor ends in `MAF` | Read the header; `FRQ` is not read as `MAF`, because it usually holds the unfolded frequency of `A1` |
 | 3 | It is not UTF-8 text, is compressed with something other than gzip, or is not whitespace-delimited | `zcat <file> \| head` (or `head <file>`) should show readable columns separated by tabs or spaces |
 | 4 | `POS` holds nonnumeric values | Find the value that the error quotes |
 

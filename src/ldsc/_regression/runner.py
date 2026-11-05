@@ -85,6 +85,9 @@ from . import estimators as reg
 from . import partitioned_parallel
 from .jackknife import JackknifeIdentifiabilityError
 from .._core.snp_identity import (
+    BASE_COMPLEMENT,
+    FLIP_ALLELES,
+    MATCH_ALLELES,
     clean_identity_artifact_table,
     effective_merge_key_series,
     identity_base_mode,
@@ -1557,8 +1560,8 @@ def _project_legacy_sumstats_to_panel(
             sort=False,
             validate="many_to_many",
         )
-        complement_a1 = pairs["A1"].map(reg.COMPLEMENT)
-        complement_a2 = pairs["A2"].map(reg.COMPLEMENT)
+        complement_a1 = pairs["A1"].map(BASE_COMPLEMENT)
+        complement_a2 = pairs["A2"].map(BASE_COMPLEMENT)
         direct = pairs["A1"].eq(pairs["_legacy_panel_A1"]) & pairs["A2"].eq(pairs["_legacy_panel_A2"])
         complemented = complement_a1.eq(pairs["_legacy_panel_A1"]) & complement_a2.eq(
             pairs["_legacy_panel_A2"]
@@ -1610,7 +1613,7 @@ def _project_legacy_sumstats_to_panel(
     projected_frame["SNP"] = selected_panel.loc[accepted_rows, panel_column("SNP")].to_numpy()
     if allele_aware:
         # A/T and C/G rows keep their source alleles, the orientation their Z refers to.
-        oriented = projected_frame["A1"].map(reg.COMPLEMENT).ne(projected_frame["A2"]).to_numpy()
+        oriented = projected_frame["A1"].map(BASE_COMPLEMENT).ne(projected_frame["A2"]).to_numpy()
         for column in ("A1", "A2"):
             panel_alleles = selected_panel.loc[accepted_rows, panel_column(column)].to_numpy()
             projected_frame[column] = np.where(oriented, panel_alleles, projected_frame[column].to_numpy())
@@ -1856,9 +1859,9 @@ def _allele_pair_flags(columns: Sequence[pd.Series]) -> tuple[np.ndarray, np.nda
     inverse = inverse.reshape(-1)
     parts = [column.iloc[first].reset_index(drop=True) for column in columns]
     pairs = parts[0] + parts[1] + parts[2] + parts[3]
-    compatible = pairs.isin(reg.MATCH_ALLELES).to_numpy(dtype=bool)
+    compatible = pairs.isin(MATCH_ALLELES).to_numpy(dtype=bool)
     flip = np.zeros(len(pairs), dtype=bool)
-    flip[compatible] = pairs[compatible].map(reg.FLIP_ALLELES).astype(bool).to_numpy()
+    flip[compatible] = pairs[compatible].map(FLIP_ALLELES).astype(bool).to_numpy()
     return compatible[inverse], flip[inverse]
 
 
@@ -1866,7 +1869,7 @@ def _same_strand_ambiguous_pair(merged: pd.DataFrame) -> np.ndarray:
     """Mark rg rows where both traits list the same A/T or C/G pair, in either order."""
     a1, a2, a1x, a2x = (merged[column] for column in ("A1", "A2", "A1x", "A2x"))
     same_pair = (a1.eq(a1x) & a2.eq(a2x)) | (a1.eq(a2x) & a2.eq(a1x))
-    return (a1.map(reg.COMPLEMENT).eq(a2) & same_pair).to_numpy(dtype=bool, na_value=False)
+    return (a1.map(BASE_COMPLEMENT).eq(a2) & same_pair).to_numpy(dtype=bool, na_value=False)
 
 
 def _nonfinite_columns(frame: pd.DataFrame, columns: Sequence[str], snps: pd.Series) -> list[str]:

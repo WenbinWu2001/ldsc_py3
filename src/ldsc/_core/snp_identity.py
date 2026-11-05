@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 import hashlib
+import itertools as it
 import logging
 from os import PathLike
 from pathlib import Path
@@ -57,7 +58,29 @@ IDENTITY_DROP_REASONS = (
     "multi_allelic_base_key",
     "duplicate_identity",
 )
-COMPLEMENT = str.maketrans({"A": "T", "T": "A", "C": "G", "G": "C"})
+# The one base-complement table. ``BASE_COMPLEMENT`` maps a single base (for
+# ``Series.map``); ``COMPLEMENT`` is the same table for ``str.translate``,
+# which complements every base of an allele string.
+BASE_COMPLEMENT = {"A": "T", "T": "A", "C": "G", "G": "C"}
+COMPLEMENT = str.maketrans(BASE_COMPLEMENT)
+# Allele-matching tables for aligning signed statistics between files, as in
+# legacy LDSC ldscore/sumstats.py (GPLv3; see NOTICE). Pairs whose orientation
+# is resolvable across files: distinct bases, not a base with its own
+# complement. An A/T or C/G SNP is a valid SNP identity, but its strand, and
+# so the sign of its statistic, cannot be aligned.
+VALID_SNPS = {first + second for first in BASE_COMPLEMENT for second in BASE_COMPLEMENT
+              if first != second and BASE_COMPLEMENT[first] != second}
+# Concatenated allele pairs A1 A2 A1' A2' that name the same SNP, directly, on
+# the other strand, swapped, or both; FLIP_ALLELES marks the swapped ones.
+MATCH_ALLELES = {x for x in list(map(lambda y: ''.join(y), it.product(VALID_SNPS, VALID_SNPS)))
+                 if ((x[0] == x[2]) and (x[1] == x[3])) or
+                 ((x[0] == BASE_COMPLEMENT[x[2]]) and (x[1] == BASE_COMPLEMENT[x[3]])) or
+                 ((x[0] == x[3]) and (x[1] == x[2])) or
+                 ((x[0] == BASE_COMPLEMENT[x[3]]) and (x[1] == BASE_COMPLEMENT[x[2]]))}
+FLIP_ALLELES = {''.join(x):
+                ((x[0] == x[3]) and (x[1] == x[2])) or
+                ((x[0] == BASE_COMPLEMENT[x[3]]) and (x[1] == BASE_COMPLEMENT[x[2]]))
+                for x in MATCH_ALLELES}
 _VALID_ALLELES = frozenset({"A", "C", "G", "T"})
 _INTERNAL_COLUMNS = ["_ldsc_base_key", "_ldsc_allele_set", "_ldsc_identity_key"]
 

@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from ldsc._regression import runner as workflow
+from ldsc._core import snp_identity
 from ldsc._regression import estimators as regression
 from ldsc._regression.partitioned_parallel import _stage_frame
 from ldsc._runtime.serial_calculation import serial_calculation
@@ -84,9 +85,9 @@ def test_allele_pair_flags_match_concatenated_pair_strings():
     columns[0][::17] = None
     compatible, flip = workflow._allele_pair_flags(columns)
     pairs = columns[0] + columns[1] + columns[2] + columns[3]
-    expected = pairs.isin(regression.MATCH_ALLELES).to_numpy(dtype=bool)
+    expected = pairs.isin(snp_identity.MATCH_ALLELES).to_numpy(dtype=bool)
     np.testing.assert_array_equal(compatible, expected)
-    np.testing.assert_array_equal(flip[expected], pairs[expected].map(regression.FLIP_ALLELES).astype(bool).to_numpy())
+    np.testing.assert_array_equal(flip[expected], pairs[expected].map(snp_identity.FLIP_ALLELES).astype(bool).to_numpy())
     assert not flip[~expected].any()
 
 

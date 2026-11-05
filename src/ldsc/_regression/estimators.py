@@ -14,7 +14,6 @@ Last column = intercept.
 
 '''
 from contextlib import contextmanager
-import itertools as it
 import numpy as np
 import pandas as pd
 from scipy.stats import norm, chi2
@@ -28,24 +27,6 @@ from collections import namedtuple
 _TwoStepJackknife = namedtuple("_TwoStepJackknife", [
     "est", "jknife_se", "jknife_est", "jknife_var", "jknife_cov", "delete_values",
 ])
-
-# Allele-matching helpers for aligning signed statistics between files.
-COMPLEMENT = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C'}
-# Pairs whose orientation is resolvable across files: distinct bases, not a
-# base with its own complement. An A/T or C/G SNP is a valid SNP identity,
-# but its strand, and so the sign of its statistic, cannot be aligned.
-VALID_SNPS = {first + second for first in COMPLEMENT for second in COMPLEMENT
-              if first != second and COMPLEMENT[first] != second}
-MATCH_ALLELES = {x for x in list(map(lambda y: ''.join(y), it.product(VALID_SNPS, VALID_SNPS)))
-                 if ((x[0] == x[2]) and (x[1] == x[3])) or
-                 ((x[0] == COMPLEMENT[x[2]]) and (x[1] == COMPLEMENT[x[3]])) or
-                 ((x[0] == x[3]) and (x[1] == x[2])) or
-                 ((x[0] == COMPLEMENT[x[3]]) and (x[1] == COMPLEMENT[x[2]]))}
-FLIP_ALLELES = {''.join(x):
-                ((x[0] == x[3]) and (x[1] == x[2])) or
-                ((x[0] == COMPLEMENT[x[3]]) and (x[1] == COMPLEMENT[x[2]]))
-                for x in MATCH_ALLELES}
-
 
 def _scalar_float(x):
     """Return a Python float from a scalar or one-element array-like value."""

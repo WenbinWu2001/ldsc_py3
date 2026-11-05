@@ -6,6 +6,7 @@ from pathlib import Path
 import json
 import tempfile
 import unittest
+from unittest import mock
 
 import pandas as pd
 import numpy as np
@@ -1232,6 +1233,57 @@ class RgDirectoryWriterTest(unittest.TestCase):
             self.assertFalse((output_dir / "metadata.json").exists())
             self.assertFalse((output_dir / "pairs").exists())
             self.assertFalse((output_dir / "diagnostics" / "pairs").exists())
+
+    def test_failed_pair_tree_staging_exposes_no_partial_tree(self):
+        from ldsc._regression import outputs
+
+        original = outputs.atomic_write_json
+
+        def fail_pair(payload, path):
+            if payload.get("artifact_type") == "rg_pair_result":
+                raise OSError("injected publication failure")
+            return original(payload, path)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "rg"
+            with mock.patch.object(outputs, "atomic_write_json", fail_pair):
+                with self.assertRaisesRegex(OSError, "injected publication failure"):
+                    RgDirectoryWriter().write(
+                        self.make_result(), RgOutputConfig(output_dir=output_dir, write_per_pair_detail=True),
+                    )
+            diagnostics = output_dir / "diagnostics"
+            self.assertFalse((diagnostics / "pairs").exists())
+            self.assertEqual(list(diagnostics.glob(".pairs.*")), [])
+
+    def test_failed_pair_tree_swap_restores_the_previous_tree(self):
+        from ldsc._regression import outputs
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "rg"
+            RgDirectoryWriter().write(
+                self.make_result(), RgOutputConfig(output_dir=output_dir, write_per_pair_detail=True),
+            )
+            pairs = output_dir / "diagnostics" / "pairs"
+            before = {path.relative_to(pairs): path.read_bytes() for path in pairs.rglob("*") if path.is_file()}
+            original = outputs.os.replace
+
+            def replace(source, destination):
+                if ".pairs.tmp." in str(source) and Path(destination) == pairs:
+                    raise OSError("injected publication failure")
+                return original(source, destination)
+
+            changed = dataclass_replace(self.make_result(), per_pair_metadata=[
+                {**record, "status": "changed"} for record in self.make_result().per_pair_metadata
+            ])
+            with mock.patch.object(outputs.os, "replace", replace):
+                with self.assertRaisesRegex(OSError, "injected publication failure"):
+                    RgDirectoryWriter().write(
+                        changed,
+                        RgOutputConfig(output_dir=output_dir, overwrite=True, write_per_pair_detail=True),
+                    )
+            after = {path.relative_to(pairs): path.read_bytes() for path in pairs.rglob("*") if path.is_file()}
+            self.assertEqual(after, before)
+            self.assertEqual(list(pairs.parent.glob(".pairs.*")), [])
 
 
 class FixedOutputDirectoryTest(unittest.TestCase):

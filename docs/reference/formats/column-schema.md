@@ -161,7 +161,8 @@ Munged `sumstats.parquet` keeps `N` as numeric data; legacy `.sumstats.gz` write
 The casting is applied by a narrow helper (`_cast_parquet_floats`) called at the
 write site in `_ldscore/outputs.py`.
 It selects all `float64` columns and recasts them; no column names need to be listed explicitly.
-LD-score output parquet files are written with one row group per chromosome and record that layout in root `metadata.json`; summary-statistics Parquet is sorted by `CHR`, `POS`, and original row order, and records its row groups in `diagnostics/sumstats.log`.
+LD-score output parquet files are written with one row group per chromosome and record that layout in root `metadata.json`.
+Munged summary statistics (the Parquet file, the `.sumstats.gz` file and the returned `SumstatsTable` of one run) share one row order: complete-coordinate rows sorted by `CHR`, `POS`, and original row order, then rows without complete coordinates in original order; the Parquet file records its chromosome row groups in `diagnostics/sumstats.log`.
 
 ### Why `object` dtype for strings?
 pandas has no native string dtype in the numpy layer. `str` columns are stored as

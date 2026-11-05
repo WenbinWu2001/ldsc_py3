@@ -66,7 +66,7 @@ class SumstatsMungerTest(unittest.TestCase):
         footer = sumstats_table.encode_sumstats_footer(
             GlobalConfig(snp_identifier=snp_identifier, genome_build=genome_build), trait_name
         )
-        sumstats_outputs.write_sumstats_parquet(frame, str(path), footer)
+        sumstats_outputs.write_sumstats_parquet(sumstats_outputs.curated_sumstats_frame(frame), str(path), footer)
 
     def test_build_parser_defaults_chunksize_to_one_million_rows(self):
         parser = sumstats_workflow.build_parser()
@@ -951,12 +951,12 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertFalse((output_dir / "sumstats.metadata.json").exists())
             self.assertFalse(stale.exists())
 
-    def test_parquet_frame_converts_numeric_chromosomes_without_a_dtype_warning(self):
+    def test_curated_frame_converts_numeric_chromosomes_without_a_dtype_warning(self):
         frame = pd.DataFrame({"SNP": ["rs1", "rs2", "rs3", "rs4"], "CHR": [2, 1, 1, 23], "POS": [5, 9, 3, 7],
                               "A1": "A", "A2": "C", "Z": [1.0, 2.0, 3.0, 4.0], "N": 100.0})
         with warnings.catch_warnings():
             warnings.simplefilter("error", FutureWarning)
-            prepared = sumstats_outputs._prepare_sumstats_parquet_frame(frame)
+            prepared = sumstats_outputs.curated_sumstats_frame(frame)
         self.assertEqual(prepared["CHR"].tolist(), ["1", "1", "2", "X"])
         self.assertEqual(prepared["CHR"].dtype, object)
         self.assertEqual(prepared["POS"].tolist(), [3, 9, 5, 7])
@@ -1991,7 +1991,7 @@ class SumstatsMungerTest(unittest.TestCase):
 
             self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
             self.assertEqual(table.data["N"].tolist(), [1000.0])
-            self.assertEqual(table.data["CHR"].tolist(), [1])
+            self.assertEqual(table.data["CHR"].tolist(), ["1"])
             self.assertEqual(table.data["POS"].tolist(), [123])
 
     def test_explicit_n_col_suppresses_inferred_case_control_columns(self):
@@ -2774,7 +2774,7 @@ class SumstatsParquetFooterTest(unittest.TestCase):
         footer = sumstats_table.encode_sumstats_footer(snapshot, trait_name="height")
         with tempfile.TemporaryDirectory() as tmp:
             out = str(Path(tmp) / "sumstats.parquet")
-            sumstats_outputs.write_sumstats_parquet(self._frame(), out, footer)
+            sumstats_outputs.write_sumstats_parquet(sumstats_outputs.curated_sumstats_frame(self._frame()), out, footer)
             raw = pq.read_schema(out).metadata
         self.assertEqual(raw[b"ldsc:artifact_type"], b"sumstats")
         self.assertEqual(raw[b"ldsc:snp_identifier"], b"chr_pos_allele_aware")
@@ -2789,7 +2789,7 @@ class SumstatsParquetFooterTest(unittest.TestCase):
             del footer[missing]
             with self.subTest(missing=missing), tempfile.TemporaryDirectory() as tmp:
                 out = str(Path(tmp) / "sumstats.parquet")
-                sumstats_outputs.write_sumstats_parquet(self._frame(), out, footer)
+                sumstats_outputs.write_sumstats_parquet(sumstats_outputs.curated_sumstats_frame(self._frame()), out, footer)
                 with self.assertRaisesRegex(ldsc.LDSCInputError, missing.decode() + ".*Re-run munge-sumstats"):
                     sumstats_table.load_sumstats(out)
 
@@ -2815,7 +2815,7 @@ class SumstatsParquetFooterTest(unittest.TestCase):
                     footer[key] = value
             with self.subTest(label), tempfile.TemporaryDirectory() as tmp:
                 out = str(Path(tmp) / "sumstats.parquet")
-                sumstats_outputs.write_sumstats_parquet(self._frame(), out, footer)
+                sumstats_outputs.write_sumstats_parquet(sumstats_outputs.curated_sumstats_frame(self._frame()), out, footer)
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     with self.assertRaisesRegex(ldsc.LDSCInputError, re.escape(message) + ".*Re-run munge-sumstats"):

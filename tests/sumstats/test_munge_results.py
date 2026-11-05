@@ -234,3 +234,62 @@ def test_coordinate_liftover_and_identity_counts_are_exclusive(tmp_path, monkeyp
     assert dropped.reason.value_counts().to_dict() == {
         "source_duplicate": 2, "unmapped_liftover": 1, "invalid_allele": 1,
     }
+
+
+_UNSORTED_ROWS = (
+    "SNP CHR POS A1 A2 Z P N\n"
+    "rs4 chr2 300 A G 2.0 0.05 1000\n"
+    "rs1 chr1 200 A G -2.0 0.05 1000\n"
+    "rs3 chr2 100 A G 2.0 0.05 1000\n"
+    "rs2 chr1 100 A G -2.0 0.05 1000\n"
+    "rs6 chrX 50 A G 0.5 0.05 1000\n"
+    "rs5 chr1 150 A G -0.5 0.05 1000\n"
+)
+
+
+@pytest.mark.parametrize("mode", ["rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"])
+def test_returned_table_and_both_files_share_one_row_order_and_labels(tmp_path, mode):
+    # Audit D8: only the Parquet writer normalized CHR and sorted rows, so the returned table and the .sumstats.gz
+    # kept the input order and, in rsID-family modes, the 'chr' prefixes.
+    raw = tmp_path / "raw.tsv"
+    raw.write_text(_UNSORTED_ROWS)
+    builds = {} if mode.startswith("rsid") else {"source_genome_build": "hg19", "output_genome_build": "hg19"}
+    table = SumstatsMunger().run(
+        MungeConfig(raw_sumstats_file=raw, output_dir=tmp_path / "out", no_snp_restriction=True, output_format="both",
+                    **builds),
+        global_config=GlobalConfig(snp_identifier=mode),
+    )
+    # Chromosome order 1 < 2 < X, then position.
+    snps, chroms = ["rs2", "rs5", "rs1", "rs3", "rs4", "rs6"], ["1", "1", "1", "2", "2", "X"]
+    text = pd.read_csv(tmp_path / "out" / "sumstats.gz", sep="\t", dtype={"CHR": str})
+    parquet = load_sumstats(tmp_path / "out" / "sumstats.parquet").data
+    for frame in (table.data, text, parquet):
+        assert frame.SNP.tolist() == snps
+        assert frame.CHR.astype(str).tolist() == chroms
+        assert frame.POS.tolist() == [100, 150, 200, 100, 300, 50]
+    assert table.data.columns.tolist() == text.columns.tolist() == ["SNP", "CHR", "POS", "A1", "A2", "Z", "N"]
+
+
+@pytest.mark.parametrize("output_format", ["tsv.gz", "parquet"])
+@pytest.mark.parametrize("mode", ["rsid", "chr_pos"])
+def test_unsupported_contig_rows_are_dropped_before_any_output_in_every_mode(tmp_path, mode, output_format):
+    # Audit D8: in rsID mode an unsupported CHR label passed QC and the .sumstats.gz output but stopped the Parquet
+    # writer after all QC. rsID-family modes now drop such rows as coordinate-family modes do, whatever the format.
+    raw = tmp_path / "raw.tsv"
+    raw.write_text("SNP CHR POS A1 A2 Z P N\n"
+                   "rs0 chrUn_gl000220 100 A G -0.01 0.05 1000\n"
+                   "rs1 1 100 A G -2.0 0.05 1000\n"
+                   "rs2 1 200 A G 0.02 0.05 1000\n"
+                   "rs3 2 100 A G 2.0 0.05 1000\n")
+    builds = {} if mode == "rsid" else {"source_genome_build": "hg19", "output_genome_build": "hg19"}
+    munger = SumstatsMunger()
+    table = munger.run(
+        MungeConfig(raw_sumstats_file=raw, output_dir=tmp_path / "out", no_snp_restriction=True,
+                    output_format=output_format, **builds),
+        global_config=GlobalConfig(snp_identifier=mode),
+    )
+    summary = munger.build_run_summary()
+    assert table.data.SNP.tolist() == ["rs1", "rs2", "rs3"]
+    assert summary.drop_counts["coordinates"] == 1
+    assert sum(summary.drop_counts.values()) == 1
+    assert table.provenance["coordinate_provenance"]["n_invalid_chr_pos"] == 1

@@ -279,7 +279,7 @@ def _coordinate_quality_masks(
 ) -> dict[str, pd.Series]:
     missing_chr = coordinate_missing_mask(frame[chr_col])
     missing_pos = coordinate_missing_mask(frame[pos_col])
-    invalid_chr = _invalid_chromosome_mask(frame[chr_col], missing=missing_chr, context=context)
+    invalid_chr = invalid_chromosome_mask(frame[chr_col], missing=missing_chr, context=context)
     invalid_pos = _invalid_position_mask(frame[pos_col], missing=missing_pos, min_position=min_position)
     droppable = missing_chr | missing_pos | invalid_chr | invalid_pos
     return {
@@ -291,7 +291,8 @@ def _coordinate_quality_masks(
     }
 
 
-def _invalid_chromosome_mask(values: pd.Series, *, missing: pd.Series, context: str) -> pd.Series:
+def invalid_chromosome_mask(values: pd.Series, *, missing: pd.Series, context: str) -> pd.Series:
+    """Return rows outside ``missing`` whose chromosome label :func:`normalize_chromosome` rejects."""
     invalid_tokens: set[object] = set()
     for value in pd.unique(values.loc[~missing]):
         try:

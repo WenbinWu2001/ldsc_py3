@@ -1,9 +1,12 @@
 """Writer for the ``munge-sumstats`` output directory.
 
+``curated_sumstats_frame`` puts munged rows into the one form that the
+returned ``SumstatsTable`` and both data files share: fixed columns,
+canonical coordinates and genomic row order.
 ``SumstatsDirectoryWriter`` declares the files a munging run owns and writes
-the munged summary statistics as self-describing Parquet (one row group per
-chromosome, identity footer from ``ldsc._sumstats.table``) and/or the
-legacy-compatible ``.sumstats.gz`` text, plus the dropped-SNP table.
+that frame as self-describing Parquet (one row group per chromosome,
+identity footer from ``ldsc._sumstats.table``) and/or the legacy-compatible
+``.sumstats.gz`` text, plus the dropped-SNP table.
 Every file is written into a staging directory inside the output directory
 and moved into place once all of them are complete, so a reader never sees a
 partly written file. The column contract of both formats is in
@@ -37,6 +40,7 @@ INPUT_ISSUES_FILE = "diagnostics/input_issues.tsv"
 SUMSTATS_PARQUET_COMPRESSION = "snappy"
 SUMSTATS_OUTPUT_FORMATS = {"parquet", "tsv.gz", "both"}
 _DATA_FILES = ("tsv.gz", "parquet")
+_SUMSTATS_COLUMNS = ("SNP", "CHR", "POS", "A1", "A2", "Z", "N", "FRQ")
 
 
 @dataclass(frozen=True)
@@ -112,9 +116,8 @@ class SumstatsDirectoryWriter:
         Parameters
         ----------
         data : pandas.DataFrame
-            Munged rows. Both formats keep the columns ``SNP, CHR, POS, A1,
-            A2, Z, N, FRQ`` that are present, in that order, and add missing
-            ``CHR``/``POS`` columns as missing values.
+            Munged rows in the form :func:`curated_sumstats_frame` returns;
+            both formats write them in this order.
         output_dir : str or os.PathLike[str]
             Output directory; created when missing.
         trait_name : str or None
@@ -146,9 +149,6 @@ class SumstatsDirectoryWriter:
         FileExistsError
             If an owned file exists and neither ``overwrite`` nor
             ``preflighted`` is set.
-        LDSCInputError
-            If ``POS`` holds a non-numeric or non-positive value or ``CHR`` an
-            unsupported label on a complete-coordinate row (Parquet only).
         """
         output_format = normalize_output_format(output_format)
         root = ensure_output_directory(output_dir, label="output directory")
@@ -186,18 +186,19 @@ def normalize_output_format(output_format: str) -> str:
 
 
 def write_sumstats_parquet(
-    data: pd.DataFrame, path: str | os.PathLike[str], footer_metadata: dict[bytes, bytes] | None = None
+    frame: pd.DataFrame, path: str | os.PathLike[str], footer_metadata: dict[bytes, bytes] | None = None
 ) -> list[dict[str, Any]]:
     """Write snappy-compressed Parquet to ``path`` and return row-group metadata.
 
-    The Parquet payload keeps the munger's numeric precision. One row group is
-    emitted per normalized chromosome among complete-coordinate rows. If rows
-    without complete coordinates exist, they are emitted as the last row group
-    with ``chrom`` recorded as ``None``. When ``footer_metadata`` is supplied,
-    its ``ldsc:*`` identity keys are merged into the Parquet schema footer so the
-    file is self-describing downstream.
+    ``frame`` comes from :func:`curated_sumstats_frame`, so its rows are
+    already in genomic order; this writer only splits them. The Parquet
+    payload keeps the munger's numeric precision. One row group is emitted
+    per chromosome among complete-coordinate rows. If rows without complete
+    coordinates exist, they are emitted as the last row group with ``chrom``
+    recorded as ``None``. When ``footer_metadata`` is supplied, its ``ldsc:*``
+    identity keys are merged into the Parquet schema footer so the file is
+    self-describing downstream.
     """
-    frame = _prepare_sumstats_parquet_frame(data)
     schema = pa.Schema.from_pandas(frame, preserve_index=False)
     if footer_metadata:
         schema = schema.with_metadata({**(schema.metadata or {}), **footer_metadata})
@@ -233,27 +234,32 @@ def write_sumstats_parquet(
     return row_groups
 
 
-def _prepare_curated_sumstats_frame(data: pd.DataFrame) -> pd.DataFrame:
-    """Return a copy with fixed summary-statistics output columns and coordinate placeholders."""
-    columns = [col for col in ("SNP", "CHR", "POS", "A1", "A2", "Z", "N", "FRQ")
-               if col in data.columns or col in ("CHR", "POS")]
+def curated_sumstats_frame(data: pd.DataFrame) -> pd.DataFrame:
+    """Return munged rows in the one form that the returned table and both data files share.
+
+    Keeps the columns ``SNP, CHR, POS, A1, A2, Z, N, FRQ`` that are present,
+    in that order, and adds missing ``CHR``/``POS`` columns as missing
+    values. On rows with a complete ``CHR``/``POS`` pair, ``CHR`` takes its
+    canonical label (no ``chr`` prefix) and ``POS`` must be a positive
+    integer. Those rows are ordered by chromosome sort key, ``POS`` and input
+    order; rows without a complete pair follow in input order, so the
+    Parquet writer can place them in one final missing-coordinate row group.
+    Numeric precision is kept. ``SumstatsMunger.run`` and
+    ``SumstatsMunger.write_output`` build this frame once, before any file is
+    written.
+
+    Raises
+    ------
+    LDSCInputError
+        If a complete-coordinate row has a non-numeric or non-positive
+        ``POS`` or an unsupported ``CHR`` label. Munging drops or rejects such
+        rows before this step, so only a table built by hand reaches it.
+    """
+    columns = [col for col in _SUMSTATS_COLUMNS if col in data.columns or col in ("CHR", "POS")]
     frame = data.loc[:, [col for col in columns if col in data.columns]]
     for col in ("CHR", "POS"):
         if col not in frame.columns:
             frame.insert(columns.index(col), col, pd.NA)
-    return frame
-
-
-def _prepare_sumstats_parquet_frame(data: pd.DataFrame) -> pd.DataFrame:
-    """Return a precision-preserving frame sorted for chromosome row groups.
-
-    Complete-coordinate rows are normalized and ordered by chromosome sort key,
-    ``POS``, and original row order. Rows without a complete ``CHR``/``POS``
-    pair are kept, preserve original relative order, and sort after all
-    complete-coordinate rows so the writer can place them in one final
-    missing-coordinate row group.
-    """
-    frame = _prepare_curated_sumstats_frame(data)
     chr_missing = coordinate_missing_mask(frame["CHR"])
     pos_missing = coordinate_missing_mask(frame["POS"])
     pos_numeric = pd.to_numeric(frame["POS"], errors="coerce")
@@ -261,15 +267,16 @@ def _prepare_sumstats_parquet_frame(data: pd.DataFrame) -> pd.DataFrame:
     if invalid_pos.any():
         bad_value = frame.loc[invalid_pos, "POS"].iloc[0]
         raise LDSCInputError(
-            f"munge-sumstats could not write Parquet output because POS contains a non-numeric value {bad_value!r}. "
-            "Most likely a coordinate column was mapped incorrectly. Pass the correct --pos column or fix the POS values."
+            f"munge-sumstats could not write munged summary statistics because POS contains a non-numeric value "
+            f"{bad_value!r}. Most likely a coordinate column was mapped incorrectly. Pass the correct --pos column or "
+            "fix the POS values."
         )
 
     complete = ~(chr_missing | pos_missing)
     if complete.any():
         complete_pos = positive_int_position_series(
             frame.loc[complete, "POS"],
-            context="summary-statistics Parquet output",
+            context="munged summary statistics",
             label="POS",
         )
         if frame["CHR"].dtype.kind in "biuf":
@@ -278,7 +285,7 @@ def _prepare_sumstats_parquet_frame(data: pd.DataFrame) -> pd.DataFrame:
             frame["CHR"] = frame["CHR"].astype(object)
         frame.loc[complete, "CHR"] = normalize_chromosome_series(
             frame.loc[complete, "CHR"],
-            context="summary-statistics Parquet output",
+            context="munged summary statistics",
         ).astype(object)
         frame.loc[complete, "POS"] = complete_pos.astype("int64")
 
@@ -297,9 +304,12 @@ def _prepare_sumstats_parquet_frame(data: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
-def _write_sumstats_tsv_gz(data: pd.DataFrame, path: Path) -> None:
-    """Write gzip TSV with explicit missing fields and unrounded frequency."""
-    frame = _prepare_curated_sumstats_frame(data)
+def _write_sumstats_tsv_gz(frame: pd.DataFrame, path: Path) -> None:
+    """Write a curated frame as gzip TSV with explicit missing fields and unrounded frequency.
+
+    ``FRQ`` is written from its text form, so the float format does not round
+    it; the caller's frame, which the returned table shares, is not changed.
+    """
     if "FRQ" in frame:
-        frame["FRQ"] = frame["FRQ"].astype("string")
+        frame = frame.assign(FRQ=frame["FRQ"].astype("string"))
     frame.to_csv(path, sep="\t", index=False, float_format="%.3f", compression="gzip", na_rep="NA")

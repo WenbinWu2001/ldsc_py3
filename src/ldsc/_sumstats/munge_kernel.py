@@ -29,7 +29,9 @@ import numpy as np
 import pandas as pd
 from scipy.stats import chi2
 from .._core.coordinates import (
+    complete_coordinate_mask,
     coordinate_missing_mask,
+    invalid_chromosome_mask,
     normalize_chr_pos_frame,
     positive_int_position_series,
 )
@@ -361,8 +363,10 @@ def parse_dat(dat_gen, request: ResolvedMungeInput) -> _ParsedChunks:
 
             if identity_mode_family(mode) == 'chr_pos':
                 dat = _normalize_chr_pos_chunk(dat, request, coordinate_counts)
-                if len(dat) == 0:
-                    continue
+            else:
+                dat = _drop_unsupported_chromosome_rows(dat, request, coordinate_counts)
+            if len(dat) == 0:
+                continue
 
             ii = np.ones(len(dat), dtype=bool)
             if qc.info_min is not None:
@@ -646,6 +650,34 @@ def _normalize_chr_pos_chunk(dat, request, counts):
     return normalized
 
 
+def _drop_unsupported_chromosome_rows(dat, request, counts):
+    """Drop rsID-family rows whose complete coordinates carry an unsupported CHR label, as coordinate modes do.
+
+    rsID-family identity does not use coordinates, so rows without a
+    complete ``CHR``/``POS`` pair stay. A complete pair whose label is not one
+    of 1-22, X, Y, M or MT, such as the contig ``chrUn_gl000220``, cannot be
+    written as a coordinate, so the row is dropped and counted as an invalid
+    ``CHR`` among the coordinate drops, exactly as coordinate-family modes
+    drop it, before any output exists.
+    """
+    counts['n_input'] += len(dat)
+    invalid = pd.Series(False, index=dat.index)
+    if {'CHR', 'POS'}.issubset(dat.columns):
+        complete = complete_coordinate_mask(dat)
+        invalid = invalid_chromosome_mask(dat['CHR'], missing=~complete, context=request.source_path)
+    n_invalid = int(invalid.sum())
+    if n_invalid:
+        if len(counts['examples']) < 5:
+            columns = [column for column in ('SNP', 'CHR', 'POS') if column in dat.columns]
+            counts['examples'].extend(dat.loc[invalid, columns].head(5 - len(counts['examples'])).to_dict(orient='records'))
+        dat = dat.take(np.flatnonzero(~invalid.to_numpy()))
+        dat.index = pd.RangeIndex(len(dat))
+    counts['n_invalid_chr'] += n_invalid
+    counts['n_dropped'] += n_invalid
+    counts['n_retained'] += len(dat)
+    return dat
+
+
 def _accumulate_coordinate_drop_counts(counts, report):
     counts['n_input'] += int(report.n_input)
     counts['n_retained'] += int(report.n_retained)
@@ -761,6 +793,7 @@ def _coordinate_metadata(dat, request, counts):
             n_dropped_invalid_chr_pos=counts['n_dropped'], coordinate_drop_report=counts,
         )
     else:
+        metadata.update(n_invalid_chr_pos=counts['n_invalid_chr'], n_dropped_invalid_chr_pos=counts['n_dropped'])
         complete = ~(coordinate_missing_mask(dat['CHR']) | coordinate_missing_mask(dat['POS']))
         if complete.any():
             positive_int_position_series(dat.loc[complete, 'POS'], context=request.source_path, label='POS')

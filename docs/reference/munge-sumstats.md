@@ -82,7 +82,7 @@ For Python users, `munger.build_run_summary()` reports parsed `n_input_rows`, fi
 | Count key | Exclusive removal stage |
 | --- | --- |
 | `NA` | Missing required non-coordinate/non-allele fields |
-| `coordinates` | Missing or invalid source `CHR`/`POS` in coordinate-family modes |
+| `coordinates` | Missing or invalid source `CHR`/`POS` in coordinate-family modes; in rsID-family modes, a complete `CHR`/`POS` pair whose `CHR` label is unsupported |
 | `INFO`, `FRQ`, `P` | INFO, folded MAF, and p-value filters, in that order |
 | `sumstats_snps` | SNP keep-list restriction (HM3 by default) |
 | `N`, `NSTUDY` | Whole-table sample-size or study-count filtering |
@@ -196,6 +196,12 @@ The default format remains Parquet. With `--trait-name BMI`, the data files are 
 `sumstats.parquet` is the default data artifact and is self-describing: it needs
 no `metadata.json` sidecar. `sumstats.gz` is written only with
 `--output-format tsv.gz` or `--output-format both`.
+
+The Parquet file, the `.sumstats.gz` file and the `SumstatsTable` that `SumstatsMunger.run()` returns hold one frame, built once by `_sumstats.outputs.curated_sumstats_frame()` before any file is written.
+It has the columns `SNP`, `CHR`, `POS`, `A1`, `A2`, `Z`, `N` and `FRQ` that exist, in that order, with missing `CHR` and `POS` columns added as missing values.
+Rows with a complete `CHR`/`POS` pair carry the canonical chromosome label (`1`-`22`, `X`, `Y`, `M` or `MT`, without a `chr` prefix) and come first, ordered by chromosome, then `POS`, then input order; rows without a complete pair follow in input order.
+In every SNP identifier mode, a row whose complete pair has an unsupported label, such as the contig `chrUn_gl000220`, is dropped during parsing and counted under `coordinates`, so no output format can fail on it later.
+rsID-family modes keep rows without a complete pair, because rsID identity does not use coordinates.
 
 The filename stem preserves letter case, Unicode word characters, dots, and hyphens. Other character runs become underscores; edge dots, underscores, and hyphens are stripped. An explicit label that leaves an empty stem uses `trait`. For example, `BMI / adult` becomes `BMI_adult.parquet`. The metadata retains the original label after the existing surrounding-whitespace normalization. The Python `write_output()` method uses the same rules.
 

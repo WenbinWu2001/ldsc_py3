@@ -47,9 +47,23 @@ def test_write_output_owns_only_the_data_files(tmp_path):
     assert dropped.exists()
 
 
-def test_a_failed_write_publishes_no_file(tmp_path):
-    # The Parquet writer rejects the contig label after the text file is complete.
+def test_an_unsupported_contig_is_rejected_before_any_file(tmp_path):
+    # The curated frame normalizes CHR before the writer stages anything.
     with pytest.raises(LDSCInputError, match="Un_gl000220"):
         SumstatsMunger().write_output(_table(chrom="chrUn_gl000220"), tmp_path, output_format="both")
+
+    assert sorted(path.name for path in tmp_path.iterdir()) == []
+
+
+def test_a_failed_write_publishes_no_file(tmp_path, monkeypatch):
+    from ldsc._sumstats import outputs
+
+    def failing_parquet(*args, **kwargs):
+        raise OSError("disk full")
+
+    # The text file is complete when the Parquet write fails.
+    monkeypatch.setattr(outputs, "write_sumstats_parquet", failing_parquet)
+    with pytest.raises(OSError, match="disk full"):
+        SumstatsMunger().write_output(_table(), tmp_path, output_format="both")
 
     assert sorted(path.name for path in tmp_path.iterdir()) == []

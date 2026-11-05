@@ -78,6 +78,7 @@ from .outputs import (
     SUMSTATS_OUTPUT_FORMATS,
     SUMSTATS_PARQUET_COMPRESSION,
     SumstatsDirectoryWriter,
+    curated_sumstats_frame,
 )
 from .table import SumstatsTable, encode_sumstats_footer
 from .._runtime.preflight import inspect_declared_inputs
@@ -209,6 +210,11 @@ class SumstatsMunger:
         -------
         SumstatsTable
             Validated, in-memory table suitable for the regression workflow.
+            It holds the same rows, in the same order and with the same
+            ``CHR`` labels, as the written Parquet and ``.sumstats.gz`` files:
+            the columns ``SNP, CHR, POS, A1, A2, Z, N, FRQ`` that exist,
+            complete-coordinate rows in chromosome and position order, then
+            rows without complete coordinates in input order.
             The table includes canonical ``CHR`` and ``POS`` columns, preserves
             the active or inferred ``GlobalConfig`` snapshot, and writes the
             same identity settings into the Parquet footer so downstream
@@ -284,7 +290,8 @@ class SumstatsMunger:
             LOGGER.info("Selected liftover method: %s; source=%s; output=%s",
                         method_label, request.genome_build, resolved_liftover.target_build)
             result = kernel_munge.munge_sumstats(request)
-            data = result.data
+            # One frame, curated once, is the returned table and both data files.
+            data = curated_sumstats_frame(result.data)
             coordinate_metadata = result.coordinate_metadata
             drop_frame = concat_identity_drop_frames([result.liftover_drop_frame, result.identity_drop_frame])
             table_config_snapshot = _effective_sumstats_config(config_snapshot, coordinate_metadata)
@@ -315,8 +322,6 @@ class SumstatsMunger:
                 parquet_row_groups=written.parquet_row_groups,
             )
             _log_sumstats_dropped_snps_summary(drop_frame, dropped_snps_path)
-            if not (isinstance(data.index, pd.RangeIndex) and data.index.start == 0 and data.index.step == 1):
-                data = data.reset_index(drop=True)
             table = SumstatsTable(
                 data=data,
                 has_alleles={"A1", "A2"}.issubset(data.columns),
@@ -368,10 +373,13 @@ class SumstatsMunger:
         Parameters
         ----------
         sumstats : SumstatsTable
-            Validated LDSC-ready table to persist. Columns are curated to the
+            Validated LDSC-ready table to persist. Its rows are written in the
+            form ``curated_sumstats_frame`` gives munged rows: columns in the
             package output order ``SNP, CHR, POS, A1, A2, Z, N, FRQ`` where
-            present; missing ``CHR`` or ``POS`` columns are materialized as
-            missing values.
+            present, missing ``CHR`` or ``POS`` columns materialized as
+            missing values, canonical ``CHR`` labels and genomic row order. An
+            unsupported ``CHR`` label or invalid ``POS`` on a complete-coordinate
+            row raises ``LDSCInputError`` before any file is written.
         output_dir : str or os.PathLike[str]
             Destination directory for munged summary-statistics artifacts.
         output_format : {"parquet", "tsv.gz", "both"}, optional
@@ -415,7 +423,7 @@ class SumstatsMunger:
                 "GlobalConfig snapshot before writing."
             )
         return SumstatsDirectoryWriter().write(
-            sumstats.data,
+            curated_sumstats_frame(sumstats.data),
             output_dir,
             trait_name=sumstats.trait_name,
             output_format=output_format,

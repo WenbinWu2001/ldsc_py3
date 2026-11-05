@@ -88,7 +88,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         genome_build: str | None = None,
     ) -> None:
         """Write a self-describing sumstats parquet carrying identity footer metadata."""
-        from ldsc._sumstats.outputs import write_sumstats_parquet
+        from ldsc._sumstats.outputs import curated_sumstats_frame, write_sumstats_parquet
         from ldsc._sumstats.table import encode_sumstats_footer
 
         if frame is None:
@@ -96,7 +96,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         footer = encode_sumstats_footer(
             GlobalConfig(snp_identifier=snp_identifier, genome_build=genome_build), trait_name
         )
-        write_sumstats_parquet(frame, path, footer)
+        write_sumstats_parquet(curated_sumstats_frame(frame), path, footer)
 
     def test_load_ldscore_from_dir_reads_metadata_and_parquet_files(self):
         from ldsc import load_ldscore_from_dir

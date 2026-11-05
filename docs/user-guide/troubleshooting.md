@@ -706,6 +706,35 @@ A chromosome emptied by `--ref-panel-snps-file`, by identity cleanup of the PLIN
 
 **Developer reference:** `_refpanel.adapters._align_annotations()` during `RefPanel.prepare_chromosome()`, the gene-support pass `_apply_direct_gene_gate_b()`, and the batch check in `_ldscore.calculator._DirectProducer.reduce()` · **Exception:** `LDSCInputError`
 
+### `ldscore`: a PLINK chromosome has no usable SNP identity
+
+**Symptom:** `Reference-panel loading retained no PLINK rows on chromosome <chrom> after SNP identity cleanup removed all <n> of them (<reason>=<count>, ...)`
+
+During reference preparation, each chromosome's PLINK `.bim` rows go through identity cleanup under the SNP identifier mode ([reference-panel rows without an allele-aware SNP identity](../reference/ldscore-snp-universes.md#reference-panel-rows-without-an-allele-aware-snp-identity)).
+Cleanup drops every row of a duplicate SNP identity and, in allele-aware modes, every row without a valid A/C/G/T allele pair or at a multi-allelic position.
+When it drops every row of a chromosome and no `--ref-panel-snps-file` was given, the panel has no usable SNP on that chromosome, so the run stops instead of computing LD scores without it.
+The error counts the removed rows by reason; no `diagnostics/dropped_snps/` table is written for the chromosome.
+`build-gene-ldscore-index` reads PLINK reference panels the same way and stops with the same error.
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | The `.bim` SNP column or positions are not unique: placeholder IDs such as `.` under an rsID-family mode, or one position listed several times under a coordinate-family mode (reason `duplicate_identity`) | Count repeated values of column 2 (rsID-family modes) or of columns 1 and 4 together (coordinate-family modes) in the chromosome's `.bim` |
+| 2 | An allele-aware mode was selected for a panel of indels or other non-SNP records (reasons `invalid_allele`, `missing_allele`) | Look for alleles longer than one base, alleles other than A, C, G and T, or identical A1 and A2 in columns 5 and 6 |
+| 3 | An allele-aware mode was selected for a panel that lists several allele pairs at each position (reason `multi_allelic_base_key`) | Count positions with more than one row in columns 1 and 4 |
+| 4 | The SNP identifier mode differs from the one the panel was prepared for | Compare `--snp-identifier` with the panel's documentation; a panel with unique positions but placeholder rsIDs needs a coordinate-family mode |
+
+**Remedies:**
+
+1. Run with the SNP identifier mode the panel was prepared for, and use the same mode for every input of the analysis.
+2. Remove non-SNP rows from the panel, for example with `plink2 --snps-only just-acgt`, and give duplicate rows unique identities or remove them, then rerun.
+3. To leave the chromosome out on purpose, select matching subsets of PLINK and annotation files with exact paths or quoted `*` patterns; `@` requires all autosomes.
+
+With `--ref-panel-snps-file`, a chromosome on which cleanup removes every row the restriction kept is skipped with a WARNING instead ([empty chromosomes](../reference/ldscore-snp-universes.md#empty-chromosomes)).
+
+**Developer reference:** `PlinkRefPanel._load_source()` in `src/ldsc/_refpanel/adapters.py` and `clean_identity_artifact_table()` in `src/ldsc/_core/snp_identity.py` · **Exception:** `LDSCInputError`
+
 <a id="ldscore-r2-matrix-is-incompatible"></a>
 
 ### `ldscore`: an R² matrix is incompatible

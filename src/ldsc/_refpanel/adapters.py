@@ -300,7 +300,7 @@ class PlinkRefPanel(RefPanel):
                 f"'{self.global_config.snp_identifier}' each panel row needs a unique SNP identity, and in "
                 "allele-aware modes one A/C/G/T allele pair per position. Remove the duplicate and non-SNP rows "
                 "from this chromosome's panel (`plink2 --snps-only just-acgt` removes non-SNP rows), or use the "
-                "SNP identifier mode the panel was prepared for."
+                f"SNP identifier mode the panel was prepared for. Other causes & fixes: {_PLINK_IDENTITY_DOC}"
             )
         metadata, drops = cleanup.cleaned, cleanup.dropped
         metadata = self._validate_metadata(metadata, chrom)
@@ -736,6 +736,7 @@ def _annotation_reference_match_mode(
 _LDSCORE_INTERSECTION_DOC = (
     "docs/user-guide/troubleshooting.md#ldscore-no-reference-snps-remain-on-the-annotation-snp-grid"
 )
+_PLINK_IDENTITY_DOC = "docs/user-guide/troubleshooting.md#ldscore-a-plink-chromosome-has-no-usable-snp-identity"
 
 
 def resolve_keep_individuals(keep_path: str | None, fam) -> list[int] | None:

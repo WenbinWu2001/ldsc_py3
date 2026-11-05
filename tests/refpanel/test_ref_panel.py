@@ -153,6 +153,11 @@ class PlinkRefPanelTest(unittest.TestCase):
             # The run stops before writing diagnostics, so the message itself names the drops.
             self.assertIn("duplicate_identity=2", str(caught.exception))
             self.assertNotIn("dropped_snps", str(caught.exception))
+            # The causes are several, so the message links its troubleshooting section.
+            anchor = "ldscore-a-plink-chromosome-has-no-usable-snp-identity"
+            self.assertIn(f"docs/user-guide/troubleshooting.md#{anchor}", str(caught.exception))
+            guide = (Path(__file__).resolve().parents[2] / "docs/user-guide/troubleshooting.md").read_text()
+            self.assertIn("### `ldscore`: a PLINK chromosome has no usable SNP identity\n", guide)
 
     def test_global_restriction_applies(self):
         with tempfile.TemporaryDirectory() as tmpdir:

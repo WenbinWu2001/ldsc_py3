@@ -251,6 +251,7 @@ per query, headline metric `coefficient` (the conditional `τ`).
 
 Concurrency is a batch-workflow option, separate from `RegressionConfig`.
 Use `ldsc partitioned-h2 --workers 4 --query-batch-size 100` or `runner.estimate_partitioned_h2_batch(..., workers=4, query_batch_size=100)`.
+`--query-batch-size` takes a positive integer: on the command line its argparse type rejects any other value with a usage error and exit status 2, as for `--workers`, and `run_partitioned_h2()` and `estimate_partitioned_h2_batch()` raise `LDSCUsageError` before anything is written.
 
 `--workers` sets the number of workers (default one, each with one BLAS thread); CPU budgets, limits and failure handling are in [parallel execution](parallel-execution.md).
 

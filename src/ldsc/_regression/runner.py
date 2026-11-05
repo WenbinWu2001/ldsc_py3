@@ -93,7 +93,10 @@ from .._core.snp_identity import (
     resolve_regression_identity_mode,
 )
 from .._core.row_alignment import assert_same_snp_rows, first_identity_mismatch
-from .._runtime.parallelism import WORKERS_HELP, parse_workers, resolve_worker_count, validate_workers
+from .._runtime.parallelism import (
+    WORKERS_HELP, parse_query_batch_size, parse_workers, resolve_worker_count, validate_query_batch_size,
+    validate_workers,
+)
 from .._core.columns import infer_chr_pos_columns
 from .._core.snp_identity import normalize_snp_identifier_mode
 from .._ldscore.results import LDScoreResult
@@ -868,7 +871,9 @@ class RegressionRunner:
             Statistical settings. Model-dependent filtering and weights are
             recomputed for every fit over the complete aligned genome.
         query_batch_size : int, optional
-            Maximum query columns loaded at once, default 100. Pathways in a
+            Maximum query columns loaded at once, default 100; a positive
+            integer, otherwise ``LDSCUsageError`` is raised before anything is
+            written. Pathways in a
             batch are still fitted separately against the baseline annotations.
             Also caps concurrent query workers; a width of one allows one worker.
             Independent of the batch width used to generate the LD scores.
@@ -936,8 +941,7 @@ class RegressionRunner:
         before that final diagnostic table is written.
         """
         validate_workers(workers)
-        if isinstance(query_batch_size, bool) or not isinstance(query_batch_size, int) or query_batch_size < 1:
-            raise ValueError("query_batch_size must be a positive integer.")
+        validate_query_batch_size(query_batch_size, error_type=LDSCUsageError)
         if not isinstance(continue_on_query_error, bool):
             raise ValueError("continue_on_query_error must be a boolean.")
         config = config or self.regression_config
@@ -3291,7 +3295,7 @@ def add_partitioned_h2_arguments(parser) -> None:
         help='Maximum complete query-plus-baseline models running simultaneously; also capped by query batch size. ' + WORKERS_HELP,
     )
     sections.computing.add_argument(
-        '--query-batch-size', type=int, default=100, metavar='N',
+        '--query-batch-size', type=parse_query_batch_size, default=100, metavar='N',
         help=(
             'Maximum number of query annotations loaded at once; each query is fitted separately with the '
             'shared baseline. Default: 100; a smaller positive value reduces memory and caps active query workers.'
@@ -3441,9 +3445,8 @@ def run_partitioned_h2_from_args(args):
     and phase timings are recorded in the workflow log.
     """
     validate_workers(getattr(args, "workers", 1))
-    query_batch_size = getattr(args, "query_batch_size", 100)
-    if isinstance(query_batch_size, bool) or not isinstance(query_batch_size, int) or query_batch_size < 1:
-        raise ValueError("query_batch_size must be a positive integer.")
+    # The argparse types check the command line; keyword calls are checked here, before any write.
+    validate_query_batch_size(getattr(args, "query_batch_size", 100), error_type=LDSCUsageError)
     output_dir, log_path = _preflight_regression_outputs(args, "partitioned-h2", PartitionedH2DirectoryWriter)
     with workflow_logging("partitioned-h2", log_path, log_level=getattr(args, "log_level", "INFO")):
         _inspect_regression_inputs(args, output_dir)
@@ -3687,7 +3690,8 @@ def run_partitioned_h2(**kwargs) -> PartitionedH2BatchResult:
     LDSCUsageError
         Before anything is written, when a keyword is unknown, a required one
         is missing, a value is outside the command's choices, a flag is not a
-        bool, or ``log_level``, ``snp_identifier`` or ``genome_build`` is passed.
+        bool, ``query_batch_size`` is not a positive integer, or
+        ``log_level``, ``snp_identifier`` or ``genome_build`` is passed.
 
     Notes
     -----

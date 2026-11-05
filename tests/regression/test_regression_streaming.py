@@ -523,12 +523,29 @@ def test_late_failures_clean_private_details_and_preserve_existing_failure_contr
     assert not list(output.glob(".ldsc-annotation-*"))
 
 
-@pytest.mark.parametrize("size", [0, -1])
-def test_invalid_query_batch_size_stops_before_input_loading(tmp_path, monkeypatch, size):
-    monkeypatch.setattr(workflow, "_load_sumstats_table", lambda *_args: pytest.fail("invalid batch size reached input loading"))
-    with pytest.raises(ValueError, match="query_batch_size"):
+@pytest.mark.parametrize("size", ["0", "-1", "1.5", "True"])
+def test_cli_rejects_invalid_query_batch_size_as_it_rejects_workers(tmp_path, size, capsys):
+    # Like --workers, the value is checked by its argparse type: usage error, exit status 2, nothing written.
+    with pytest.raises(SystemExit) as error:
         cli.main(["partitioned-h2", "--sumstats-file", "missing", "--ldscore-dir", "missing",
-                  "--output-dir", str(tmp_path / "out"), "--query-batch-size", str(size)])
+                  "--output-dir", str(tmp_path / "out"), "--query-batch-size", size])
+    assert error.value.code == 2
+    assert "argument --query-batch-size:" in capsys.readouterr().err
+    assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize("size", [0, -1, True, 1.5, "2", None])
+def test_python_routes_reject_invalid_query_batch_size_before_writing(tmp_path, size):
+    import ldsc
+    from ldsc.errors import LDSCUsageError
+
+    with pytest.raises(LDSCUsageError, match="query_batch_size must be a positive integer"):
+        ldsc.run_partitioned_h2(sumstats_file="missing", ldscore_dir="missing", output_dir=str(tmp_path / "out"),
+                                query_batch_size=size)
+    with pytest.raises(LDSCUsageError, match="query_batch_size must be a positive integer"):
+        ldsc.RegressionRunner().estimate_partitioned_h2_batch(None, None, output_dir=tmp_path / "out",
+                                                              query_batch_size=size)
+    assert not (tmp_path / "out").exists()
 
 
 def _near_collinear_rg_inputs(tmp_path, *, with_overlap, shared_rows_only=False):

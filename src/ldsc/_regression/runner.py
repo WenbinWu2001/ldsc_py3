@@ -96,7 +96,7 @@ from .._core.row_alignment import assert_same_snp_rows, first_identity_mismatch
 from .._runtime.parallelism import WORKERS_HELP, parse_workers, resolve_worker_count, validate_workers
 from .._core.columns import infer_chr_pos_columns
 from .._core.snp_identity import normalize_snp_identifier_mode
-from .._ldscore.calculator import LDScoreResult
+from .._ldscore.results import LDScoreResult
 from .._ldscore.source import LDScoreSource, load_ldscore_from_dir
 from .outputs import (
     H2DirectoryWriter,

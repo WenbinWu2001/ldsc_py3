@@ -13,7 +13,7 @@ import ldsc
 from ldsc import GlobalConfig, set_global_config, reset_global_config
 from ldsc.config import ConfigMismatchError, validate_config_compatibility
 from ldsc._ldscore import calculator as ldscore_calculator
-from ldsc._ldscore.calculator import LDScoreResult
+from ldsc._ldscore.results import LDScoreResult
 from ldsc._runtime.workflow_kwargs import parse_command_line
 from ldsc._refpanel import builder as r2_matrix_builder
 from ldsc._refpanel.builder import R2MatrixBuildConfig, R2MatrixBuilder

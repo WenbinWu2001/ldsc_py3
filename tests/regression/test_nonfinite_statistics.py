@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from ldsc._annotation.overlap import OverlapContribution
-from ldsc._ldscore.calculator import LDScoreResult
+from ldsc._ldscore.results import LDScoreResult
 from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from ldsc._ldscore.overlap_table import LDScoreOverlap
 from ldsc._regression import runner as workflow

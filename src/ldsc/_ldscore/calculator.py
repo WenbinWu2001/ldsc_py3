@@ -1,7 +1,7 @@
-"""Workflow-layer LD-score orchestration and normalized result objects.
+"""Workflow-layer LD-score orchestration.
 
-This module is the public boundary for LD-score path handling and result
-normalization. Callers may provide exact paths, glob patterns, or explicit
+This module is the public boundary for LD-score path handling. The result
+records it returns live in ``ldsc._ldscore.results``. Callers may provide exact paths, glob patterns, or explicit
 chromosome-suite tokens using ``@``. The workflow resolves those tokens into
 concrete per-chromosome files and asks ``ref_panel.prepare_chromosome`` for
 aligned reference data, annotations, window bounds, and an owned reader. The
@@ -48,8 +48,8 @@ from .diagnostics import (
     reference_snp_funnel_path,
 )
 from .batch_execution import finalize_batch, run_chromosome_batch, run_query_batches
-from .direct_batches import DirectChromosomeFragment, stage_direct_chromosome, stage_query_table
-from .fragments import StagedLDScoreBatch
+from .direct_batches import stage_direct_chromosome, stage_query_table
+from .results import ChromLDScoreResult, DirectChromosomeFragment, LDScoreResult, StagedLDScoreBatch
 from .._core.chromosomes import chrom_sort_key
 from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP, output_directory_argument
 from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
@@ -59,7 +59,7 @@ from .._runtime.parallelism import (
 from .._runtime.progress import report_phase, PhaseProgress
 from .._annotation.saved_results import AnnotationResult
 from .._annotation.storage import TsvDiagnostics, AnnotationWorkspace
-from .source import LDScoreSource, validate_ldscore_schemas
+from .source import LDScoreSource
 from .._core.snp_identity import coerce_identity_drop_frame, IDENTITY_DROP_COLUMNS, identity_mode_family, is_allele_aware_mode
 from .._core.columns import normalize_genome_build
 from .._core.snp_identity import emit_dropped_snps_notice, normalize_snp_identifier_mode
@@ -105,13 +105,13 @@ from .._refpanel.funnel import (
 )
 from .._refpanel.prepared import ChromosomeAnnotations, MappedAnnotations
 from .._core import regions as kernel_regions
-from .._annotation.overlap import OverlapContribution, sum_overlap_contributions
+from .._annotation.overlap import sum_overlap_contributions
 from .._annotation.semantics import combine_annotation_types
 from .._core.regions import REGR_SNPS_EXCLUDE_REGIONS_CHOICES, regr_snps_exclude_regions_choice_to_presets
 from .._refpanel.r2_format import SIDECAR_FLOAT_FORMAT
 from .._core.identifiers import read_snp_restriction_keys
 from .._core.snp_identity import RestrictionIdentityKeys
-from .._core.row_alignment import assert_same_snp_rows, concat_chromosome_tables, sort_frame_by_genomic_position
+from .._core.row_alignment import concat_chromosome_tables, sort_frame_by_genomic_position
 from ..errors import (
     EmptyReferenceSNPs,
     LDSCConfigError,
@@ -121,7 +121,7 @@ from ..errors import (
     LDSCUserError,
 )
 from .._annotation.query_outcomes import (
-    QueryAnnotationStatus, gene_query_statuses, gene_viability_errors, all_query_annotations_skipped_message,
+    gene_query_statuses, gene_viability_errors, all_query_annotations_skipped_message,
     emit_bed_query_notice, emit_gene_gate_b_notice, emit_resolved_only_notice,
 )
 from .._genome.build_policy import GenomeBuildCheck
@@ -153,185 +153,6 @@ _QUERY_REQUIRES_BASELINE_MESSAGE = (
 _LDSCORE_INTERSECTION_DOC = (
     "docs/user-guide/troubleshooting.md#ldscore-no-reference-snps-remain-on-the-annotation-snp-grid"
 )
-
-
-@dataclass(frozen=True)
-class ChromLDScoreResult:
-    """Normalized per-chromosome LD-score output in split baseline/query form.
-
-    Parameters
-    ----------
-    chrom : str
-        Chromosome label.
-    baseline_table : pandas.DataFrame
-        Table with ``CHR``, ``SNP``, ``POS``, ``regression_ld_scores``, and baseline
-        LD-score columns.
-    query_table : pandas.DataFrame or None
-        Optional table with ``CHR``, ``SNP``, ``POS``, and query LD-score
-        columns.
-    baseline_columns, query_columns : list of str
-        Ordered annotation LD-score columns in the baseline and query tables.
-    snp_count_totals : dict of str to numpy.ndarray, optional
-        All-SNP (``all_reference_snp_counts``) and common-SNP
-        (``common_reference_snp_counts``) count vectors over the reference
-        SNPs, one entry per baseline column followed by each query column.
-    annotation_types : dict of str to str, optional
-        Per-column ``binary`` or ``quantitative`` classification used only for
-        interpretation messages and persisted provenance.
-    reference_snp_funnel : pandas.DataFrame or None, optional
-        SNPs removed by each reference-preparation step on this chromosome;
-        see ``ldsc._refpanel.funnel``.
-    """
-    chrom: str
-    baseline_table: pd.DataFrame
-    query_table: pd.DataFrame | None
-    baseline_columns: list[str]
-    query_columns: list[str]
-    snp_count_totals: dict[str, np.ndarray] = field(default_factory=dict, repr=False)
-    config_snapshot: GlobalConfig | None = None
-    overlap: OverlapContribution | None = field(default=None, repr=False)
-    reference_snp_count: int = 0
-    regression_selected_snp_count: int = 0
-    regression_region_removed_snp_count: int = 0
-    identity_drops: TsvDiagnostics | None = field(default=None, repr=False)
-    annotation_types: dict[str, str] = field(default_factory=dict)
-    reference_snp_funnel: pd.DataFrame | None = field(default=None, repr=False)
-
-
-@dataclass(frozen=True)
-class LDScoreResult:
-    """Materialized LD scores for one cross-chromosome calculation batch.
-
-    ``LDScoreCalculator.run`` returns this object for a single prepared-input
-    batch without an output configuration. Writing workflows return
-    ``LDScoreSource`` so completed query tables can be released.
-
-    Parameters
-    ----------
-    baseline_table : pandas.DataFrame
-        Cross-chromosome table persisted as ``ldscore.baseline.parquet`` when
-        the result is written. Required columns are ``CHR``, ``SNP``, ``POS``,
-        ``regression_ld_scores``, and every entry in ``baseline_columns``.
-    query_table : pandas.DataFrame or None
-        Optional materialized cross-chromosome query table. A standalone write
-        saves it as ``ldscore.query.parquet``; sequential output uses the
-        applicable numbered batch filename. Required columns are ``CHR``,
-        ``SNP``, ``POS``, and every entry in ``query_columns``.
-    count_records : list of dict
-        Manifest-ready count records. Each record names an annotation column and
-        its all-SNP and optional common-SNP counts.
-    count_config : dict, optional
-        Manifest-ready metadata describing how optional common-SNP counts were
-        computed, including the inclusive common-MAF threshold.
-    baseline_columns, query_columns : list of str
-        Ordered LD-score columns available to regression workflows.
-    output_paths : dict, optional
-        Paths written by ``LDScoreDirectoryWriter`` when output was requested.
-    config_snapshot : GlobalConfig or None, optional
-        Shared configuration active when the result was computed.
-    query_statuses : tuple of QueryAnnotationStatus, optional
-        Ordered per-source outcomes for BED and gene-list query annotations.
-    gene_list_batch : object or None, optional
-        Compact gene-list summaries and a streamed audit. Completed command
-        results reference persistent diagnostics.
-    identity_drops_by_chrom : dict, optional
-        Chromosome diagnostic artifacts with explicit ``path`` and ``frames()``
-        access. Published results reference persistent files. A calculator run
-        without output configuration owns complete in-memory diagnostics,
-        which remain available after the input bundle is closed.
-    chromosome_scope : dict, optional
-        Validated input chromosome coverage and effective analysis scope.
-        Empty for workflows that do not perform query coverage preflight.
-    legacy_ldscore_conversion : dict or None, optional
-        Explicit converter provenance for a legacy LD-score suite. ``None``
-        for natively computed LDSC3 results.
-    ld_window : dict or None, optional
-        The run's LD window and whole-chromosome override, recorded in
-        ``metadata.json``: ``unit``, ``value`` and ``whole_chromosome_ok``.
-        Indexed runs take the index's window. ``None`` for converted legacy
-        LD scores, whose window is unknown.
-    annotation_types : dict of str to str, optional
-        Per-column semantic classification used for interpretation only.
-    ld_window_snp_counts : pandas.DataFrame or None, optional
-        For an R2 matrix with ``--ld-wind-snps``, one row per chromosome
-        with ``CHR``, ``panel_snps`` (sidecar rows), ``kept_snps`` (SNPs this
-        run kept), ``ld_wind_snps``, and ``counting_basis="panel_rows"``.
-        ``None`` for kb/cM windows and PLINK reference panels.
-    reference_snp_funnel : pandas.DataFrame or None, optional
-        Reference-SNP funnel of every chromosome, including skipped ones: the
-        SNPs each reference-preparation step removed, in the backend's order.
-        Columns are ``funnel`` (``reference_panel`` or ``annotation_snp_grid``),
-        ``chrom``, ``backend``, ``step_index``, ``step``, ``removed`` and
-        ``remaining``; ``removed`` is missing for a step that did not run.
-        Writing runs save it as ``diagnostics/reference_snp_funnel.tsv``.
-        ``None`` when the reference panel records no funnel.
-    """
-    baseline_table: pd.DataFrame
-    query_table: pd.DataFrame | None
-    count_records: list[dict[str, Any]]
-    baseline_columns: list[str]
-    query_columns: list[str]
-    output_paths: dict[str, str] = field(default_factory=dict)
-    count_config: dict[str, Any] = field(default_factory=dict)
-    config_snapshot: GlobalConfig | None = None
-    overlap: "LDScoreOverlap | None" = field(default=None, repr=False)
-    query_statuses: tuple[QueryAnnotationStatus, ...] = ()
-    gene_list_batch: Any | None = field(default=None, repr=False)
-    snp_universe_policy: dict[str, Any] | None = None
-    index_provenance: dict[str, str] | None = None
-    legacy_ldscore_conversion: dict[str, Any] | None = None
-    ld_window: dict[str, Any] | None = None
-    identity_drops_by_chrom: dict[str, TsvDiagnostics] = field(default_factory=dict, repr=False)
-    annotation_types: dict[str, str] = field(default_factory=dict)
-    chromosome_scope: dict[str, Any] = field(default_factory=dict)
-    ld_window_snp_counts: pd.DataFrame | None = field(default=None, repr=False)
-    reference_snp_funnel: pd.DataFrame | None = field(default=None, repr=False)
-
-    def validate(self) -> None:
-        """Check the normalized public contract for aggregated results."""
-        validate_ldscore_schemas(
-            self.baseline_columns, self.query_columns, self.baseline_table.columns,
-            None if self.query_table is None else self.query_table.columns,
-        )
-        if self.query_table is not None:
-            assert_same_snp_rows(
-                self.baseline_table,
-                self.query_table,
-                context="query rows must match baseline rows on CHR/SNP/POS",
-                snp_identifier=getattr(self.config_snapshot, "snp_identifier", "chr_pos_allele_aware"),
-            )
-
-    def read_queries(self, columns):
-        """Select named queries from this materialized result without file I/O.
-
-        Parameters
-        ----------
-        columns : sequence of str
-            Query names in the desired output column order.
-
-        Returns
-        -------
-        pandas.DataFrame or None
-            SNP metadata followed by selected query values, in existing row
-            order with a reset index. An empty selection returns metadata
-            only, or ``None`` when this result has no query table.
-
-        Raises
-        ------
-        LDSCInputError
-            Nonempty query selection is requested from a baseline-only result.
-        KeyError
-            A selected name is absent from the materialized table.
-        """
-        if self.query_table is None:
-            if columns:
-                raise LDSCInputError("LD-score result has no query table.")
-            return None
-        metadata = [name for name in ("CHR", "SNP", "POS", "A1", "A2") if name in self.query_table]
-        selected = self.query_table.loc[:, metadata + list(columns)]
-        if not isinstance(selected.index, pd.RangeIndex) or selected.index.start != 0:
-            selected = selected.reset_index(drop=True)
-        return selected
 
 
 def _log_annotation_classification(result):

@@ -13,7 +13,7 @@ import pytest
 
 from ldsc._annotation.query_outcomes import QueryAnnotationStatus
 from ldsc._ldscore.batch_execution import run_query_batches
-from ldsc._ldscore.fragments import StagedLDScoreBatch
+from ldsc._ldscore.results import StagedLDScoreBatch
 from ldsc._ldscore.query_variation import summarize_variation
 
 

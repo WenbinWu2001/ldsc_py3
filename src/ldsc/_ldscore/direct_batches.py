@@ -8,34 +8,10 @@ the shared first-batch baseline. The caller owns the batch directory through
 consumption or pool shutdown.
 """
 
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
-import pandas as pd
-
-from .query_variation import ScoreVariation, summarize_variation
-
-
-@dataclass(frozen=True)
-class DirectChromosomeFragment:
-    """Direct chromosome statistics with a private query path instead of scores."""
-
-    chrom: str
-    baseline_table: pd.DataFrame | None
-    query_fragment: Path | None
-    baseline_columns: list[str]
-    query_columns: list[str]
-    snp_count_totals: dict
-    config_snapshot: Any
-    overlap: Any
-    reference_snp_count: int
-    regression_selected_snp_count: int
-    regression_region_removed_snp_count: int
-    identity_drops: Any
-    annotation_types: dict
-    variation: ScoreVariation
-    reference_snp_funnel: pd.DataFrame | None = None
+from .query_variation import summarize_variation
+from .results import DirectChromosomeFragment
 
 
 def stage_query_table(chrom, frame, query_columns, directory):

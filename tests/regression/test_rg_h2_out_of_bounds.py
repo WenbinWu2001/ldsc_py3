@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from ldsc import cli
-from ldsc._ldscore.calculator import LDScoreResult
+from ldsc._ldscore.results import LDScoreResult
 from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from ldsc._regression import estimators as reg
 from ldsc._regression import runner as workflow

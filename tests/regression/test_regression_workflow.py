@@ -22,7 +22,7 @@ from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSC
 from ldsc._annotation.overlap import OverlapContribution
 from ldsc._ldscore.overlap_table import LDScoreOverlap
 
-from ldsc._ldscore.calculator import LDScoreResult
+from ldsc._ldscore.results import LDScoreResult
 from ldsc import cli
 from ldsc._regression import runner as regression_runner
 from ldsc._regression.runner import RegressionRunner

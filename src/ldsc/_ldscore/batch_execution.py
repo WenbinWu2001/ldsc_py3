@@ -24,7 +24,7 @@ from .._annotation.query_outcomes import finalize_query_measurements, finalize_q
 from .._runtime.parallelism import run_chromosome_tasks
 from .._runtime.progress import PhaseProgress
 from .diagnostics import report_chromosome_failure
-from .fragments import StagedLDScoreBatch
+from .results import StagedLDScoreBatch
 from .query_variation import ScoreVariation, combine_variation
 
 

@@ -14,7 +14,7 @@ import numpy as np
 from ldsc.config import GlobalConfig
 from ldsc._core.identifiers import build_snp_id_series
 from ldsc.errors import LDSCInputError, LDSCInternalError
-from ldsc._ldscore.calculator import LDScoreResult
+from ldsc._ldscore.results import LDScoreResult
 from ldsc._regression.outputs import (
     H2DirectoryWriter,
     H2OutputConfig,

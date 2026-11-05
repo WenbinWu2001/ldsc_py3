@@ -3,7 +3,7 @@
 The converter is the public import boundary for legacy LD-score suites:
 reference and weight ``.l2.ldscore(.gz)`` families, counts, and, for baseline
 partitioned suites, annotations and frequencies. Regression consumes the
-resulting canonical :class:`ldsc._ldscore.calculator.LDScoreResult` directory.
+resulting canonical :class:`ldsc._ldscore.results.LDScoreResult` directory.
 Standalone annotation workflows retain their separate ``.annot(.gz)`` readers.
 """
 
@@ -27,7 +27,7 @@ from .._core.columns import normalize_genome_build
 from .._core.snp_identity import normalize_snp_identifier_mode
 from ..config import GlobalConfig, get_global_config
 from ..errors import LDSCInputError, LDSCUsageError
-from .calculator import LDScoreResult
+from .results import LDScoreResult
 from .overlap_table import LDScoreOverlap
 from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from .._runtime.paths import ensure_output_directory, normalize_path_token

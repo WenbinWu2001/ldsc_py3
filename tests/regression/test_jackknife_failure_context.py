@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from ldsc import cli
-from ldsc._ldscore.calculator import LDScoreResult
+from ldsc._ldscore.results import LDScoreResult
 from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from ldsc._regression import runner as workflow
 from ldsc._regression.jackknife import JackknifeIdentifiabilityError

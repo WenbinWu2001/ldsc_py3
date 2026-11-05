@@ -24,7 +24,7 @@ from ..._runtime.parallelism import chromosome_pool, resolve_worker_count
 from ..._runtime.worker_runtime import initialize_worker
 from ..batch_execution import run_query_batches
 from ..diagnostics import chromosome_log
-from ..fragments import StagedLDScoreBatch
+from ..results import StagedLDScoreBatch
 from ..overlap_table import LDScoreOverlap
 from ..query_variation import ScoreVariation, summarize_variation
 from .atoms import assemble_atom_selector, assemble_indexed_ld_scores, assemble_selected_atom_statistics

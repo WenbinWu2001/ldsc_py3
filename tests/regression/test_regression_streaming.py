@@ -16,7 +16,7 @@ from ldsc import cli, load_ldscore_from_dir
 from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from tests.regression import test_regression_workflow as fixtures
 from tests.regression.test_regression_fit_outcomes import h2_dataset
-from ldsc._ldscore.calculator import LDScoreResult
+from ldsc._ldscore.results import LDScoreResult
 from ldsc._ldscore.overlap_table import LDScoreOverlap
 from ldsc._annotation.overlap import OverlapContribution
 

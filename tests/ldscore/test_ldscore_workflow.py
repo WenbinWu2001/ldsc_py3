@@ -39,6 +39,7 @@ from ldsc._ldscore.calculator import (
     _regression_region_intervals,
     _resolve_build,
 )
+from ldsc._ldscore.results import ChromLDScoreResult, LDScoreResult
 from ldsc._runtime.workflow_kwargs import parse_command_line
 from ldsc._core import plink_files as kernel_formats
 from ldsc._ldscore import compute as kernel_ldscore
@@ -274,7 +275,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 "query": [score + 1.0],
             }
         )
-        return ldscore_workflow.ChromLDScoreResult(
+        return ChromLDScoreResult(
             chrom=chrom,
             baseline_table=baseline_table,
             query_table=query_table,
@@ -288,7 +289,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         )
 
     def make_baseline_only_chrom_result(self, chrom: str, bp: int, score: float, count: float):
-        return ldscore_workflow.ChromLDScoreResult(
+        return ChromLDScoreResult(
             chrom=chrom,
             baseline_table=pd.DataFrame(
                 {
@@ -356,7 +357,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(config.regr_snps_file, "/path/to/snps.txt")
 
     def test_chrom_result_uses_split_table_shape(self):
-        chrom_result = ldscore_workflow.ChromLDScoreResult(
+        chrom_result = ChromLDScoreResult(
             chrom="1",
             baseline_table=pd.DataFrame(
                 {
@@ -412,7 +413,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         cfg = GlobalConfig(snp_identifier="rsid")
 
         def make_chrom(chrom, snp, contribution):
-            return ldscore_workflow.ChromLDScoreResult(
+            return ChromLDScoreResult(
                 chrom=chrom,
                 baseline_table=pd.DataFrame(
                     {"CHR": [chrom], "SNP": [snp], "POS": [10], "regression_ld_scores": [3.0], "base": [1.0]}
@@ -442,7 +443,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         cfg = GlobalConfig(snp_identifier="rsid")
 
         def make_chrom(chrom, snp, contribution):
-            return ldscore_workflow.ChromLDScoreResult(
+            return ChromLDScoreResult(
                 chrom=chrom,
                 baseline_table=pd.DataFrame(
                     {"CHR": [chrom], "SNP": [snp], "POS": [10], "regression_ld_scores": [3.0], "base": [1.0]}
@@ -595,7 +596,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
     def test_finalize_query_statuses_prunes_zero_hit_and_zero_variance_queries(self):
         metadata = pd.DataFrame({"CHR": ["1", "1"], "SNP": ["rs1", "rs2"], "POS": [10, 20]})
-        result = ldscore_workflow.LDScoreResult(
+        result = LDScoreResult(
             baseline_table=metadata.assign(regression_ld_scores=[1.0, 1.5], base=[1.0, 1.0]),
             query_table=metadata.assign(q_zero=[0.0, 0.0], q_constant=[2.0, 2.0], q_good=[1.0, 3.0]),
             count_records=[
@@ -1194,7 +1195,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 details="BED source contains no intervals",
             )
             annotation_bundle = dataclass_replace(annotation_bundle, query_statuses=(status,))
-            result = ldscore_workflow.LDScoreResult(
+            result = LDScoreResult(
                 baseline_table=pd.DataFrame(
                     {
                         "CHR": ["1"],
@@ -1284,7 +1285,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             )
             args.plink_prefix = str(write_tiny_plink(tmpdir / "panel", pd.read_csv(baseline, sep="\t")))
             args.yes_really = True
-            chrom_result = ldscore_workflow.ChromLDScoreResult(
+            chrom_result = ChromLDScoreResult(
                 chrom="1",
                 baseline_table=pd.DataFrame(
                     {

@@ -34,7 +34,7 @@ from ..config import normalize_required_path
 from .source import (is_numbered_query_batch_file, load_ldscore_from_dir, query_batch_file_name,
                      validate_ldscore_baseline_table, validate_ldscore_query_table)
 from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError
-from .fragments import StagedLDScoreBatch
+from .results import LDScoreResult, StagedLDScoreBatch
 from .._runtime.artifacts import ArtifactFamily, atomic_write_json, declare_artifacts, to_serializable
 from .._runtime.paths import ensure_output_directory, remove_output_artifacts
 from .._annotation.gene_query_storage import persistent_gene_diagnostics
@@ -44,7 +44,6 @@ if TYPE_CHECKING:
     from ..config import GlobalConfig
     from .._annotation.gene_query_storage import StagedGeneListBatch
     from .._annotation.query_outcomes import QueryAnnotationStatus
-    from .calculator import LDScoreResult
     from .overlap_table import LDScoreOverlap
     from .source import LDScoreSource
 

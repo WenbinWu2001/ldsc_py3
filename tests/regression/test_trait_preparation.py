@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from ldsc._ldscore.calculator import LDScoreResult
+from ldsc._ldscore.results import LDScoreResult
 from ldsc._regression import runner as workflow
 from ldsc._sumstats.table import SumstatsTable
 from ldsc.config import GlobalConfig, RegressionConfig

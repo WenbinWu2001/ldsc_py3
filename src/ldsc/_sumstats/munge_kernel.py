@@ -775,25 +775,24 @@ def check_median(x, expected_median, tolerance, name):
 
 
 def _coordinate_metadata(dat, request, counts):
-    """Record the chunk coordinate policy and validate optional rsID coordinates."""
+    """Record the chunk coordinate policy and validate optional rsID coordinates.
+
+    Both mode families report the coordinate stage of :func:`parse_dat` from
+    ``counts``; rsID-family modes drop only complete pairs with an unsupported
+    ``CHR`` label there, so their missing-coordinate count stays 0.
+    """
     for column in ('CHR', 'POS'):
         if column not in dat.columns:
             dat[column] = pd.NA
     metadata = {
         **request.coordinate_metadata,
         'coordinate_columns': {target: next((raw for raw, canonical in request.column_map.items() if canonical == target), None) for target in ('CHR', 'POS')},
-        'n_rows': int(len(dat)), 'n_retained_after_chr_pos_policy': int(len(dat)),
-        'n_missing_chr_pos': 0, 'n_invalid_chr_pos': 0, 'n_dropped_invalid_chr_pos': 0,
+        'n_rows': counts['n_input'], 'n_retained_after_chr_pos_policy': counts['n_retained'],
+        'n_missing_chr_pos': counts['n_missing_chr'] + counts['n_missing_pos'],
+        'n_invalid_chr_pos': counts['n_invalid_chr'] + counts['n_invalid_pos'],
+        'n_dropped_invalid_chr_pos': counts['n_dropped'], 'coordinate_drop_report': counts,
     }
-    if identity_mode_family(request.snp_identifier) == 'chr_pos':
-        metadata.update(
-            n_rows=counts['n_input'], n_retained_after_chr_pos_policy=counts['n_retained'],
-            n_missing_chr_pos=counts['n_missing_chr'] + counts['n_missing_pos'],
-            n_invalid_chr_pos=counts['n_invalid_chr'] + counts['n_invalid_pos'],
-            n_dropped_invalid_chr_pos=counts['n_dropped'], coordinate_drop_report=counts,
-        )
-    else:
-        metadata.update(n_invalid_chr_pos=counts['n_invalid_chr'], n_dropped_invalid_chr_pos=counts['n_dropped'])
+    if identity_mode_family(request.snp_identifier) != 'chr_pos':
         complete = ~(coordinate_missing_mask(dat['CHR']) | coordinate_missing_mask(dat['POS']))
         if complete.any():
             positive_int_position_series(dat.loc[complete, 'POS'], context=request.source_path, label='POS')

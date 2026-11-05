@@ -292,7 +292,11 @@ def test_unsupported_contig_rows_are_dropped_before_any_output_in_every_mode(tmp
     assert table.data.SNP.tolist() == ["rs1", "rs2", "rs3"]
     assert summary.drop_counts["coordinates"] == 1
     assert sum(summary.drop_counts.values()) == 1
-    assert table.provenance["coordinate_provenance"]["n_invalid_chr_pos"] == 1
+    provenance = table.provenance["coordinate_provenance"]
+    # The coordinate stage saw 4 rows and kept 3, in both mode families.
+    assert provenance["n_invalid_chr_pos"] == provenance["n_dropped_invalid_chr_pos"] == 1
+    assert (provenance["n_rows"], provenance["n_retained_after_chr_pos_policy"]) == (4, 3)
+    assert [row["SNP"] for row in provenance["coordinate_drop_report"]["examples"]] == ["rs0"]
 
 
 @pytest.mark.parametrize("output_format", ["parquet", "tsv.gz"])

@@ -989,7 +989,10 @@ def infer_raw_sumstats(config: MungeConfig, *, global_config: GlobalConfig | Non
     it is ``auto``, and the liftover method; then it scans the selected
     columns in bounded chunks for columns without any value. The plan stops
     at the first of these stages that finds a problem, as the run does. The
-    preview writes nothing, logs nothing and does not load the keep-list.
+    preview writes nothing and does not load the keep-list. It does not log
+    the source-build check, whose failure it returns in the report; like the
+    run, it still warns when an explicit sample-size column overrides
+    automatically inferred sample-size columns.
 
     The report lists the problems of that stage: every header problem that
     would stop the run (missing or conflicting columns, ambiguous sample-size

@@ -393,7 +393,8 @@ The summary also records `used_n_rule` (the sample-size strategy actually used) 
 
 ### Preview without writing
 
-`infer_raw_sumstats` is the Python counterpart of `--infer-only` and returns the same report; it writes and logs nothing.
+`infer_raw_sumstats` is the Python counterpart of `--infer-only` and returns the same report; it writes nothing and does not log the source-build check.
+Like the run, it still warns when an explicit sample-size column overrides automatically inferred sample-size columns.
 It takes the `MungeConfig` that `SumstatsMunger.run` would take, reads every option from it and resolves the munging plan the run resolves: the header and first data row, the keep-list path, the `INC_ALLELE`/`DEC_ALLELE` orientation check, the source genome build and liftover method in coordinate-family modes, and a bounded scan for columns without values.
 So a QC threshold whose column is missing, a keep-list file that does not exist, or a source build that cannot be inferred appears in `missing_fields`, at the stage where the run would stop.
 Problems that only the munging pass over the data rows reveals, such as a stage that leaves no row, are found by the run alone.

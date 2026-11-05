@@ -275,7 +275,8 @@ They also report a keep-list path that does not resolve (`sumstats_snps_file`), 
 Each appears under `Missing fields` with its error message as a note, and the report says `Runnable: no`.
 In coordinate-family modes they also report the source build the run would use (`source_genome_build` is missing when it cannot be resolved), the liftover method and whether a chain file resolves.
 Like the run, the previews stop at the first stage of the munging plan that finds a problem: with header problems they do not check the source build.
-`infer_raw_sumstats()` logs nothing; `--infer-only` also prints a failed source-build check on the console, as the run does.
+`infer_raw_sumstats()` does not log the source-build check; `--infer-only` also prints a failed source-build check on the console, as the run does.
+Both previews, like the run, warn when an explicit sample-size column overrides automatically inferred sample-size columns.
 They check the build and liftover options against the SNP identifier mode with the run's own check, which raises the run's error.
 The two previews return the same report; the CLI also prints a suggested command.
 

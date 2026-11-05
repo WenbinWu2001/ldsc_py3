@@ -112,10 +112,23 @@ def test_exact_and_glob_scope_comes_from_contents(tmp_path):
 def test_at_requires_all_autosomes_and_collects_missing_files(tmp_path):
     from ldsc._annotation.preflight import resolve_annotation_inputs
 
-    write_inputs(tmp_path)
-    _paths, _declared, issues = resolve_annotation_inputs(str(tmp_path / "baseline.@.annot"))
+    args = write_inputs(tmp_path)
+    args.baseline_annot_sources = str(tmp_path / "baseline.@.annot")
+    _paths, _declared, issues = resolve_annotation_inputs(args.baseline_annot_sources)
     missing = [row for row in issues if row["reason"] == "missing_required_input"]
     assert [row["chrom"] for row in missing] == list(map(str, range(1, 22)))
+    result = inspect(args, GlobalConfig(snp_identifier="rsid"), tmp_path)
+    assert result.scope["requires_all_autosomes"] is True
+    assert result.issues.loc[result.issues.reason.eq("missing_required_input"), "chrom"].tolist() == list(map(str, range(1, 22)))
+
+
+def test_at_reference_with_matching_partial_baseline_fails_the_autosome_gate(tmp_path):
+    args = write_inputs(tmp_path)
+    args.plink_prefix = str(tmp_path / "panel@")
+    result = inspect(args, GlobalConfig(snp_identifier="rsid"), tmp_path)
+    assert result.scope["requires_all_autosomes"] is True
+    assert result.scope["baseline_chromosomes"] == result.scope["reference_chromosomes"] == ["22"]
+    assert "chromosome_set_mismatch" in result.issues.reason.tolist()
 
 
 def test_multiple_plink_trios_for_one_chromosome_fail_preflight(tmp_path):

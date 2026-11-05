@@ -53,7 +53,7 @@ Munging writes `A1` and `A2` in uppercase in every SNP identifier mode, as legac
 Base modes do not otherwise check allele values: a row with a missing or non-`A/C/G/T` allele is kept, and a column of numeric allele codes is written as parsed.
 
 `--infer-only` reports these cases as `A1/A2 orientation`, `A1/A2 pair` or `A1/A2` under `Missing fields`, explains them, and never puts `--a1`, `--a2` or `--ignore` into its suggested command.
-The `INC_ALLELE`/`DEC_ALLELE` check reads data, so only the run performs it.
+`--infer-only` also performs the `INC_ALLELE`/`DEC_ALLELE` check, reading the signed statistic in chunks, and reports a contradiction as `A1/A2 orientation` with the run's message.
 Remedies are collected in [troubleshooting](../user-guide/troubleshooting.md#munge-sumstats-a1-cannot-be-identified).
 
 A/T and C/G SNPs are kept in every SNP identifier mode.
@@ -62,16 +62,25 @@ With the default HM3 keep-list, allele-aware modes keep none of them, because th
 
 ## Preparation and Run Accounting
 
-`_sumstats.munge_input.resolve_munge_plan()` makes every decision a run takes before it reads data rows, for the run, `--infer-only` and `infer_raw_sumstats()` alike, so the two previews report exactly the problems the run stops on.
-It reads the raw header once with `_sumstats.munge_input.resolve_raw_schema()`, which detects the format and resolves column aliases and hints, DANER sample-size settings, the signed statistic, QC thresholds and allele columns; it then resolves the raw coordinate build/basis and the liftover request for that build, including its chain file.
-It collects every header problem; the run raises them together in one error, and a single problem keeps its own message.
-An unresolved source build, different builds without a liftover method, or a chain file that does not resolve is raised after the header problems.
-`_sumstats.munge_input.prepare_munge_input()` then raises those problems for the run, checks `INC_ALLELE`/`DEC_ALLELE` orientation against the signed statistic, and loads the optional keep-list.
+`_sumstats.munge_input.resolve_munge_plan()` resolves the munging plan: every check and decision a run makes before its munging pass, for the run, `--infer-only` and `infer_raw_sumstats()` alike.
+Its checks run in stages, in this order:
+
+1. the raw header, read once with `_sumstats.munge_input.resolve_raw_schema()`, which detects the format and resolves column aliases and hints, DANER sample-size settings, the signed statistic, QC thresholds and allele columns, together with the keep-list path;
+2. `INC_ALLELE`/`DEC_ALLELE` orientation against the signed statistic;
+3. in coordinate-family modes, the raw coordinate build/basis;
+4. the liftover method for that build, then its chain file.
+
+The munging plan stops at the first stage that finds a problem, as the run stops there, so the two previews report the problems that the run stops on before its munging pass.
+Problems that only the data rows reveal during the munging pass, such as a signed-statistic median far from its null value or a stage that leaves no row, are found by the run alone.
+The munging plan collects every header problem; the run raises them together in one error, and a single problem keeps its own message.
+A keep-list path that does not resolve, a contradicted `INC_ALLELE`/`DEC_ALLELE` orientation, an unresolved source build, different builds without a liftover method, or a chain file that does not resolve is raised after the header problems; at most one of them occurs.
+`_sumstats.munge_input.prepare_munge_input()` then raises those problems for the run and loads the optional keep-list.
 Under HM3 quick liftover the packaged HM3 map is read once and serves as both the keep-list and the position lookup.
 The kernel accepts a `ResolvedMungeInput` and returns a `MungeResult` containing the munged table, counts, coordinate provenance, and separate identity/liftover drop records.
 CLI parsing stays in `_sumstats/munger.py`, artifact writing in `SumstatsDirectoryWriter` (`_sumstats/outputs.py`), and the munged table and its loader in `_sumstats/table.py`; the kernel neither parses CLI flags nor mutates configuration to return results.
 
-Source-build inference reads only `CHR`/`POS` in bounded chunks and stops when sufficient evidence is available. It precedes all QC, and shares its coordinate evidence reader with `--infer-only`.
+Under `auto`, source-build inference reads only `CHR`/`POS`, in chunks through the whole file, and keeps a sample of at most 5,000 rows per chromosome.
+It precedes all QC, and shares its coordinate evidence reader with `--infer-only`.
 It reads the raw file with the munging read rules (`_sumstats.munge_kernel.read_raw_sumstats()`: whitespace-delimited fields, `.` and `NA` as missing values, leading `##` lines skipped), so it samples the values the run parses, also when the header line uses tabs and the rows spaces.
 The main parsing pass counts raw records as it reads them; it does not reopen the full raw file to count lines after munging.
 
@@ -89,7 +98,8 @@ For Python users, `munger.build_run_summary()` reports parsed `n_input_rows`, fi
 | `liftover` | Liftover-stage exclusions, including source/target duplicate coordinates |
 | `identity` | Final global identity cleanup |
 
-If parsing with QC and the SNP restriction, sample-size filtering, or SNP identity cleanup leaves no row, the run stops before writing any file with `munge-sumstats retained 0 of <N> input rows after <stage>` and the recorded counts; after identity cleanup the error also lists the identity drop reasons.
+If parsing with QC and the SNP restriction, sample-size filtering, or SNP identity cleanup leaves no row, the run stops before writing any data file with `munge-sumstats retained 0 of <N> input rows after <stage>` and the recorded counts; after identity cleanup the error also lists the identity drop reasons.
+Only `diagnostics/sumstats.log` is written.
 A liftover that drops every row stops with its own error.
 All keys are present, including stages with zero drops. Detailed coordinate reason counts in provenance can overlap when a row has multiple invalid fields; the `coordinates` stage count counts that row once. `used_n_rule` reports the strategy actually used: `input_columns`, `fixed_N`, or `fixed_case_control_N`. Per-variant N or case/control columns retain their existing precedence over supplied constant sample sizes. Row-level audit sidecars remain limited to identity and liftover drops.
 
@@ -260,9 +270,12 @@ values are available. Downstream LDSC3 commands do not consume this file.
 
 ## `--infer-only`
 
-`--infer-only` and its Python form `infer_raw_sumstats()` report the plan the run resolves (`resolve_munge_plan()`), so they list every header problem the run would stop on: missing or conflicting columns, ambiguous sample-size or signed-statistic columns, unusable old DANER counts and missing allele orientation.
-Each appears under `Missing fields` with the run's message as a note, and the report says `Runnable: no`.
+`--infer-only` and its Python form `infer_raw_sumstats()` report the munging plan the run resolves (`resolve_munge_plan()`), so they list every header problem the run would stop on: missing or conflicting columns, ambiguous sample-size or signed-statistic columns, unusable old DANER counts and missing allele orientation.
+They also report a keep-list path that does not resolve (`sumstats_snps_file`), on which the run stops in its input preflight, and `INC_ALLELE`/`DEC_ALLELE` columns that the signed statistic contradicts (`A1/A2 orientation`).
+Each appears under `Missing fields` with its error message as a note, and the report says `Runnable: no`.
 In coordinate-family modes they also report the source build the run would use (`source_genome_build` is missing when it cannot be resolved), the liftover method and whether a chain file resolves.
+Like the run, the previews stop at the first stage of the munging plan that finds a problem: with header problems they do not check the source build.
+`infer_raw_sumstats()` logs nothing; `--infer-only` also prints a failed source-build check on the console, as the run does.
 They check the build and liftover options against the SNP identifier mode with the run's own check, which raises the run's error.
 The two previews return the same report; the CLI also prints a suggested command.
 

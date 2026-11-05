@@ -446,10 +446,12 @@ Before calling the kernel, the workflow runs format and column inference:
 VCF-style headers, old DANER, and new DANER. `--infer-only` runs that inference
 pass, still requires `--output-dir` for the uniform CLI contract, creates no
 output directory, and prints missing fields plus exact repair suggestions.
-`_sumstats.munge_input.resolve_munge_plan()` resolves the raw schema and sample-size settings (`resolve_raw_schema()`), the source build/basis and the liftover request for that build into a `MungePlan`, shared with `--infer-only` and `infer_raw_sumstats()`.
-`_sumstats.munge_input.prepare_munge_input()` raises the plan's problems and adds the keep-list into `ResolvedMungeInput`.
+`_sumstats.munge_input.resolve_munge_plan()` resolves the raw schema and sample-size settings (`resolve_raw_schema()`), the keep-list path, the `INC_ALLELE`/`DEC_ALLELE` orientation check, the source build/basis and the liftover request for that build into a `MungePlan`, the munging plan shared with `--infer-only` and `infer_raw_sumstats()`.
+`_sumstats.munge_input.prepare_munge_input()` raises the munging plan's problems and adds the keep-list into `ResolvedMungeInput`.
 When the request selects HM3 quick liftover, `prepare_munge_input()` loads the packaged HM3 map once and derives both the keep-list and the liftover position lookup from it.
-The kernel returns a `MungeResult` with parsed row counts, exclusive per-stage drop counts, coordinate provenance and separate identity/liftover drop records. Row counting occurs during chunk parsing; there is no post-run full-file count pass. Source-build inference uses the shared bounded coordinate evidence reader before chunk QC, including when those informative rows will later be filtered out; it reads the raw file through `_sumstats.munge_kernel.read_raw_sumstats()`, the reader of the munging pass, so both parse the same values.
+The kernel returns a `MungeResult` with parsed row counts, exclusive per-stage drop counts, coordinate provenance and separate identity/liftover drop records.
+Row counting occurs during chunk parsing; there is no post-run full-file count pass.
+Source-build inference uses the shared bounded coordinate evidence reader before chunk QC, including when those informative rows will later be filtered out; it reads the raw file through `_sumstats.munge_kernel.read_raw_sumstats()`, the reader of the munging pass, so both parse the same values.
 
 Default output is `sumstats.parquet`; `--output-format tsv.gz` or `both`
 also supports the legacy `sumstats.gz` artifact. With overwrite

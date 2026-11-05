@@ -393,9 +393,10 @@ The summary also records `used_n_rule` (the sample-size strategy actually used) 
 
 ### Preview without writing
 
-`infer_raw_sumstats` is the Python counterpart of `--infer-only` and returns the same report; it writes nothing.
-It takes the `MungeConfig` that `SumstatsMunger.run` would take, reads every option from it and resolves the plan the run resolves: the header and first data row, the source genome build and liftover method in coordinate-family modes, and a bounded scan for columns without values.
-So a QC threshold whose column is missing, or a source build that cannot be inferred, appears in `missing_fields` exactly where the run would stop.
+`infer_raw_sumstats` is the Python counterpart of `--infer-only` and returns the same report; it writes and logs nothing.
+It takes the `MungeConfig` that `SumstatsMunger.run` would take, reads every option from it and resolves the munging plan the run resolves: the header and first data row, the keep-list path, the `INC_ALLELE`/`DEC_ALLELE` orientation check, the source genome build and liftover method in coordinate-family modes, and a bounded scan for columns without values.
+So a QC threshold whose column is missing, a keep-list file that does not exist, or a source build that cannot be inferred appears in `missing_fields`, at the stage where the run would stop.
+Problems that only the munging pass over the data rows reveals, such as a stage that leaves no row, are found by the run alone.
 
 ```python
 from ldsc import MungeConfig, infer_raw_sumstats
@@ -862,7 +863,8 @@ print(float(h2.tot), float(h2.tot_se), float(h2.intercept), fit.n_snps)
 
 `RegressionConfig` holds the regression options: `num_blocks`, `use_common_counts` (the CLI's `--count-kind`), `intercept_h2`, `two_step_cutoff`, `chisq_max`, `samp_prev`, `pop_prev` and `allow_identity_downgrade`.
 `RegressionConfig(use_intercept=False)` is equivalent to fixing the intercept at 1.
-`SumstatsMunger().run(MungeConfig(...))` returns the same `SumstatsTable` that `load_sumstats()` reads back.
+`SumstatsMunger().run(MungeConfig(...))` returns a `SumstatsTable` with the rows, row order, `CHR` labels and values that `load_sumstats()` reads back from the run's Parquet file.
+Only the column order differs: the returned table has the output order `SNP, CHR, POS, A1, A2, Z, N, FRQ`, and the loaded one `SNP, CHR, POS, N, Z, A1, A2, FRQ`, each with the columns that exist.
 
 **Provenance checks.**
 Munged Parquet files store the `GlobalConfig` used to make them in their footer, together with the trait label; `load_sumstats()` restores both as `SumstatsTable.config_snapshot` and `trait_name`.

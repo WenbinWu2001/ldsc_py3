@@ -818,7 +818,7 @@ def _check_increasing_allele_signs(schema: RawSchema) -> None:
 
 @dataclass(frozen=True)
 class MungePlan:
-    """The checks and decisions one munging run makes before its munging pass.
+    """The munging plan: the checks and decisions one munging run makes before its munging pass.
 
     :func:`resolve_munge_plan` builds it for ``SumstatsMunger.run``,
     ``--infer-only`` and ``infer_raw_sumstats()``, so the run and both
@@ -957,7 +957,7 @@ def liftover_issue(request: SumstatsLiftoverRequest, source_build: str | None) -
     """Return the problem of a request whose concrete builds differ without a liftover method, or ``None``.
 
     The run checks it before any input IO when the source build is given
-    explicitly, and the plan checks it again once ``auto`` is resolved.
+    explicitly, and the munging plan checks it again once ``auto`` is resolved.
     """
     if source_build not in {"hg19", "hg38"} or request.target_build in {None, source_build} or request.method is not None:
         return None
@@ -969,7 +969,7 @@ def liftover_issue(request: SumstatsLiftoverRequest, source_build: str | None) -
 
 
 def resolve_munge_plan(config: MungeConfig, source_config: GlobalConfig, *, logger=LOGGER) -> MungePlan:
-    """Resolve every check and decision a munging run makes before its munging pass.
+    """Resolve the munging plan: every check and decision a munging run makes before its munging pass.
 
     The checks run in stages, and the plan stops at the first stage that finds
     a problem, as the run stops there:

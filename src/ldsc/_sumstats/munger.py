@@ -1053,7 +1053,7 @@ def _inference_from_schema(schema: munge_input.RawSchema) -> RawSumstatsInferenc
 
 
 def _apply_build_inference_report(plan: munge_input.MungePlan, inference: RawSumstatsInference) -> RawSumstatsInference:
-    """Add the plan's SNP restriction, source and output builds and liftover method to a preview."""
+    """Add the munging plan's SNP restriction, keep-list and orientation problems, builds and liftover method to a preview."""
     config, mode = plan.config, plan.source_config.snp_identifier
     missing = list(inference.missing_fields)
     suggested = list(inference.suggested_args)

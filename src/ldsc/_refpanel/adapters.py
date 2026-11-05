@@ -54,6 +54,13 @@ from .._core.snp_identity import (
     identity_mode_family,
     is_allele_aware_mode,
 )
+from .._genome.build_policy import GenomeBuildCheck
+from .build_kernel import (
+    build_restriction_mask,
+    build_plink_metadata_frame,
+    interpolate_genetic_map_cm,
+    load_genetic_map_group,
+)
 
 LOGGER = logging.getLogger("LDSC.ref_panel")
 
@@ -62,7 +69,6 @@ def _artifact_global_config(metadata, global_config, source):
     """Validate declared coordinates before constructing an artifact snapshot."""
     build = metadata.get("genome_build")
     if identity_mode_family(global_config.snp_identifier) == "chr_pos":
-        from .._genome.build_policy import GenomeBuildCheck
         check = GenomeBuildCheck(global_config.genome_build, context="reference-panel validation", logger=LOGGER)
         if build is not None:
             check.declared("reference artifact", source, build)
@@ -183,8 +189,6 @@ class RefPanel(ABC):
         restricted, so identity cleanup, which runs afterwards, drops and
         reports it.
         """
-        from .build_kernel import build_restriction_mask
-
         restrict_path = self.spec.ref_panel_snps_file
         if restrict_path is None or len(metadata) == 0:
             return metadata
@@ -329,8 +333,6 @@ class PlinkRefPanel(RefPanel):
             raise
         _record_genotype_qc(funnel, geno.genotype_qc_removed, geno.maf_removed, maf_min)
         try:
-            from .build_kernel import build_plink_metadata_frame
-
             metadata = build_plink_metadata_frame(bim=bim, kept_snps=geno.kept_snps, maf_values=geno.maf,
                                                   freq_values=geno.freq)
             retained_keys = identifier_keys(metadata, mode)
@@ -377,7 +379,6 @@ class PlinkRefPanel(RefPanel):
                 if genetic_map is None:
                     genetic_map = _resolve_genetic_map(self, chrom, metadata)
                 if genetic_map is not None:
-                    from .build_kernel import interpolate_genetic_map_cm
                     metadata["CM"] = interpolate_genetic_map_cm(
                         normalize_chromosome(chrom), metadata["POS"].to_numpy(dtype=np.int64), genetic_map,
                     )
@@ -584,8 +585,6 @@ class RefPanelLoader:
 
 def _infer_restricted_ref_panel_build(ref_panel_spec: RefPanelConfig, requested="auto") -> str:
     """Resolve all panel shards and coordinate restrictions before filtering."""
-    from .._genome.build_policy import GenomeBuildCheck
-
     check = GenomeBuildCheck(requested, context='reference-panel loading', logger=LOGGER)
     if ref_panel_spec.backend == 'plink':
         check.plink('--plink-prefix', ref_panel_spec.plink_prefix)
@@ -632,8 +631,6 @@ def _resolve_genetic_map(panel, chrom, metadata):
     sources = spec.genetic_map_hg38_sources if build == "hg38" else spec.genetic_map_hg19_sources
     if sources is None:
         raise LDSCInputError(f"ldscore needs a `--genetic-map-{build}-sources` file to derive CM for the PLINK panel (resolved build {build}), but it was not supplied.")
-    from .build_kernel import load_genetic_map_group
-    from .._genome.build_policy import GenomeBuildCheck
     check = GenomeBuildCheck(build, context="PLINK genetic map", logger=LOGGER)
     check.paths(f"--genetic-map-{build}-sources", sources)
     check.resolve()

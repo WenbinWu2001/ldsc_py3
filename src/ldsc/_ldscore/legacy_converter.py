@@ -31,6 +31,7 @@ from .calculator import LDScoreResult
 from .overlap_table import LDScoreOverlap
 from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from .._runtime.paths import ensure_output_directory, normalize_path_token
+from .._genome.build_policy import GenomeBuildCheck
 
 
 LOGGER = logging.getLogger("LDSC.legacy_ldscore_converter")
@@ -285,7 +286,6 @@ class LegacyLDScoreConverter:
                 "Restore missing shards or rename misnamed copies from the matching source suite."
             )
 
-        from .._genome.build_policy import GenomeBuildCheck
         build_check = GenomeBuildCheck(build_hint, context="convert-legacy-ldscores", logger=LOGGER)
         for role, paths in (("reference", reference_family.paths), ("weight", weight_family.paths),
                             ("annotation", annotation_family)):
@@ -1374,7 +1374,6 @@ def _resolve_output_coordinates(
     rsID output carries no coordinate build and requires no inference.
     """
     output = frame.copy(deep=False)  # the 0-based branch below replaces POS in this frame only
-    from .._genome.build_policy import GenomeBuildCheck
     check = build_check or GenomeBuildCheck(build_hint, context='convert-legacy-ldscores', logger=LOGGER)
     if build_check is None and mode != "rsid":
         check.frames('--legacy-reference-dir', context, [output])

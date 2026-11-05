@@ -14,6 +14,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from .semantics import classify_annotation_values
+
 
 @dataclass(frozen=True)
 class OverlapContribution:
@@ -73,8 +75,6 @@ def annotation_statistics(metadata, annotations, n_baseline, *, query_batch_size
     baseline-by-query, ``(B, Q)``. Row tiles and query arithmetic are
     unchanged, so query statistics match a full call exactly.
     """
-    from .semantics import classify_annotation_values
-
     n_rows, n_columns = annotations.shape
     n_query = n_columns-n_baseline
     common = None if 'MAF' not in metadata or metadata.MAF.isna().all() else (metadata.MAF >= common_maf_min).to_numpy()

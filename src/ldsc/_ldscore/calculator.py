@@ -55,10 +55,10 @@ from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
 from .._runtime.parallelism import (
     WORKERS_HELP, chromosome_pool, parse_workers, resolve_worker_count, validate_workers,
 )
-from .._runtime.progress import report_phase
+from .._runtime.progress import report_phase, PhaseProgress
 from .._annotation.saved_results import AnnotationResult
-from .._annotation.storage import TsvDiagnostics
-from .source import LDScoreSource
+from .._annotation.storage import TsvDiagnostics, AnnotationWorkspace
+from .source import LDScoreSource, validate_ldscore_schemas
 from .._core.snp_identity import coerce_identity_drop_frame, IDENTITY_DROP_COLUMNS, identity_mode_family, is_allele_aware_mode
 from .._core.columns import normalize_genome_build
 from .._core.snp_identity import emit_dropped_snps_notice, normalize_snp_identifier_mode
@@ -102,7 +102,7 @@ from .._refpanel.funnel import (
     funnel_summary,
     read_reference_snp_funnel,
 )
-from .._refpanel.prepared import ChromosomeAnnotations
+from .._refpanel.prepared import ChromosomeAnnotations, MappedAnnotations
 from .._core import regions as kernel_regions
 from .._annotation.overlap import OverlapContribution, sum_overlap_contributions
 from .._annotation.semantics import combine_annotation_types
@@ -111,11 +111,32 @@ from .._refpanel.r2_format import SIDECAR_FLOAT_FORMAT
 from .._core.identifiers import read_snp_restriction_keys
 from .._core.snp_identity import RestrictionIdentityKeys
 from .._core.row_alignment import assert_same_snp_rows, concat_chromosome_tables, sort_frame_by_genomic_position
-from ..errors import EmptyReferenceSNPs, LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
+from ..errors import (
+    EmptyReferenceSNPs,
+    LDSCConfigError,
+    LDSCInputError,
+    LDSCInternalError,
+    LDSCUsageError,
+    LDSCUserError,
+)
 from .._annotation.query_outcomes import (
     QueryAnnotationStatus, gene_query_statuses, gene_viability_errors, all_query_annotations_skipped_message,
     emit_bed_query_notice, emit_gene_gate_b_notice, emit_resolved_only_notice,
 )
+from .._genome.build_policy import GenomeBuildCheck
+from .._refpanel.adapters import PlinkRefPanel, RefPanelLoader
+from .._annotation.interval_queries import execution_query_bundle
+from .._annotation.gene_lists import GeneCatalog
+from .._annotation.gene_query_storage import resolve_gene_lists_staged, persistent_gene_diagnostics
+from .._annotation.preflight import (
+    annotation_columns,
+    require_usable_bed_query_names,
+    validate_gene_query_names,
+    inspect_annotation_inputs,
+)
+from .._runtime.preflight import InputGate
+from .gene_index.scoring import run_indexed_ldscore
+from .._runtime.worker_runtime import initialize_worker
 
 
 LOGGER = logging.getLogger("LDSC.ldscore_calculator")
@@ -267,8 +288,6 @@ class LDScoreResult:
 
     def validate(self) -> None:
         """Check the normalized public contract for aggregated results."""
-        from .source import validate_ldscore_schemas
-
         validate_ldscore_schemas(
             self.baseline_columns, self.query_columns, self.baseline_table.columns,
             None if self.query_table is None else self.query_table.columns,
@@ -445,7 +464,6 @@ class LDScoreCalculator:
                 "and MAF metadata; use them directly and drop the option."
             )
         if identity_mode_family(global_config.snp_identifier) == "chr_pos":
-            from .._genome.build_policy import GenomeBuildCheck
             check = GenomeBuildCheck(global_config.genome_build, context='LDScoreCalculator', logger=LOGGER)
             for role, obj in (("annotations", annotation_bundle), ("reference panel", ref_panel)):
                 snapshot = getattr(obj, 'config_snapshot', None) or getattr(obj, 'global_config', None)
@@ -738,7 +756,6 @@ class _DirectProducer:
 
     def __init__(self, calculator, annotation_bundle, ref_panel, ldscore_config, global_config,
                  regression_regions, log_paths, *, output_dir=None, export_dir=None):
-        from .._refpanel.adapters import PlinkRefPanel
         self.calculator = calculator
         self.annotation_bundle = annotation_bundle
         self.ref_panel = ref_panel
@@ -770,7 +787,6 @@ class _DirectProducer:
     @contextmanager
     def open_batch(self, ordinal, query_columns, statuses, scratch):
         """Project the batch's BED or gene-list queries and release them after consumption."""
-        from .._annotation.interval_queries import execution_query_bundle
         with execution_query_bundle(self.annotation_bundle, query_columns, statuses, self.output_dir) as active:
             yield self.prepare(active, ordinal=ordinal, fragment_dir=str(scratch))
 
@@ -1293,10 +1309,6 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
     if getattr(args, "gene_ldscore_index_dir", None) is not None:
         return _run_explicit_indexed_ldscore(args)
 
-    from .._annotation.gene_lists import GeneCatalog
-    from .._annotation.gene_query_storage import resolve_gene_lists_staged, persistent_gene_diagnostics
-    from .._annotation.storage import AnnotationWorkspace
-    from .._annotation.preflight import annotation_columns, require_usable_bed_query_names, validate_gene_query_names
     from .direct_annotation import prepare_direct_annotations, prepare_synthetic_base
 
     has_queries = any(_has_cli_tokens(getattr(args, name, None)) for name in (
@@ -1312,11 +1324,8 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with AnnotationWorkspace(output_dir) as workspace:
         with workflow_logging("ldscore", log_path, log_level=getattr(args,"log_level","INFO")):
-            from .._annotation.preflight import inspect_annotation_inputs
-            from .._runtime.preflight import InputGate
             from .._refpanel.preflight import inspect_r2_headers
             from .preflight import inspect_reference_inputs
-            from .._runtime.progress import PhaseProgress
             declared_inputs = inspect_annotation_inputs(
                 baseline=getattr(args, 'baseline_annot_sources', None), query=getattr(args, 'query_annot_sources', None),
                 files=[(name, getattr(args, name, None)) for name in (
@@ -1482,7 +1491,6 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> "LDScoreSource":
         raise LDSCInputError(
             "ldscore indexed mode requires --query-annot-gene-list-sources."
         )
-    from .gene_index.scoring import run_indexed_ldscore
     output_dir = output_directory_path(args.output_dir)
     log_path = output_dir / LDSCORE_LOG
     LDScoreDirectoryWriter.artifact_family(output_dir, include_logs=True).preflight(
@@ -1610,8 +1618,6 @@ def _apply_direct_gene_gate_b(annotation_bundle, ref_panel, ldscore_config):
     chromosomes whose reference preparation failed as an input-issue table or
     ``None``.
     """
-    from ..errors import LDSCUserError
-
     batch = annotation_bundle.gene_list_batch
     padding_bp = int(annotation_bundle.source_summary.get("padding_bp", 0))
     intervals_by_index = {}
@@ -1961,7 +1967,6 @@ def _resolve_ldscore_chr_pos_genome_build(
             "was omitted. Pass `--genome-build auto`, `--genome-build hg19`, or "
             "`--genome-build hg38`."
         )
-    from .._genome.build_policy import GenomeBuildCheck
 
     check = GenomeBuildCheck(normalized, context="ldscore", logger=LOGGER)
     if gene_catalog_build is not None:
@@ -2049,8 +2054,6 @@ def _regression_region_intervals(
 
 def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig, *, chromosome_prefixes=None):
     """Build the reference-panel adapter that owns the ``A -> A'`` restriction."""
-    from .._refpanel.adapters import RefPanelLoader
-
     ref_panel_snps_file = normalize_optional_path_token(getattr(args, "ref_panel_snps_file", None))
     r2_matrix_dir = _r2_matrix_dir_from_args(args)
     if r2_matrix_dir is not None:
@@ -2074,8 +2077,6 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig, 
             genetic_map_hg38_sources=getattr(args, "genetic_map_hg38_sources", None),
         )
     if spec.backend == "plink" and chromosome_prefixes is not None:
-        from .._refpanel.adapters import PlinkRefPanel
-
         return PlinkRefPanel(global_config, spec, chromosome_prefixes=chromosome_prefixes)
     return RefPanelLoader(global_config).load(spec)
 
@@ -2159,7 +2160,6 @@ def _check_parquet_reference(ref_panel, chromosomes, ldscore_config: LDScoreConf
     """
     if getattr(getattr(ref_panel, "spec", None), "backend", None) != "r2_matrix":
         return
-    from .._runtime.preflight import InputGate
     from .._refpanel.preflight import inspect_r2_headers
 
     def check_sidecar(chrom):
@@ -2328,8 +2328,6 @@ def _stage_chromosome_drops(bundle, chrom, reference_drops):
 
 def _chromosome_annotations(bundle, chrom):
     """Borrow one chromosome's metadata and selected annotation reader."""
-    from .._refpanel.prepared import MappedAnnotations
-
     shard = bundle.shard(chrom)
     metadata = shard.metadata()
     values = MappedAnnotations(shard, np.arange(shard.n_rows), tuple(bundle.baseline_columns + bundle.query_columns))
@@ -2380,8 +2378,6 @@ def _compute_one_chromosome(
     ``include_baseline=False`` (later batches of a writing run) computes only
     the query scores and statistics and needs ``fragment_dir``.
     """
-    from .._refpanel.adapters import RefPanelLoader
-
     with chromosome_log(log_path, chrom, batch_label):
         if regression_snps == _WORKER_UNSET:
             regression_snps = _WORKER_STATE.get("regression_snps")
@@ -2391,7 +2387,6 @@ def _compute_one_chromosome(
         if prefixes is None:
             prefixes = chrom_bundle.source_summary.get('chromosome_scope',{}).get('reference_prefixes_by_chrom')
         if ref_panel_spec.backend == 'plink' and prefixes:
-            from .._refpanel.adapters import PlinkRefPanel
             ref_panel = PlinkRefPanel(global_config,ref_panel_spec,chromosome_prefixes=prefixes)
         else:
             ref_panel = RefPanelLoader(global_config).load(ref_panel_spec)
@@ -2464,7 +2459,6 @@ def _compute_query_chromosome(chrom, chrom_bundle, ref_panel, ldscore_config, gl
 
 def _init_worker(regression_snps, regression_regions=None, log_level: str = "INFO") -> None:
     """Initialize shared keys and fixed, worker-owned native thread limits."""
-    from .._runtime.worker_runtime import initialize_worker
     _WORKER_STATE["regression_snps"] = regression_snps
     _WORKER_STATE["regression_regions"] = regression_regions
     initialize_worker(log_level)

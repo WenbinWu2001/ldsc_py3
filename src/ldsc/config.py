@@ -36,6 +36,7 @@ from ._core.columns import normalize_genome_build
 from .errors import LDSCConfigError
 from ._runtime.parallelism import validate_workers
 from ._runtime.paths import normalize_optional_path_token, normalize_path_token, normalize_path_tokens
+from ._core.chromosomes import normalize_chromosome
 
 LOGGER = logging.getLogger("LDSC.config")
 _GENOME_BUILD_UNSET = object()
@@ -527,8 +528,6 @@ class RefPanelConfig:
         object.__setattr__(self, "genetic_map_hg19_sources", _normalize_optional_path(self.genetic_map_hg19_sources))
         object.__setattr__(self, "genetic_map_hg38_sources", _normalize_optional_path(self.genetic_map_hg38_sources))
         if self.chromosomes is not None:
-            from ._core.chromosomes import normalize_chromosome
-
             object.__setattr__(self, "chromosomes", tuple(normalize_chromosome(chrom) for chrom in self.chromosomes))
 
 

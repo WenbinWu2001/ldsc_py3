@@ -28,6 +28,7 @@ from ..._refpanel.funnel import FUNNEL_COLUMNS, funnel_from_records, funnel_reco
 from .atoms import AtomStatistics, ChromosomeAtomModel, validate_ldscore_operator
 from ...config import GlobalConfig
 from ...errors import LDSCInputError, LDSCInternalError
+from ..._runtime.preflight import InputGate, check_readable, input_issue
 
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
 
@@ -480,8 +481,6 @@ def _finalize_staged_index_artifact(
 
 def inspect_index_paths(directory, *, metadata=None):
     """Inspect root declarations and all component paths without loading arrays."""
-    from ..._runtime.preflight import InputGate, check_readable, input_issue
-
     root = Path(directory)
     if metadata is None:
         metadata = _read_json(root/'metadata.json', 'root')

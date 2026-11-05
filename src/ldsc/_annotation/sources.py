@@ -30,6 +30,7 @@ from .._core.row_alignment import assert_same_snp_rows
 from .semantics import require_unique_annotation_names
 from .._core.chromosomes import chrom_sort_key
 from ..errors import LDSCInputError, LDSCUserError
+from .preflight import inspect_annotation_inputs
 
 LOGGER = logging.getLogger("LDSC.annotation")
 
@@ -273,7 +274,6 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
             "for the requested SNP set."
         )
     if header_widths is None:
-        from .preflight import inspect_annotation_inputs
         declared_inputs = inspect_annotation_inputs(baseline=baseline_files, query=query_files,
             mode=mode, initial_issues=input_issues)
         header_widths = declared_inputs.widths

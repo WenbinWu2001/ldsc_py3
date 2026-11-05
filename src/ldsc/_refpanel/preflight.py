@@ -12,6 +12,7 @@ import pandas as pd
 from .._core.columns import CHR_COLUMN_SPEC, POS_COLUMN_SPEC, resolve_required_column
 from .._runtime.preflight import InputGate, input_issue
 from .build_kernel import GENETIC_MAP_CM_SPEC
+from .r2_format import R2MatrixChromosome, r2_matrix_chromosomes, r2_matrix_file_paths, resolve_r2_build_dir
 
 
 def _check_genetic_map_header(path):
@@ -35,8 +36,6 @@ def inspect_r2_headers(directory, genome_build=None, *, command, ld_window=None)
     chromosome's recorded build window must also admit that window,
     and its R2 matrix must store every pair (``ldsc:r2_min`` not positive).
     """
-    from .r2_format import R2MatrixChromosome, r2_matrix_chromosomes, r2_matrix_file_paths, resolve_r2_build_dir
-
     root = Path(directory)
     children = [root / build for build in ('hg19', 'hg38') if (root / build).is_dir()]
     if genome_build == 'auto' and len(children) > 1 and not r2_matrix_chromosomes(root):

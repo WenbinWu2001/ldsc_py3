@@ -31,6 +31,7 @@ from ..errors import LDSCInputError, LDSCUsageError, LDSCUserError
 from .._genome.liftover import SumstatsLiftoverRequest
 from .._core.snp_identity import identity_base_mode, identity_mode_family, is_allele_aware_mode
 from .munge_kernel import MungeQC, ResolvedMungeInput, mean_info_list_value, prepare_sumstats_restriction
+from .._genome.build_policy import GenomeBuildCheck
 
 LOGGER = logging.getLogger('LDSC.sumstats_munger')
 
@@ -835,8 +836,6 @@ def resolve_source_coordinates(source_path, cname_translation, global_config, *,
     each chromosome before QC. It checks the keep list in the actual filtering
     mode and reports all unresolved/conflicting inputs together.
     """
-    from .._genome.build_policy import GenomeBuildCheck
-
     mode, build = global_config.snp_identifier, global_config.genome_build
     metadata = {'snp_identifier': mode, 'genome_build': build,
                 'genome_build_inferred': False,

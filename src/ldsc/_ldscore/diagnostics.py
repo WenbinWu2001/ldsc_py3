@@ -9,8 +9,17 @@ from contextlib import contextmanager, nullcontext
 import logging
 from pathlib import Path
 
-from .._runtime.workflow_logging import workflow_logging
+from .._runtime.workflow_logging import workflow_logging, log_outputs
 from .._runtime.worker_runtime import log_native_thread_state
+from .outputs import CHROMOSOME_LOG_DIR, LDSCORE_LOG, LDScoreDirectoryWriter
+from .._annotation.query_outcomes import (
+    gene_list_gate_a_message,
+    log_gene_list_rejections,
+    log_gene_list_snp_support,
+    log_query_annotation_statuses,
+)
+from ..errors import LDSCInputError
+from .._refpanel.funnel import reference_snp_funnel_warning
 
 LOGGER = logging.getLogger("LDSC.ldscore")
 
@@ -18,7 +27,6 @@ LOGGER = logging.getLogger("LDSC.ldscore")
 @contextmanager
 def ldscore_logs(output_dir, chromosomes, *, overwrite=False, log_level="INFO"):
     """Preflight/reset owned logs once per run; chromosome tasks append later."""
-    from .outputs import CHROMOSOME_LOG_DIR, LDSCORE_LOG, LDScoreDirectoryWriter
     if output_dir is None:
         yield {}
         return
@@ -83,10 +91,6 @@ def fail_gene_list_resolution(batch, output_config):
     Writes the gene-list audit and resolution summary, logs the rejections,
     and raises the consolidated ``LDSCInputError``.
     """
-    from .._annotation.query_outcomes import gene_list_gate_a_message, log_gene_list_rejections
-    from ..errors import LDSCInputError
-    from .outputs import LDScoreDirectoryWriter
-
     LDScoreDirectoryWriter().write_gene_list_preflight(batch, output_config)
     log_gene_list_rejections(batch)
     raise LDSCInputError(gene_list_gate_a_message(batch))
@@ -100,10 +104,6 @@ def fail_unusable_queries(diagnostics, message, output_config):
     paths, gene-list rejections and SNP support, and query statuses go to the
     workflow log before ``LDSCInputError(message)`` is raised.
     """
-    from .._runtime.workflow_logging import log_outputs
-    from ..errors import LDSCInputError
-    from .outputs import LDScoreDirectoryWriter
-
     log_outputs(**LDScoreDirectoryWriter().write_query_diagnostics(diagnostics, output_config))
     log_query_outcomes(diagnostics.gene_list_batch, diagnostics.query_statuses)
     raise LDSCInputError(message)
@@ -111,10 +111,6 @@ def fail_unusable_queries(diagnostics, message, output_config):
 
 def log_query_outcomes(gene_list_batch, statuses) -> None:
     """Log gene-list rejections and SNP support, then query statuses, after their diagnostics are written."""
-    from .._annotation.query_outcomes import (
-        log_gene_list_rejections, log_gene_list_snp_support, log_query_annotation_statuses,
-    )
-
     if gene_list_batch is not None:
         log_gene_list_rejections(gene_list_batch)
         log_gene_list_snp_support(gene_list_batch)
@@ -128,8 +124,6 @@ def reference_snp_funnel_path(output_dir) -> str:
 
 def log_reference_snp_funnel_warning(funnel, diagnostics, *, command="ldscore") -> None:
     """Log one run-level WARNING when the ``annotation_snp_grid`` step excluded panel SNPs."""
-    from .._refpanel.funnel import reference_snp_funnel_warning
-
     message = reference_snp_funnel_warning(funnel, command=command, diagnostics=str(diagnostics))
     if message is not None:
         LOGGER.warning(message)
@@ -142,8 +136,6 @@ def emit_reference_snp_funnel_notice(funnel, diagnostics, *, command="ldscore") 
     batch-scheduler users rarely read logs after a successful run.
     """
     import sys
-
-    from .._refpanel.funnel import reference_snp_funnel_warning
 
     message = reference_snp_funnel_warning(funnel, command=command, diagnostics=str(diagnostics))
     if message is not None:

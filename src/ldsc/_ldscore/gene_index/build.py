@@ -40,7 +40,7 @@ from ..._runtime.workflow_logging import args_output_scope, FAILURE_MARKER, LOG_
 from ..._runtime.parallelism import (
     WORKERS_HELP, chromosome_pool, parse_workers, resolve_worker_count, run_chromosome_tasks,
 )
-from ..._runtime.progress import report_phase
+from ..._runtime.progress import report_phase, PhaseProgress
 from .. import compute as kernel_ldscore
 from ..diagnostics import emit_reference_snp_funnel_notice, log_reference_snp_funnel_warning
 from ..outputs import snp_universe_policy_record
@@ -111,6 +111,10 @@ from .artifact import (
 )
 from . import artifact as index_artifact
 from .scoring import load_gene_ldscore_index
+from ..._annotation.preflight import inspect_annotation_inputs
+from ..._genome.build_policy import GenomeBuildCheck
+from ..._runtime.preflight import InputGate
+from ..._refpanel.build_kernel import load_genetic_map_group
 
 
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
@@ -545,7 +549,6 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                 process_id=os.getpid(),
                 hostname=socket.gethostname(),
             )
-            from ..._annotation.preflight import inspect_annotation_inputs
             from ..._refpanel.preflight import GENETIC_MAP_HEADER_CHECKS
             declared_inputs = inspect_annotation_inputs(
                 header_checks=GENETIC_MAP_HEADER_CHECKS,
@@ -567,7 +570,6 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                     issues_path,
                 )
                 raise
-            from ..._genome.build_policy import GenomeBuildCheck
             check = GenomeBuildCheck(config.genome_build, context="gene LD-score index construction", logger=LOGGER)
             check.declared("gene catalog", config.gene_coordinate_file, catalog.genome_build)
             for path in declared_inputs.baseline:
@@ -770,8 +772,6 @@ def _run_gene_ldscore_index_build(
     # The index independently records the explicit projection build.
     global_config = index_global_config(config.snp_identifier, config.genome_build)
     regression_path = Path(config.regr_snps_file or packaged_hm3_curated_map_path())
-    from ..._runtime.preflight import InputGate
-    from ..._runtime.progress import PhaseProgress
     build_dir = _gene_index_build_dir(Path(config.output_dir))
     gate = InputGate('Reference/control content validation', build_dir/'input_issues.tsv')
     with PhaseProgress(LOGGER, 'validation', 'PLINK, regression restriction, and genetic map content'):
@@ -1297,8 +1297,6 @@ def _load_builder_genetic_map(args):
         return None
     if args.ld_wind_cm is None:
         raise LDSCInputError("Genetic-map sources require --ld-wind-cm. Omit the map for kb or SNP-count windows.")
-    from ..._genome.build_policy import GenomeBuildCheck
-    from ..._refpanel.build_kernel import load_genetic_map_group
     check = GenomeBuildCheck(build, context="gene-index genetic map", logger=LOGGER)
     check.paths("genetic map", sources)
     check.resolve()

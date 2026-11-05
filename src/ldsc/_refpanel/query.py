@@ -46,6 +46,9 @@ from .._core.columns import (
     resolve_optional_column,
 )
 from ..errors import LDSCInputError, LDSCUsageError
+from .._genome.build_policy import GenomeBuildCheck
+from .._runtime.preflight import inspect_declared_inputs
+from .._runtime.progress import PhaseProgress
 
 LOGGER = logging.getLogger("LDSC.r2_matrix_query")
 
@@ -215,7 +218,6 @@ class R2Matrix:
                 f"form ({' or '.join(allowed)}). Use one of those modes, or an R2 matrix built in {mode} mode."
             )
         if mode.startswith('chr_pos'):
-            from .._genome.build_policy import GenomeBuildCheck
             check = GenomeBuildCheck(genome_build, context='query-r2-matrix', logger=LOGGER)
             for chromosome in chromosomes.values():
                 check.table('--r2-matrix-dir', chromosome.parquet_path)
@@ -624,9 +626,7 @@ def _write_query_r2_matrix_directory(args: argparse.Namespace, pairs: pd.DataFra
     )
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     with workflow_logging("query-r2-matrix", log_path, log_level=args.log_level):
-        from .._runtime.preflight import inspect_declared_inputs
         from .preflight import inspect_r2_headers
-        from .._runtime.progress import PhaseProgress
         inspect_declared_inputs(files=[] if args.pairs_file == '-' else [('pairs', args.pairs_file)],
             checks=[('reference', args.r2_matrix_dir, lambda: inspect_r2_headers(
                 args.r2_matrix_dir, args.genome_build, command='query-r2-matrix'))],

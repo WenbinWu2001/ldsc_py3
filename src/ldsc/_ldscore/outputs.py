@@ -25,7 +25,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .._annotation.query_outcomes import gene_viability_errors
+from .._annotation.query_outcomes import gene_viability_errors, log_gene_catalog_issues
 from .._annotation.semantics import require_unique_annotation_names
 from .._annotation.storage import TsvDiagnostics
 from .._core.row_alignment import first_identity_mismatch
@@ -37,6 +37,8 @@ from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError
 from .fragments import StagedLDScoreBatch
 from .._runtime.artifacts import ArtifactFamily, atomic_write_json, declare_artifacts, to_serializable
 from .._runtime.paths import ensure_output_directory, remove_output_artifacts
+from .._annotation.gene_query_storage import persistent_gene_diagnostics
+from .._refpanel.funnel import write_reference_snp_funnel
 
 if TYPE_CHECKING:
     from ..config import GlobalConfig
@@ -579,7 +581,6 @@ class LDScoreDirectoryWriter:
                 close = getattr(results, "close", None)
                 if close is not None:
                     close()
-        from .._annotation.gene_query_storage import persistent_gene_diagnostics
         shared.baseline_table = None  # the reload below reads the published baseline
         source = load_ldscore_from_dir(str(root))
         paths = {key: str(value) for key, value in family.paths.items()}
@@ -647,8 +648,6 @@ class LDScoreDirectoryWriter:
     def _write_reference_snp_funnel(publication: _LDScorePublication, paths: dict[str, Path]) -> None:
         """Write every chromosome's reference-SNP funnel, including skipped chromosomes."""
         if "reference_snp_funnel" in paths:
-            from .._refpanel.funnel import write_reference_snp_funnel
-
             write_reference_snp_funnel(publication.reference_snp_funnel, paths["reference_snp_funnel"])
 
     @staticmethod
@@ -681,8 +680,6 @@ class LDScoreDirectoryWriter:
             na_rep="",
         )
         if "gene_catalog_issues" in paths:
-            from .._annotation.query_outcomes import log_gene_catalog_issues
-
             batch.catalog.issues.to_csv(paths["gene_catalog_issues"], sep="\t", index=False, na_rep="")
             log_gene_catalog_issues(batch.catalog.issues)
 

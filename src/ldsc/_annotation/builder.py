@@ -23,6 +23,7 @@ from .._runtime.workflow_logging import materializing_overwrite_guard
 from .annotate import run_annotate
 from ..config import AnnotationBuildConfig, GlobalConfig
 from ..errors import LDSCUsageError
+from .outputs import AnnotationDirectoryWriter
 
 
 class AnnotationBuilder:
@@ -85,7 +86,6 @@ class AnnotationBuilder:
             return build_annotation_shards(source_spec or self.annotation_config, self.global_config, workspace,
                                            projection_genome_build=self.projection_genome_build)
         except BaseException as exc:
-            from .outputs import AnnotationDirectoryWriter
             try:
                 AnnotationDirectoryWriter().write_diagnostics(
                     output_dir, batch=getattr(exc, "gene_list_batch", None),

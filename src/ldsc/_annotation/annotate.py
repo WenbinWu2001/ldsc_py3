@@ -31,6 +31,10 @@ from .._runtime.paths import ensure_output_directory, split_cli_path_tokens
 from .query_outcomes import (
     gene_query_statuses, gene_viability_errors, all_query_annotations_skipped_message,
     emit_bed_query_notice, emit_gene_gate_b_notice, emit_resolved_only_notice,
+    log_gene_catalog_issues,
+    log_gene_list_rejections,
+    log_gene_list_snp_support,
+    log_query_annotation_statuses,
 )
 
 LOGGER = logging.getLogger('LDSC.annotation')
@@ -155,7 +159,6 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                 # duplicate-query reasons are already recorded by the resolver.
                 batch = validate_gene_query_names(batch, annotation_columns(declared_inputs))
                 writer.write_diagnostics(output, batch=batch, catalog_issues=catalog.issues)
-                from .query_outcomes import log_gene_catalog_issues, log_gene_list_rejections
                 log_gene_catalog_issues(catalog.issues)
                 log_gene_list_rejections(batch)
                 if batch.has_fatal_gate_a_issues:
@@ -214,7 +217,6 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
             bundle = replace(bundle, output_paths=writer.write(
                 bundle, output, overwrite=overwrite, provenance=provenance, scope=scope,
                 catalog_issues=None if catalog is None else catalog.issues, preflighted=True))
-            from .query_outcomes import log_gene_list_snp_support, log_query_annotation_statuses
             if bundle.gene_list_batch is not None:
                 log_gene_list_snp_support(bundle.gene_list_batch)
             log_query_annotation_statuses(bundle.query_statuses)

@@ -20,7 +20,7 @@ from ..._annotation.gene_lists import GeneCatalog, select_index_eligible_gene_in
 from ..._annotation.storage import AnnotationWorkspace
 from ..._core.snp_identity import normalize_snp_identifier_mode
 from ...config import GlobalConfig
-from ..outputs import common_count_config
+from ..outputs import common_count_config, LDScoreDirectoryWriter, QueryDiagnostics, LDScoreOutputConfig
 from . import artifact as index_artifact
 from .artifact import (
     IndexChromosomeData,
@@ -37,6 +37,17 @@ from ..._runtime.paths import output_directory_path
 from ..._refpanel.funnel import concat_funnels
 from ..._runtime.progress import advance, report_phase
 from ...errors import LDSCInputError
+from ..._runtime.preflight import inspect_declared_inputs
+from ..._annotation.gene_query_storage import resolve_gene_lists_staged
+from ..._annotation.query_outcomes import gene_query_statuses, gene_control_errors, gene_viability_errors
+from ..._annotation.preflight import validate_gene_query_names
+from ..diagnostics import (
+    fail_gene_list_resolution,
+    fail_unusable_queries,
+    log_query_outcomes,
+    ldscore_logs,
+    log_reference_snp_funnel_warning,
+)
 
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
 
@@ -470,8 +481,6 @@ def run_indexed_ldscore(
         raise ValueError("query_batch_size must be a positive integer.")
     validate_workers(workers)
     output_dir = str(output_directory_path(output_dir))
-    from ..._runtime.preflight import inspect_declared_inputs
-    from ..outputs import LDScoreDirectoryWriter, QueryDiagnostics
     LDScoreDirectoryWriter.artifact_family(output_dir).preflight(overwrite=overwrite)
     try:
         inspect_declared_inputs(files=[('query genes', query_gene_list_sources), ('control genes', control_gene_list_file)],
@@ -497,16 +506,6 @@ def _run_indexed_ldscore_in_workspace(
     workspace,
 ):
     """Own staged gene selections until the canonical result has been written."""
-    from ..._annotation.gene_query_storage import resolve_gene_lists_staged
-    from ..._annotation.query_outcomes import (
-    gene_query_statuses,
-    gene_control_errors,
-    gene_viability_errors,
-)
-    from ..._annotation.preflight import validate_gene_query_names
-    from ..diagnostics import fail_gene_list_resolution, fail_unusable_queries, log_query_outcomes
-    from ..outputs import LDScoreDirectoryWriter, LDScoreOutputConfig, QueryDiagnostics
-
     try:
         index = load_gene_ldscore_index(index_dir)
     except (OSError, ValueError, LDSCInputError) as exc:
@@ -571,7 +570,6 @@ def _run_indexed_ldscore_in_workspace(
         )
     from .batches import indexed_results
 
-    from ..diagnostics import ldscore_logs, log_reference_snp_funnel_warning
     with ldscore_logs(output_dir, index.chromosomes, overwrite=overwrite,
                       log_level=logging.getLevelName(LOGGER.getEffectiveLevel())) as log_paths:
         results = indexed_results(index, batch, usable, control_resolution, query_batch_size,

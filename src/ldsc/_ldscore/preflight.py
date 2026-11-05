@@ -18,6 +18,9 @@ from ..errors import LDSCInputError, LDSCUserError
 from .._runtime.paths import inspect_plink_inputs, split_cli_path_tokens
 from .._refpanel.adapters import RefPanelLoader
 from .._refpanel.r2_format import r2_matrix_chromosomes, resolve_r2_build_dir
+from .._runtime.progress import PhaseProgress
+from .outputs import LDScoreDirectoryWriter, QueryDiagnostics
+from .._annotation.query_outcomes import gene_query_statuses, gene_control_errors
 
 
 ISSUE_COLUMNS = ["input_role", "source", "chrom", "reason", "details", "repair"]
@@ -60,7 +63,6 @@ def inspect_reference_inputs(args, global_config, *, require_autosomes=True, pli
     PLINK integrity reads BIM/FAM and BED header/size, without correlations.
     The returned evidence is reused by the later content-dependent scope gate.
     """
-    from .._runtime.progress import PhaseProgress
     issues, declarations = [], []
     sets = {"reference": set()}
     reference_prefixes = {}
@@ -196,9 +198,6 @@ def inspect_direct_inputs(args, global_config, *, bed_sources, reference_inputs,
 def validate_direct_scope(args, global_config, batch, output_config, **prepared_inputs):
     """Write available batch diagnostics and fail once after scope inspection."""
     import logging
-
-    from .outputs import LDScoreDirectoryWriter, QueryDiagnostics
-    from .._annotation.query_outcomes import gene_query_statuses, gene_control_errors
 
     logger = logging.getLogger("LDSC.ldscore_calculator")
     evidence = inspect_direct_inputs(args, global_config, **prepared_inputs)

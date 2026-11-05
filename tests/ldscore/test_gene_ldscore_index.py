@@ -23,7 +23,6 @@ from scipy import sparse
 from ldsc import cli
 from ldsc._ldscore.gene_index import build as gene_ldscore_index
 from ldsc._ldscore import calculator as ldscore_calculator
-from ldsc._ldscore.gene_index import scoring as _gene_index_scoring
 from ldsc._ldscore.gene_index.artifact import _canonical_frame_sha256, _catalog_identity_records
 from ldsc.config import GeneLDScoreIndexBuildConfig, GlobalConfig, LDScoreConfig, reset_global_config, set_global_config
 from ldsc._core.plink_files import PlinkFAMFile
@@ -1880,7 +1879,7 @@ def test_explicit_indexed_mode_dispatches_without_live_reference(monkeypatch, tm
         captured.update(kwargs)
         return sentinel
 
-    monkeypatch.setattr(_gene_index_scoring, "run_indexed_ldscore", fake_run)
+    monkeypatch.setattr(ldscore_calculator, "run_indexed_ldscore", fake_run)
 
     result = cli.main(
         [

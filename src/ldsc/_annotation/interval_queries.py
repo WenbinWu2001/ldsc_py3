@@ -18,6 +18,7 @@ from .._core.chromosomes import normalize_chromosome
 from .semantics import require_unique_annotation_names
 from .query_outcomes import QueryAnnotationStatus, gene_query_statuses
 from ..errors import LDSCInputError
+from .._runtime.preflight import InputGate, input_issue
 
 
 @dataclass
@@ -96,8 +97,6 @@ def require_readable_bed_sources(bed_sources, issues_path=None):
     without intervals is not a failure here; it stays a skipped
     ``empty_input`` query.
     """
-    from .._runtime.preflight import InputGate, input_issue
-
     issues = []
     for source in bed_sources:
         if source.failure_reason:

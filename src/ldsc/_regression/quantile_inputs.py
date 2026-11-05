@@ -19,6 +19,9 @@ from .quantile_storage import QuantileIdentityStore, reference_chunks, target_ch
 from ..config import AnnotationBuildConfig, GlobalConfig
 from ..errors import LDSCInputError
 from .._runtime.paths import resolve_file_group, split_cli_path_tokens
+from .overlap_model import assemble_model_overlap
+from .._ldscore.overlap_table import overlap_from_long_frame
+from .._genome.build_policy import GenomeBuildCheck
 
 LOGGER = logging.getLogger("LDSC.quantile_h2")
 
@@ -193,9 +196,6 @@ def _validate_aggregates(model, metadata, sums, products):
             raise LDSCInputError(f"quantile-h2 fitted annotation '{name}' has common reference-SNP sum {actual}, expected {expected}. Resupply the exact annotation sources used for LD-score construction.")
     overlap_path = (metadata.get("files") or {}).get("overlap")
     if overlap_path:
-        from .overlap_model import assemble_model_overlap
-        from .._ldscore.overlap_table import overlap_from_long_frame
-
         config = metadata.get("overlap_config") or {}
         overlap = overlap_from_long_frame(pd.read_parquet(model.ldscore_dir / str(overlap_path)),
             baseline_columns=metadata.get("baseline_columns", []), query_columns=metadata.get("query_columns", []),
@@ -213,7 +213,6 @@ def prepare_quantile_statistics(args, model, workspace, diagnostics, input_issue
     """
     metadata = json.loads((model.ldscore_dir / "metadata.json").read_text(encoding="utf-8"))
     if str(metadata.get('snp_identifier', '')).startswith('chr_pos'):
-        from .._genome.build_policy import GenomeBuildCheck
         check = GenomeBuildCheck('auto', context='quantile-h2', option=None)
         check.declared('saved LD scores', model.ldscore_dir, metadata.get('genome_build'))
         for role in ('baseline_annot_sources', 'query_annot_sources', 'target_annot_sources', 'ref_metadata_sources', 'gene_coordinate_file'):

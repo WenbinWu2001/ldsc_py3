@@ -118,6 +118,12 @@ from .._ldscore.outputs import REGRESSION_LD_SCORE_COLUMN
 from .._annotation.storage import AnnotationWorkspace
 from .._sumstats.munger import SumstatsTable, load_sumstats
 from ..errors import LDSCInputError, LDSCInternalError, LDSCUsageError, LDSCUserError
+from .._runtime.progress import PhaseProgress
+from .._genome.build_policy import GenomeBuildCheck
+from .overlap_model import assemble_model_overlap, overlap_aware_category_table, model_collinearity_error
+from .prevalence import resolve_rg_prevalences
+from .._runtime.preflight import InputGate, inspect_artifact_paths, inspect_declared_inputs
+from .._runtime.workflow_kwargs import command_parser, run_from_kwargs
 
 
 COMMON_COUNT_KEY = "common_reference_snp_counts"
@@ -1020,7 +1026,6 @@ class RegressionRunner:
             with _log_phase_timing("query worker preparation"):
                 worker_pool = partitioned_parallel._QueryWorkers(
                     workspace.path, models, fit_partitioned_query, config, worker_count)
-            from .._runtime.progress import PhaseProgress
             total_batches = (len(queries) + query_batch_size - 1) // query_batch_size
             del models
             # Loading a batch needs only the LD-score source and row map, not the aligned frame.
@@ -1249,7 +1254,6 @@ class RegressionRunner:
         ldscores = _PreparedLDScores(ldscore_result)
 
         h2_rows = []
-        from .._runtime.progress import PhaseProgress
         with suppress_global_config_banner(), PhaseProgress(LOGGER, "computation", "per-trait h2", len(tables)) as progress:
             for trait, (samp_prev, pop_prev) in zip(traits, prev):
                 trait_name = _trait_label(trait.table)
@@ -1529,7 +1533,6 @@ def _regression_genome_build(
     """
     if identity_mode_family(identifier_mode) != "chr_pos":
         return
-    from .._genome.build_policy import GenomeBuildCheck
 
     check = GenomeBuildCheck('auto', context='regression', option=None, logger=LOGGER)
     tables = sumstats_tables if isinstance(sumstats_tables, (list, tuple)) else [sumstats_tables]
@@ -2429,8 +2432,6 @@ def summarize_partitioned_h2(
     scale-invariant. ``annotation_columns`` must be a subset of
     ``dataset.retained_ld_columns``.
     """
-    from .overlap_model import assemble_model_overlap, overlap_aware_category_table
-
     overlap = dataset.ldscore_overlap
     if overlap is None:
         raise LDSCInputError(PARTITIONED_H2_REQUIRES_OVERLAP_MESSAGE)
@@ -3118,7 +3119,6 @@ def _raise_on_model_collinearity(dataset: RegressionDataset, x: np.ndarray) -> N
     overlap = getattr(dataset, "ldscore_overlap", None)
     if overlap is None or len(dataset.retained_ld_columns) < 2:
         return
-    from .overlap_model import assemble_model_overlap, model_collinearity_error
 
     use_common = dataset.count_key_used_for_regression == COMMON_COUNT_KEY
     try:
@@ -3512,8 +3512,6 @@ def run_rg_from_args(args):
     ValueError
         If fewer than two summary-statistics paths resolve or ``output_dir`` is absent.
     """
-    from .prevalence import resolve_rg_prevalences
-
     output_dir, log_path = _preflight_regression_outputs(args, "rg", RgDirectoryWriter)
     with workflow_logging("rg", log_path, log_level=getattr(args, "log_level", "INFO")):
         declared_inputs = _inspect_regression_inputs(args, output_dir)
@@ -3535,8 +3533,6 @@ def run_rg_from_args(args):
             f"Starting rg regression for {len(sumstats_paths)} summary-statistics files "
             f"using LD-score directory '{args.ldscore_dir}'."
         )
-        from .._runtime.preflight import InputGate
-        from .._runtime.progress import PhaseProgress
         gate = InputGate('Summary-statistic content validation', Path(output_dir)/'diagnostics/input_issues.tsv')
         sumstats_tables = []
         with PhaseProgress(LOGGER, 'validation', 'summary-statistic content', len(sumstats_paths)) as progress:
@@ -3651,8 +3647,6 @@ def run_h2(**kwargs) -> H2Result:
     Existing outputs stop the run unless ``overwrite=True``; a failed
     authorized overwrite leaves ``RUN_FAILED.txt`` naming this call.
     """
-    from .._runtime.workflow_kwargs import command_parser, run_from_kwargs
-
     return run_from_kwargs(
         "run_h2", command_parser(add_h2_arguments), run_h2_from_args, kwargs,
         log_level=get_global_config().log_level,
@@ -3701,8 +3695,6 @@ def run_partitioned_h2(**kwargs) -> PartitionedH2BatchResult:
     Existing outputs stop the run unless ``overwrite=True``; a failed
     authorized overwrite leaves ``RUN_FAILED.txt`` naming this call.
     """
-    from .._runtime.workflow_kwargs import command_parser, run_from_kwargs
-
     return run_from_kwargs(
         "run_partitioned_h2", command_parser(add_partitioned_h2_arguments), run_partitioned_h2_from_args, kwargs,
         log_level=get_global_config().log_level,
@@ -3758,8 +3750,6 @@ def run_rg(**kwargs) -> RgResultFamily:
     ``overwrite=True``; a failed authorized overwrite leaves
     ``RUN_FAILED.txt`` naming this call.
     """
-    from .._runtime.workflow_kwargs import command_parser, run_from_kwargs
-
     for name in ("samp_prev", "pop_prev"):
         value = kwargs.get(name)
         if isinstance(value, numbers.Real):
@@ -3951,7 +3941,6 @@ def _inspect_regression_inputs(args, output_dir):
     Every issue found is recorded in ``diagnostics/input_issues.tsv`` before
     the run stops; otherwise returns the resolved inputs.
     """
-    from .._runtime.preflight import inspect_artifact_paths, inspect_declared_inputs
     return inspect_declared_inputs(
         files=[('sumstats', getattr(args, 'sumstats_file', None) or getattr(args, 'sumstats_sources', None)),
                ('prevalence manifest', getattr(args, 'prevalence_manifest', None))],

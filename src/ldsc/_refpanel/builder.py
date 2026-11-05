@@ -63,7 +63,7 @@ from ..config import (
     DEFAULT_SNP_BATCH_SIZE, GlobalConfig, R2MatrixBuildConfig, get_global_config, print_global_config_banner,
 )
 from .._core.coordinates import normalize_chr_pos_frame
-from .._runtime.progress import report_phase
+from .._runtime.progress import report_phase, PhaseProgress
 from .._runtime.paths import ensure_output_directory, preflight_output_artifact_family, remove_output_artifacts, resolve_file_group, inspect_plink_inputs, resolve_scalar_path
 from .._runtime.workflow_logging import (
     log_inputs,
@@ -94,6 +94,8 @@ from .._genome.liftover import (
     log_liftover_drop_report,
     mapping_reason_masks,
 )
+from .._runtime.preflight import inspect_declared_inputs, InputGate, input_issue
+from .._genome.build_policy import GenomeBuildCheck
 
 
 LOGGER = logging.getLogger("LDSC.r2_matrix_builder")
@@ -434,7 +436,6 @@ class R2MatrixBuilder:
         """
         print_global_config_banner(type(self).__name__, self.global_config)
         output_dir = ensure_output_directory(config.output_dir, label="output directory")
-        from .._runtime.preflight import inspect_declared_inputs
         from .preflight import GENETIC_MAP_HEADER_CHECKS
         declared_inputs = inspect_declared_inputs(plink=config.plink_prefix, header_checks=GENETIC_MAP_HEADER_CHECKS,
             files=[(name, getattr(config, name, None)) for name in (
@@ -562,8 +563,6 @@ class R2MatrixBuilder:
         resolved_prefixes: Sequence[str],
     ) -> R2MatrixBuildConfig:
         """Return a config whose PLINK source genome build is concrete."""
-        from .._genome.build_policy import GenomeBuildCheck
-
         check = GenomeBuildCheck(config.source_genome_build, context="build-r2-matrix", option="--source-genome-build", logger=LOGGER)
         for prefix in resolved_prefixes:
             check.table("--plink-prefix", str(prefix) + ".bim", bim=True)
@@ -595,7 +594,6 @@ class R2MatrixBuilder:
                 label="hg38 genetic map",
                 allow_chromosome_suite=True,
             )
-        from .._genome.build_policy import GenomeBuildCheck
         for build, paths in (("hg19", hg19_files), ("hg38", hg38_files)):
             if paths:
                 check = GenomeBuildCheck(build, context=f"build-r2-matrix {build} genetic map", logger=LOGGER)
@@ -723,9 +721,6 @@ class R2MatrixBuilder:
         chromosomes left without SNPs are skipped with a warning. Returns the
         ``(prefix, chrom)`` pairs that keep SNPs.
         """
-        from .._runtime.preflight import InputGate, input_issue
-        from .._runtime.progress import PhaseProgress
-
         issues, buildable = [], []
         with PhaseProgress(LOGGER, 'validation', 'reference-panel SNP selection', len(chrom_sources)) as progress:
             for prefix, chrom in chrom_sources:

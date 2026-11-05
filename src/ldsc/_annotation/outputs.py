@@ -16,6 +16,7 @@ import pandas as pd
 
 from .._runtime.artifacts import ArtifactFamily, atomic_write_json, declare_artifacts
 from .._runtime.paths import remove_output_artifacts
+from .._core.snp_identity import IDENTITY_DROP_COLUMNS
 
 
 class AnnotationDirectoryWriter:
@@ -43,8 +44,6 @@ class AnnotationDirectoryWriter:
 
     def write_diagnostics(self, output_dir, *, batch=None, statuses=None, drops=None, catalog_issues=None, input_issues=None, scope=None):
         """Persist every available gate result without inventing later-stage data."""
-        from .._core.snp_identity import IDENTITY_DROP_COLUMNS
-
         root = Path(output_dir) / 'diagnostics'
         root.mkdir(parents=True, exist_ok=True)
         paths = {}

@@ -36,6 +36,8 @@ from typing import Optional, Union
 
 from .._core.chromosomes import STANDARD_CHROMOSOMES, chrom_sort_key, normalize_chromosome
 from ..errors import LDSCConfigError, LDSCInputError
+from .._core import plink_files as parse
+from .progress import PhaseProgress
 
 InputPathToken = Union[str, PathLike[str]]
 InputPathCollection = Union[InputPathToken, Sequence[InputPathToken]]
@@ -367,7 +369,6 @@ def inspect_plink_inputs(
         and autosome-only policies.
     """
     import pandas as pd
-    from .._core import plink_files as parse
 
     if discovered_members is None:
         members, issues = _discover_plink_members(
@@ -382,7 +383,6 @@ def inspect_plink_inputs(
         if declared:
             declarations[prefix].add(declared)
     mapping: dict[str, str] = {}
-    from .progress import PhaseProgress
     with PhaseProgress(logging.getLogger('LDSC.preflight'), 'validation', 'PLINK content', len(declarations)) as progress:
         for prefix, declared in declarations.items():
             progress.advance(0, object=prefix, force=True)

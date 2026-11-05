@@ -96,6 +96,7 @@ from .._core.snp_identity import (
 from .._genome.liftover import SumstatsLiftoverRequest
 from . import munge_kernel as kernel_munge
 from . import munge_input
+from .._runtime.preflight import inspect_declared_inputs
 
 
 LOGGER = logging.getLogger("LDSC.sumstats_munger")
@@ -515,7 +516,6 @@ class SumstatsMunger:
         )
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
         with workflow_logging("munge-sumstats", log_path, log_level=config_snapshot.log_level):
-            from .._runtime.preflight import inspect_declared_inputs
             inspect_declared_inputs(files=[('raw summary statistics', raw_sumstats_config.raw_sumstats_file),
                 ('SNP restriction', sumstats_snps_path), ('liftover chain', liftover_request.liftover_chain_file)],
                 issues_path=input_issues_path)

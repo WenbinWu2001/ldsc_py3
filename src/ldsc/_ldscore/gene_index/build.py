@@ -471,7 +471,7 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
     ``.build/`` directory, which a successful build removes.
     """
     config = GeneLDScoreIndexBuildConfig(
-        baseline_annot_sources=tuple(split_cli_path_tokens(args.baseline_annot_sources)),
+        baseline_annot_sources=args.baseline_annot_sources,
         plink_prefix=args.plink_prefix,
         output_dir=args.output_dir,
         gene_coordinate_file=args.gene_coordinate_file,

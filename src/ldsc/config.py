@@ -35,7 +35,9 @@ from ._core.snp_identity import identity_mode_family, normalize_snp_identifier_m
 from ._core.columns import normalize_genome_build
 from .errors import LDSCConfigError
 from ._runtime.parallelism import validate_workers
-from ._runtime.paths import normalize_optional_path_token, normalize_path_token, normalize_path_tokens
+from ._runtime.paths import (
+    normalize_optional_path_token, normalize_path_token, normalize_path_tokens, split_cli_path_tokens,
+)
 from ._core.chromosomes import normalize_chromosome
 
 LOGGER = logging.getLogger("LDSC.config")
@@ -635,8 +637,10 @@ class GeneLDScoreIndexBuildConfig:
 
     Parameters
     ----------
-    baseline_annot_sources : tuple of str
-        Ordered baseline annotation paths or chromosome-suite tokens. Their
+    baseline_annot_sources : str or sequence of str
+        Ordered baseline annotation paths or chromosome-suite tokens, stored
+        as a tuple. As on the command line, comma-separated tokens are split
+        and blank tokens dropped; at least one token must remain. Their
         effective keys are inner-joined to the selected PLINK BIM before
         genotype QC. Shared-key coordinate or usable-allele contradictions
         fail; PLINK supplies metadata for consistent matches. Allele-aware
@@ -727,7 +731,10 @@ class GeneLDScoreIndexBuildConfig:
     workers: int = 1
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "baseline_annot_sources", _normalize_path_tuple(self.baseline_annot_sources))
+        # Split comma-separated tokens and drop blank ones, as the command line does, before the emptiness check.
+        object.__setattr__(
+            self, "baseline_annot_sources", tuple(split_cli_path_tokens(_normalize_path_tuple(self.baseline_annot_sources)))
+        )
         object.__setattr__(self, "plink_prefix", normalize_required_path(self.plink_prefix))
         object.__setattr__(self, "output_dir", normalize_required_path(self.output_dir))
         object.__setattr__(self, "gene_coordinate_file", normalize_required_path(self.gene_coordinate_file))

@@ -52,6 +52,27 @@ def test_builder_python_config_rejects_invalid_windows(window):
                                    snp_identifier="rsid", **window)
 
 
+@pytest.mark.parametrize("sources", [("",), (",",), ("  ",), "", " , "])
+def test_builder_python_config_rejects_blank_baseline_tokens_before_writing(sources, tmp_path):
+    # The command line drops blank comma-separated tokens before its emptiness check; Python must agree.
+    output_dir = tmp_path / "index"
+    with pytest.raises(LDSCConfigError, match="without baseline annotations"):
+        index.build_gene_ldscore_index(GeneLDScoreIndexBuildConfig(
+            baseline_annot_sources=sources, plink_prefix="panel", output_dir=str(output_dir),
+            gene_coordinate_file="genes", genome_build="hg19", snp_identifier="rsid", ld_wind_kb=100))
+    assert not output_dir.exists()
+
+
+@pytest.mark.parametrize("sources", ["a.@.annot.gz, b.@.annot.gz,", ("a.@.annot.gz,b.@.annot.gz", " ", "c.annot.gz ")])
+def test_builder_python_config_splits_baseline_tokens_like_the_command_line(sources):
+    config = GeneLDScoreIndexBuildConfig(baseline_annot_sources=sources, plink_prefix="panel", output_dir="index",
+                                         gene_coordinate_file="genes", genome_build="hg19", snp_identifier="rsid",
+                                         ld_wind_kb=100)
+    expected = ("a.@.annot.gz", "b.@.annot.gz") if isinstance(sources, str) else (
+        "a.@.annot.gz", "b.@.annot.gz", "c.annot.gz")
+    assert config.baseline_annot_sources == expected
+
+
 @pytest.mark.parametrize("build,canonical", [("GRCh37", "hg19"), ("GRCh38", "hg38")])
 def test_builder_normalizes_explicit_build_aliases(build, canonical):
     config = GeneLDScoreIndexBuildConfig(baseline_annot_sources=("baseline",), plink_prefix="panel",

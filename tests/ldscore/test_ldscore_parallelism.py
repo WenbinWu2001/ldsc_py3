@@ -382,7 +382,7 @@ def _run_with_one_empty_chrom(build_dir: Path, out_dir: Path, workers: int) -> P
 
     from ldsc._refpanel.adapters import RefPanelLoader
     from ldsc.config import GlobalConfig, LDScoreConfig, RefPanelConfig
-    from ldsc._ldscore.workflow import LDScoreCalculator
+    from ldsc._ldscore.calculator import LDScoreCalculator
     from ldsc._ldscore.outputs import LDScoreOutputConfig
 
     metadata = pd.DataFrame(

@@ -32,7 +32,7 @@ from ldsc import (
     PlinkRefPanel,
     RefPanelConfig,
 )
-from ldsc._ldscore.calculator import _format_ldscore_start_message
+from ldsc._ldscore.calculator import LDScoreCalculator, _format_ldscore_start_message
 from ldsc._ldscore import workflow as ldscore_workflow
 from ldsc._ldscore.workflow import (
     build_parser,
@@ -221,7 +221,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
     def test_calculator_rejects_ref_metadata_export_without_output_config(self):
         with self.assertRaisesRegex(LDSCUsageError, "requires output_config"):
-            ldscore_workflow.LDScoreCalculator().run(
+            LDScoreCalculator().run(
                 None,
                 None,
                 LDScoreConfig(ld_wind_snps=10, export_ref_metadata=True),
@@ -236,7 +236,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             panel = R2MatrixRefPanel(GlobalConfig(snp_identifier="rsid"),
                                      RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(Path(tmpdir) / "r2")))
             with self.assertRaisesRegex(LDSCUsageError, "R2 matrix sidecars .* already hold"):
-                ldscore_workflow.LDScoreCalculator().run(
+                LDScoreCalculator().run(
                     None, panel, LDScoreConfig(ld_wind_snps=10, export_ref_metadata=True),
                     GlobalConfig(snp_identifier="rsid"), LDScoreOutputConfig(output_dir=str(output_dir)),
                 )
@@ -1084,7 +1084,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             gc = GlobalConfig(snp_identifier="rsid")
             ref_panel = RefPanelLoader(gc).load(RefPanelConfig(backend="plink", plink_prefix=str(prefix)))
             out = tmpdir / "out"
-            ldscore_workflow.LDScoreCalculator().compute_chromosome(
+            LDScoreCalculator().compute_chromosome(
                 chrom="1", annotation_bundle=wb, ref_panel=ref_panel,
                 ldscore_config=LDScoreConfig(ld_wind_snps=10, export_ref_metadata=True, whole_chromosome_ok=True),
                 global_config=gc, regression_snps=None, export_dir=str(out),
@@ -1120,10 +1120,10 @@ class LDScoreWorkflowTest(unittest.TestCase):
             )
             ldscore_config = LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True)
 
-            bool_result = ldscore_workflow.LDScoreCalculator().compute_chromosome(
+            bool_result = LDScoreCalculator().compute_chromosome(
                 "1", bool_bundle, panel, ldscore_config, global_config
             )
-            float_result = ldscore_workflow.LDScoreCalculator().compute_chromosome(
+            float_result = LDScoreCalculator().compute_chromosome(
                 "1", float_bundle, panel, ldscore_config, global_config
             )
 
@@ -1144,7 +1144,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(bool_result.snp_count_totals.keys(), float_result.snp_count_totals.keys())
 
     def test_run_rejects_annotation_bundle_snapshot_mismatch(self):
-        calc = ldscore_workflow.LDScoreCalculator()
+        calc = LDScoreCalculator()
         annotation_bundle = make_annotation_bundle(
             metadata=pd.DataFrame({"CHR": ["1"], "SNP": ["rs1"], "POS": [10], "CM": [0.1]}),
             baseline_annotations=pd.DataFrame({"base": [1.0]}),
@@ -1258,7 +1258,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 autospec=True,
                 return_value=self.make_ref_panel_stub(backend="plink"),
             ), mock.patch.object(
-                ldscore_workflow.LDScoreCalculator,
+                LDScoreCalculator,
                 "run",
                 autospec=True,
                 return_value=result,
@@ -1892,7 +1892,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         common = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38")
         panel = PlinkRefPanel(common, RefPanelConfig(backend="plink", plink_prefix=str(prefix)))
 
-        result = ldscore_workflow.LDScoreCalculator().compute_chromosome(
+        result = LDScoreCalculator().compute_chromosome(
             chrom="22",
             annotation_bundle=bundle,
             ref_panel=panel,
@@ -1916,7 +1916,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             bundle = self._build_annotation_bundle(prefix)
             common = GlobalConfig(snp_identifier="rsid")
             panel = PlinkRefPanel(common, RefPanelConfig(backend="plink", plink_prefix=prefix, keep_indivs_file=keep_path))
-            result = ldscore_workflow.LDScoreCalculator().run(
+            result = LDScoreCalculator().run(
                 annotation_bundle=bundle,
                 ref_panel=panel,
                 ldscore_config=LDScoreConfig(
@@ -1948,7 +1948,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     ref_panel_snps_file=restrict_path,
                 ),
             )
-            result = ldscore_workflow.LDScoreCalculator().run(
+            result = LDScoreCalculator().run(
                 annotation_bundle=bundle,
                 ref_panel=panel,
                 ldscore_config=LDScoreConfig(
@@ -1981,7 +1981,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     keep_indivs_file=keep_path,
                 ),
             )
-            result = ldscore_workflow.LDScoreCalculator().run(
+            result = LDScoreCalculator().run(
                 annotation_bundle=bundle,
                 ref_panel=panel,
                 ldscore_config=LDScoreConfig(
@@ -2464,7 +2464,7 @@ def test_public_plink_calculation_prepares_genotypes_once():
         return reader
 
     with mock.patch("ldsc._refpanel.adapters.PlinkBEDFile", side_effect=open_reader):
-        result = ldscore_workflow.LDScoreCalculator().compute_chromosome(
+        result = LDScoreCalculator().compute_chromosome(
             "1", bundle, panel, LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True), config,
         )
 

@@ -62,6 +62,8 @@ If the `annotation_snp_grid` step removes every reference-panel SNP left on a ch
 A whole chromosome without one shared SNP usually indicates a genome-build, allele or SNP-identifier mismatch; to exclude a chromosome on purpose, leave it out of the annotation files.
 Gene-list runs raise this error in the gene-support pass, before LD-score computation; other runs raise it after the first query batch's reference preparation.
 A chromosome emptied by an earlier step, such as `--ref-panel-snps-file`, or by genotype QC is skipped with a WARNING in `diagnostics/ldscore.log`, and its funnel shows the step that removed its SNPs.
+This includes a PLINK chromosome on which identity cleanup removes every row that `--ref-panel-snps-file` kept.
+Without `--ref-panel-snps-file`, identity cleanup that removes every row of a PLINK chromosome stops the run, because the panel has no usable SNP identity on that chromosome; the error counts the removed rows by reason.
 A run in which no chromosome keeps a reference SNP fails.
 
 ## Reference-panel rows without an allele-aware SNP identity
@@ -85,8 +87,10 @@ The drop is never silent:
 - the workflow log records each chromosome's counts, and Python entry points print nothing.
 
 With `--ref-panel-snps-file`, the restriction applies first and identity cleanup runs on the rows it keeps, in `ldscore --plink-prefix` as in `build-r2-matrix`.
-A row with unusable alleles whose rsID or `CHR:POS` the restriction lists is kept by the restriction, then dropped and reported by cleanup; any other such row is removed by the restriction and not listed.
-A position is multi-allelic only when the restriction keeps more than one of its allele pairs, so both commands keep the same reference SNPs from one panel and one restriction.
+A row without an allele-aware SNP identity whose rsID or `CHR:POS` the restriction lists is kept by the restriction, then dropped and reported by cleanup; any other such row is removed by the restriction and not listed.
+A position is multi-allelic only when the restriction keeps more than one of its allele pairs, so restriction and identity cleanup select the same rows in both commands.
+The reference SNPs can still differ, because `build-r2-matrix` also runs liftover and duplicate-position filtering, which `ldscore --plink-prefix` does not.
+If cleanup removes every row the restriction keeps on a PLINK chromosome, `ldscore` skips that chromosome as described under [empty chromosomes](#empty-chromosomes); its funnel and its skip WARNING count the removed rows, and no `diagnostics/dropped_snps/` table is written for it.
 
 Sources: `PlinkRefPanel._load_source()` and `RefPanel._apply_keep_restriction()` in [_refpanel/adapters.py](../../src/ldsc/_refpanel/adapters.py), `build_restriction_mask()` in [_refpanel/build_kernel.py](../../src/ldsc/_refpanel/build_kernel.py), `R2MatrixBuilder._select_chromosome_snps()` in [_refpanel/builder.py](../../src/ldsc/_refpanel/builder.py), `clean_identity_artifact_table()` and `emit_dropped_snps_notice()` in [_core/snp_identity.py](../../src/ldsc/_core/snp_identity.py).
 

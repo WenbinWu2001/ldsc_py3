@@ -238,7 +238,10 @@ class PlinkRefPanel(RefPanel):
         ``ref_panel_snps_file`` applies first and identity cleanup runs on the
         restricted rows, the order ``build-r2-matrix`` uses. Returns the
         prefix, BIM, FAM, restricted metadata, identity drops and the
-        chromosome's reference-SNP funnel so far.
+        chromosome's reference-SNP funnel so far. When cleanup removes every
+        row the restriction kept, ``EmptyReferenceSNPs`` skips the chromosome
+        as the restriction alone would; when it removes every row of an
+        unrestricted chromosome, ``LDSCInputError`` stops the run.
         """
         prefix = self._bim_prefixes(chrom)[0]
         bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
@@ -272,9 +275,24 @@ class PlinkRefPanel(RefPanel):
         )
         funnel.record(REFERENCE_PANEL, "identity_cleanup", len(metadata) - len(cleanup.cleaned))
         if len(metadata) and cleanup.cleaned.empty:
+            # Neither outcome writes diagnostics/dropped_snps/, so the message names the drops.
+            reasons = ", ".join(f"{reason}={count:,}"
+                                for reason, count in cleanup.dropped["reason"].value_counts().sort_index().items())
+            if self.spec.ref_panel_snps_file is not None:
+                # Skipped like a chromosome the restriction alone empties.
+                error = EmptyReferenceSNPs(
+                    f"Reference-panel loading retained no PLINK rows on chromosome {chrom}: SNP identity cleanup "
+                    f"removed all {len(metadata):,} rows that --ref-panel-snps-file kept ({reasons})."
+                )
+                error.reference_snp_funnel = funnel.frame()
+                raise error
             raise LDSCInputError(
-                f"Reference-panel loading retained no PLINK rows on chromosome {chrom} after SNP identity cleanup. "
-                "Each dropped row and its reason is listed in diagnostics/dropped_snps/."
+                f"Reference-panel loading retained no PLINK rows on chromosome {chrom} after SNP identity cleanup "
+                f"removed all {len(metadata):,} of them ({reasons}). Under SNP identifier mode "
+                f"'{self.global_config.snp_identifier}' each panel row needs a unique SNP identity, and in "
+                "allele-aware modes one A/C/G/T allele pair per position. Remove the duplicate and non-SNP rows "
+                "from this chromosome's panel (`plink2 --snps-only just-acgt` removes non-SNP rows), or use the "
+                "SNP identifier mode the panel was prepared for."
             )
         metadata, drops = cleanup.cleaned, cleanup.dropped
         metadata = self._validate_metadata(metadata, chrom)

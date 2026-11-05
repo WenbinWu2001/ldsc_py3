@@ -1,10 +1,10 @@
 """``--ref-panel-snps-file`` applies before identity cleanup in every PLINK route.
 
 Identity cleanup runs within the restricted panel: a position is multi-allelic
-only if the restriction keeps more than one of its allele pairs. So
-``ldscore --plink-prefix`` and ``build-r2-matrix`` followed by
-``ldscore --r2-matrix-dir`` keep the same reference SNPs from one panel and
-one restriction.
+only if the restriction keeps more than one of its allele pairs. So, without
+liftover or duplicate positions, ``ldscore --plink-prefix`` and
+``build-r2-matrix`` followed by ``ldscore --r2-matrix-dir`` keep the same
+reference SNPs from one panel and one restriction.
 
 Each test copies the 32-SNP chromosome-22 fixture (one row per position, all
 allele pairs valid) and edits its ``.bim``. Expected SNP sets follow from the
@@ -109,3 +109,37 @@ def test_restriction_tolerates_unusable_panel_alleles_that_cleanup_then_drops(tm
         drops = read_drops(tmp_path / route / "diagnostics" / "dropped_snps" / "chr22_dropped.tsv.gz")
         assert drops["SNP"].tolist() == [bim.loc[10, "SNP"]]
         assert drops["reason"].tolist() == ["invalid_allele"]
+
+
+def test_chromosome_whose_restricted_rows_cleanup_removes_is_skipped(tmp_path):
+    original = read_fixture_bim()
+    panel = tmp_path / "panel"
+    panel.mkdir()
+    chr21 = original.assign(CHR=21, SNP="chr21_" + original["SNP"])
+    chr22 = original.copy()
+    chr22.loc[1, "POS"] = chr22.loc[0, "POS"]  # one position listed twice: a duplicate CHR:POS identity
+    for chrom, bim in ((21, chr21), (22, chr22)):
+        for suffix in (".bed", ".fam"):
+            shutil.copy(str(FIXTURE) + suffix, panel / f"panel.{chrom}{suffix}")
+        bim.to_csv(panel / f"panel.{chrom}.bim", sep="\t", header=False, index=False)
+        annotation = bim.loc[:, ["CHR", "SNP", "POS"]].drop_duplicates("POS").assign(base=1.0)
+        annotation.to_csv(tmp_path / f"baseline.{chrom}.annot.gz", sep="\t", index=False)
+    # On chromosome 22 the restriction keeps only the two rows that share a position.
+    pd.concat([chr21, chr22.loc[[0, 1]]]).loc[:, ["CHR", "POS"]].to_csv(tmp_path / "keep.tsv", sep="\t", index=False)
+    pd.concat([chr21, chr22]).loc[:, ["SNP", "CHR", "POS"]].to_csv(tmp_path / "regr.tsv", sep="\t", index=False)
+
+    status = run_cli(["ldscore", "--baseline-annot-sources", str(tmp_path / "baseline.*.annot.gz"),
+                      "--plink-prefix", str(panel / "panel.*"), "--genome-build", "hg38", "--snp-identifier", "chr_pos",
+                      "--ld-wind-kb", "1000", "--ref-panel-snps-file", str(tmp_path / "keep.tsv"),
+                      "--regr-snps-file", str(tmp_path / "regr.tsv"), "--regr-snps-exclude-regions", "none",
+                      "--output-dir", str(tmp_path / "out"), "--workers", "1"])
+
+    assert status == 0
+    baseline = pd.read_parquet(tmp_path / "out" / "ldscore.baseline.parquet")
+    assert set(baseline["CHR"].astype(str)) == {"21"}
+    log = (tmp_path / "out" / "diagnostics" / "ldscore.log").read_text()
+    assert "Skipping chromosome 22" in log and "duplicate_identity=2" in log
+    funnel = pd.read_csv(tmp_path / "out" / "diagnostics" / "reference_snp_funnel.tsv", sep="\t")
+    chr22_cleanup = funnel.loc[funnel["funnel"].eq("reference_panel") & funnel["chrom"].astype(str).eq("22")
+                               & funnel["step"].eq("identity_cleanup")]
+    assert chr22_cleanup[["removed", "remaining"]].values.tolist() == [[2, 0]]

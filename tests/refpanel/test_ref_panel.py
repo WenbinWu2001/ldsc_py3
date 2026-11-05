@@ -148,8 +148,11 @@ class PlinkRefPanelTest(unittest.TestCase):
                 GlobalConfig(snp_identifier="rsid"),
                 RefPanelConfig(backend="plink", plink_prefix=str(prefix)),
             )
-            with self.assertRaisesRegex(LDSCInputError, "after SNP identity cleanup"):
+            with self.assertRaisesRegex(LDSCInputError, "after SNP identity cleanup") as caught:
                 panel.load_metadata("1")
+            # The run stops before writing diagnostics, so the message itself names the drops.
+            self.assertIn("duplicate_identity=2", str(caught.exception))
+            self.assertNotIn("dropped_snps", str(caught.exception))
 
     def test_global_restriction_applies(self):
         with tempfile.TemporaryDirectory() as tmpdir:

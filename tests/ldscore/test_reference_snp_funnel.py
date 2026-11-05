@@ -5,6 +5,7 @@ two-SNP R2 matrix from ``tests/refpanel/test_reference_preparation.py`` and the 
 chromosome-22 PLINK subset.
 """
 from pathlib import Path
+import shutil
 
 import numpy as np
 import pandas as pd
@@ -146,6 +147,37 @@ def test_plink_restriction_that_keeps_no_panel_snp_empties_the_chromosome_before
     assert reference["ref_panel_snps_file"] == (32, 0)
     assert reference["identity_cleanup"] == (0, 0)
     assert not annotation_snp_grid_emptied(funnel)
+
+
+@pytest.mark.parametrize("mode", ["rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"])
+def test_plink_restriction_whose_rows_cleanup_removes_empties_a_skippable_chromosome(tmp_path, mode):
+    pytest.importorskip("bitarray")
+    bim = pd.read_csv(PLINK_PREFIX.with_suffix(".bim"), sep=r"\s+", header=None,
+                      names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+    # Row 4 takes row 3's rsID or position and allele pair, and the restriction lists only that SNP.
+    key = "SNP" if mode.startswith("rsid") else "POS"
+    bim.loc[4, [key, "A1", "A2"]] = bim.loc[3, [key, "A1", "A2"]].tolist()
+    prefix = tmp_path / "panel"
+    for suffix in (".bed", ".fam"):
+        shutil.copy(PLINK_PREFIX.with_suffix(suffix), prefix.with_suffix(suffix))
+    bim.to_csv(prefix.with_suffix(".bim"), sep="\t", header=False, index=False)
+    alleles = "allele" in mode
+    bim.loc[[3], ["CHR", "SNP", "POS", *(["A1", "A2"] if alleles else [])]].to_csv(
+        tmp_path / "keep.tsv", sep="\t", index=False)
+    config = GlobalConfig(snp_identifier=mode, **({} if mode.startswith("rsid") else {"genome_build": "hg19"}))
+    panel = PlinkRefPanel(config, RefPanelConfig(backend="plink", plink_prefix=str(prefix),
+                                                 ref_panel_snps_file=str(tmp_path / "keep.tsv")))
+    # Skipped like a chromosome the restriction empties, not a panel without usable SNP identities.
+    with pytest.raises(EmptyReferenceSNPs) as caught:
+        panel.prepare_chromosome("22", plink_annotations(slice(0, 32), alleles=alleles), WINDOW)
+    funnel = caught.value.reference_snp_funnel
+    reference = steps(funnel, "reference_panel")
+    assert reference["ref_panel_snps_file"] == (30, 2)
+    assert reference["identity_cleanup"] == (2, 0)
+    assert not annotation_snp_grid_emptied(funnel)
+    # Chromosome skips write no dropped-SNP table, so the message itself names the drops.
+    assert "duplicate_identity=2" in str(caught.value)
+    assert "dropped_snps" not in str(caught.value)
 
 
 def test_index_grid_funnel_restarts_before_the_baseline_intersection(tmp_path):

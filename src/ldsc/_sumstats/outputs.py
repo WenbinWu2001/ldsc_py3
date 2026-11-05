@@ -243,7 +243,9 @@ def curated_sumstats_frame(data: pd.DataFrame) -> pd.DataFrame:
     canonical label (no ``chr`` prefix) and ``POS`` must be a positive
     integer. A ``CHR`` value on a row without a complete pair becomes a string
     too: its canonical label where it has one, otherwise its text, so the
-    column holds one type in every output. Complete rows are ordered by
+    column holds strings whenever any ``CHR`` value is present. A column
+    without any ``CHR`` value keeps its missing values (Parquet type
+    ``double`` or ``null``). Complete rows are ordered by
     chromosome sort key, ``POS`` and input order; rows without a complete pair
     follow in input order, so the Parquet writer can place them in one final
     missing-coordinate row group.

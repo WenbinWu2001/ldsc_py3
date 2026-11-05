@@ -11,6 +11,7 @@ import pytest
 from ldsc._ldscore.gene_index import build as index_workflow
 from ldsc._ldscore.gene_index.scoring import run_indexed_ldscore
 from ldsc._ldscore.calculator import build_parser, run_ldscore_from_args
+from ldsc._runtime.workflow_kwargs import parse_command_line
 from ldsc.errors import LDSCInputError
 from tests.gene_index_helpers import narrow_index_chromosomes
 
@@ -54,7 +55,7 @@ def direct_args(tmp_path, inputs, sources, *, policy="strict", control=None, nam
         argv += ["--allow-unresolved-genes"]
     if control:
         argv += ["--control-gene-list-file", str(control)]
-    return build_parser().parse_args(argv)
+    return parse_command_line(build_parser(), argv)
 
 
 def build_index(tmp_path, inputs, *, mode="rsid", common_maf_min="0.05"):

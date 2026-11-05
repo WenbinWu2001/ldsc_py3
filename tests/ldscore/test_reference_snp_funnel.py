@@ -251,6 +251,7 @@ def test_grid_larger_than_the_panel_succeeds_without_a_warning(tmp_path, capsys)
 
 def test_chromosome_emptied_by_the_panel_restriction_is_skipped_with_a_logged_warning(tmp_path):
     from ldsc._ldscore.calculator import build_parser, run_ldscore_from_args
+    from ldsc._runtime.workflow_kwargs import parse_command_line
 
     inputs = r2_workflow_inputs(tmp_path, ["rs1", "rs2", "rs3"])
     write_panel(Path(inputs.r2_matrix_dir), chrom="1")  # chromosome 1 holds rs1 and rs3
@@ -259,7 +260,7 @@ def test_chromosome_emptied_by_the_panel_restriction_is_skipped_with_a_logged_wa
     pd.concat([chrom1, baseline], ignore_index=True).to_csv(inputs.baseline_annot_sources, sep="\t", index=False)
     restriction = tmp_path / "keep.txt"
     restriction.write_text("SNP\nrs2\n")
-    result = run_ldscore_from_args(build_parser().parse_args(
+    result = run_ldscore_from_args(parse_command_line(build_parser(), 
         workflow_argv(tmp_path, inputs, "--ref-panel-snps-file", str(restriction))))
     assert result.baseline_table["CHR"].tolist() == ["22"]
     funnel = read_funnel(tmp_path)
@@ -272,12 +273,13 @@ def test_chromosome_emptied_by_the_panel_restriction_is_skipped_with_a_logged_wa
 
 def test_multi_batch_run_records_each_chromosome_funnel_once(tmp_path):
     from ldsc._ldscore.calculator import build_parser, run_ldscore_from_args
+    from ldsc._runtime.workflow_kwargs import parse_command_line
 
     inputs = r2_workflow_inputs(tmp_path, ["rs1", "rs2"])
     query = tmp_path / "query.22.annot"
     pd.DataFrame({"CHR": "22", "SNP": ["rs1", "rs2"], "POS": [10, 20], "q1": [1, 0], "q2": [0, 1]}).to_csv(
         query, sep="\t", index=False)
-    run_ldscore_from_args(build_parser().parse_args(workflow_argv(
+    run_ldscore_from_args(parse_command_line(build_parser(), workflow_argv(
         tmp_path, inputs, "--query-annot-sources", str(query), "--query-batch-size", "1")))
     funnel = read_funnel(tmp_path)
     assert len(funnel) == 6  # an R2 matrix funnel: four reference-panel steps and two grid steps
@@ -300,6 +302,7 @@ def test_in_memory_result_carries_the_funnel(tmp_path):
 
 def test_gene_list_run_fails_in_gate_b_when_the_grid_misses_a_whole_chromosome(tmp_path):
     from ldsc._ldscore.calculator import build_parser, run_ldscore_from_args
+    from ldsc._runtime.workflow_kwargs import parse_command_line
     from ldsc.errors import LDSCInputError
 
     inputs = r2_workflow_inputs(tmp_path, ["rs1", "rs2"])
@@ -312,7 +315,7 @@ def test_gene_list_run_fails_in_gate_b_when_the_grid_misses_a_whole_chromosome(t
                          "--gene-coordinate-file", str(catalog), "--genome-build", "hg19", "--padding-bp", "0")
     with pytest.raises(LDSCInputError, match=r"annotation SNP grid for chromosome 22 \(2 annotation rows, "
                                              r"3 reference-panel SNPs\)"):
-        run_ldscore_from_args(build_parser().parse_args(argv))
+        run_ldscore_from_args(parse_command_line(build_parser(), argv))
     assert not (tmp_path / "out" / "ldscore.baseline.parquet").exists()
     # Gate B writes query diagnostics before failing; batch-1 calculation never starts.
     assert (tmp_path / "out" / "diagnostics" / "query_annotation_status.tsv").exists()

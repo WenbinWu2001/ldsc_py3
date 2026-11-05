@@ -7,9 +7,16 @@ import pandas as pd
 import pytest
 
 from ldsc import cli
-from ldsc.config import GlobalConfig
+from ldsc.config import AnnotationBuildConfig, GlobalConfig, RefPanelConfig
 from ldsc.errors import LDSCInputError
 from ldsc._ldscore.preflight import inspect_direct_inputs, inspect_reference_inputs
+
+
+def panel_config(args):
+    """The ``RefPanelConfig`` of one of these input namespaces."""
+    if args.r2_matrix_dir:
+        return RefPanelConfig(backend="r2_matrix", r2_matrix_dir=args.r2_matrix_dir)
+    return RefPanelConfig(backend="plink", plink_prefix=args.plink_prefix)
 
 
 def inspect(args, config, tmp_path, *, bed_paths=()):
@@ -19,7 +26,9 @@ def inspect(args, config, tmp_path, *, bed_paths=()):
     from ldsc._annotation.sources import prepare_annotation_sources
     from ldsc._annotation.storage import AnnotationWorkspace
 
-    reference = inspect_reference_inputs(args, config)
+    reference = inspect_reference_inputs(panel_config(args), config)
+    annotations = AnnotationBuildConfig(baseline_annot_sources=args.baseline_annot_sources,
+                                        query_annot_sources=args.query_annot_sources or ())
     paths, declared, issues = resolve_annotation_inputs(args.baseline_annot_sources)
     with AnnotationWorkspace(tmp_path) as workspace:
         bed_sources = prepare_bed_queries(list(bed_paths), workspace)
@@ -28,9 +37,9 @@ def inspect(args, config, tmp_path, *, bed_paths=()):
                                                   declared_chromosomes=declared, input_issues=issues,
                                                   autosomes_only=True)
         except LDSCInputError as exc:
-            return inspect_direct_inputs(args, config, annotation_issues=exc.input_issues.to_dict("records"),
+            return inspect_direct_inputs(annotations, annotation_issues=exc.input_issues.to_dict("records"),
                                          bed_sources=bed_sources, reference_inputs=reference)
-        return inspect_direct_inputs(args, config, annotation_sources=prepared, bed_sources=bed_sources,
+        return inspect_direct_inputs(annotations, annotation_sources=prepared, bed_sources=bed_sources,
                                      reference_inputs=reference)
 
 
@@ -192,7 +201,7 @@ def test_parquet_scope_validates_the_pair_and_sidecar_contents(tmp_path):
 
 def test_r2_matrix_built_in_another_mode_gets_an_r2_matrix_repair(tmp_path):
     args = write_r2_inputs(tmp_path)
-    issues = inspect_reference_inputs(args, GlobalConfig(snp_identifier="rsid_allele_aware")).issues
+    issues = inspect_reference_inputs(panel_config(args), GlobalConfig(snp_identifier="rsid_allele_aware")).issues
 
     assert issues.reason.tolist() == ["invalid_required_input"]
     assert "snp_identifier mismatch" in issues.details[0]
@@ -214,6 +223,7 @@ def test_parquet_gene_workflow_distinguishes_valid_zero_support(tmp_path, maf_mi
     import pandas as pd
     from ldsc._ldscore.calculator import build_parser, run_ldscore_from_args
     from ldsc.errors import LDSCInputError
+    from ldsc._runtime.workflow_kwargs import parse_command_line
 
     inputs = write_r2_inputs(tmp_path)
     genes, catalog, regression = tmp_path / "focal.txt", tmp_path / "genes.tsv", tmp_path / "regression.tsv"
@@ -228,12 +238,12 @@ def test_parquet_gene_workflow_distinguishes_valid_zero_support(tmp_path, maf_mi
     if maf_min is not None:
         argv.extend(["--maf-min", str(maf_min)])
     if expected == "success":
-        result = run_ldscore_from_args(build_parser().parse_args(argv))
+        result = run_ldscore_from_args(parse_command_line(build_parser(), argv))
         assert result.query_columns == ["focal"]
         assert result.gene_list_batch.summary.genes_with_snp_support.tolist() == [1]
     else:
         with pytest.raises(LDSCInputError, match="all 1 requested query annotations were skipped"):
-            run_ldscore_from_args(build_parser().parse_args(argv))
+            run_ldscore_from_args(parse_command_line(build_parser(), argv))
         statuses = pd.read_csv(tmp_path / "out/diagnostics/query_annotation_status.tsv", sep="\t")
         assert statuses.reason.tolist() == [expected]
     scope = json.loads((tmp_path / "out/diagnostics/chromosome_scope.json").read_text())

@@ -7,6 +7,7 @@ import multiprocessing as mp
 import pytest
 
 from ldsc._runtime import parallelism as policy
+from ldsc._runtime.workflow_kwargs import parse_command_line
 
 
 @pytest.mark.parametrize("requested,tasks,expected", [(1,22,1),(4,2,2),(4,0,1),(-1,22,8),(-2,22,7),(-20,22,1)])
@@ -121,7 +122,7 @@ def test_direct_failure_keeps_logs_but_removes_staged_reference_metadata(tmp_pat
     from tests.ldscore.test_plink_workflow_resolution import write_inputs
     write_inputs(tmp_path)
     monkeypatch.setattr(direct, "_compute_one_chromosome", _fail_second_chromosome)
-    args = direct.build_parser().parse_args([
+    args = parse_command_line(direct.build_parser(), [
         "--baseline-annot-sources", str(tmp_path / "baseline.annot"),
         "--plink-prefix", str(tmp_path / "1000G.EUR.QC.*"),
         "--snp-identifier", "chr_pos", "--genome-build", "hg19", "--ld-wind-cm", ".05",

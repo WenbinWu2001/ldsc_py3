@@ -359,13 +359,15 @@ print(ldsc.__file__)
                 "baseline.annot.gz",
                 "--plink-prefix",
                 "panel",
+                "--genome-build",
+                "hg19",
                 "--ld-wind-snps",
                 "10",
                 "--overwrite",
             ]
         )
 
-        output_config = ldscore_calculator._output_config_from_args(args)
+        output_config = ldscore_calculator._configs_from_args(args).output_config
 
         self.assertEqual(output_config.output_dir, "out/ldscores")
         self.assertTrue(output_config.overwrite)

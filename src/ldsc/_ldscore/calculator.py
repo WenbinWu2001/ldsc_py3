@@ -53,7 +53,7 @@ from .._core.chromosomes import chrom_sort_key
 from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP, output_directory_argument
 from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
 from .._runtime.parallelism import (
-    WORKERS_HELP, chromosome_pool, parse_workers, resolve_worker_count, validate_workers,
+    WORKERS_HELP, chromosome_pool, parse_workers, resolve_worker_count, validate_query_batch_size, validate_workers,
 )
 from .._runtime.progress import report_phase, PhaseProgress
 from .._annotation.saved_results import AnnotationResult
@@ -1269,6 +1269,60 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+@dataclass(frozen=True)
+class _DirectConfigs:
+    """The configuration of one direct ``ldscore`` run, built before anything is written.
+
+    ``global_config`` holds the requested genome build, which the run resolves
+    against its inputs (``_resolve_build``): ``"auto"`` or a concrete build in
+    coordinate-family modes. ``genome_build`` is ``--genome-build`` as given,
+    normalized, or ``None``. rsID-family identity records no build, but
+    gene-list projection still needs one.
+    """
+
+    global_config: GlobalConfig
+    genome_build: str | None
+    annotation_config: AnnotationBuildConfig
+    ref_panel_config: RefPanelConfig
+    ldscore_config: LDScoreConfig
+    output_config: LDScoreOutputConfig
+    regr_snps_exclude_regions: str
+    emit_console_notices: bool
+
+    @property
+    def has_queries(self) -> bool:
+        """Return whether the run adds prebuilt, BED, or gene-list query annotations."""
+        config = self.annotation_config
+        return bool(config.query_annot_sources or config.query_annot_bed_sources
+                    or config.query_annot_gene_list_sources)
+
+    @property
+    def has_gene_lists(self) -> bool:
+        """Return whether the run projects gene-list query annotations."""
+        return bool(self.annotation_config.query_annot_gene_list_sources)
+
+
+@dataclass(frozen=True)
+class _IndexedConfigs:
+    """One indexed ``ldscore`` run, checked before anything is written.
+
+    The gene LD-score index supplies the SNP identity, genome build, reference
+    and regression SNPs, and LD window; the run adds its gene lists and
+    execution settings.
+    """
+
+    index_dir: str
+    query_gene_list_sources: tuple[str, ...]
+    control_gene_list_file: str | None
+    gene_list_resolution_policy: str
+    query_batch_size: int
+    workers: int
+    output_dir: str
+    overwrite: bool
+    log_level: str
+    emit_console_notices: bool
+
+
 @materializing_overwrite_guard(
     args_output_scope,
     command="run_ldscore_from_args(...)",
@@ -1299,7 +1353,9 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
     Parameters
     ----------
     args : argparse.Namespace
-        Parsed LD-score command arguments, including an output directory.
+        Parsed LD-score command arguments, including an output directory and
+        the record of explicitly supplied options that ``parse_command_line``
+        and ``namespace_from_kwargs`` keep (``_explicit_cli_options``).
 
     Returns
     -------
@@ -1309,88 +1365,233 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
         remain resident in the returned object. ``output_paths`` contains
         scientific artifacts only.
     """
-    validate_workers(getattr(args, "workers", 1), error_type=LDSCConfigError)
-    _validate_padding_usage(args)
-    _validate_gene_list_mode_args(args)
-    if getattr(args, "gene_ldscore_index_dir", None) is not None:
-        return _run_explicit_indexed_ldscore(args)
+    configs = _configs_from_args(args)
+    if isinstance(configs, _IndexedConfigs):
+        return _run_explicit_indexed_ldscore(configs)
+    return _run_direct_ldscore(configs)
 
+
+# Range errors that a configuration words by field name, worded with the option a command-line user typed.
+_OPTION_RANGE_ERRORS = {
+    "maf_min": (
+        "ldscore received invalid `--maf-min={value}`. Most likely the minor-allele frequency threshold was "
+        "entered outside the valid [0, 0.5] range. Pass a value between 0 and 0.5, or omit the option."
+    ),
+    "common_maf_min": (
+        "ldscore received invalid `--common-maf-min={value}`. Most likely the common-SNP MAF threshold was "
+        "entered outside the valid [0, 0.5] range. Pass a value between 0 and 0.5."
+    ),
+    "snp_batch_size": (
+        "ldscore received invalid `--snp-batch-size={value}`. Most likely the parquet query batch size was set "
+        "to zero or a negative value. Pass a positive integer batch size."
+    ),
+}
+
+
+def _config_from_options(config_type, **fields):
+    """Build ``config_type(**fields)``; a range error on a field in ``_OPTION_RANGE_ERRORS`` names its option."""
+    try:
+        return config_type(**fields)
+    except LDSCConfigError as exc:
+        for name, message in _OPTION_RANGE_ERRORS.items():
+            if name in fields and str(exc).startswith(f"Could not construct {config_type.__name__}: {name}="):
+                raise LDSCConfigError(message.format(value=fields[name])) from None
+        raise
+
+
+def _configs_from_args(args: argparse.Namespace) -> "_DirectConfigs | _IndexedConfigs":
+    """Check the input-mode rules and build every configuration of one ``ldscore`` run.
+
+    Runs before anything is written, for the command line and for
+    ``run_ldscore()`` alike. An option counts as supplied when the caller
+    named it (``_explicit_cli_options``), whatever its value.
+    """
+    explicit_options = args._explicit_cli_options
+    _validate_padding_usage(args)
+    _validate_gene_list_mode_args(args, explicit_options)
+    emit_console_notices = bool(getattr(args, "_emit_query_console_notices", False))
+    if args.gene_ldscore_index_dir is not None:
+        return _indexed_configs(args, explicit_options, emit_console_notices)
+    gene_lists = tuple(split_cli_path_tokens(args.query_annot_gene_list_sources))
+    if not _has_cli_tokens(args.baseline_annot_sources) and (
+        gene_lists or _has_cli_tokens(args.query_annot_sources) or _has_cli_tokens(args.query_annot_bed_sources)
+    ):
+        raise LDSCUsageError(_QUERY_REQUIRES_BASELINE_MESSAGE)
+    r2_matrix_dir = normalize_optional_path_token(args.r2_matrix_dir)
+    if bool(r2_matrix_dir) == bool(args.plink_prefix):
+        raise LDSCUsageError(
+            "ldscore could not choose a reference-panel backend. Most likely both R2 matrix "
+            "input and PLINK input were supplied, or neither was supplied. Pass exactly "
+            "one of `--r2-matrix-dir` for R2 matrix mode or `--plink-prefix` for PLINK mode."
+        )
+    snp_identifier = normalize_snp_identifier_mode(args.snp_identifier)
+    genome_build = normalize_genome_build(args.genome_build)
+    if r2_matrix_dir:
+        if args.keep_indivs_file:
+            raise LDSCUsageError(
+                "ldscore cannot apply `--keep-indivs-file` in R2 matrix mode. Most likely "
+                "`--keep-indivs-file` was combined with `--r2-matrix-dir`, but individual-level "
+                "filtering only exists before PLINK genotype LD calculation. Remove "
+                "`--keep-indivs-file`, or rerun in PLINK mode with `--plink-prefix`."
+            )
+        if identity_mode_family(snp_identifier) == "chr_pos" and genome_build is None:
+            raise LDSCUsageError(
+                "ldscore cannot run R2 matrix mode with a coordinate-family SNP identifier mode "
+                "without a genome build. Most likely `--snp-identifier chr_pos` or "
+                "`--snp-identifier chr_pos_allele_aware` was supplied without `--genome-build`. Pass "
+                "`--genome-build hg19`, `--genome-build hg38`, or `--genome-build auto`."
+            )
+    ref_panel_config = _config_from_options(
+        RefPanelConfig,
+        backend="r2_matrix" if r2_matrix_dir else "plink",
+        plink_prefix=None if r2_matrix_dir else args.plink_prefix,
+        r2_matrix_dir=r2_matrix_dir or None,
+        ref_panel_snps_file=args.ref_panel_snps_file,
+        maf_min=args.maf_min,
+        keep_indivs_file=args.keep_indivs_file,
+        genetic_map_hg19_sources=args.genetic_map_hg19_sources,
+        genetic_map_hg38_sources=args.genetic_map_hg38_sources,
+    )
+    ldscore_config = _config_from_options(
+        LDScoreConfig,
+        ld_wind_snps=args.ld_wind_snps,
+        ld_wind_kb=args.ld_wind_kb,
+        ld_wind_cm=args.ld_wind_cm,
+        regr_snps_file=args.regr_snps_file,
+        snp_batch_size=args.snp_batch_size,
+        query_batch_size=args.query_batch_size,
+        common_maf_min=args.common_maf_min,
+        whole_chromosome_ok=args.yes_really,
+        export_ref_metadata=args.export_ref_metadata,
+        workers=args.workers,
+    )
+    global_config = _requested_global_config(
+        snp_identifier, genome_build, has_gene_lists=bool(gene_lists), log_level=args.log_level)
+    annotation_config = AnnotationBuildConfig(
+        baseline_annot_sources=tuple(split_cli_path_tokens(args.baseline_annot_sources)),
+        query_annot_sources=tuple(split_cli_path_tokens(args.query_annot_sources)),
+        query_annot_bed_sources=tuple(split_cli_path_tokens(args.query_annot_bed_sources)),
+        query_annot_gene_list_sources=gene_lists,
+        gene_coordinate_file=args.gene_coordinate_file,
+        control_gene_list_file=args.control_gene_list_file,
+        gene_list_resolution_policy=args.gene_list_resolution_policy,
+        gene_exclude_regions=args.gene_exclude_regions,
+        padding_bp=0 if args.padding_bp is None else args.padding_bp,
+    )
+    return _DirectConfigs(
+        global_config=global_config,
+        genome_build=genome_build,
+        annotation_config=annotation_config,
+        ref_panel_config=ref_panel_config,
+        ldscore_config=ldscore_config,
+        output_config=LDScoreOutputConfig(output_dir=normalize_path_token(args.output_dir), overwrite=args.overwrite),
+        regr_snps_exclude_regions=args.regr_snps_exclude_regions,
+        emit_console_notices=emit_console_notices,
+    )
+
+
+def _requested_global_config(snp_identifier: str, genome_build: str | None, *, has_gene_lists: bool,
+                             log_level: str) -> GlobalConfig:
+    """Return the run's ``GlobalConfig`` with the requested genome build, before it is resolved.
+
+    Coordinate-family modes need a build; a gene-list run without one infers
+    it (``auto``). rsID-family identity records no build in gene-list runs,
+    where ``--genome-build`` selects only the gene projection build.
+    """
+    if identity_mode_family(snp_identifier) == "chr_pos":
+        if genome_build is None and not has_gene_lists:
+            raise LDSCUsageError(
+                "ldscore cannot resolve a coordinate-family SNP identifier mode without a genome build. "
+                "Most likely `--snp-identifier` was set to a coordinate-family mode but `--genome-build` "
+                "was omitted. Pass `--genome-build auto`, `--genome-build hg19`, or "
+                "`--genome-build hg38`."
+            )
+        return GlobalConfig(snp_identifier=snp_identifier, genome_build=genome_build or "auto", log_level=log_level)
+    return GlobalConfig(snp_identifier=snp_identifier, genome_build=None if has_gene_lists else genome_build,
+                        log_level=log_level)
+
+
+def _run_direct_ldscore(configs: _DirectConfigs) -> "LDScoreSource":
+    """Run one direct ``ldscore`` request: output preflight, the input gates, then the calculation."""
     from .direct_annotation import prepare_direct_annotations, prepare_synthetic_base
 
-    has_queries = any(_has_cli_tokens(getattr(args, name, None)) for name in (
-        "query_annot_gene_list_sources", "query_annot_bed_sources", "query_annot_sources",
-    ))
-    _validate_run_args(args)
-    ld_window = _ldscore_config_from_args(args).ld_window
-    output_config = _output_config_from_args(args)
+    annotation_config, panel_config = configs.annotation_config, configs.ref_panel_config
+    ldscore_config, output_config = configs.ldscore_config, configs.output_config
     output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
     log_path = output_dir / LDSCORE_LOG
     LDScoreDirectoryWriter.artifact_family(output_dir, include_logs=True).preflight(
         overwrite=output_config.overwrite, additional_paths=[log_path])
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    issues_path = output_dir / "diagnostics/input_issues.tsv"
     with AnnotationWorkspace(output_dir) as workspace:
-        with workflow_logging("ldscore", log_path, log_level=getattr(args,"log_level","INFO")):
+        with workflow_logging("ldscore", log_path, log_level=configs.global_config.log_level):
             from .._refpanel.preflight import inspect_r2_headers
             from .preflight import inspect_reference_inputs
+            r2_matrix_dir = panel_config.r2_matrix_dir
             declared_inputs = inspect_annotation_inputs(
-                baseline=getattr(args, 'baseline_annot_sources', None), query=getattr(args, 'query_annot_sources', None),
-                files=[(name, getattr(args, name, None)) for name in (
-                    'query_annot_bed_sources', 'query_annot_gene_list_sources')],
-                scalar_files=[(name, getattr(args, name, None)) for name in (
-                    'control_gene_list_file', 'gene_coordinate_file', 'regr_snps_file', 'ref_panel_snps_file', 'keep_indivs_file')],
-                plink=getattr(args, 'plink_prefix', None), require_complete_suite=has_queries,
-                mode=getattr(args, 'snp_identifier', 'rsid'), issues_path=output_dir/'diagnostics/input_issues.tsv',
-                checks=[('reference', args.r2_matrix_dir, lambda: inspect_r2_headers(
-                    args.r2_matrix_dir, getattr(args, 'genome_build', None), command='ldscore', ld_window=ld_window))]
-                       if getattr(args, 'r2_matrix_dir', None) else ())
-            require_usable_bed_query_names(declared_inputs.files['query_annot_bed_sources'],
-                                           annotation_columns(declared_inputs), output_dir/'diagnostics/input_issues.tsv')
+                baseline=annotation_config.baseline_annot_sources, query=annotation_config.query_annot_sources,
+                files=[("query_annot_bed_sources", annotation_config.query_annot_bed_sources),
+                       ("query_annot_gene_list_sources", annotation_config.query_annot_gene_list_sources)],
+                scalar_files=[("control_gene_list_file", annotation_config.control_gene_list_file),
+                              ("gene_coordinate_file", annotation_config.gene_coordinate_file),
+                              ("regr_snps_file", ldscore_config.regr_snps_file),
+                              ("ref_panel_snps_file", panel_config.ref_panel_snps_file),
+                              ("keep_indivs_file", panel_config.keep_indivs_file)],
+                plink=panel_config.plink_prefix, require_complete_suite=configs.has_queries,
+                mode=configs.global_config.snp_identifier, issues_path=issues_path,
+                checks=[("reference", r2_matrix_dir, lambda: inspect_r2_headers(
+                    r2_matrix_dir, configs.genome_build, command="ldscore", ld_window=ldscore_config.ld_window))]
+                       if r2_matrix_dir else ())
+            require_usable_bed_query_names(declared_inputs.files["query_annot_bed_sources"],
+                                           annotation_columns(declared_inputs), issues_path)
             batch = catalog = None
-            if _has_cli_tokens(getattr(args,"query_annot_gene_list_sources",None)):
-                catalog = GeneCatalog.load(args.gene_coordinate_file)
-                batch = resolve_gene_lists_staged(split_cli_path_tokens(args.query_annot_gene_list_sources),catalog,workspace,
-                    control_path=getattr(args,"control_gene_list_file",None),
-                    resolution_policy=getattr(args,"gene_list_resolution_policy","strict"),
-                    gene_exclude_regions=getattr(args,"gene_exclude_regions","none"))
+            if configs.has_gene_lists:
+                catalog = GeneCatalog.load(annotation_config.gene_coordinate_file)
+                batch = resolve_gene_lists_staged(list(annotation_config.query_annot_gene_list_sources), catalog,
+                    workspace, control_path=annotation_config.control_gene_list_file,
+                    resolution_policy=annotation_config.gene_list_resolution_policy,
+                    gene_exclude_regions=annotation_config.gene_exclude_regions)
                 batch = validate_gene_query_names(batch, annotation_columns(declared_inputs))
                 if batch.has_fatal_gate_a_issues:
                     fail_gene_list_resolution(batch, output_config)
-            normalized_args, global_config = _normalize_run_args(args,gene_catalog=catalog)
-            print_global_config_banner("run_ldscore_from_args",global_config)
-            _validate_run_args(normalized_args)
-            ldscore_config = _ldscore_config_from_args(normalized_args)
-            with PhaseProgress(LOGGER, 'validation', 'reference content and compatibility'):
-                reference_inputs = inspect_reference_inputs(normalized_args, global_config, require_autosomes=has_queries, plink_members=declared_inputs.files.get('plink_members'))
-                gate = InputGate('Reference/control content validation', output_dir/'diagnostics/input_issues.tsv',
-                                 reference_inputs.issues.to_dict('records'))
+            global_config, gene_catalog_build = _resolve_build(configs, gene_catalog=catalog)
+            print_global_config_banner("run_ldscore_from_args", global_config)
+            with PhaseProgress(LOGGER, "validation", "reference content and compatibility"):
+                reference_inputs = inspect_reference_inputs(
+                    panel_config, global_config, require_autosomes=configs.has_queries,
+                    plink_members=declared_inputs.files.get("plink_members"))
+                gate = InputGate("Reference/control content validation", issues_path,
+                                 reference_inputs.issues.to_dict("records"))
                 regression_path = _regr_snps_file_from_config(ldscore_config)
-                regression_snps = gate.check('regression SNPs', regression_path,
+                regression_snps = gate.check("regression SNPs", regression_path,
                     lambda: _load_regression_snps(regression_path, global_config,
-                        label="packaged HM3 regression SNP map" if ldscore_config.regr_snps_file is None else "regression SNP list"))
-                regression_regions = gate.check('regression regions', getattr(normalized_args, 'regr_snps_exclude_regions', None),
-                    lambda: _regression_region_intervals(normalized_args, global_config))
+                        label="packaged HM3 regression SNP map" if ldscore_config.regr_snps_file is None
+                        else "regression SNP list"))
+                regression_regions = gate.check("regression regions", configs.regr_snps_exclude_regions,
+                    lambda: _regression_region_intervals(
+                        configs.regr_snps_exclude_regions, _regression_region_build(global_config, gene_catalog_build)))
                 gate.finish()
+            chromosome_prefixes = reference_inputs.scope.get("reference_prefixes_by_chrom")
             scope, skipped_funnels = {}, []
-            if _has_cli_tokens(normalized_args.baseline_annot_sources):
-                annotation_bundle, scope = prepare_direct_annotations(normalized_args,global_config,
-                    _annotation_build_config_from_args(normalized_args),workspace,output_config,batch=batch,
-                    declared_inputs=declared_inputs,reference_inputs=reference_inputs)
-                ref_panel = _ref_panel_from_args(normalized_args,global_config,
-                    chromosome_prefixes=reference_inputs.scope.get("reference_prefixes_by_chrom"))
+            if annotation_config.baseline_annot_sources:
+                annotation_bundle, scope = prepare_direct_annotations(
+                    annotation_config, global_config, workspace, output_config, batch=batch,
+                    gene_catalog_build=gene_catalog_build, declared_inputs=declared_inputs,
+                    reference_inputs=reference_inputs)
+                ref_panel = _ref_panel_from_config(panel_config, global_config, chromosome_prefixes=chromosome_prefixes)
             else:
-                ref_panel = _ref_panel_from_args(normalized_args,global_config,
-                    chromosome_prefixes=reference_inputs.scope.get("reference_prefixes_by_chrom"))
-                annotation_bundle, skipped_funnels = prepare_synthetic_base(ref_panel,global_config,workspace)
+                ref_panel = _ref_panel_from_config(panel_config, global_config, chromosome_prefixes=chromosome_prefixes)
+                annotation_bundle, skipped_funnels = prepare_synthetic_base(ref_panel, global_config, workspace)
             if scope.get("chromosomes"):
                 LOGGER.info("Chromosomes resolved and entering the analysis: %s.", ", ".join(scope['chromosomes']))
-            log_inputs(output_dir=str(output_dir),reference_mode=ref_panel.spec.backend,
+            log_inputs(output_dir=str(output_dir), reference_mode=ref_panel.spec.backend,
                 reference_panel_source=ref_panel.spec.plink_prefix or ref_panel.spec.r2_matrix_dir,
-                snp_identifier=global_config.snp_identifier,genome_build=global_config.genome_build,
-                ref_panel_snps_file=normalized_args.ref_panel_snps_file or "none",
+                snp_identifier=global_config.snp_identifier, genome_build=global_config.genome_build,
+                ref_panel_snps_file=panel_config.ref_panel_snps_file or "none",
                 regr_snps_file=ldscore_config.regr_snps_file or "packaged_hm3_default",
                 regression_region_presets=", ".join(regression_regions.source_labels) if regression_regions else "none")
-            if getattr(normalized_args,"gene_catalog_build",None) is not None:
-                LOGGER.info("Gene-list catalog projection build: %s (selected from --genome-build and baseline/reference-panel evidence).",normalized_args.gene_catalog_build)
+            if gene_catalog_build is not None:
+                LOGGER.info("Gene-list catalog projection build: %s (selected from --genome-build and baseline/reference-panel evidence).", gene_catalog_build)
             if annotation_bundle.gene_list_batch is not None:
                 annotation_bundle, gate_b_error, gate_b_issues = _apply_direct_gene_gate_b(
                     annotation_bundle, ref_panel, ldscore_config)
@@ -1400,85 +1601,76 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
             if statuses and not annotation_bundle.query_columns:
                 fail_unusable_queries(_bundle_diagnostics(annotation_bundle),
                                       all_query_annotations_skipped_message(statuses), output_config)
-            result = LDScoreCalculator()._run(annotation_bundle,ref_panel,ldscore_config,global_config,
-                output_config=output_config,regression_snps=regression_snps,regression_regions=regression_regions,
+            result = LDScoreCalculator()._run(annotation_bundle, ref_panel, ldscore_config, global_config,
+                output_config=output_config, regression_snps=regression_snps, regression_regions=regression_regions,
                 skipped_funnels=skipped_funnels)
             log_query_outcomes(result.gene_list_batch, result.query_statuses)
             log_outputs(**result.output_paths)
-            if bool(getattr(args,"_emit_query_console_notices",False)):
-                emit_gene_gate_b_notice(result.query_statuses,result.gene_list_batch,command="ldscore")
+            if configs.emit_console_notices:
+                emit_gene_gate_b_notice(result.query_statuses, result.gene_list_batch, command="ldscore")
                 emit_resolved_only_notice(result.gene_list_batch)
-                emit_bed_query_notice(result.query_statuses,command="ldscore")
+                emit_bed_query_notice(result.query_statuses, command="ldscore")
                 _emit_reference_snp_notices(result.output_paths)
-            return dataclass_replace(result,gene_list_batch=persistent_gene_diagnostics(result.gene_list_batch,result.output_paths))
+            return dataclass_replace(result, gene_list_batch=persistent_gene_diagnostics(result.gene_list_batch,
+                                                                                         result.output_paths))
 
 
-def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> "LDScoreSource":
-    """Validate and dispatch the closed indexed gene-list mode."""
-    explicit_options = set(getattr(args, "_explicit_cli_options", ()))
-    live_options = {
-        "--baseline-annot-sources",
-        "--query-annot-sources",
-        "--query-annot-bed-sources",
-        "--padding-bp",
-        "--gene-coordinate-file",
-        "--gene-exclude-regions",
-        "--plink-prefix",
-        "--r2-matrix-dir",
-        "--snp-identifier",
-        "--genome-build",
-        "--ref-panel-snps-file",
-        "--regr-snps-file",
-        "--regr-snps-exclude-regions",
-        "--keep-indivs-file",
-        "--ld-wind-snps",
-        "--ld-wind-kb",
-        "--ld-wind-cm",
-        "--maf-min",
-        "--common-maf-min",
-        "--genetic-map-hg19-sources",
-        "--genetic-map-hg38-sources",
-        "--export-ref-metadata",
-        "--snp-batch-size",
-        "--yes-really",
-    }
-    forbidden = {
-        "--baseline-annot-sources": getattr(args, "baseline_annot_sources", None),
-        "--query-annot-sources": getattr(args, "query_annot_sources", None),
-        "--query-annot-bed-sources": getattr(args, "query_annot_bed_sources", None),
-        "--gene-coordinate-file": getattr(args, "gene_coordinate_file", None),
-        "--plink-prefix": getattr(args, "plink_prefix", None),
-        "--r2-matrix-dir": getattr(args, "r2_matrix_dir", None),
-        "--ref-panel-snps-file": getattr(args, "ref_panel_snps_file", None),
-        "--regr-snps-file": getattr(args, "regr_snps_file", None),
-        "--keep-indivs-file": getattr(args, "keep_indivs_file", None),
-        "--genetic-map-hg19-sources": getattr(args, "genetic_map_hg19_sources", None),
-        "--genetic-map-hg38-sources": getattr(args, "genetic_map_hg38_sources", None),
-        "--ld-wind-snps": getattr(args, "ld_wind_snps", None),
-        "--ld-wind-kb": getattr(args, "ld_wind_kb", None),
-        "--ld-wind-cm": getattr(args, "ld_wind_cm", None),
-        "--maf-min": getattr(args, "maf_min", None),
-    }
-    if getattr(args, "gene_exclude_regions", "none") != "none":
-        forbidden["--gene-exclude-regions"] = getattr(args, "gene_exclude_regions")
-    if getattr(args, "regr_snps_exclude_regions", "mhc-and-centromeres") != "mhc-and-centromeres":
-        forbidden["--regr-snps-exclude-regions"] = getattr(args, "regr_snps_exclude_regions")
-    if getattr(args, "common_maf_min", 0.05) != 0.05:
-        forbidden["--common-maf-min"] = getattr(args, "common_maf_min")
-    if getattr(args, "snp_batch_size", DEFAULT_SNP_BATCH_SIZE) != DEFAULT_SNP_BATCH_SIZE:
-        forbidden["--snp-batch-size"] = getattr(args, "snp_batch_size")
-    if bool(getattr(args, "export_ref_metadata", False)):
-        forbidden["--export-ref-metadata"] = True
-    if bool(getattr(args, "yes_really", False)):
-        forbidden["--yes-really"] = True
-    supplied = sorted(
-        (explicit_options & live_options)
-        | {
-            option
-            for option, value in forbidden.items()
-            if value not in {None, ""}
-        }
-    )
+def _resolve_build(configs: _DirectConfigs, *, gene_catalog=None) -> tuple[GlobalConfig, str | None]:
+    """Resolve the run's genome build once against every coordinate input.
+
+    Returns the run's ``GlobalConfig`` and the gene-list projection build
+    (``None`` without gene lists). A coordinate-family run carries the
+    resolved build. rsID-family identity records none: a gene-list run
+    resolves its projection build (``auto`` when ``--genome-build`` is
+    omitted), and another run checks a concrete ``--genome-build`` against
+    the input declarations.
+    """
+    global_config = configs.global_config
+    catalog_build = getattr(gene_catalog, "genome_build", None)
+    if identity_mode_family(global_config.snp_identifier) == "chr_pos":
+        build = _resolve_ldscore_chr_pos_genome_build(configs, global_config.genome_build,
+                                                      gene_catalog_build=catalog_build)
+        return dataclass_replace(global_config, genome_build=build), build if configs.has_gene_lists else None
+    if configs.has_gene_lists:
+        return global_config, _resolve_ldscore_chr_pos_genome_build(
+            configs, configs.genome_build or "auto", gene_catalog_build=catalog_build)
+    if configs.genome_build in {"hg19", "hg38"}:
+        _resolve_ldscore_chr_pos_genome_build(configs, configs.genome_build)
+    return global_config, None
+
+
+# Options of a direct run; an indexed run takes their values from its gene LD-score index.
+_INDEX_OWNED_OPTIONS = frozenset({
+    "--baseline-annot-sources",
+    "--query-annot-sources",
+    "--query-annot-bed-sources",
+    "--padding-bp",
+    "--gene-coordinate-file",
+    "--gene-exclude-regions",
+    "--plink-prefix",
+    "--r2-matrix-dir",
+    "--snp-identifier",
+    "--genome-build",
+    "--ref-panel-snps-file",
+    "--regr-snps-file",
+    "--regr-snps-exclude-regions",
+    "--keep-indivs-file",
+    "--ld-wind-snps",
+    "--ld-wind-kb",
+    "--ld-wind-cm",
+    "--maf-min",
+    "--common-maf-min",
+    "--genetic-map-hg19-sources",
+    "--genetic-map-hg38-sources",
+    "--export-ref-metadata",
+    "--snp-batch-size",
+    "--yes-really",
+})
+
+
+def _indexed_configs(args: argparse.Namespace, explicit_options, emit_console_notices: bool) -> _IndexedConfigs:
+    """Check the closed indexed gene-list mode: no direct-run option, gene lists, valid execution settings."""
+    supplied = sorted(explicit_options & _INDEX_OWNED_OPTIONS)
     if supplied:
         raise LDSCInputError(
             "ldscore indexed mode inherits immutable scientific inputs, SNP identity, and genome build "
@@ -1486,40 +1678,52 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> "LDScoreSource":
             + ", ".join(supplied)
             + ". Remove these options, or remove --gene-ldscore-index-dir to run direct mode."
         )
-    gene_lists = split_cli_path_tokens(getattr(args, "query_annot_gene_list_sources", None))
+    gene_lists = split_cli_path_tokens(args.query_annot_gene_list_sources)
     if not gene_lists:
         raise LDSCInputError(
             "ldscore indexed mode requires --query-annot-gene-list-sources."
         )
-    output_dir = output_directory_path(args.output_dir)
+    return _IndexedConfigs(
+        index_dir=args.gene_ldscore_index_dir,
+        query_gene_list_sources=tuple(gene_lists),
+        control_gene_list_file=args.control_gene_list_file,
+        gene_list_resolution_policy=args.gene_list_resolution_policy,
+        query_batch_size=validate_query_batch_size(args.query_batch_size),
+        workers=validate_workers(args.workers, error_type=LDSCConfigError),
+        output_dir=args.output_dir,
+        overwrite=args.overwrite,
+        log_level=args.log_level,
+        emit_console_notices=emit_console_notices,
+    )
+
+
+def _run_explicit_indexed_ldscore(configs: _IndexedConfigs) -> "LDScoreSource":
+    """Run one indexed ``ldscore`` request under its own workflow log."""
+    output_dir = output_directory_path(configs.output_dir)
     log_path = output_dir / LDSCORE_LOG
     LDScoreDirectoryWriter.artifact_family(output_dir, include_logs=True).preflight(
-        overwrite=bool(getattr(args, "overwrite", False)), additional_paths=[log_path],
+        overwrite=configs.overwrite, additional_paths=[log_path],
     )
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    with workflow_logging(
-        "ldscore",
-        log_path,
-        log_level=getattr(args, "log_level", "INFO"),
-    ):
+    with workflow_logging("ldscore", log_path, log_level=configs.log_level):
         log_inputs(
             output_dir=str(output_dir),
             reference_mode="gene_ldscore_index",
-            gene_ldscore_index=str(args.gene_ldscore_index_dir),
-            query_gene_list_count=len(gene_lists),
-            control_gene_list_file=getattr(args, "control_gene_list_file", None),
+            gene_ldscore_index=str(configs.index_dir),
+            query_gene_list_count=len(configs.query_gene_list_sources),
+            control_gene_list_file=configs.control_gene_list_file,
         )
         result = run_indexed_ldscore(
-            args.gene_ldscore_index_dir,
-            query_gene_list_sources=tuple(gene_lists),
-            control_gene_list_file=getattr(args, "control_gene_list_file", None),
-            gene_list_resolution_policy=getattr(args, "gene_list_resolution_policy", "strict"),
-            query_batch_size=getattr(args, "query_batch_size", 100),
-            workers=getattr(args, "workers", 1),
+            configs.index_dir,
+            query_gene_list_sources=configs.query_gene_list_sources,
+            control_gene_list_file=configs.control_gene_list_file,
+            gene_list_resolution_policy=configs.gene_list_resolution_policy,
+            query_batch_size=configs.query_batch_size,
+            workers=configs.workers,
             output_dir=str(output_dir),
-            overwrite=bool(getattr(args, "overwrite", False)),
+            overwrite=configs.overwrite,
         )
-        if bool(getattr(args, "_emit_query_console_notices", False)):
+        if configs.emit_console_notices:
             emit_gene_gate_b_notice(
                 getattr(result, "query_statuses", ()),
                 getattr(result, "gene_list_batch", None),
@@ -1537,23 +1741,18 @@ def _validate_padding_usage(args: argparse.Namespace) -> None:
     """Reject explicit padding outside live BED or gene-list projection.
 
     The parser's ``None`` sentinel distinguishes omission from an explicit
-    zero; normalization converts an allowed omission to the effective default
-    only after this mode check.
+    zero; the direct configuration turns an allowed omission into 0.
     """
-    has_gene_lists = _has_cli_tokens(getattr(args, "query_annot_gene_list_sources", None))
-    uses_index = getattr(args, "gene_ldscore_index_dir", None) is not None
-    if getattr(args, "padding_bp", None) is None:
+    has_gene_lists = _has_cli_tokens(args.query_annot_gene_list_sources)
+    uses_index = args.gene_ldscore_index_dir is not None
+    if args.padding_bp is None:
         if has_gene_lists and not uses_index:
             raise LDSCUsageError(
                 "Live gene-list mode requires an explicit --padding-bp value; it must be chosen deliberately. "
                 "Use --padding-bp 0 for gene bodies or a positive value for padded intervals."
             )
         return
-    uses_live_intervals = (
-        _has_cli_tokens(getattr(args, "query_annot_bed_sources", None))
-        or _has_cli_tokens(getattr(args, "query_annot_gene_list_sources", None))
-    )
-    if uses_live_intervals and not uses_index:
+    if (has_gene_lists or _has_cli_tokens(args.query_annot_bed_sources)) and not uses_index:
         return
     raise LDSCUsageError(
         "ldscore accepts `--padding-bp` only with live `--query-annot-bed-sources` "
@@ -1563,52 +1762,30 @@ def _validate_padding_usage(args: argparse.Namespace) -> None:
     )
 
 
-def _validate_gene_list_mode_args(args: argparse.Namespace) -> None:
+# Options of gene-list mode; --gene-list-resolution-policy is the keyword route's --allow-unresolved-genes.
+_GENE_LIST_OPTIONS = frozenset({
+    "--gene-coordinate-file",
+    "--gene-exclude-regions",
+    "--control-gene-list-file",
+    "--allow-unresolved-genes",
+    "--gene-list-resolution-policy",
+})
+
+
+def _validate_gene_list_mode_args(args: argparse.Namespace, explicit_options) -> None:
     """Reject gene-only options outside their direct or indexed input mode."""
-    has_gene_lists = _has_cli_tokens(getattr(args, "query_annot_gene_list_sources", None))
-    uses_index = getattr(args, "gene_ldscore_index_dir", None) is not None
-    explicit_options = set(getattr(args, "_explicit_cli_options", ()))
-    explicitly_supplied_gene_options = explicit_options & {
-        "--gene-coordinate-file",
-        "--gene-exclude-regions",
-        "--control-gene-list-file",
-        "--allow-unresolved-genes",
-    }
-    if not has_gene_lists:
-        if (
-            explicitly_supplied_gene_options
-            or getattr(args, "gene_exclude_regions", "none") != "none"
-            or getattr(args, "control_gene_list_file", None) is not None
-            or getattr(args, "gene_coordinate_file", None) is not None
-            or getattr(args, "gene_list_resolution_policy", "strict") != "strict"
-        ):
+    if not _has_cli_tokens(args.query_annot_gene_list_sources):
+        if explicit_options & _GENE_LIST_OPTIONS:
             raise LDSCUsageError(
                 "Gene coordinate, exclusion, control-list, and resolution policy options are valid only with "
                 "gene-list query annotations. Remove the gene-specific option or use gene-list mode."
             )
         return
-    if not uses_index and getattr(args, "gene_coordinate_file", None) is None:
+    if args.gene_ldscore_index_dir is None and args.gene_coordinate_file is None:
         raise LDSCUsageError(
             "Live gene-list mode requires --gene-coordinate-file. Supply a one-build, one-based "
             "gene-coordinate TSV/TSV.GZ; there is no packaged catalog fallback."
         )
-
-
-def _annotation_build_config_from_args(args: argparse.Namespace) -> AnnotationBuildConfig:
-    """Build the annotation source config after the public mode matrix passes."""
-    return AnnotationBuildConfig(
-        baseline_annot_sources=tuple(split_cli_path_tokens(args.baseline_annot_sources)),
-        query_annot_sources=tuple(split_cli_path_tokens(args.query_annot_sources)),
-        query_annot_bed_sources=tuple(split_cli_path_tokens(getattr(args, "query_annot_bed_sources", None))),
-        query_annot_gene_list_sources=tuple(
-            split_cli_path_tokens(getattr(args, "query_annot_gene_list_sources", None))
-        ),
-        gene_coordinate_file=getattr(args, "gene_coordinate_file", None),
-        control_gene_list_file=getattr(args, "control_gene_list_file", None),
-        gene_list_resolution_policy=getattr(args, "gene_list_resolution_policy", "strict"),
-        gene_exclude_regions=getattr(args, "gene_exclude_regions", "none"),
-        padding_bp=getattr(args, "padding_bp", 0),
-    )
 
 
 def _apply_direct_gene_gate_b(annotation_bundle, ref_panel, ldscore_config):
@@ -1671,64 +1848,6 @@ def _apply_direct_gene_gate_b(annotation_bundle, ref_panel, ldscore_config):
             pd.DataFrame(input_issues) if input_issues else None)
 
 
-def _validate_run_args(args: argparse.Namespace) -> None:
-    """Validate public LD-score workflow arguments before loading inputs.
-
-    This validator intentionally lives in the workflow layer rather than in the
-    kernel because optional baseline synthesis is a public orchestration rule:
-    the numerical kernels still receive an explicit annotation bundle.
-    ``_validate_gene_list_mode_args`` has already checked the gene-list
-    options. The workflow calls this again after normalization, when an
-    ``auto`` genome build has been resolved.
-    """
-    if not _has_cli_tokens(args.baseline_annot_sources) and (
-        _has_cli_tokens(args.query_annot_sources)
-        or _has_cli_tokens(getattr(args, "query_annot_bed_sources", None))
-        or _has_cli_tokens(getattr(args, "query_annot_gene_list_sources", None))
-    ):
-        raise LDSCUsageError(_QUERY_REQUIRES_BASELINE_MESSAGE)
-    keep = getattr(args, "keep_indivs_file", None)
-    if _uses_parquet_reference(args) == bool(getattr(args, "plink_prefix", None)):
-        raise LDSCUsageError(
-            "ldscore could not choose a reference-panel backend. Most likely both R2 matrix "
-            "input and PLINK input were supplied, or neither was supplied. Pass exactly "
-            "one of `--r2-matrix-dir` for R2 matrix mode or `--plink-prefix` for PLINK mode."
-        )
-    if _uses_parquet_reference(args):
-        if keep:
-            raise LDSCUsageError(
-                "ldscore cannot apply `--keep-indivs-file` in R2 matrix mode. Most likely "
-                "`--keep-indivs-file` was combined with `--r2-matrix-dir`, but individual-level "
-                "filtering only exists before PLINK genotype LD calculation. Remove "
-                "`--keep-indivs-file`, or rerun in PLINK mode with `--plink-prefix`."
-            )
-        if identity_mode_family(args.snp_identifier) == "chr_pos" and args.genome_build is None:
-            raise LDSCUsageError(
-                "ldscore cannot run R2 matrix mode with a coordinate-family SNP identifier mode "
-                "without a genome build. Most likely `--snp-identifier chr_pos` or "
-                "`--snp-identifier chr_pos_allele_aware` was supplied without `--genome-build`. Pass "
-                "`--genome-build hg19`, `--genome-build hg38`, or `--genome-build auto`."
-            )
-    if getattr(args, "maf_min", None) is not None and not 0 <= args.maf_min <= 0.5:
-        raise LDSCConfigError(
-            f"ldscore received invalid `--maf-min={args.maf_min}`. Most likely the "
-            "minor-allele frequency threshold was entered outside the valid [0, 0.5] "
-            "range. Pass a value between 0 and 0.5, or omit the option."
-        )
-    if not 0 <= getattr(args, "common_maf_min", 0.05) <= 0.5:
-        raise LDSCConfigError(
-            f"ldscore received invalid `--common-maf-min={args.common_maf_min}`. Most "
-            "likely the common-SNP MAF threshold was entered outside the valid [0, 0.5] "
-            "range. Pass a value between 0 and 0.5."
-        )
-    if args.snp_batch_size <= 0:
-        raise LDSCConfigError(
-            f"ldscore received invalid `--snp-batch-size={args.snp_batch_size}`. Most "
-            "likely the parquet query batch size was set to zero or a negative value. "
-            "Pass a positive integer batch size."
-        )
-
-
 def _has_cli_tokens(value: str | Sequence[str] | None) -> bool:
     """Return whether a CLI path field contains at least one non-empty token."""
     return bool(split_cli_path_tokens(value))
@@ -1752,16 +1871,6 @@ def _format_ldscore_start_message(annotation_bundle, n_chromosomes: int) -> str:
         f"with {len(annotation_bundle.baseline_columns)} baseline columns "
         f"and {len(annotation_bundle.query_columns)} query columns."
     )
-
-
-def _uses_parquet_reference(args: argparse.Namespace) -> bool:
-    """Return whether normalized args select R2 matrix mode."""
-    return bool(_r2_matrix_dir_from_args(args))
-
-
-def _r2_matrix_dir_from_args(args: argparse.Namespace) -> str | None:
-    """Return the R2 matrix directory supplied to the LD-score workflow."""
-    return normalize_optional_path_token(getattr(args, "r2_matrix_dir", None))
 
 
 def run_ldscore(**kwargs) -> "LDScoreSource":
@@ -1820,7 +1929,14 @@ def run_ldscore(**kwargs) -> "LDScoreSource":
         Before anything is written, when a keyword is not an ``ldscore``
         option name, ``output_dir`` is missing, a value is outside the
         command's choices, a flag is not a bool, or ``snp_identifier``,
-        ``genome_build`` or ``log_level`` is passed.
+        ``genome_build`` or ``log_level`` is passed. Also before anything is
+        written, when the keywords combine input modes the command rejects;
+        a passed keyword counts as supplied even at its default value, so
+        ``gene_coordinate_file``, ``gene_exclude_regions``,
+        ``control_gene_list_file`` or ``gene_list_resolution_policy``
+        without gene lists is rejected.
+    LDSCConfigError
+        Before anything is written, when a value is outside its valid range.
     """
     from .._runtime.workflow_kwargs import GLOBAL_CONFIG_RUNTIME_OPTIONS, namespace_from_kwargs
 
@@ -1843,101 +1959,9 @@ def main(argv: Sequence[str] | None = None) -> LDScoreSource:
     return run_ldscore_from_args(args)
 
 
-def _normalize_run_args(
-    args: argparse.Namespace,
-    *,
-    gene_catalog: Any | None = None,
-) -> tuple[argparse.Namespace, GlobalConfig]:
-    """Normalize CLI-style args and derive the shared ``GlobalConfig`` object."""
-    normalized_mode = normalize_snp_identifier_mode(args.snp_identifier)
-    normalized_args = argparse.Namespace(**vars(args))
-    for attr in (
-        "query_annot_sources",
-        "baseline_annot_sources",
-        "plink_prefix",
-        "r2_matrix_dir",
-        "query_annot_bed_sources",
-        "query_annot_gene_list_sources",
-        "gene_coordinate_file",
-        "keep_indivs_file",
-    ):
-        if not hasattr(normalized_args, attr):
-            setattr(normalized_args, attr, None)
-    for attr in ("ref_panel_snps_file", "regr_snps_file"):
-        if not hasattr(normalized_args, attr):
-            setattr(normalized_args, attr, None)
-    for attr in ("regr_snps_exclude_regions",):
-        if not hasattr(normalized_args, attr):
-            setattr(normalized_args, attr, None)
-    if not hasattr(normalized_args, "control_gene_list_file"):
-        normalized_args.control_gene_list_file = None
-    if not hasattr(normalized_args, "gene_list_resolution_policy"):
-        normalized_args.gene_list_resolution_policy = "strict"
-    if not hasattr(normalized_args, "gene_exclude_regions"):
-        normalized_args.gene_exclude_regions = "none"
-    if not hasattr(normalized_args, "maf_min"):
-        normalized_args.maf_min = None
-    if not hasattr(normalized_args, "common_maf_min"):
-        normalized_args.common_maf_min = 0.05
-    if not hasattr(normalized_args, "padding_bp") or normalized_args.padding_bp is None:
-        normalized_args.padding_bp = 0
-    if not hasattr(normalized_args, "snp_batch_size"):
-        normalized_args.snp_batch_size = DEFAULT_SNP_BATCH_SIZE
-    normalized_args.snp_identifier = normalized_mode
-    normalized_args.output_dir = normalize_path_token(args.output_dir)
-    normalized_args.r2_matrix_dir = _r2_matrix_dir_from_args(normalized_args)
-    normalized_args.keep_indivs_file = normalize_optional_path_token(getattr(args, "keep_indivs_file", None))
-    normalized_args.gene_coordinate_file = normalize_optional_path_token(getattr(args, "gene_coordinate_file", None))
-    normalized_args.ref_panel_snps_file = normalize_optional_path_token(getattr(args, "ref_panel_snps_file", None))
-    normalized_args.regr_snps_file = normalize_optional_path_token(getattr(args, "regr_snps_file", None))
-    normalized_args.regr_snps_exclude_regions = getattr(args, "regr_snps_exclude_regions", None)
-    has_gene_lists = _has_cli_tokens(normalized_args.query_annot_gene_list_sources)
-    normalized_args.gene_catalog_build = None
-    if identity_mode_family(normalized_mode) == "rsid":
-        requested_build = normalize_genome_build(getattr(args, "genome_build", None))
-        if has_gene_lists:
-            normalized_args.gene_catalog_build = _resolve_ldscore_chr_pos_genome_build(
-                normalized_args, requested_build or "auto",
-                gene_catalog_build=getattr(gene_catalog, "genome_build", None),
-            )
-            global_config = GlobalConfig(
-                snp_identifier=normalized_mode,
-                genome_build=None,
-                log_level=getattr(args, "log_level", "INFO"),
-            )
-            normalized_args.genome_build = None
-        else:
-            if requested_build in {"hg19", "hg38"}:
-                _resolve_ldscore_chr_pos_genome_build(normalized_args, requested_build)
-            global_config = GlobalConfig(
-                snp_identifier=normalized_mode,
-                genome_build=requested_build,
-                log_level=getattr(args, "log_level", "INFO"),
-            )
-            normalized_args.genome_build = global_config.genome_build
-    else:
-        requested_build = getattr(args, "genome_build", None)
-        if has_gene_lists and requested_build is None:
-            requested_build = "auto"
-        resolved_genome_build = _resolve_ldscore_chr_pos_genome_build(
-            normalized_args,
-            requested_build,
-            gene_catalog_build=getattr(gene_catalog, "genome_build", None),
-        )
-        normalized_args.genome_build = resolved_genome_build
-        if has_gene_lists:
-            normalized_args.gene_catalog_build = resolved_genome_build
-        global_config = GlobalConfig(
-            snp_identifier=normalized_mode,
-            genome_build=resolved_genome_build,
-            log_level=getattr(args, "log_level", "INFO"),
-        )
-    return normalized_args, global_config
-
-
 def _resolve_ldscore_chr_pos_genome_build(
-    args: argparse.Namespace,
-    genome_build: str | None,
+    configs: _DirectConfigs,
+    genome_build: str,
     *,
     gene_catalog_build: str | None = None,
 ) -> str:
@@ -1947,32 +1971,24 @@ def _resolve_ldscore_chr_pos_genome_build(
     samples each file/chromosome; generic coordinate restrictions must resolve
     independently and BED inherits the result.
     """
-    normalized = normalize_genome_build(genome_build)
-    if normalized is None:
-        raise LDSCUsageError(
-            "ldscore cannot resolve a coordinate-family SNP identifier mode without a genome build. "
-            "Most likely `--snp-identifier` was set to a coordinate-family mode but `--genome-build` "
-            "was omitted. Pass `--genome-build auto`, `--genome-build hg19`, or "
-            "`--genome-build hg38`."
-        )
-
-    check = GenomeBuildCheck(normalized, context="ldscore", logger=LOGGER)
+    annotations, panel = configs.annotation_config, configs.ref_panel_config
+    check = GenomeBuildCheck(genome_build, context="ldscore", logger=LOGGER)
     if gene_catalog_build is not None:
-        check.declared("--gene-coordinate-file", getattr(args, "gene_coordinate_file", None) or "gene coordinate catalog", gene_catalog_build)
-    for role in ("baseline_annot_sources", "query_annot_sources"):
-        check.paths("--" + role.replace("_", "-"), getattr(args, role, None))
-    check.plink("--plink-prefix", getattr(args, "plink_prefix", None))
-    r2_matrix_dir = _r2_matrix_dir_from_args(args)
-    if r2_matrix_dir is not None:
-        check.r2("--r2-matrix-dir", r2_matrix_dir)
-    mode = getattr(args, "snp_identifier", "chr_pos")
-    for role in ("ref_panel_snps_file", "regr_snps_file"):
-        check.paths("--" + role.replace("_", "-"), getattr(args, role, None), restriction_mode=mode)
-    check.unchecked("--query-annot-bed-sources", getattr(args, "query_annot_bed_sources", None),
+        check.declared("--gene-coordinate-file", annotations.gene_coordinate_file or "gene coordinate catalog",
+                       gene_catalog_build)
+    check.paths("--baseline-annot-sources", annotations.baseline_annot_sources)
+    check.paths("--query-annot-sources", annotations.query_annot_sources)
+    check.plink("--plink-prefix", panel.plink_prefix)
+    if panel.r2_matrix_dir is not None:
+        check.r2("--r2-matrix-dir", panel.r2_matrix_dir)
+    mode = configs.global_config.snp_identifier
+    check.paths("--ref-panel-snps-file", panel.ref_panel_snps_file, restriction_mode=mode)
+    check.paths("--regr-snps-file", configs.ldscore_config.regr_snps_file, restriction_mode=mode)
+    check.unchecked("--query-annot-bed-sources", annotations.query_annot_bed_sources,
                     "ordinary BED; inherits workflow build")
     resolved = check.resolve()
-    if getattr(args, "plink_prefix", None):
-        map_sources = getattr(args, f"genetic_map_{resolved}_sources", None)
+    if panel.plink_prefix:
+        map_sources = getattr(panel, f"genetic_map_{resolved}_sources")
         if map_sources:
             maps = GenomeBuildCheck(resolved, context="ldscore genetic map", logger=LOGGER)
             maps.paths(f"--genetic-map-{resolved}-sources", map_sources)
@@ -2002,87 +2018,38 @@ def _regr_snps_file_from_config(config: LDScoreConfig) -> str:
     return config.regr_snps_file or packaged_hm3_curated_map_path()
 
 
-def _resolve_regression_region_build(
-    args: argparse.Namespace, global_config: GlobalConfig, presets: tuple[str, ...]
-) -> str | None:
-    """Resolve the genome build used to select region-exclusion preset BEDs.
+def _regression_region_build(global_config: GlobalConfig, gene_catalog_build: str | None) -> str | None:
+    """Return the genome build that selects region-exclusion preset BEDs, or ``None`` without one.
 
-    Coordinate-family runs reuse the resolved panel build. Gene-list runs may
-    reuse their concrete inferred projection build while keeping rsID identity
-    metadata build-independent. Other rsID-family runs need an explicit build
-    because rsIDs themselves carry no coordinate-build information.
+    Coordinate-family runs use their resolved build. rsID-family identity
+    carries no build, so gene-list runs use their projection build.
     """
-    if not presets:
-        return None
-    if global_config.genome_build in {"hg19", "hg38"}:
-        return global_config.genome_build
-    requested = normalize_genome_build(getattr(args, "genome_build", None))
-    if requested in {"hg19", "hg38"}:
-        return requested
-    gene_catalog_build = normalize_genome_build(getattr(args, "gene_catalog_build", None))
-    if gene_catalog_build in {"hg19", "hg38"}:
-        return gene_catalog_build
-    raise LDSCUsageError(
-        "ldscore cannot select named regression exclusion regions without a concrete genome build. "
-        "Pass `--genome-build hg19` or `--genome-build hg38`, or use `--regr-snps-exclude-regions none`."
-    )
+    for build in (global_config.genome_build, gene_catalog_build):
+        if build in {"hg19", "hg38"}:
+            return build
+    return None
 
 
 def _regression_region_intervals(
-    args: argparse.Namespace, global_config: GlobalConfig
+    choice: str, build: str | None
 ) -> kernel_regions.RegionIntervals | None:
-    """Load named intervals applied only after selecting regression SNPs."""
-    presets = regr_snps_exclude_regions_choice_to_presets(getattr(args, "regr_snps_exclude_regions", None) or "none")
-    build = _resolve_regression_region_build(args, global_config, presets)
+    """Load the named intervals of ``choice`` in ``build``, applied only after selecting regression SNPs."""
+    presets = regr_snps_exclude_regions_choice_to_presets(choice)
     if not presets:
         return None
-    assert build is not None
+    if build is None:
+        raise LDSCUsageError(
+            "ldscore cannot select named regression exclusion regions without a concrete genome build. "
+            "Pass `--genome-build hg19` or `--genome-build hg38`, or use `--regr-snps-exclude-regions none`."
+        )
     return kernel_regions.load_preset_intervals(presets, build)
 
 
-def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig, *, chromosome_prefixes=None):
+def _ref_panel_from_config(config: RefPanelConfig, global_config: GlobalConfig, *, chromosome_prefixes=None):
     """Build the reference-panel adapter that owns the ``A -> A'`` restriction."""
-    ref_panel_snps_file = normalize_optional_path_token(getattr(args, "ref_panel_snps_file", None))
-    r2_matrix_dir = _r2_matrix_dir_from_args(args)
-    if r2_matrix_dir is not None:
-        spec = RefPanelConfig(
-            backend="r2_matrix",
-            r2_matrix_dir=r2_matrix_dir,
-            ref_panel_snps_file=ref_panel_snps_file,
-            maf_min=getattr(args, "maf_min", None),
-            keep_indivs_file=getattr(args, "keep_indivs_file", None),
-            genetic_map_hg19_sources=getattr(args, "genetic_map_hg19_sources", None),
-            genetic_map_hg38_sources=getattr(args, "genetic_map_hg38_sources", None),
-        )
-    else:
-        spec = RefPanelConfig(
-            backend="plink",
-            plink_prefix=getattr(args, "plink_prefix", None),
-            ref_panel_snps_file=ref_panel_snps_file,
-            maf_min=getattr(args, "maf_min", None),
-            keep_indivs_file=getattr(args, "keep_indivs_file", None),
-            genetic_map_hg19_sources=getattr(args, "genetic_map_hg19_sources", None),
-            genetic_map_hg38_sources=getattr(args, "genetic_map_hg38_sources", None),
-        )
-    if spec.backend == "plink" and chromosome_prefixes is not None:
-        return PlinkRefPanel(global_config, spec, chromosome_prefixes=chromosome_prefixes)
-    return RefPanelLoader(global_config).load(spec)
-
-
-def _ldscore_config_from_args(args: argparse.Namespace) -> LDScoreConfig:
-    """Build an ``LDScoreConfig`` from normalized LD-score arguments."""
-    return LDScoreConfig(
-        ld_wind_snps=getattr(args, "ld_wind_snps", None),
-        ld_wind_kb=getattr(args, "ld_wind_kb", None),
-        ld_wind_cm=getattr(args, "ld_wind_cm", None),
-        regr_snps_file=getattr(args, "regr_snps_file", None),
-        snp_batch_size=getattr(args, "snp_batch_size", DEFAULT_SNP_BATCH_SIZE),
-        query_batch_size=getattr(args, "query_batch_size", 100),
-        common_maf_min=getattr(args, "common_maf_min", 0.05),
-        whole_chromosome_ok=getattr(args, "yes_really", False),
-        export_ref_metadata=getattr(args, "export_ref_metadata", False),
-        workers=getattr(args, "workers", 1),
-    )
+    if config.backend == "plink" and chromosome_prefixes is not None:
+        return PlinkRefPanel(global_config, config, chromosome_prefixes=chromosome_prefixes)
+    return RefPanelLoader(global_config).load(config)
 
 
 def _reference_metadata_sources(ref_panel) -> tuple[str, str]:
@@ -2242,14 +2209,6 @@ def _write_one_ref_metadata_sidecar(metadata: pd.DataFrame, chrom: str, output_d
     metadata[columns].to_csv(path, sep="\t", index=False, na_rep="NA", float_format=SIDECAR_FLOAT_FORMAT,
                              compression="gzip")
     LOGGER.info(f"Wrote reference-metadata sidecar '{ref_metadata_file(chrom)}'.")
-
-
-def _output_config_from_args(args: argparse.Namespace) -> LDScoreOutputConfig:
-    """Translate LD-score CLI arguments into the LD-score directory output config."""
-    return LDScoreOutputConfig(
-        output_dir=normalize_path_token(args.output_dir),
-        overwrite=getattr(args, "overwrite", False),
-    )
 
 
 def _chromosomes_from_bundle(annotation_bundle) -> list[str]:

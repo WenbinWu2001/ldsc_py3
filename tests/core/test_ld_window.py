@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from ldsc._ldscore.calculator import build_parser, run_ldscore_from_args
+from ldsc._runtime.workflow_kwargs import parse_command_line
 from ldsc._refpanel.builder import build_parser as r2_build_parser
 from ldsc.config import GeneLDScoreIndexBuildConfig, LDScoreConfig, LDWindow, R2MatrixBuildConfig
 from ldsc.errors import LDSCConfigError
@@ -96,15 +97,15 @@ def test_commands_reject_window_choices_while_parsing(tmp_path, capsys, command,
 
 
 def test_ldscore_command_without_a_window_fails_before_creating_the_output_directory(tmp_path):
-    args = build_parser().parse_args(["--plink-prefix", str(tmp_path / "panel"), "--output-dir", str(tmp_path / "out")])
+    args = parse_command_line(build_parser(), ["--plink-prefix", str(tmp_path / "panel"), "--output-dir", str(tmp_path / "out")])
     with pytest.raises(LDSCConfigError, match="none was set"):
         run_ldscore_from_args(args)
     assert not (tmp_path / "out").exists()
 
 
 def test_ldscore_command_rejects_a_bad_window_before_creating_the_output_directory(tmp_path):
-    args = build_parser().parse_args(["--plink-prefix", str(tmp_path / "panel"), "--ld-wind-kb", "nan",
-                                      "--output-dir", str(tmp_path / "out")])
+    args = parse_command_line(build_parser(), ["--plink-prefix", str(tmp_path / "panel"), "--ld-wind-kb", "nan",
+                                               "--output-dir", str(tmp_path / "out")])
     with pytest.raises(LDSCConfigError, match=r"--ld-wind-kb \(ld_wind_kb in Python\) is nan"):
         run_ldscore_from_args(args)
     assert not (tmp_path / "out").exists()

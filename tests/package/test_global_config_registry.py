@@ -1,4 +1,3 @@
-from argparse import Namespace
 import inspect
 from pathlib import Path
 import re
@@ -15,6 +14,7 @@ from ldsc import GlobalConfig, set_global_config, reset_global_config
 from ldsc.config import ConfigMismatchError, validate_config_compatibility
 from ldsc._ldscore import calculator as ldscore_calculator
 from ldsc._ldscore.calculator import LDScoreResult
+from ldsc._runtime.workflow_kwargs import parse_command_line
 from ldsc._refpanel import builder as r2_matrix_builder
 from ldsc._refpanel.builder import R2MatrixBuildConfig, R2MatrixBuilder
 from ldsc._regression import quantile_h2, runner as regression_runner
@@ -157,17 +157,13 @@ class GlobalConfigRegistryTest(unittest.TestCase):
     def test_cli_normalization_ignores_registered_python_global_config(self):
         set_global_config(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38", log_level="WARNING"))
 
-        args = Namespace(
-            snp_identifier="rsid",
-            genome_build=None,
-            log_level="DEBUG",
-            output_dir="results/example",
-            keep_indivs_file=None,
-        )
+        args = parse_command_line(ldscore_calculator.build_parser(), [
+            "--snp-identifier", "rsid", "--log-level", "DEBUG", "--output-dir", "results/example",
+            "--plink-prefix", "panel", "--ld-wind-kb", "1",
+        ])
 
-        normalized_args, global_config = ldscore_calculator._normalize_run_args(args)
+        global_config = ldscore_calculator._configs_from_args(args).global_config
 
-        self.assertEqual(normalized_args.snp_identifier, "rsid")
         self.assertEqual(global_config.snp_identifier, "rsid")
         self.assertIsNone(global_config.genome_build)
         self.assertEqual(global_config.log_level, "DEBUG")

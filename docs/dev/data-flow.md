@@ -296,6 +296,8 @@ Root metadata records baseline row groups and the required ordered `query_batche
 Readers can select query columns across files or load one chromosome without scanning whole tables.
 One batch uses `ldscore.query.parquet`; multiple batches use numbered files.
 See `LDScoreDirectoryWriter.write_batches` in [`_ldscore/outputs.py`](../../src/ldsc/_ldscore/outputs.py).
+Before that preflight, every option is checked and turned into the run's configurations (`GlobalConfig`, `RefPanelConfig`, `LDScoreConfig`, `AnnotationBuildConfig`, `LDScoreOutputConfig`); once the input declarations pass, the genome build is resolved once against every coordinate input.
+See `_configs_from_args` and `_resolve_build` in [`_ldscore/calculator.py`](../../src/ldsc/_ldscore/calculator.py).
 
 For ordinary unpartitioned LD scores, callers may omit both baseline and query
 inputs. The workflow then creates a synthetic baseline annotation named exactly

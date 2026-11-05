@@ -89,6 +89,7 @@ LIVE_OVERRIDES = (
     "direct mode."
 )
 INDEX_WITHOUT_GENES = "ldscore indexed mode requires --query-annot-gene-list-sources."
+INDEX_QUERY_BATCH = "query_batch_size must be a positive integer."
 GENE_OPTIONS_WITHOUT_GENES = (
     "Gene coordinate, exclusion, control-list, and resolution policy options are valid only with gene-list "
     "query annotations. Remove the gene-specific option or use gene-list mode."
@@ -148,6 +149,7 @@ CLI_CASES = {
                                    "--export-ref-metadata, --maf-min, --regr-snps-exclude-regions, "
                                    "--snp-batch-size, --snp-identifier")),
     "indexed-without-genes": (["--gene-ldscore-index-dir", "{tmp}/index"], "LDSCInputError", INDEX_WITHOUT_GENES),
+    "indexed-query-batch-size": ([*INDEX_RUN, "--query-batch-size", "0"], "ValueError", INDEX_QUERY_BATCH),
     # gene-list mode option conflicts
     "catalog-without-genes": ([*PLINK_RUN, "--gene-coordinate-file", "{tmp}/genes.tsv"], "LDSCUsageError",
                               GENE_OPTIONS_WITHOUT_GENES),
@@ -195,6 +197,9 @@ KWARGS_CASES = {
                              "LDSCUsageError", GENE_OPTIONS_WITHOUT_GENES),
     "exclusion-without-genes": (None, {**PLINK_KWARGS, "gene_exclude_regions": "mhc"}, "LDSCUsageError",
                                 GENE_OPTIONS_WITHOUT_GENES),
+    # Naming an option is supplying it, even with its default value, as on the command line.
+    "default-policy-without-genes": (None, {**PLINK_KWARGS, "gene_list_resolution_policy": "strict"},
+                                     "LDSCUsageError", GENE_OPTIONS_WITHOUT_GENES),
     "genes-without-catalog": (None, {**PLINK_KWARGS, "baseline_annot_sources": "{tmp}/base.annot",
                                      "query_annot_gene_list_sources": "{tmp}/genes.txt", "padding_bp": 0},
                               "LDSCUsageError", GENES_WITHOUT_CATALOG),
@@ -232,3 +237,13 @@ def test_keyword_first_error(tmp_path, registered, kwargs, error_type, message):
         set_global_config(registered)
     kwargs = {name: _fill(value, tmp_path) for name, value in {**kwargs, "output_dir": OUT}.items()}
     assert _first_error(tmp_path, lambda: ldsc.run_ldscore(**kwargs)) == (error_type, message)
+
+
+# Only the region build needs the inputs, so only it fails after the output preflight.
+@pytest.mark.parametrize("case", [case for case in CLI_CASES if case != "region-build"])
+def test_command_line_input_mode_and_configuration_errors_write_nothing(tmp_path, case):
+    argv, _, _ = CLI_CASES[case]
+    argv = ["ldscore", *(_fill(token, tmp_path) for token in argv), "--output-dir", _fill(OUT, tmp_path)]
+    with pytest.raises(Exception):
+        cli.main(argv)
+    assert not (tmp_path / "out").exists()

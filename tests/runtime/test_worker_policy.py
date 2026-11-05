@@ -7,6 +7,7 @@ import pytest
 from ldsc.config import LDScoreConfig, GeneLDScoreIndexBuildConfig
 from ldsc.errors import LDSCConfigError
 from ldsc._ldscore.gene_index.scoring import run_indexed_ldscore
+from ldsc._runtime.workflow_kwargs import parse_command_line
 
 
 @pytest.mark.parametrize("workers", [0, True, False, 1.5, 1.0, "2", None])
@@ -87,7 +88,7 @@ def test_workflows_share_detected_budget_and_managed_processes(tmp_path, monkeyp
     np.testing.assert_array_equal(index.gene_support, [4, 4])
 
     workflow[0] = "direct"
-    args = direct.build_parser().parse_args([
+    args = parse_command_line(direct.build_parser(), [
         "--baseline-annot-sources", str(tmp_path / "baseline.annot"),
         "--plink-prefix", token, "--snp-identifier", "chr_pos", "--genome-build", "hg19",
         "--ld-wind-cm", ".05", "--snp-batch-size", "1",

@@ -5,9 +5,28 @@ from argparse import Namespace
 import pandas as pd
 import pytest
 
+from ldsc.config import AnnotationBuildConfig, GlobalConfig, LDScoreConfig, RefPanelConfig
 from ldsc.errors import LDSCInputError
 from ldsc._genome.build_inference import load_packaged_reference_table
-from ldsc._ldscore.calculator import _resolve_ldscore_chr_pos_genome_build
+from ldsc._ldscore.calculator import _DirectConfigs, _resolve_ldscore_chr_pos_genome_build
+from ldsc._ldscore.outputs import LDScoreOutputConfig
+
+
+def ldscore_configs(*, baseline_annot_sources=(), query_annot_bed_sources=(), plink_prefix=None, r2_matrix_dir=None,
+                    regr_snps_file=None, snp_identifier="chr_pos"):
+    """A direct ``ldscore`` configuration holding the inputs the build check reads."""
+    return _DirectConfigs(
+        global_config=GlobalConfig(snp_identifier=snp_identifier),
+        genome_build=None,
+        annotation_config=AnnotationBuildConfig(baseline_annot_sources=baseline_annot_sources,
+                                                query_annot_bed_sources=query_annot_bed_sources),
+        ref_panel_config=RefPanelConfig(backend="r2_matrix" if r2_matrix_dir else "plink", plink_prefix=plink_prefix,
+                                        r2_matrix_dir=r2_matrix_dir),
+        ldscore_config=LDScoreConfig(ld_wind_kb=1.0, regr_snps_file=regr_snps_file),
+        output_config=LDScoreOutputConfig(output_dir="out"),
+        regr_snps_exclude_regions="none",
+        emit_console_notices=False,
+    )
 
 
 def coordinates(chrom, build, n=500):
@@ -34,10 +53,10 @@ def test_ldscore_collects_all_build_evidence_before_error(tmp_path):
     coordinates(1, "hg19", n=2).to_csv(keep, sep="\t", index=False)
     bed = tmp_path / "regions.bed"
     bed.write_text("1\t0\t100\n")
-    args = Namespace(baseline_annot_sources=paths, r2_matrix_dir=None, plink_prefix=None,
-                     regr_snps_file=str(keep), query_annot_bed_sources=[str(bed)])
+    configs = ldscore_configs(baseline_annot_sources=paths, regr_snps_file=str(keep),
+                              query_annot_bed_sources=[str(bed)])
     with pytest.raises(LDSCInputError) as caught:
-        _resolve_ldscore_chr_pos_genome_build(args, "auto")
+        _resolve_ldscore_chr_pos_genome_build(configs, "auto")
     message = str(caught.value)
     for expected in ("hg19:", "hg38:", "unresolved:", "unchecked:",
                      "baseline.1.annot", "baseline.2.annot", "small.tsv", "regions.bed",
@@ -300,8 +319,7 @@ def test_ldscore_plink_only_auto_resolves_from_bim(tmp_path):
     frame[['CHR', 'SNP', 'CM', 'POS', 'A1', 'A2']].to_csv(str(prefix)+'.bim', sep='\t', header=False, index=False)
     (tmp_path / 'panel.bed').write_bytes(b'\x6c\x1b\x01' + bytes(len(frame)))
     (tmp_path / 'panel.fam').write_text('f i 0 0 1 -9\n')
-    args = Namespace(plink_prefix=str(prefix), r2_matrix_dir=None, snp_identifier='chr_pos')
-    assert _resolve_ldscore_chr_pos_genome_build(args, 'auto') == 'hg38'
+    assert _resolve_ldscore_chr_pos_genome_build(ldscore_configs(plink_prefix=str(prefix)), 'auto') == 'hg38'
 
 
 def test_build_sample_preserves_existing_invalid_coordinate_drop_policy():
@@ -431,9 +449,8 @@ def test_explicit_build_selects_coordinate_alternatives(tmp_path, build):
 def test_ldscore_explicit_build_checks_annotation_metadata(tmp_path):
     path = tmp_path / 'baseline.annot'
     path.write_text('# ldsc:genome_build=GRCh38\nCHR\tPOS\tbase\n1\t123\t1\n')
-    args = Namespace(baseline_annot_sources=[path], snp_identifier='chr_pos')
     with pytest.raises(LDSCInputError, match='baseline.annot'):
-        _resolve_ldscore_chr_pos_genome_build(args, 'hg19')
+        _resolve_ldscore_chr_pos_genome_build(ldscore_configs(baseline_annot_sources=[path]), 'hg19')
 
 
 def test_munge_explicit_source_build_checks_selected_column_and_metadata(tmp_path):
@@ -481,5 +498,5 @@ def test_ldscore_selects_one_available_panel_build(tmp_path, requested):
             {b'ldsc:genome_build': build.encode()}), child / 'chr1_r2.parquet')
     baseline = tmp_path / 'baseline.annot'
     baseline.write_text('# ldsc:genome_build=hg19\nCHR\tPOS\tbase\n1\t123\t1\n')
-    args = Namespace(r2_matrix_dir=root, baseline_annot_sources=[baseline], snp_identifier='chr_pos')
-    assert _resolve_ldscore_chr_pos_genome_build(args, requested) == 'hg19'
+    configs = ldscore_configs(r2_matrix_dir=root, baseline_annot_sources=[baseline])
+    assert _resolve_ldscore_chr_pos_genome_build(configs, requested) == 'hg19'

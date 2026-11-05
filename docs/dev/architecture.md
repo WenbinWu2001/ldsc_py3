@@ -244,6 +244,11 @@ Architecture invariant: `query-r2-matrix` reads canonical package-built R² matr
 
 This module orchestrates chromosome-wise LD-score computation.
 It resolves annotation and reference-panel inputs, selects the gene-coordinate-catalog projection build, synthesizes the all-ones `base` annotation when an unpartitioned run omits baseline/query inputs, and builds per-chromosome runs.
+`run_ldscore_from_args()` is a thin adapter: `_configs_from_args()` checks the input-mode rules and builds the run's configuration before anything is written, for the command line and `run_ldscore()` alike, and a typed body runs it.
+A direct run's `_DirectConfigs` holds the `GlobalConfig` with the requested genome build, `RefPanelConfig`, `LDScoreConfig`, `AnnotationBuildConfig` and `LDScoreOutputConfig`; an indexed run's `_IndexedConfigs` holds its gene lists and execution settings.
+An option counts as supplied when the explicit-options record names it, never by comparison with a parser default, so the registered `GlobalConfig` that a keyword call carries is not a live override in indexed mode.
+The configurations' own range checks run once; `_OPTION_RANGE_ERRORS` words an error that a configuration raises by field name with the command-line option instead.
+`_run_direct_ldscore()` preflights the outputs, runs the input gates, resolves the genome build once against every coordinate input (`_resolve_build()`), and passes typed configurations to `_ldscore.preflight` and `_ldscore.direct_annotation`; `_run_explicit_indexed_ldscore()` runs an indexed request.
 Its private `_DirectProducer` is the direct LD-score producer: each task computes one chromosome from the reference panel.
 Writing workers stage their post-kernel float32 query scores through `_ldscore.direct_batches.stage_direct_chromosome` and return baseline data, scientific statistics, diagnostic descriptors, and exact variation summaries.
 `_ldscore.batch_execution` runs the query batches; the parent combines statistics and filters queries after every chromosome succeeds, then yields `StagedLDScoreBatch` to the shared writer without constructing a genome-wide query matrix.

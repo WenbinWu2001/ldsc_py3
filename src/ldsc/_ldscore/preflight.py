@@ -56,10 +56,12 @@ class DirectInputPreflight:
         return self.scope["chromosomes"]
 
 
-def inspect_reference_inputs(args, global_config, *, require_autosomes=True, plink_members=None):
+def inspect_reference_inputs(ref_panel_config, global_config, *, require_autosomes=True, plink_members=None):
     """Validate references before annotation staging; retain scope and PLINK mapping.
 
-    R2 matrix integrity requires sidecar identity checks and a streamed pair scan.
+    ``ref_panel_config`` is the run's ``RefPanelConfig`` and ``global_config``
+    its ``GlobalConfig`` with the resolved genome build. R2 matrix integrity
+    requires sidecar identity checks and a streamed pair scan.
     PLINK integrity reads BIM/FAM and BED header/size, without correlations.
     The returned evidence is reused by the later content-dependent scope gate.
     """
@@ -71,7 +73,7 @@ def inspect_reference_inputs(args, global_config, *, require_autosomes=True, pli
         issues.append(dict(input_role=role, source=str(source), chrom=chrom,
                            reason=reason, details=str(details), repair=repair))
 
-    r2_matrix_dir = getattr(args, "r2_matrix_dir", None)
+    r2_matrix_dir = ref_panel_config.r2_matrix_dir
     if r2_matrix_dir:
         try:
             root = resolve_r2_build_dir(r2_matrix_dir, global_config.genome_build)
@@ -108,7 +110,7 @@ def inspect_reference_inputs(args, global_config, *, require_autosomes=True, pli
             except (OSError, EOFError, ValueError, LDSCUserError) as exc:
                 issue("reference", r2_matrix_dir, chrom, "invalid_required_input", exc, R2_MATRIX_REPAIR)
     else:
-        plink_tokens = split_cli_path_tokens(getattr(args, "plink_prefix", None))
+        plink_tokens = split_cli_path_tokens(ref_panel_config.plink_prefix)
         declarations.extend(plink_tokens)
         plink = inspect_plink_inputs(plink_tokens, chromosomes=AUTOSOMES, require_complete_suite=require_autosomes, discovered_members=plink_members)
         issues.extend(plink.issues)
@@ -124,10 +126,13 @@ def inspect_reference_inputs(args, global_config, *, require_autosomes=True, pli
         pd.DataFrame(issues, columns=ISSUE_COLUMNS))
 
 
-def inspect_direct_inputs(args, global_config, *, bed_sources, reference_inputs, annotation_sources=None, annotation_issues=()):
+def inspect_direct_inputs(annotation_config, *, bed_sources, reference_inputs, annotation_sources=None,
+                          annotation_issues=()):
     """Combine prepared annotation, BED and reference evidence into one scope decision.
 
-    ``annotation_sources`` are the prepared baseline/query annotations, or
+    ``annotation_config`` is the run's ``AnnotationBuildConfig``, whose
+    baseline and query declarations decide whether ``@`` requires all
+    autosomes. ``annotation_sources`` are the prepared baseline/query annotations, or
     ``annotation_issues`` the input issues of a failed preparation.
     ``bed_sources`` are the prepared BED queries and ``reference_inputs`` the
     result of ``inspect_reference_inputs``. Errors from independent files
@@ -159,8 +164,8 @@ def inspect_direct_inputs(args, global_config, *, bed_sources, reference_inputs,
 
     sets = {"baseline": set(), "reference": set()}
     query_sets = []
-    declarations.extend(split_cli_path_tokens(getattr(args, 'baseline_annot_sources', None)))
-    declarations.extend(split_cli_path_tokens(getattr(args, 'query_annot_sources', None)))
+    declarations.extend(split_cli_path_tokens(annotation_config.baseline_annot_sources))
+    declarations.extend(split_cli_path_tokens(annotation_config.query_annot_sources))
     if annotation_sources is not None:
         sets['baseline'].update(annotation_sources.scope_chromosomes)
         query_sets.extend((path, set(chroms)) for path,role,chroms in annotation_sources.input_chromosomes if role == 'query')
@@ -195,12 +200,10 @@ def inspect_direct_inputs(args, global_config, *, bed_sources, reference_inputs,
     )
 
 
-def validate_direct_scope(args, global_config, batch, output_config, **prepared_inputs):
+def validate_direct_scope(annotation_config, batch, output_config, **prepared_inputs):
     """Write available batch diagnostics and fail once after scope inspection."""
-    import logging
-
     logger = logging.getLogger("LDSC.ldscore_calculator")
-    evidence = inspect_direct_inputs(args, global_config, **prepared_inputs)
+    evidence = inspect_direct_inputs(annotation_config, **prepared_inputs)
     errors = []
     if batch is not None:
         batch, coverage_errors = batch.with_coverage(evidence.chromosomes)

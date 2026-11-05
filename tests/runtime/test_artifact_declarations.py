@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from ldsc._ldscore.calculator import build_parser, run_ldscore_from_args
+from ldsc._runtime.workflow_kwargs import parse_command_line
 
 
 def plink_arguments(tmp_path):
@@ -29,7 +30,7 @@ def test_existing_chromosome_drop_report_blocks_ldscore_before_log(tmp_path):
     report.write_bytes(b"existing report")
 
     with pytest.raises(FileExistsError, match="chr1_dropped"):
-        run_ldscore_from_args(build_parser().parse_args(argv))
+        run_ldscore_from_args(parse_command_line(build_parser(), argv))
 
     assert report.read_bytes() == b"existing report"
     assert not (output / "diagnostics" / "ldscore.log").exists()
@@ -54,14 +55,14 @@ def test_ldscore_overwrite_keeps_produced_reports_and_reconciles_optional_output
     bim.assign(base=1.0, feature=[0, 1] * 4).to_csv(annotation, sep="\t", index=False)
     partitioned = [*argv, "--baseline-annot-sources", str(annotation)]
 
-    run_ldscore_from_args(build_parser().parse_args(partitioned))
+    run_ldscore_from_args(parse_command_line(build_parser(), partitioned))
     output = tmp_path / "result"
     unrelated = output / "notes.txt"
     unrelated.write_text("keep my notes")
     stale_report = output / "diagnostics" / "dropped_snps" / "chr2_dropped.tsv.gz"
     stale_report.write_bytes(b"previous chromosome")
     for arguments, has_overlap in ((partitioned, True), (argv, False)):
-        result = run_ldscore_from_args(build_parser().parse_args([*arguments, "--overwrite"]))
+        result = run_ldscore_from_args(parse_command_line(build_parser(), [*arguments, "--overwrite"]))
         metadata = json.loads((output / "metadata.json").read_text())
         for relative_path in metadata["files"].values():
             assert (output / relative_path).is_file(), relative_path

@@ -23,10 +23,16 @@ from ..errors import EmptyReferenceSNPs, LDSCInputError
 LOGGER = logging.getLogger("LDSC.ldscore_calculator")
 
 
-def prepare_direct_annotations(args, config, spec, workspace, output_config, *, declared_inputs, reference_inputs, batch=None):
-    """Validate, construct, and return one complete shard-backed dataset."""
-    if batch is not None and batch.catalog.genome_build != getattr(args,'gene_catalog_build',None):
-        raise LDSCInputError(f"Gene coordinate catalog build does not match the resolved analysis build: catalog={batch.catalog.genome_build}, analysis={getattr(args,'gene_catalog_build',None)}. Use a matching catalog; no implicit liftover is performed.")
+def prepare_direct_annotations(spec, config, workspace, output_config, *, declared_inputs, reference_inputs, batch=None,
+                               gene_catalog_build=None):
+    """Validate, construct, and return one complete shard-backed dataset.
+
+    ``spec`` is the run's ``AnnotationBuildConfig`` and ``config`` its
+    ``GlobalConfig`` with the resolved genome build; ``gene_catalog_build``
+    is the gene-list projection build the run resolved for ``batch``.
+    """
+    if batch is not None and batch.catalog.genome_build != gene_catalog_build:
+        raise LDSCInputError(f"Gene coordinate catalog build does not match the resolved analysis build: catalog={batch.catalog.genome_build}, analysis={gene_catalog_build}. Use a matching catalog; no implicit liftover is performed.")
     baseline, queries = declared_inputs.baseline, declared_inputs.query
     declarations, issues = declared_inputs.declarations, []
     bed_sources = prepare_bed_queries(declared_inputs.files['query_annot_bed_sources'],workspace) if spec.query_annot_bed_sources else []
@@ -39,11 +45,11 @@ def prepare_direct_annotations(args, config, spec, workspace, output_config, *, 
         if has_queries:
             failure_issues = getattr(exc,'input_issues',None)
             records = failure_issues.to_dict('records') if failure_issues is not None else [input_issue('alignment','annotation sources','','invalid_required_input',exc)]
-            validate_direct_scope(args,config,batch,output_config,annotation_issues=records,bed_sources=bed_sources,reference_inputs=reference_inputs)
+            validate_direct_scope(spec,batch,output_config,annotation_issues=records,bed_sources=bed_sources,reference_inputs=reference_inputs)
         raise
     scope = {}
     if has_queries:
-        batch, scope = validate_direct_scope(args,config,batch,output_config,
+        batch, scope = validate_direct_scope(spec,batch,output_config,
             annotation_sources=prepared,bed_sources=bed_sources,reference_inputs=reference_inputs)
     bundle = AnnotationBundle(prepared.shards,list(prepared.baseline_columns),list(prepared.query_columns),workspace,
         config_snapshot=config,identity_drops=prepared.drops,gene_list_batch=batch,

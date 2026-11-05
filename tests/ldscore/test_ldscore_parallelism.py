@@ -435,25 +435,22 @@ def test_skip_path_matches_under_pool(two_chrom_panel, tmp_path):
 # --- --workers CLI flag -----------------------------------------------------
 
 
-def test_cli_threads_reaches_config():
-    from ldsc._ldscore.calculator import _ldscore_config_from_args, build_parser
+def _cli_ldscore_config(*argv):
+    from ldsc._ldscore.calculator import _configs_from_args, build_parser
+    from ldsc._runtime.workflow_kwargs import parse_command_line
 
-    parser = build_parser()
-    args = parser.parse_args(["--output-dir", "x", "--ld-wind-cm", "1", "--workers", "2"])
-    assert _ldscore_config_from_args(args).workers == 2
+    args = parse_command_line(build_parser(), ["--output-dir", "x", "--plink-prefix", "panel", "--genome-build", "hg19",
+                                               "--ld-wind-cm", "1", *argv])
+    return _configs_from_args(args).ldscore_config
+
+
+def test_cli_threads_reaches_config():
+    assert _cli_ldscore_config("--workers", "2").workers == 2
 
 
 def test_cli_threads_accepts_negative():
-    from ldsc._ldscore.calculator import _ldscore_config_from_args, build_parser
-
-    parser = build_parser()
-    args = parser.parse_args(["--output-dir", "x", "--ld-wind-cm", "1", "--workers", "-1"])
-    assert _ldscore_config_from_args(args).workers == -1
+    assert _cli_ldscore_config("--workers", "-1").workers == -1
 
 
 def test_cli_threads_defaults_to_one():
-    from ldsc._ldscore.calculator import _ldscore_config_from_args, build_parser
-
-    parser = build_parser()
-    args = parser.parse_args(["--output-dir", "x", "--ld-wind-cm", "1"])
-    assert _ldscore_config_from_args(args).workers == 1
+    assert _cli_ldscore_config().workers == 1

@@ -4,7 +4,6 @@ from tests.annotation_fixtures import build_annotation_fixture, make_annotation_
 
 from tests.ref_panel_helpers import compute_plink, plink_panel, write_r2_matrix_chromosome, write_tiny_plink
 
-from argparse import Namespace
 from dataclasses import replace as dataclass_replace
 import importlib.util
 from io import StringIO
@@ -35,9 +34,12 @@ from ldsc import (
 from ldsc._ldscore import calculator as ldscore_workflow
 from ldsc._ldscore.calculator import (
     build_parser,
-    _normalize_run_args,
-    _resolve_regression_region_build,
+    _configs_from_args,
+    _regression_region_build,
+    _regression_region_intervals,
+    _resolve_build,
 )
+from ldsc._runtime.workflow_kwargs import parse_command_line
 from ldsc._core import plink_files as kernel_formats
 from ldsc._ldscore import compute as kernel_ldscore
 from ldsc._annotation.overlap import annotation_statistics
@@ -54,6 +56,16 @@ from ldsc._core.snp_identity import RestrictionIdentityKeys, empty_identity_drop
 
 
 PLINK_FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "plink"
+
+
+# A direct gene-list run; none of these files is read while the configuration is built.
+GENE_LIST_RUN = ("--baseline-annot-sources", "baseline.annot.gz", "--query-annot-gene-list-sources", "immune.txt",
+                 "--gene-coordinate-file", "genes.tsv", "--padding-bp", "0", "--plink-prefix", "panel")
+
+
+def direct_configs(*argv):
+    """Build the configuration of a direct ``ldscore`` run from command-line options, as the boundary does."""
+    return _configs_from_args(parse_command_line(build_parser(), ["--output-dir", "out", "--ld-wind-kb", "1", *argv]))
 
 
 def dict_chunks(rows):
@@ -125,7 +137,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertIn("Gene-list runs also use this build for --regr-snps-exclude-regions", help_text)
 
     def test_build_parser_accepts_r2_matrix_dir(self):
-        args = ldscore_workflow.build_parser().parse_args(
+        args = parse_command_line(ldscore_workflow.build_parser(),
             [
                 "--output-dir",
                 "out",
@@ -187,43 +199,19 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 )
             self.assertFalse(output_dir.exists())
 
-    def test_normalize_run_args_chr_pos_still_requires_genome_build(self):
-        args = Namespace(
-            output_dir="out",
-            query_annot_sources=None,
-            baseline_annot_sources=None,
-            plink_prefix="plink/panel.@",
-            snp_identifier="chr_pos",
-            genome_build=None,
-            keep_indivs_file=None,
-            ref_panel_snps_file=None,
-            regr_snps_file=None,
-            log_level="INFO",
-        )
-
+    def test_chr_pos_still_requires_genome_build(self):
         with self.assertRaisesRegex(LDSCUsageError, "coordinate-family SNP identifier mode.*genome build"):
-            ldscore_workflow._normalize_run_args(args)
+            direct_configs("--plink-prefix", "plink/panel.@", "--snp-identifier", "chr_pos")
 
     def test_auto_genome_build_does_not_infer_from_r2_matrix_directory_name_without_parquet_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             r2_matrix_dir = Path(tmpdir) / "hg38"
             r2_matrix_dir.mkdir()
-            args = Namespace(
-                output_dir="out",
-                query_annot_sources=None,
-                baseline_annot_sources=None,
-                plink_prefix=None,
-                r2_matrix_dir=str(r2_matrix_dir),
-                snp_identifier="chr_pos",
-                genome_build="auto",
-                keep_indivs_file=None,
-                ref_panel_snps_file=None,
-                regr_snps_file=None,
-                log_level="INFO",
-            )
+            configs = direct_configs("--r2-matrix-dir", str(r2_matrix_dir), "--snp-identifier", "chr_pos",
+                                     "--genome-build", "auto")
 
             with self.assertRaisesRegex(LDSCInputError, "Genome-build consistency check failed"):
-                ldscore_workflow._normalize_run_args(args)
+                _resolve_build(configs)
 
     def test_auto_genome_build_uses_r2_schema_metadata_not_directory_name(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -232,23 +220,9 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 r2_matrix_dir / "chr1_r2.parquet",
                 {b"ldsc:sorted_by_build": b"hg19"},
             )
-            args = Namespace(
-                output_dir="out",
-                query_annot_sources=None,
-                baseline_annot_sources=None,
-                plink_prefix=None,
-                r2_matrix_dir=str(r2_matrix_dir),
-                snp_identifier="chr_pos",
-                genome_build="auto",
-                keep_indivs_file=None,
-                ref_panel_snps_file=None,
-                regr_snps_file=None,
-                log_level="INFO",
-            )
+            global_config, _ = _resolve_build(direct_configs(
+                "--r2-matrix-dir", str(r2_matrix_dir), "--snp-identifier", "chr_pos", "--genome-build", "auto"))
 
-            normalized_args, global_config = ldscore_workflow._normalize_run_args(args)
-
-        self.assertEqual(normalized_args.genome_build, "hg19")
         self.assertEqual(global_config.genome_build, "hg19")
 
     def test_auto_genome_build_uses_single_child_r2_schema_metadata_not_child_name(self):
@@ -258,23 +232,9 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 r2_parent / "hg38" / "chr1_r2.parquet",
                 {b"ldsc:sorted_by_build": b"hg19"},
             )
-            args = Namespace(
-                output_dir="out",
-                query_annot_sources=None,
-                baseline_annot_sources=None,
-                plink_prefix=None,
-                r2_matrix_dir=str(r2_parent),
-                snp_identifier="chr_pos",
-                genome_build="auto",
-                keep_indivs_file=None,
-                ref_panel_snps_file=None,
-                regr_snps_file=None,
-                log_level="INFO",
-            )
+            global_config, _ = _resolve_build(direct_configs(
+                "--r2-matrix-dir", str(r2_parent), "--snp-identifier", "chr_pos", "--genome-build", "auto"))
 
-            normalized_args, global_config = ldscore_workflow._normalize_run_args(args)
-
-        self.assertEqual(normalized_args.genome_build, "hg19")
         self.assertEqual(global_config.genome_build, "hg19")
 
     def test_auto_genome_build_requires_selection_among_r2_alternatives(self):
@@ -288,22 +248,11 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 r2_parent / "hg38" / "chr1_r2.parquet",
                 {b"ldsc:sorted_by_build": b"hg38"},
             )
-            args = Namespace(
-                output_dir="out",
-                query_annot_sources=None,
-                baseline_annot_sources=None,
-                plink_prefix=None,
-                r2_matrix_dir=str(r2_parent),
-                snp_identifier="chr_pos",
-                genome_build="auto",
-                keep_indivs_file=None,
-                ref_panel_snps_file=None,
-                regr_snps_file=None,
-                log_level="INFO",
-            )
+            configs = direct_configs("--r2-matrix-dir", str(r2_parent), "--snp-identifier", "chr_pos",
+                                     "--genome-build", "auto")
 
             with self.assertRaisesRegex(LDSCInputError, "could not be inferred or resolved"):
-                ldscore_workflow._normalize_run_args(args)
+                _resolve_build(configs)
 
     def make_chrom_result(self, chrom: str, bp: int, score: float, count: float):
         baseline_table = pd.DataFrame(
@@ -683,7 +632,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
     def test_build_parser_accepts_query_annot_bed(self):
         parser = ldscore_workflow.build_parser()
-        args = parser.parse_args(
+        args = parse_command_line(parser,
             [
                 "--output-dir",
                 "out/example",
@@ -725,7 +674,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 with self.subTest(label=label, padding_bp=padding_bp):
                     argv[-1] = str(padding_bp)
                     with self.assertRaisesRegex(LDSCUsageError, "Remove.*--padding-bp"):
-                        ldscore_workflow.run_ldscore_from_args(parser.parse_args(argv))
+                        ldscore_workflow.run_ldscore_from_args(parse_command_line(parser, argv))
 
     def test_ldscore_accepts_explicit_padding_for_live_interval_queries(self):
         parser = ldscore_workflow.build_parser()
@@ -734,7 +683,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             ("--query-annot-gene-list-sources", "genes.txt"),
         ):
             with self.subTest(query_flag=query_flag):
-                args = parser.parse_args(
+                args = parse_command_line(parser,
                     [
                         "--output-dir", "out",
                         "--baseline-annot-sources", "baseline.annot.gz",
@@ -753,13 +702,13 @@ class LDScoreWorkflowTest(unittest.TestCase):
         ]
 
         with self.assertRaisesRegex(LDSCUsageError, "--padding-bp.*must be chosen"):
-            ldscore_workflow.run_ldscore_from_args(parser.parse_args([*base, "--gene-coordinate-file", "genes.tsv"]))
+            ldscore_workflow.run_ldscore_from_args(parse_command_line(parser, [*base, "--gene-coordinate-file", "genes.tsv"]))
         with self.assertRaisesRegex(LDSCUsageError, "--gene-coordinate-file"):
-            ldscore_workflow.run_ldscore_from_args(parser.parse_args([*base, "--padding-bp", "0"]))
+            ldscore_workflow.run_ldscore_from_args(parse_command_line(parser, [*base, "--padding-bp", "0"]))
 
     def test_gene_resolution_policy_is_scoped_to_gene_list_modes(self):
         parser = ldscore_workflow.build_parser()
-        args = parser.parse_args(
+        args = parse_command_line(parser,
             [
                 "--output-dir", "out",
                 "--query-annot-bed-sources", "query.bed",
@@ -781,7 +730,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     "--query-annot-bed-sources", "query.bed",
                     option, value,
                 ]
-                args = parser.parse_args(argv)
+                args = parse_command_line(parser, argv)
                 args._explicit_cli_options = frozenset({"--query-annot-bed-sources", option})
                 with self.assertRaisesRegex(LDSCUsageError, "valid only with.*gene-list"):
                     ldscore_workflow.run_ldscore_from_args(args)
@@ -809,7 +758,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
     def test_build_parser_accepts_gene_lists_and_keeps_query_routes_mutually_exclusive(self):
         parser = ldscore_workflow.build_parser()
-        args = parser.parse_args(
+        args = parse_command_line(parser,
             [
                 "--output-dir",
                 "out/example",
@@ -831,7 +780,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(args.gene_coordinate_file, "genes.tsv.gz")
         self.assertEqual(args.gene_list_resolution_policy, "resolved-only")
         with self.assertRaises(SystemExit):
-            parser.parse_args(
+            parse_command_line(parser,
                 [
                     "--output-dir",
                     "out/example",
@@ -851,58 +800,35 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(spec.query_annot_gene_list_sources, ("immune.txt,brain.list",))
 
     def test_gene_list_auto_build_is_separate_from_rsid_identity_metadata(self):
-        args = ldscore_workflow.build_parser().parse_args(
-            [
-                "--output-dir",
-                "out/example",
-                "--baseline-annot-sources",
-                "baseline.annot.gz",
-                "--query-annot-gene-list-sources",
-                "immune.txt",
-                "--snp-identifier",
-                "rsid",
-                "--genome-build",
-                "auto",
-            ]
-        )
+        configs = direct_configs(*GENE_LIST_RUN, "--snp-identifier", "rsid", "--genome-build", "auto")
 
         with mock.patch.object(
             ldscore_workflow,
             "_resolve_ldscore_chr_pos_genome_build",
             return_value="hg38",
         ) as resolve_build:
-            normalized, global_config = _normalize_run_args(args)
+            global_config, gene_catalog_build = _resolve_build(configs)
 
-        self.assertEqual(normalized.gene_catalog_build, "hg38")
+        self.assertEqual(gene_catalog_build, "hg38")
         self.assertIsNone(global_config.genome_build)
         resolve_build.assert_called_once_with(
-            normalized,
+            configs,
             "auto",
             gene_catalog_build=None,
         )
 
     def test_gene_list_auto_build_drives_default_regression_regions_in_rsid_mode(self):
-        args = ldscore_workflow.build_parser().parse_args(
-            [
-                "--output-dir",
-                "out/example",
-                "--baseline-annot-sources",
-                "baseline.annot.gz",
-                "--query-annot-gene-list-sources",
-                "immune.txt",
-                "--snp-identifier",
-                "rsid",
-            ]
-        )
+        configs = direct_configs(*GENE_LIST_RUN, "--snp-identifier", "rsid")
 
         with mock.patch.object(
             ldscore_workflow,
             "_resolve_ldscore_chr_pos_genome_build",
             return_value="hg38",
         ):
-            normalized, global_config = _normalize_run_args(args)
+            global_config, gene_catalog_build = _resolve_build(configs)
 
-        intervals = ldscore_workflow._regression_region_intervals(normalized, global_config)
+        intervals = _regression_region_intervals(
+            configs.regr_snps_exclude_regions, _regression_region_build(global_config, gene_catalog_build))
 
         self.assertEqual(
             intervals.source_labels,
@@ -910,30 +836,19 @@ class LDScoreWorkflowTest(unittest.TestCase):
         )
 
     def test_gene_list_omitted_build_defaults_to_auto_for_chr_pos(self):
-        args = ldscore_workflow.build_parser().parse_args(
-            [
-                "--output-dir",
-                "out/example",
-                "--baseline-annot-sources",
-                "baseline.annot.gz",
-                "--query-annot-gene-list-sources",
-                "immune.txt",
-                "--snp-identifier",
-                "chr_pos",
-            ]
-        )
+        configs = direct_configs(*GENE_LIST_RUN, "--snp-identifier", "chr_pos")
 
         with mock.patch.object(
             ldscore_workflow,
             "_resolve_ldscore_chr_pos_genome_build",
             return_value="hg19",
         ) as resolve_build:
-            normalized, global_config = _normalize_run_args(args)
+            global_config, gene_catalog_build = _resolve_build(configs)
 
-        self.assertEqual(normalized.gene_catalog_build, "hg19")
+        self.assertEqual(gene_catalog_build, "hg19")
         self.assertEqual(global_config.genome_build, "hg19")
         resolve_build.assert_called_once_with(
-            normalized,
+            configs,
             "auto",
             gene_catalog_build=None,
         )
@@ -944,15 +859,15 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
     def test_build_parser_accepts_snp_batch_size_and_rejects_chunk_size(self):
         parser = ldscore_workflow.build_parser()
-        args = parser.parse_args(["--output-dir", "out", "--snp-batch-size", "64"])
+        args = parse_command_line(parser, ["--output-dir", "out", "--snp-batch-size", "64"])
         self.assertEqual(args.snp_batch_size, 64)
         with self.assertRaises(SystemExit):
-            parser.parse_args(["--output-dir", "out", "--chunk-size", "64"])
+            parse_command_line(parser, ["--output-dir", "out", "--chunk-size", "64"])
 
     def test_build_parser_rejects_query_annot_and_query_annot_bed_together(self):
         parser = ldscore_workflow.build_parser()
         with self.assertRaises(SystemExit):
-            parser.parse_args(
+            parse_command_line(parser,
                 [
                     "--output-dir",
                     "out/example",
@@ -971,7 +886,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
     def test_build_parser_accepts_maf_min_and_common_maf_min_but_rejects_old_maf(self):
         parser = ldscore_workflow.build_parser()
-        args = parser.parse_args(
+        args = parse_command_line(parser,
             [
                 "--output-dir",
                 "out/example",
@@ -990,7 +905,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(args.maf_min, 0.01)
         self.assertEqual(args.common_maf_min, 0.2)
         with self.assertRaises(SystemExit):
-            parser.parse_args(
+            parse_command_line(parser,
                 [
                     "--output-dir",
                     "out/example",
@@ -1227,7 +1142,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     '--snp-identifier','rsid','--ld-wind-snps','2','--yes-really']
             query = root/'query.annot'
             pd.read_csv(inputs.baseline_annot_sources,sep='\t').drop(columns='base').assign(query=[0,1,0]).to_csv(query,sep='\t',index=False)
-            result = ldscore_workflow.run_ldscore_from_args(build_parser().parse_args([*argv,'--query-annot-sources',str(query)]))
+            result = ldscore_workflow.run_ldscore_from_args(parse_command_line(build_parser(), [*argv,'--query-annot-sources',str(query)]))
             # A parquet --ld-wind-snps run also records its panel/kept SNP counts; every run records its funnel.
             self.assertEqual(set(result.output_paths),{'baseline','query','metadata','overlap','chromosome_scope',
                                                       'dropped_snps_chr22','ld_window_snp_counts','reference_snp_funnel'})
@@ -1241,7 +1156,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
     def test_run_ldscore_from_args_all_skipped_writes_diagnostics_then_raises(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "ldscore_result"
-            args = build_parser().parse_args(
+            args = parse_command_line(build_parser(),
                 [
                     "--output-dir",
                     str(output_dir),
@@ -1340,7 +1255,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 "ENSG00000186092\tOR4F5\t1\t65419\t71585\thg38\n",
                 encoding="utf-8",
             )
-            args = build_parser().parse_args(
+            args = parse_command_line(build_parser(),
                 [
                     "--output-dir",
                     str(output_dir),
@@ -1430,7 +1345,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             control.write_text("MISSING_CONTROL\n", encoding="utf-8")
             from tests.ldscore.test_gene_ldscore_index import _write_plink_trio
             _write_plink_trio(tmpdir / "panel", ["1"])
-            args = build_parser().parse_args(
+            args = parse_command_line(build_parser(),
                 [
                     "--output-dir", str(output_dir),
                     "--baseline-annot-sources", str(baseline),
@@ -1588,7 +1503,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     '--snp-identifier','rsid','--ld-wind-snps','2','--yes-really']
             position = argv.index('--baseline-annot-sources')
             del argv[position:position+2]
-            result = ldscore_workflow.run_ldscore_from_args(build_parser().parse_args(argv))
+            result = ldscore_workflow.run_ldscore_from_args(parse_command_line(build_parser(), argv))
             self.assertEqual(result.baseline_columns,['base'])
             self.assertEqual(result.query_columns,[])
             self.assertIsNone(result.read_queries([]))
@@ -1605,26 +1520,10 @@ class LDScoreWorkflowTest(unittest.TestCase):
             output_dir.mkdir()
             stale = output_dir / "ldscore.query.parquet"
             stale.write_text("stale\n", encoding="utf-8")
-            args = Namespace(
-                output_dir=str(output_dir),
-                query_annot_sources=None,
-                query_annot_bed_sources=None,
-                baseline_annot_sources=None,
-                plink_prefix="panel",
-                snp_identifier="rsid",
-                genome_build="hg38",
-                ref_panel_snps_file=None,
-                regr_snps_file=None,
-                ld_wind_snps=10,
-                ld_wind_kb=None,
-                ld_wind_cm=None,
-                maf_min=None,
-                common_maf_min=0.05,
-                snp_batch_size=50,
-                yes_really=False,
-                overwrite=False,
-                log_level="INFO",
-            )
+            args = parse_command_line(build_parser(), [
+                "--output-dir", str(output_dir), "--plink-prefix", "panel", "--snp-identifier", "rsid",
+                "--ld-wind-snps", "10", "--snp-batch-size", "50", "--regr-snps-exclude-regions", "none",
+            ])
             ref_panel = self.make_ref_panel_stub(
                 backend="plink",
                 metadata=pd.DataFrame({"CHR": ["1"], "SNP": ["rs1"], "CM": [0.1], "POS": [10]}),
@@ -1660,26 +1559,10 @@ class LDScoreWorkflowTest(unittest.TestCase):
             stale.write_text("stale\n", encoding="utf-8")
             from tests.ref_panel_helpers import write_counted_plink
             write_counted_plink(tmpdir / "panel", [("rs1", "A", "G", (2, 0))])
-            args = Namespace(
-                output_dir=str(output_dir),
-                query_annot_sources=None,
-                query_annot_bed_sources=None,
-                baseline_annot_sources=None,
-                plink_prefix=str(tmpdir / "panel"),
-                snp_identifier="rsid",
-                genome_build="hg38",
-                ref_panel_snps_file=None,
-                regr_snps_file=None,
-                ld_wind_snps=10,
-                ld_wind_kb=None,
-                ld_wind_cm=None,
-                maf_min=None,
-                common_maf_min=0.05,
-                snp_batch_size=50,
-                yes_really=False,
-                overwrite=True,
-                log_level="INFO",
-            )
+            args = parse_command_line(build_parser(), [
+                "--output-dir", str(output_dir), "--plink-prefix", str(tmpdir / "panel"), "--snp-identifier", "rsid",
+                "--ld-wind-snps", "10", "--snp-batch-size", "50", "--regr-snps-exclude-regions", "none", "--overwrite",
+            ])
             ref_panel = self.make_ref_panel_stub(
                 backend="plink",
                 metadata=pd.DataFrame({"CHR": ["1"], "SNP": ["rs1"], "CM": [0.1], "POS": [10]}),
@@ -1767,9 +1650,9 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 autospec=True,
                 return_value=chrom_result,
             ):
-                ldscore_workflow.run_ldscore_from_args(build_parser().parse_args(argv))
+                ldscore_workflow.run_ldscore_from_args(parse_command_line(build_parser(), argv))
                 result = ldscore_workflow.run_ldscore_from_args(
-                    build_parser().parse_args([*argv, "--overwrite"])
+                    parse_command_line(build_parser(), [*argv, "--overwrite"])
                 )
 
             metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
@@ -1787,51 +1670,19 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertEqual(loaded.count_records, result.count_records)
 
     def test_run_ldscore_from_args_rejects_query_annotations_without_baseline(self):
-        args = Namespace(
-            output_dir="out/example",
-            query_annot_sources="query.annot.gz",
-            query_annot_bed_sources=None,
-            baseline_annot_sources=None,
-            plink_prefix="panel",
-            snp_identifier="rsid",
-            genome_build=None,
-            ref_panel_snps_file=None,
-            regr_snps_file=None,
-            ld_wind_snps=10,
-            ld_wind_kb=None,
-            ld_wind_cm=None,
-            maf_min=None,
-            common_maf_min=0.05,
-            snp_batch_size=50,
-            per_chr_output=False,
-            yes_really=False,
-            log_level="INFO",
-        )
+        args = parse_command_line(build_parser(), [
+            "--output-dir", "out/example", "--query-annot-sources", "query.annot.gz", "--plink-prefix", "panel",
+            "--snp-identifier", "rsid", "--ld-wind-snps", "10", "--snp-batch-size", "50",
+        ])
 
         with self.assertRaisesRegex(LDSCUsageError, "query annotations without baseline annotations.*all-ones `base`"):
             ldscore_workflow.run_ldscore_from_args(args)
 
     def test_run_ldscore_from_args_rejects_query_bed_without_baseline(self):
-        args = Namespace(
-            output_dir="out/example",
-            query_annot_sources=None,
-            query_annot_bed_sources="query.bed",
-            baseline_annot_sources=None,
-            plink_prefix="panel",
-            snp_identifier="rsid",
-            genome_build=None,
-            ref_panel_snps_file=None,
-            regr_snps_file=None,
-            ld_wind_snps=10,
-            ld_wind_kb=None,
-            ld_wind_cm=None,
-            maf_min=None,
-            common_maf_min=0.05,
-            snp_batch_size=50,
-            per_chr_output=False,
-            yes_really=False,
-            log_level="INFO",
-        )
+        args = parse_command_line(build_parser(), [
+            "--output-dir", "out/example", "--query-annot-bed-sources", "query.bed", "--plink-prefix", "panel",
+            "--snp-identifier", "rsid", "--ld-wind-snps", "10", "--snp-batch-size", "50",
+        ])
 
         with self.assertRaisesRegex(LDSCUsageError, "query annotations without baseline annotations.*all-ones `base`"):
             ldscore_workflow.run_ldscore_from_args(args)
@@ -1848,7 +1699,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     '--regr-snps-file',str(regression),'--regr-snps-exclude-regions','none',
                     '--snp-identifier','rsid','--ld-wind-snps','2','--yes-really']
             regression.write_text('SNP\nrs2\n')
-            result = ldscore_workflow.run_ldscore_from_args(build_parser().parse_args(argv))
+            result = ldscore_workflow.run_ldscore_from_args(parse_command_line(build_parser(), argv))
             self.assertEqual(result.baseline_table.SNP.tolist(),['rs2'])
             np.testing.assert_array_equal(result.baseline_table.base,np.array([1+24576/32767],dtype=np.float32))
             np.testing.assert_array_equal(result.baseline_table.regression_ld_scores,[1])
@@ -1864,7 +1715,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 write_tiny_plink(root/f'panel{chrom}',metadata)
             regression = root/'regression.txt'
             regression.write_text('SNP\n'+'\n'.join(f'rs{i}' for i in range(1,23))+'\n')
-            args = build_parser().parse_args(['--output-dir',str(root/'out'),
+            args = parse_command_line(build_parser(), ['--output-dir',str(root/'out'),
                 '--baseline-annot-sources',str(root/'baseline.@.annot.gz'),'--plink-prefix',str(root/'panel@'),
                 '--regr-snps-file',str(regression),'--regr-snps-exclude-regions','none',
                 '--snp-identifier','rsid','--ld-wind-snps','2','--yes-really'])
@@ -1884,12 +1735,12 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     '--baseline-annot-sources',inputs.baseline_annot_sources,
                     '--regr-snps-file',str(regression),'--regr-snps-exclude-regions','none',
                     '--snp-identifier','rsid','--ld-wind-snps','2','--yes-really']
-            result = ldscore_workflow.run_ldscore_from_args(build_parser().parse_args(argv))
+            result = ldscore_workflow.run_ldscore_from_args(parse_command_line(build_parser(), argv))
             self.assertEqual(result.baseline_table.SNP.tolist(),['rs1','rs2','rs3'])
             np.testing.assert_array_equal(result.baseline_table.base,np.array([1+16384/32767,1+24576/32767,1+8192/32767],dtype=np.float32))
 
 
-    def test_normalize_run_args_chr_pos_auto_infers_matching_annotation_and_r2_matrix_dir_builds(self):
+    def test_chr_pos_auto_infers_matching_annotation_and_r2_matrix_dir_builds(self):
         from ldsc._genome.build_inference import load_packaged_reference_table
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -1897,56 +1748,29 @@ class LDScoreWorkflowTest(unittest.TestCase):
             rows = load_packaged_reference_table().head(500)
             rows[['CHR', 'hg19_POS']].rename(columns={'hg19_POS': 'POS'}).assign(base=1).to_csv(baseline, sep='\t', index=False)
             _write_minimal_r2_parquet(r2_matrix_dir / 'chr1_r2.parquet', {b'ldsc:sorted_by_build': b'hg19'})
-            args = Namespace(output_dir='out', baseline_annot_sources=str(baseline), query_annot_sources=None,
-                             plink_prefix=None, r2_matrix_dir=str(r2_matrix_dir), snp_identifier='chr_pos', genome_build='auto',
-                             keep_indivs_file=None, ref_panel_snps_file=None, regr_snps_file=None, log_level='INFO')
-            normalized, config = ldscore_workflow._normalize_run_args(args)
+            config, _ = _resolve_build(direct_configs(
+                '--baseline-annot-sources', str(baseline), '--r2-matrix-dir', str(r2_matrix_dir),
+                '--snp-identifier', 'chr_pos', '--genome-build', 'auto'))
             self.assertEqual(config.genome_build, 'hg19')
-            self.assertEqual(normalized.genome_build, 'hg19')
 
-    def test_normalize_run_args_chr_pos_auto_does_not_infer_from_ref_panel_child_directory(self):
+    def test_chr_pos_auto_does_not_infer_from_ref_panel_child_directory(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             root = tmpdir / "r2_ref_panel_1kg30x_1cM_hm3"
             (root / "hg38").mkdir(parents=True)
-            args = Namespace(
-                output_dir="out",
-                query_annot_sources=None,
-                baseline_annot_sources=None,
-                plink_prefix=None,
-                r2_matrix_dir=str(root),
-                snp_identifier="chr_pos",
-                genome_build="auto",
-                keep_indivs_file=None,
-                ref_panel_snps_file=None,
-                regr_snps_file=None,
-                log_level="INFO",
-            )
+            configs = direct_configs("--r2-matrix-dir", str(root), "--snp-identifier", "chr_pos", "--genome-build", "auto")
 
             with self.assertRaisesRegex(LDSCInputError, "Genome-build consistency check failed"):
-                ldscore_workflow._normalize_run_args(args)
+                _resolve_build(configs)
 
-    def test_normalize_run_args_rsid_concrete_genome_build_warns_and_nulls(self):
-        args = Namespace(
-            output_dir="out",
-            query_annot_sources=None,
-            baseline_annot_sources=None,
-            plink_prefix="panel",
-            snp_identifier="rsid",
-            genome_build="hg38",
-            keep_indivs_file=None,
-            ref_panel_snps_file=None,
-            regr_snps_file=None,
-            log_level="INFO",
-        )
-
+    def test_rsid_concrete_genome_build_warns_and_nulls(self):
         with self.assertWarnsRegex(UserWarning, "ignored"):
-            normalized_args, global_config = ldscore_workflow._normalize_run_args(args)
+            configs = direct_configs("--plink-prefix", "panel", "--snp-identifier", "rsid", "--genome-build", "hg38")
+        global_config, _ = _resolve_build(configs)
 
-        self.assertIsNone(normalized_args.genome_build)
         self.assertIsNone(global_config.genome_build)
 
-    def test_normalize_run_args_chr_pos_auto_rejects_annotation_r2_build_mismatch(self):
+    def test_chr_pos_auto_rejects_annotation_r2_build_mismatch(self):
         from ldsc._genome.build_inference import load_packaged_reference_table
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -1954,36 +1778,19 @@ class LDScoreWorkflowTest(unittest.TestCase):
             rows = load_packaged_reference_table().head(500)
             rows[['CHR', 'hg19_POS']].rename(columns={'hg19_POS': 'POS'}).assign(base=1).to_csv(baseline, sep='\t', index=False)
             _write_minimal_r2_parquet(r2_matrix_dir / 'chr1_r2.parquet', {b'ldsc:sorted_by_build': b'hg38'})
-            args = Namespace(output_dir='out', baseline_annot_sources=str(baseline), query_annot_sources=None,
-                             plink_prefix=None, r2_matrix_dir=str(r2_matrix_dir), snp_identifier='chr_pos', genome_build='auto',
-                             keep_indivs_file=None, ref_panel_snps_file=None, regr_snps_file=None, log_level='INFO')
+            configs = direct_configs('--baseline-annot-sources', str(baseline), '--r2-matrix-dir', str(r2_matrix_dir),
+                                     '--snp-identifier', 'chr_pos', '--genome-build', 'auto')
             with self.assertRaisesRegex(LDSCInputError, 'Conflicting genome-build evidence') as caught:
-                ldscore_workflow._normalize_run_args(args)
+                _resolve_build(configs)
             self.assertIn(str(baseline), str(caught.exception))
             self.assertIn('chr1_r2.parquet', str(caught.exception))
 
     def test_run_ldscore_from_args_rejects_keep_in_parquet_mode(self):
-        args = Namespace(
-            output_dir="out/example",
-            query_annot_sources=None,
-            baseline_annot_sources="baseline.annot.gz",
-            plink_prefix=None,
-            r2_matrix_dir="panel/hg38",
-            snp_identifier="rsid",
-            genome_build=None,
-            ref_panel_snps_file=None,
-            regr_snps_file=None,
-            keep_indivs_file="samples.keep",
-            ld_wind_snps=10,
-            ld_wind_kb=None,
-            ld_wind_cm=None,
-            maf_min=None,
-            common_maf_min=0.05,
-            snp_batch_size=50,
-            per_chr_output=False,
-            yes_really=False,
-            log_level="INFO",
-        )
+        args = parse_command_line(build_parser(), [
+            "--output-dir", "out/example", "--baseline-annot-sources", "baseline.annot.gz",
+            "--r2-matrix-dir", "panel/hg38", "--snp-identifier", "rsid", "--keep-indivs-file", "samples.keep",
+            "--ld-wind-snps", "10",
+        ])
 
         with self.assertRaisesRegex(LDSCUsageError, "keep-indivs-file.*R2 matrix"):
             ldscore_workflow.run_ldscore_from_args(args)
@@ -2006,7 +1813,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             pd.concat([missing,metadata],ignore_index=True).to_csv(inputs.baseline_annot_sources,sep='\t',index=False)
             with self.assertRaisesRegex(LDSCInputError,
                     r'no reference SNPs on the annotation SNP grid for chromosome 1 \(1 annotation rows, 2 reference-panel SNPs\)'):
-                ldscore_workflow.run_ldscore_from_args(build_parser().parse_args(argv))
+                ldscore_workflow.run_ldscore_from_args(parse_command_line(build_parser(), argv))
 
 
     @unittest.skipUnless(_HAS_BITARRAY, "bitarray is not installed")
@@ -2355,52 +2162,34 @@ class R2DequantizationTest(unittest.TestCase):
 def test_ldscore_parser_regr_snp_region_flag_default_and_choices():
     parser = build_parser()
     # Default excludes MHC + centromeres.
-    default_args = parser.parse_args(["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1"])
+    default_args = parse_command_line(parser, ["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1"])
     assert default_args.regr_snps_exclude_regions == "mhc-and-centromeres"
     # Single-choice enum; comma lists are rejected.
-    args = parser.parse_args(
+    args = parse_command_line(parser,
         ["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1",
          "--regr-snps-exclude-regions", "centromeres", "--genome-build", "hg19"]
     )
     assert args.regr_snps_exclude_regions == "centromeres"
     with pytest.raises(SystemExit):
-        parser.parse_args(["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1",
+        parse_command_line(parser, ["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1",
                            "--regr-snps-exclude-regions", "mhc,centromeres"])
 
 
 def test_ldscore_region_build_uses_genome_build_and_requires_it_for_rsid():
     # chr_pos: build is taken from the panel build ldscore operates in.
-    assert _resolve_regression_region_build(
-        Namespace(),
-        GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19"),
-        ("mhc", "centromeres"),
-    ) == "hg19"
+    build = _regression_region_build(GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19"), None)
+    assert build == "hg19"
+    assert _regression_region_intervals("mhc-and-centromeres", build).source_labels == (
+        "preset:mhc[hg19]", "preset:centromeres[hg19]")
     # rsid: no genome build is available, so presets require an explicit build.
+    assert _regression_region_build(GlobalConfig(snp_identifier="rsid"), None) is None
     with pytest.raises(LDSCUsageError, match="genome-build"):
-        _resolve_regression_region_build(
-            Namespace(),
-            GlobalConfig(snp_identifier="rsid"),
-            ("mhc",),
-        )
-    # The sole build declaration is used even in rsid mode.
-    assert _resolve_regression_region_build(
-        Namespace(genome_build="hg38"),
-        GlobalConfig(snp_identifier="rsid"),
-        ("mhc",),
-    ) == "hg38"
+        _regression_region_intervals("mhc", None)
     # Gene-list projection supplies coordinate evidence even though rsID
     # identity metadata deliberately remains build-independent.
-    assert _resolve_regression_region_build(
-        Namespace(genome_build=None, gene_catalog_build="hg19"),
-        GlobalConfig(snp_identifier="rsid"),
-        ("mhc",),
-    ) == "hg19"
+    assert _regression_region_build(GlobalConfig(snp_identifier="rsid"), "hg19") == "hg19"
     # No presets => no build needed.
-    assert _resolve_regression_region_build(
-        Namespace(),
-        GlobalConfig(snp_identifier="rsid"),
-        (),
-    ) is None
+    assert _regression_region_intervals("none", None) is None
 
 
 def test_regression_region_mask_leaves_reference_counts_and_ld_contributors_intact():
@@ -2595,7 +2384,7 @@ def test_public_plink_calculation_prepares_genotypes_once():
 
 def test_build_parser_accepts_genetic_map_and_export_flags():
     parser = ldscore_workflow.build_parser()
-    args = parser.parse_args([
+    args = parse_command_line(parser, [
         "--output-dir", "out", "--plink-prefix", "panel", "--ld-wind-cm", "1.0",
         "--genetic-map-hg38-sources", "map_hg38.txt", "--export-ref-metadata",
     ])

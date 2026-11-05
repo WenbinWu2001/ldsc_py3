@@ -19,6 +19,7 @@ from tests.regression.test_regression_fit_outcomes import h2_dataset
 from ldsc._ldscore.results import LDScoreResult
 from ldsc._ldscore.overlap_table import LDScoreOverlap
 from ldsc._annotation.overlap import OverlapContribution
+from ldsc.errors import LDSCUsageError
 
 
 def ld_directory(tmp_path):
@@ -537,7 +538,6 @@ def test_cli_rejects_invalid_query_batch_size_as_it_rejects_workers(tmp_path, si
 @pytest.mark.parametrize("size", [0, -1, True, 1.5, "2", None])
 def test_python_routes_reject_invalid_query_batch_size_before_writing(tmp_path, size):
     import ldsc
-    from ldsc.errors import LDSCUsageError
 
     with pytest.raises(LDSCUsageError, match="query_batch_size must be a positive integer"):
         ldsc.run_partitioned_h2(sumstats_file="missing", ldscore_dir="missing", output_dir=str(tmp_path / "out"),
@@ -545,6 +545,19 @@ def test_python_routes_reject_invalid_query_batch_size_before_writing(tmp_path, 
     with pytest.raises(LDSCUsageError, match="query_batch_size must be a positive integer"):
         ldsc.RegressionRunner().estimate_partitioned_h2_batch(None, None, output_dir=tmp_path / "out",
                                                               query_batch_size=size)
+    assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize("option, error", [("query_batch_size", LDSCUsageError), ("workers", ValueError)])
+def test_keyword_route_checks_computing_options_before_the_failure_marker(tmp_path, option, error):
+    # On the command line their argparse types reject these values before the run starts. The keyword route
+    # checks them before run_from_kwargs opens the failure-marker scope, so even an authorized overwrite
+    # writes nothing, no RUN_FAILED.txt included.
+    import ldsc
+
+    with pytest.raises(error, match=f"^{option} must be"):
+        ldsc.run_partitioned_h2(sumstats_file="missing", ldscore_dir="missing", output_dir=str(tmp_path / "out"),
+                                overwrite=True, **{option: 0})
     assert not (tmp_path / "out").exists()
 
 

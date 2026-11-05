@@ -391,7 +391,7 @@ The `*_from_args()` functions remain module-level CLI dispatch targets and are n
 Each is a thin adapter: it turns the parsed arguments into typed settings before any output preflight and calls the command's typed body.
 `_configs_from_args(args, command)` returns the registered `GlobalConfig`, the SNP identifier fallback for an input without recorded provenance, and the `RegressionConfig`, built with the scalar prevalences for `h2` and `partitioned-h2` and without prevalences for `rg`.
 `_run_h2()`, `_run_partitioned_h2()` and `_run_rg()` take those two configs and the other options (inputs, output directory, overwrite, log level, and the command's own options such as workers, query batch size or console notices) as keyword arguments.
-`run_partitioned_h2_from_args()` also checks `workers` and `query_batch_size` before calling its body, because their argparse types check them only on the command line.
+`run_partitioned_h2()` checks `workers` and `query_batch_size` before it calls `run_from_kwargs()`, because their argparse types check them only on the command line; like an argparse error, an invalid value then writes nothing, not even the `RUN_FAILED` marker.
 `run_h2_from_args()` returns an `H2Result`, `run_partitioned_h2_from_args()` the complete `PartitionedH2BatchResult`, and `run_rg_from_args()` the `RgResultFamily` with the paths written.
 The three typed bodies share `_inspect_regression_inputs()`, which checks the declared summary statistics, prevalence manifest and LD-score directory before any input is loaded.
 `h2` and `rg` publish from their typed bodies; `estimate_partitioned_h2_batch()` publishes its own result directory, because its query workers stage each fitted model inside it.

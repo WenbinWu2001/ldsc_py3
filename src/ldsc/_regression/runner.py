@@ -3457,9 +3457,10 @@ def _run_h2(
 def run_partitioned_h2_from_args(args):
     """Run batch partitioned heritability from parsed CLI arguments.
 
-    The regression settings become a ``RegressionConfig``, and ``workers`` and
-    ``query_batch_size`` are checked, before anything is written. The workflow
-    requires ``args.output_dir`` and preflights
+    The regression settings become a ``RegressionConfig`` before the output
+    preflight; the argparse types of ``--workers`` and ``--query-batch-size``,
+    or :func:`run_partitioned_h2`, have already checked those two options.
+    The workflow requires ``args.output_dir`` and preflights
     ``partitioned_h2.tsv``, ``diagnostics/query_annotations/``, and
     ``diagnostics/partitioned-h2.log`` before loading inputs. Query-annotation
     runs always write per-query results; baseline-only runs keep the complete
@@ -3482,9 +3483,6 @@ def run_partitioned_h2_from_args(args):
     failures abort under either query-error policy. Requested/effective counts
     and phase timings are recorded in the workflow log.
     """
-    # The argparse types check the command line; keyword calls are checked here, before any write.
-    validate_workers(args.workers)
-    validate_query_batch_size(args.query_batch_size, error_type=LDSCUsageError)
     global_config, config = _configs_from_args(args, "partitioned-h2")
     return _run_partitioned_h2(
         global_config, config, sumstats_file=args.sumstats_file, ldscore_dir=args.ldscore_dir,
@@ -3798,6 +3796,9 @@ def run_partitioned_h2(**kwargs) -> PartitionedH2BatchResult:
         is missing, a value is outside the command's choices, a flag is not a
         bool, ``query_batch_size`` is not a positive integer, or
         ``log_level``, ``snp_identifier`` or ``genome_build`` is passed.
+    ValueError
+        Before anything is written, when ``workers`` is not a nonzero integer
+        or exceeds the detected available CPU count.
 
     Notes
     -----
@@ -3805,6 +3806,12 @@ def run_partitioned_h2(**kwargs) -> PartitionedH2BatchResult:
     Existing outputs stop the run unless ``overwrite=True``; a failed
     authorized overwrite leaves ``RUN_FAILED.txt`` naming this call.
     """
+    # The argparse types check these two options on the command line, before any run starts. A keyword
+    # call is checked here, before run_from_kwargs opens the failure-marker scope, so it writes nothing.
+    if "workers" in kwargs:
+        validate_workers(kwargs["workers"])
+    if "query_batch_size" in kwargs:
+        validate_query_batch_size(kwargs["query_batch_size"], error_type=LDSCUsageError)
     return run_from_kwargs(
         "run_partitioned_h2", command_parser(add_partitioned_h2_arguments), run_partitioned_h2_from_args, kwargs,
         registered=get_global_config(),

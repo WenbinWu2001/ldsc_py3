@@ -331,7 +331,7 @@ because they serve different user models.
 |---|---|---|---|
 | `annotate` | `chr_pos_allele_aware` | `None`; the gene-list route treats omission as `auto` in every mode | The BED route in coordinate-family modes requires `--genome-build`; rsID-family BED runs need no build (`_annotation/annotate.py`, `_annotation/builder.py`). |
 | `munge-sumstats` | `chr_pos_allele_aware` | source: `auto`; output: required for coordinate-family modes | Pass `--output-genome-build hg19` or `--output-genome-build hg38`; the raw source build is inferred unless `--source-genome-build hg19/hg38` is supplied. rsID-family modes reject source/output/liftover build flags and store `genome_build=None`. Requires usable `A1/A2`; rerun with `--snp-identifier chr_pos` or `--snp-identifier rsid` to run without allele-aware identity. The removed `--no-alleles` flag is not accepted. |
-| `ldscore` | `chr_pos_allele_aware` | `None`; gene-list route treats omission as `auto` | Coordinate-family modes require a concrete/inferred build. In rsID-family modes, gene-list projection also requires a build, and a concrete `--genome-build` selects the `--regr-snps-exclude-regions` presets; shared rsID artifact metadata remains `genome_build=None`, and the build never enters `GlobalConfig`, so no warning is printed (`_requested_global_config()` and `_regression_region_build()` in `src/ldsc/_ldscore/calculator.py`). |
+| `ldscore` | `chr_pos_allele_aware` | `None`; gene-list route treats omission as `auto` | Coordinate-family modes require a concrete/inferred build. In rsID-family modes, gene-list projection also requires a build, and a concrete `--genome-build` selects the `--regr-snps-exclude-regions` presets; shared rsID artifact metadata remains `genome_build=None`, and the build never enters `GlobalConfig`, so no warning is printed (`_requested_global_config()` and `_regression_region_build()` in `src/ldsc/_ldscore/workflow.py`). |
 | `build-r2-matrix` | registry or `--snp-identifier` | **ignored** | Uses `--source-genome-build` (separate field); `GlobalConfig.genome_build` is never consulted. |
 | `h2`, `partitioned-h2`, `rg` | registry at construction | registry at construction | Current Parquet uses footer provenance. Legacy `.sumstats[.gz]` is treated as rsID lookup input and projected onto the LD-score directory's identity; footerless Parquet is rejected. |
 | `convert-legacy-ldscores` | `rsid` | `auto` evidence | Output identity is restricted to allele-unaware `rsid` or `chr_pos`. rsID output remains buildless; `chr_pos` output requires an inferred or explicit build for the reference LD-score files. |
@@ -425,6 +425,6 @@ must supply `genome_build="auto"` or a concrete build.
 | `_ldscore/source.py` | LD-score metadata loading | Current root metadata must carry minimal identity provenance; old package-written artifacts should be regenerated |
 | `_regression/runner.py` | `build_dataset` empty-merge error | Append `f"Active config: {self.global_config!r}."` |
 
-Call sites in `_ldscore/calculator.py` already resolve `genome_build` to a
+Call sites in `_ldscore/workflow.py` already resolve `genome_build` to a
 concrete value or `"auto"` before constructing `GlobalConfig`. They are not
 affected.

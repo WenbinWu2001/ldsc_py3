@@ -1,6 +1,6 @@
 # Global configuration and paths
 
-Last updated on: 2026-10-28
+Last updated on: 2026-11-04
 
 Choose SNP identity and genome build consistently before materializing inputs. The general default is `chr_pos_allele_aware`; the guided tutorial explicitly selects base `chr_pos`. Coordinate-based munging requires an explicit output build. Direct annotation projection also needs coordinates in the intended build. Indexed LD scoring inherits its stored configuration and rejects live overrides. See [configuration design](../../dev/design/configuration.md) and [identity/build defaults](../../reference/snp-identity-and-genome-build.md).
 
@@ -114,4 +114,4 @@ Some downstream workflows consume specific diagnostics: plotting reads declared 
 Keep complete result directories together.
 See [workflow logging](../../reference/logs-and-outputs.md) and the [artifact metadata inventory](../../reference/formats/artifact-metadata.md).
 
-Sources: `resolve_scalar_path` and `resolve_file_group` in [_runtime/paths.py](../../../src/ldsc/_runtime/paths.py), command parsers in [_ldscore/calculator.py](../../../src/ldsc/_ldscore/calculator.py) and [_sumstats/munger.py](../../../src/ldsc/_sumstats/munger.py), and the shared writers in [_regression/outputs.py](../../../src/ldsc/_regression/outputs.py).
+Sources: `resolve_scalar_path` and `resolve_file_group` in [_runtime/paths.py](../../../src/ldsc/_runtime/paths.py), command parsers in [_ldscore/workflow.py](../../../src/ldsc/_ldscore/workflow.py) and [_sumstats/munger.py](../../../src/ldsc/_sumstats/munger.py), and the shared writers in [_regression/outputs.py](../../../src/ldsc/_regression/outputs.py).

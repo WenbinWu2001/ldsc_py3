@@ -707,7 +707,7 @@ Inspect `diagnostics/reference_snp_funnel.tsv` when it was written, to see which
 
 A chromosome emptied by `--ref-panel-snps-file`, by identity cleanup of the PLINK rows that restriction kept, or by genotype QC is skipped with a WARNING instead; check its funnel rows if that skip was not intended.
 
-**Developer reference:** `_refpanel.adapters._align_annotations()` during `RefPanel.prepare_chromosome()`, the gene-support pass `_apply_direct_gene_gate_b()`, and the batch check in `_ldscore.direct_batches._DirectProducer.reduce()` · **Exception:** `LDSCInputError`
+**Developer reference:** `_refpanel.adapters._align_annotations()` during `RefPanel.prepare_chromosome()`, the gene-support pass `_ldscore.workflow._apply_direct_gene_gate_b()`, and the batch check in `_ldscore.direct_batches._DirectProducer.reduce()` · **Exception:** `LDSCInputError`
 
 ### `ldscore`: a PLINK chromosome has no usable SNP identity
 
@@ -787,7 +787,7 @@ For verified unlabeled inputs, assert the build with `--genome-build hg19` or `-
 
 See the [complete grouped report](#common-genome-build-consistency-check-failed) and [keep-list guidance](#common-keep-list-build-could-not-be-resolved).
 
-**Developer reference:** `_ldscore.calculator._resolve_ldscore_chr_pos_genome_build()` and `_genome.build_policy.GenomeBuildCheck` · **Exception:** `LDSCInputError`
+**Developer reference:** `_ldscore.workflow._resolve_ldscore_chr_pos_genome_build()` and `_genome.build_policy.GenomeBuildCheck` · **Exception:** `LDSCInputError`
 
 ### `ldscore`: unusable CM for ld-wind-cm
 

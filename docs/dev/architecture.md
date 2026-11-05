@@ -47,7 +47,7 @@ Start with [the contributor entry](code-structure.md) to locate a change; this d
 ## Layer Structure
 
 - **CLI Layer**: public command dispatch in `ldsc.cli`
-- **Workflow And Preprocessing Layer**: public services in `ldsc._annotation.builder`, `ldsc._refpanel.builder`, `ldsc._refpanel.query`, `ldsc._ldscore.calculator`, `ldsc._sumstats.munger`, `ldsc._regression.runner`, and `ldsc._regression.quantile_h2`, plus shared normalization in `ldsc.config`, `ldsc._runtime.paths`, `ldsc._core.columns`, `ldsc._core.chromosomes`, `ldsc._genome.build_inference`, `ldsc._annotation.semantics`, and the internal `ldsc._annotation.gene_lists`
+- **Workflow And Preprocessing Layer**: public services in `ldsc._annotation.builder`, `ldsc._refpanel.builder`, `ldsc._refpanel.query`, `ldsc._ldscore.workflow`, `ldsc._ldscore.calculator`, `ldsc._sumstats.munger`, `ldsc._regression.runner`, and `ldsc._regression.quantile_h2`, plus shared normalization in `ldsc.config`, `ldsc._runtime.paths`, `ldsc._core.columns`, `ldsc._core.chromosomes`, `ldsc._genome.build_inference`, `ldsc._annotation.semantics`, and the internal `ldsc._annotation.gene_lists`
 - **Computation**: private file-format and numerical code inside each domain package, such as `ldsc._ldscore.compute`, `ldsc._refpanel.r2_format`, `ldsc._refpanel.plink` and `ldsc._regression.estimators`
 - **Shared Artifact Access**: LD-score directory opening, schema/identity validation, and selected-query reads in `ldsc._ldscore.source`, consumed by generation and regression
 - **Output And Derived-Result Layer**: result writing in each domain's `outputs` module (`ldsc._annotation.outputs`, `ldsc._refpanel.outputs`, `ldsc._ldscore.outputs`, `ldsc._regression.outputs`) on the shared `ldsc._runtime.artifacts` base; metadata-driven plotting in
@@ -240,19 +240,26 @@ This module is the public pair-query surface for package-built R² matrices.
 `R2Matrix.query_pairs()` and `query_r2_matrix()` accept endpoint-suffixed pair tables and append `r2`, nullable `sign_r`, signed Pearson `r`, and `status`; low-level Parquet lookup lives in `ldsc._refpanel.r2_format`.
 Architecture invariant: `query-r2-matrix` reads canonical package-built R² matrices only; it does not define a second external R² format.
 
-### `ldsc._ldscore.calculator`
+### `ldsc._ldscore.workflow`
 
-This module orchestrates chromosome-wise LD-score computation.
-It resolves annotation and reference-panel inputs, selects the gene-coordinate-catalog projection build, synthesizes the all-ones `base` annotation when an unpartitioned run omits baseline/query inputs, and builds per-chromosome runs.
+This module owns the `ldscore` command and the keyword-argument Python workflow `run_ldscore()`: the parser, `main()`, `run_ldscore_from_args()`, and the direct and indexed run bodies.
+It resolves annotation and reference-panel inputs, selects the gene-coordinate-catalog projection build, synthesizes the all-ones `base` annotation when an unpartitioned run omits baseline/query inputs, measures gene-list support, and hands the calculation to `LDScoreCalculator`.
 `run_ldscore_from_args()` is a thin adapter: `_configs_from_args()` checks the input-mode rules and builds the run's configuration before anything is written, for the command line and `run_ldscore()` alike, and a typed body runs it.
 A direct run's `_DirectConfigs` holds the `GlobalConfig` with the requested genome build, `RefPanelConfig`, `LDScoreConfig`, `AnnotationBuildConfig` and `LDScoreOutputConfig`; an indexed run's `_IndexedConfigs` holds its gene lists and execution settings.
 An option counts as supplied when the record of explicitly supplied options (`_explicit_cli_options`) names it, never by comparison with a parser default, so the registered `GlobalConfig` that a keyword call carries is not a live override in indexed mode.
 The configurations' own range checks run once; `_OPTION_RANGE_ERRORS` words an error that a configuration raises by field name with the command-line option instead.
 `_run_direct_ldscore()` preflights the outputs, runs the input gates, resolves the genome build once against every coordinate input (`_resolve_build()`), and passes typed configurations to `_ldscore.preflight` and `_ldscore.direct_annotation`; `_run_explicit_indexed_ldscore()` runs an indexed request.
+A direct gene-list run measures each gene's support on the prepared reference SNPs before any LD score is computed (Gate B, `_apply_direct_gene_gate_b()`): it prepares the chromosomes one at a time in the parent and counts with `ChromosomeProjector.counts()`, the padding rule of annotation projection.
 The direct run then hands the calculation a private `_RunContext`: the resolved `GlobalConfig`, the reference panel built with it, and which steps have run (output preflight and workflow log, build resolution, R² matrix checks), so `LDScoreCalculator._run_prepared()` repeats none of them.
 `LDScoreCalculator.run()` passes a context that has settled nothing; the calculation then resolves the build against its prepared inputs, checks every R² matrix chromosome, and preflights and opens `diagnostics/ldscore.log` itself.
 The parent builds reference-panel adapters directly with the resolved configuration (`_ref_panel_from_config()` in `_ldscore/direct_batches.py`), and the direct LD-score producer sends every task one adapter rebuilt that way with the run's configuration and the resolved PLINK chromosome prefixes, so a run resolves its build once; `RefPanelLoader.load()` keeps its own resolution for direct Python callers, and opening an R² matrix chromosome still compares its declared build with the run's.
 An indexed run tells `run_indexed_ldscore(main_log_open=True)` the same way that its log is open, so `_ldscore.diagnostics.ldscore_logs()` never has to recognize a caller's log handler.
+
+### `ldsc._ldscore.calculator`
+
+This module holds the public calculation service `LDScoreCalculator` and the `_RunContext` it receives; it orchestrates chromosome-wise LD-score computation over prepared inputs.
+`LDScoreCalculator._run_prepared()` resolves the build of prepared inputs (`_resolve_calculator_build()`), checks every R² matrix chromosome (`_check_parquet_reference()`) and opens the workflow log only where the context says the caller has not.
+It then opens the chromosome logs and the chromosome pool, logs the reference-panel CM and MAF sources, and runs the direct LD-score producer.
 The direct LD-score producer, `_DirectProducer` in `_ldscore/direct_batches.py`, mirrors `_IndexedProducer` in `_ldscore/gene_index/batches.py`: each task computes one chromosome from the reference panel.
 Every task, in the first and in later query batches, runs `compute_direct_chromosome()`, which prepares the chromosome, projects the batch's annotations with the kernel once, and builds one record from the kernel's `ChromComputationResult`.
 The no-output path receives a `ChromLDScoreResult`; a writing run's task stages its post-kernel float32 query scores in a private Parquet fragment and returns a `DirectChromosomeFragment` with baseline data (first batch only), scientific statistics, diagnostic descriptors, and exact variation summaries.

@@ -297,7 +297,7 @@ Readers can select query columns across files or load one chromosome without sca
 One batch uses `ldscore.query.parquet`; multiple batches use numbered files.
 See `LDScoreDirectoryWriter.write_batches` in [`_ldscore/outputs.py`](../../src/ldsc/_ldscore/outputs.py).
 Before that preflight, every option is checked and turned into the run's configurations (`GlobalConfig`, `RefPanelConfig`, `LDScoreConfig`, `AnnotationBuildConfig`, `LDScoreOutputConfig`); once the input declarations pass, the genome build is resolved once against every coordinate input.
-See `_configs_from_args` and `_resolve_build` in [`_ldscore/calculator.py`](../../src/ldsc/_ldscore/calculator.py).
+See `_configs_from_args` and `_resolve_build` in [`_ldscore/workflow.py`](../../src/ldsc/_ldscore/workflow.py).
 
 For ordinary unpartitioned LD scores, callers may omit both baseline and query
 inputs. The workflow then creates a synthetic baseline annotation named exactly
@@ -338,9 +338,13 @@ flowchart LR
     C2[Normalize identifier mode]
   end
 
-  subgraph W3[Workflow (public)<br/>ldsc._ldscore.calculator]
+  subgraph W3[Workflow (public)<br/>ldsc._ldscore.workflow]
     C3[Resolve/project queries or synthesize base]
     C4[Select backend]
+  end
+
+  subgraph S3[Calculation service (public)<br/>ldsc._ldscore.calculator]
+    C10[Run query batches]
   end
 
   subgraph D3[Direct LD-score producer (private)<br/>ldsc._ldscore.direct_batches]
@@ -357,7 +361,7 @@ flowchart LR
     C8[Write LDSC3 artifacts]
   end
 
-  I1 --> C1 --> C3 --> C4 --> C9 --> C6 --> C7 --> C5 --> C8
+  I1 --> C1 --> C3 --> C4 --> C10 --> C9 --> C6 --> C7 --> C5 --> C8
   I2 --> C1 --> C4
   I3 --> C1 --> C2 --> C6
 ```
@@ -378,7 +382,8 @@ flowchart LR
 ### Modules used
 
 - Preprocessing: `ldsc.config`, `ldsc._runtime.paths`, `ldsc._core.columns`
-- Workflow: `ldsc._ldscore.calculator`
+- Workflow: `ldsc._ldscore.workflow` (options, input gates, build resolution, gene-list support, then the calculation)
+- Calculation service: `ldsc._ldscore.calculator` (`LDScoreCalculator`: logs, the chromosome pool, and the query batches)
 - Direct LD-score producer: `ldsc._ldscore.direct_batches` (one task per chromosome and query batch, then chromosome aggregation), run batch by batch by `ldsc._ldscore.batch_execution`
 - Kernel: `ldsc._ldscore.compute`
 - Postprocessing: `ldsc._ldscore.outputs`

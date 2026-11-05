@@ -181,3 +181,11 @@ def test_real_plink_gene_batches_preserve_all_metadata_and_diagnostics(tmp_path,
         else:
             pd.testing.assert_frame_equal(pd.read_csv(left / path, sep="\t"), pd.read_csv(right / path, sep="\t"),
                                           check_exact=True)
+
+
+def test_query_only_chromosome_task_requires_a_fragment_directory():
+    # A query-only task has no baseline, so only a staged fragment can carry its scores.
+    from ldsc.errors import LDSCInternalError
+
+    with pytest.raises(LDSCInternalError, match="fragment_dir"):
+        direct_batches.compute_direct_chromosome("1", None, None, None, None, include_baseline=False)

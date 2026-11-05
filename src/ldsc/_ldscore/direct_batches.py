@@ -92,9 +92,18 @@ def compute_direct_chromosome(
     writing run) computes only the query scores and statistics, stages no
     identity drops, and needs ``fragment_dir``. With ``export_dir`` the
     chromosome's reference metadata is written there. Raises
-    ``EmptyReferenceSNPs`` when preparation leaves no reference SNP.
+    ``EmptyReferenceSNPs`` when preparation leaves no reference SNP, and
+    ``LDSCInternalError`` for ``include_baseline=False`` without
+    ``fragment_dir``.
     """
-    backend = getattr(getattr(ref_panel, "spec", None), "backend", None)
+    if not include_baseline and fragment_dir is None:
+        raise LDSCInternalError(
+            "LD-score chromosome task failed in compute_direct_chromosome(): a query-only task "
+            "(include_baseline=False) returns no baseline table and needs fragment_dir to stage its "
+            "query scores. Most likely a caller other than the direct LD-score producer's later query "
+            "batches requested it. Re-run with DEBUG logging and report the traceback."
+        )
+    backend =getattr(getattr(ref_panel, "spec", None), "backend", None)
     chrom_annotations = _chromosome_annotations(annotation_bundle, chrom)
     LOGGER.info(f"Computing chromosome {chrom} {'LD scores' if include_baseline else 'query LD scores'} "
                 f"with backend '{backend or 'unknown'}' and {len(chrom_annotations.metadata)} annotation rows.")

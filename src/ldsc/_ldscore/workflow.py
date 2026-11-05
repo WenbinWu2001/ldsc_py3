@@ -39,7 +39,9 @@ from .diagnostics import (
 from .direct_batches import _chromosome_annotations, _grid_emptied_message, _ref_panel_from_config, _slice_annotation_bundle
 from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP, output_directory_argument
 from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
-from .._runtime.parallelism import WORKERS_HELP, parse_workers, validate_query_batch_size, validate_workers
+from .._runtime.parallelism import (
+    WORKERS_HELP, parse_query_batch_size, parse_workers, validate_query_batch_size, validate_workers,
+)
 from .._runtime.progress import report_phase, PhaseProgress
 from .._annotation.storage import AnnotationWorkspace
 from .source import LDScoreSource
@@ -403,7 +405,7 @@ def build_parser() -> argparse.ArgumentParser:
         help='Maximum simultaneous chromosomes in direct or indexed mode. ' + WORKERS_HELP,
     )
     computing.add_argument(
-        '--query-batch-size', default=100, type=int, metavar='N',
+        '--query-batch-size', default=100, type=parse_query_batch_size, metavar='N',
         help=(
             'Maximum number of query annotations processed at once. Default: 100; use a smaller positive '
             'value to reduce memory. Each completed batch has its own query file; direct mode repeats reference traversal.'

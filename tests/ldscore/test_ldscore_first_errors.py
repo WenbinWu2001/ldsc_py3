@@ -89,7 +89,6 @@ LIVE_OVERRIDES = (
     "direct mode."
 )
 INDEX_WITHOUT_GENES = "ldscore indexed mode requires --query-annot-gene-list-sources."
-INDEX_QUERY_BATCH = "query_batch_size must be a positive integer."
 GENE_OPTIONS_WITHOUT_GENES = (
     "Gene coordinate, exclusion, control-list, and resolution policy options are valid only with gene-list "
     "query annotations. Remove the gene-specific option or use gene-list mode."
@@ -135,7 +134,6 @@ CLI_CASES = {
     "maf-min": ([*PLINK_RUN, "--maf-min", "0.7"], "LDSCConfigError", MAF.format(0.7)),
     "common-maf-min": ([*PLINK_RUN, "--common-maf-min", "-0.1"], "LDSCConfigError", COMMON_MAF.format(-0.1)),
     "snp-batch-size": ([*PLINK_RUN, "--snp-batch-size", "0"], "LDSCConfigError", SNP_BATCH),
-    "query-batch-size": ([*PLINK_RUN, "--query-batch-size", "0"], "LDSCConfigError", QUERY_BATCH),
     "no-window": (["--genome-build", "hg38", "--plink-prefix", PLINK], "LDSCConfigError", NO_WINDOW),
     # region build
     "region-build": (["--snp-identifier", "rsid", "--plink-prefix", PLINK, "--ld-wind-kb", "1000"],
@@ -149,7 +147,6 @@ CLI_CASES = {
                                    "--export-ref-metadata, --maf-min, --regr-snps-exclude-regions, "
                                    "--snp-batch-size, --snp-identifier")),
     "indexed-without-genes": (["--gene-ldscore-index-dir", "{tmp}/index"], "LDSCInputError", INDEX_WITHOUT_GENES),
-    "indexed-query-batch-size": ([*INDEX_RUN, "--query-batch-size", "0"], "ValueError", INDEX_QUERY_BATCH),
     # gene-list mode option conflicts
     "catalog-without-genes": ([*PLINK_RUN, "--gene-coordinate-file", "{tmp}/genes.tsv"], "LDSCUsageError",
                               GENE_OPTIONS_WITHOUT_GENES),
@@ -246,4 +243,17 @@ def test_command_line_input_mode_and_configuration_errors_write_nothing(tmp_path
     argv = ["ldscore", *(_fill(token, tmp_path) for token in argv), "--output-dir", _fill(OUT, tmp_path)]
     with pytest.raises(Exception):
         cli.main(argv)
+    assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize("mode", [PLINK_RUN, INDEX_RUN], ids=["direct", "indexed"])
+@pytest.mark.parametrize("size", ["0", "-1", "1.5", "True"])
+def test_command_line_rejects_invalid_query_batch_size_as_it_rejects_workers(tmp_path, mode, size, capsys):
+    # Like --workers, the value is checked by its argparse type: usage error, exit status 2, nothing written.
+    argv = ["ldscore", *(_fill(token, tmp_path) for token in mode), "--query-batch-size", size,
+            "--output-dir", _fill(OUT, tmp_path)]
+    with pytest.raises(SystemExit) as error:
+        cli.main(argv)
+    assert error.value.code == 2
+    assert "argument --query-batch-size:" in capsys.readouterr().err
     assert not (tmp_path / "out").exists()

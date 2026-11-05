@@ -410,36 +410,14 @@ def build_gene_ldscore_index(
     """
     if not isinstance(config, GeneLDScoreIndexBuildConfig):
         raise TypeError("build_gene_ldscore_index requires GeneLDScoreIndexBuildConfig.")
-    # The outer marker scope makes a failed overwrite name this function, not the parsed-argument workflow.
     with overwrite_failure_marker(
         config.output_dir, overwrite=overwrite, command="Python API: build_gene_ldscore_index(...)",
     ):
-        return run_build_gene_ldscore_index_from_args(
-            argparse.Namespace(
-                baseline_annot_sources=",".join(config.baseline_annot_sources),
-                plink_prefix=config.plink_prefix,
-                output_dir=config.output_dir,
-                gene_coordinate_file=config.gene_coordinate_file,
-                genome_build=config.genome_build,
-                snp_identifier=config.snp_identifier,
-                padding_bp=config.padding_bp,
-                gene_exclude_regions=config.gene_exclude_regions,
-                ld_wind_cm=config.ld_wind_cm,
-                ld_wind_kb=config.ld_wind_kb,
-                ld_wind_snps=config.ld_wind_snps,
-                maf_min=config.maf_min,
-                common_maf_min=config.common_maf_min,
-                keep_indivs_file=config.keep_indivs_file,
-                regr_snps_file=config.regr_snps_file,
-                regr_snps_exclude_regions=config.regr_snps_exclude_regions,
-                genetic_map_hg19_sources=genetic_map_hg19_sources,
-                genetic_map_hg38_sources=genetic_map_hg38_sources,
-                snp_batch_size=config.snp_batch_size,
-                atom_batch_size=config.atom_batch_size,
-                workers=config.workers,
-                overwrite=overwrite,
-                log_level=get_global_config().log_level if log_level is None else log_level,
-            )
+        return _build(
+            config,
+            genetic_map_sources={"hg19": genetic_map_hg19_sources, "hg38": genetic_map_hg38_sources},
+            overwrite=overwrite,
+            log_level=get_global_config().log_level if log_level is None else log_level,
         )
 
 
@@ -485,17 +463,15 @@ def _build_embedded_gene_catalog(
     command="run_build_gene_ldscore_index_from_args(...)",
 )
 def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
-    """Build one gene LD-score index through locked preflight and staged publication.
+    """Build one gene LD-score index from parsed command-line arguments.
 
-    Every file the build touches is inside ``args.output_dir``: the lock, live
-    log, issue tables and staged index sit in its hidden ``.build/``
-    directory, which a successful build removes.
+    The arguments become a ``GeneLDScoreIndexBuildConfig`` before anything is
+    written. Every file the build touches is inside ``args.output_dir``: the
+    lock, live log, issue tables and staged index sit in its hidden
+    ``.build/`` directory, which a successful build removes.
     """
-    started = time.perf_counter()
-    chromosomes = index_artifact.INDEX_CHROMOSOMES
-    baseline_sources = tuple(split_cli_path_tokens(args.baseline_annot_sources))
     config = GeneLDScoreIndexBuildConfig(
-        baseline_annot_sources=baseline_sources,
+        baseline_annot_sources=tuple(split_cli_path_tokens(args.baseline_annot_sources)),
         plink_prefix=args.plink_prefix,
         output_dir=args.output_dir,
         gene_coordinate_file=args.gene_coordinate_file,
@@ -504,23 +480,45 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
         padding_bp=args.padding_bp,
         gene_exclude_regions=args.gene_exclude_regions,
         ld_wind_cm=args.ld_wind_cm,
-        ld_wind_kb=getattr(args, "ld_wind_kb", None),
-        ld_wind_snps=getattr(args, "ld_wind_snps", None),
+        ld_wind_kb=args.ld_wind_kb,
+        ld_wind_snps=args.ld_wind_snps,
         maf_min=args.maf_min,
         common_maf_min=args.common_maf_min,
         keep_indivs_file=args.keep_indivs_file,
-        regr_snps_file=getattr(args, "regr_snps_file", None),
-        regr_snps_exclude_regions=getattr(args, "regr_snps_exclude_regions", "mhc-and-centromeres"),
+        regr_snps_file=args.regr_snps_file,
+        regr_snps_exclude_regions=args.regr_snps_exclude_regions,
         snp_batch_size=args.snp_batch_size,
         atom_batch_size=args.atom_batch_size,
         workers=args.workers,
     )
+    return _build(
+        config,
+        genetic_map_sources={"hg19": args.genetic_map_hg19_sources, "hg38": args.genetic_map_hg38_sources},
+        overwrite=args.overwrite,
+        log_level=args.log_level,
+    )
 
+
+def _build(
+    config: GeneLDScoreIndexBuildConfig,
+    *,
+    genetic_map_sources: dict[str, str | None],
+    overwrite: bool,
+    log_level: str,
+) -> Path:
+    """Build one gene LD-score index through locked preflight and staged publication.
+
+    ``genetic_map_sources`` maps ``"hg19"`` and ``"hg38"`` to the comma-separated
+    genetic-map paths supplied for that build, or ``None``. The caller opens
+    the failure-marker scope.
+    """
+    started = time.perf_counter()
+    chromosomes = index_artifact.INDEX_CHROMOSOMES
     index_path = Path(config.output_dir)
     with _gene_index_build_lock(index_path):
         live_log_path = _prepare_gene_index_log(index_path)
-        with workflow_logging("build-gene-ldscore-index", live_log_path, log_level=args.log_level):
-            _preflight_gene_index_output(index_path, overwrite=bool(args.overwrite))
+        with workflow_logging("build-gene-ldscore-index", live_log_path, log_level=log_level):
+            _preflight_gene_index_output(index_path, overwrite=bool(overwrite))
             log_inputs(
                 output_dir=str(config.output_dir),
                 genome_build=config.genome_build,
@@ -538,14 +536,14 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                 common_maf_min=config.common_maf_min,
                 keep_indivs_file=config.keep_indivs_file or "all individuals",
                 genetic_map=("not used" if config.ld_wind_cm is None else
-                             f"explicit {config.genome_build} map" if getattr(args, f"genetic_map_{config.genome_build}_sources", None)
+                             f"explicit {config.genome_build} map" if genetic_map_sources[config.genome_build]
                              else "BIM cM fallback"),
                 regr_snps_file=config.regr_snps_file or "bundled HapMap3",
                 regr_snps_exclude_regions=config.regr_snps_exclude_regions,
                 snp_batch_size=config.snp_batch_size,
                 atom_batch_size=config.atom_batch_size,
                 workers=config.workers,
-                effective_log_level=args.log_level,
+                effective_log_level=log_level,
                 process_id=os.getpid(),
                 hostname=socket.gethostname(),
             )
@@ -554,9 +552,8 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                 header_checks=GENETIC_MAP_HEADER_CHECKS,
                 baseline=config.baseline_annot_sources, plink=config.plink_prefix, chromosomes=chromosomes,
                 require_complete_suite=True, mode=config.snp_identifier,
-                files=[(name, getattr(args, name, None)) for name in (
-                    'genetic_map_hg19_sources', 'genetic_map_hg38_sources')],
-                scalar_files=[(name, getattr(args, name, None)) for name in (
+                files=[(f'genetic_map_{build}_sources', genetic_map_sources[build]) for build in ('hg19', 'hg38')],
+                scalar_files=[(name, getattr(config, name)) for name in (
                     'gene_coordinate_file', 'keep_indivs_file', 'regr_snps_file')],
                 issues_path=_gene_index_build_dir(index_path)/'input_issues.tsv',
                 plink_issues_path=_gene_index_build_dir(index_path)/'plink_input_issues.tsv')
@@ -579,9 +576,11 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
             staged_index = _create_gene_index_stage(index_path)
             try:
                 published_path = _run_gene_ldscore_index_build(
-                    args,
                     config,
                     chromosomes,
+                    genetic_map_sources=genetic_map_sources,
+                    overwrite=overwrite,
+                    log_level=log_level,
                     catalog=catalog,
                     staged_index=staged_index,
                     started=started,
@@ -755,10 +754,12 @@ def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, c
 
 @report_phase(LOGGER, 'workflow', 'gene-index build')
 def _run_gene_ldscore_index_build(
-    args: argparse.Namespace,
     config: GeneLDScoreIndexBuildConfig,
     chromosomes: tuple[str, ...],
     *,
+    genetic_map_sources: dict[str, str | None],
+    overwrite: bool,
+    log_level: str,
     catalog: GeneCatalog,
     staged_index: Path,
     started: float,
@@ -777,8 +778,8 @@ def _run_gene_ldscore_index_build(
     with PhaseProgress(LOGGER, 'validation', 'PLINK, regression restriction, and genetic map content'):
         regression_keys = gate.check('regression SNPs', regression_path,
             lambda: read_snp_restriction_keys(regression_path, config.snp_identifier, genome_build=config.genome_build))
-        genetic_map = gate.check('genetic map', getattr(args, f'genetic_map_{config.genome_build}_sources', None),
-                                 lambda: _load_builder_genetic_map(args))
+        genetic_map = gate.check('genetic map', genetic_map_sources[config.genome_build],
+                                 lambda: _load_builder_genetic_map(config, genetic_map_sources))
         plink = inspect_plink_inputs(config.plink_prefix, chromosomes=chromosomes, require_complete_suite=True,
                                      discovered_members=declared_inputs.files['plink_members'])
         try:
@@ -825,7 +826,7 @@ def _run_gene_ldscore_index_build(
 
         max_workers = resolve_worker_count(config.workers, len(chromosomes))
         with chromosome_pool(max_workers, operation="build-gene-ldscore-index chromosome construction",
-                             initializer=initialize_worker, initargs=(args.log_level,)) as pool:
+                             initializer=initialize_worker, initargs=(log_level,)) as pool:
             completed = {}
             def submit(chrom):
                 LOGGER.info("Starting chromosome %s gene-index construction.", chrom)
@@ -867,7 +868,7 @@ def _run_gene_ldscore_index_build(
         )
     index_identity = _builder_index_identity(
         config,
-        args,
+        genetic_map_sources,
         chromosomes,
         regression_keys,
         genetic_map,
@@ -909,7 +910,7 @@ def _run_gene_ldscore_index_build(
         "snp_batch_size": config.snp_batch_size,
         "atom_batch_size": config.atom_batch_size,
         "workers": config.workers,
-        "effective_log_level": args.log_level,
+        "effective_log_level": log_level,
         "configuration": {
             "genome_build": config.genome_build,
             "snp_identifier": config.snp_identifier,
@@ -944,7 +945,7 @@ def _run_gene_ldscore_index_build(
             },
         },
         "publication": {
-            "overwrite": bool(args.overwrite),
+            "overwrite": bool(overwrite),
             "staging_reload_validation": "passed",
             "published_reload_validation": "passed",
             "index_path": str(index_path),
@@ -1283,11 +1284,12 @@ def _file_sha256(path: str | Path) -> str:
     return digest.hexdigest()
 
 
-def _load_builder_genetic_map(args):
-    build = normalize_genome_build(args.genome_build)
+def _load_builder_genetic_map(config: GeneLDScoreIndexBuildConfig, genetic_map_sources: dict[str, str | None]):
+    """Load the genetic map supplied for the configured build, or return ``None`` when none is supplied."""
+    build = config.genome_build
     other = "hg38" if build == "hg19" else "hg19"
-    sources = getattr(args, f"genetic_map_{build}_sources", None)
-    if getattr(args, f"genetic_map_{other}_sources", None):
+    sources = genetic_map_sources[build]
+    if genetic_map_sources[other]:
         raise LDSCInputError(
             f"Gene-index genetic map declares {other}, but the provided genome build is {build}. "
             f"Supply --genetic-map-{build}-sources with verified {build} coordinates. "
@@ -1295,7 +1297,7 @@ def _load_builder_genetic_map(args):
         )
     if not sources:
         return None
-    if args.ld_wind_cm is None:
+    if config.ld_wind_cm is None:
         raise LDSCInputError("Genetic-map sources require --ld-wind-cm. Omit the map for kb or SNP-count windows.")
     check = GenomeBuildCheck(build, context="gene-index genetic map", logger=LOGGER)
     check.paths("genetic map", sources)
@@ -1324,16 +1326,20 @@ def _retained_baseline_content_sha256(
     return _canonical_frame_sha256(content, sort_by=tuple(identity_columns))
 
 
-def _genetic_map_identity(args, genetic_map: pd.DataFrame | None = None) -> str | dict:
+def _genetic_map_identity(
+    config: GeneLDScoreIndexBuildConfig,
+    genetic_map_sources: dict[str, str | None],
+    genetic_map: pd.DataFrame | None = None,
+) -> str | dict:
     """Return the content-bound scientific identity of the effective cM map."""
-    if args.ld_wind_cm is None:
+    if config.ld_wind_cm is None:
         return "not_used"
-    build = normalize_genome_build(args.genome_build)
-    sources = split_cli_path_tokens(getattr(args, f"genetic_map_{build}_sources", None))
+    build = config.genome_build
+    sources = split_cli_path_tokens(genetic_map_sources[build])
     if not sources:
         return "bim_cm"
     if genetic_map is None:
-        genetic_map = _load_builder_genetic_map(args)
+        genetic_map = _load_builder_genetic_map(config, genetic_map_sources)
     return {
         "kind": f"explicit_{build}",
         "content_sha256": _canonical_frame_sha256(genetic_map, sort_by=("CHR", "POS")),
@@ -1342,7 +1348,7 @@ def _genetic_map_identity(args, genetic_map: pd.DataFrame | None = None) -> str 
 
 def _builder_index_identity(
     config,
-    args,
+    genetic_map_sources,
     chromosomes,
     regression_keys: set[str] | RestrictionIdentityKeys,
     genetic_map: pd.DataFrame | None,
@@ -1395,7 +1401,7 @@ def _builder_index_identity(
         "maf_min": config.maf_min,
         "common_maf_min": config.common_maf_min,
         "ld_window": config.ld_window.record(),
-        "genetic_map": _genetic_map_identity(args, genetic_map),
+        "genetic_map": _genetic_map_identity(config, genetic_map_sources, genetic_map),
         "regression_snps": {
             "kind": "custom" if config.regr_snps_file else "bundled_hapmap3",
             "canonical_keys_sha256": regression_digest,

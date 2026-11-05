@@ -102,7 +102,10 @@ def test_builder_rejects_shared_rsid_with_different_coordinates(mode):
 
 
 def test_unused_genetic_map_is_not_required_for_physical_window():
-    assert index._load_builder_genetic_map(Namespace(genome_build="hg38", ld_wind_cm=None)) is None
+    config = GeneLDScoreIndexBuildConfig(baseline_annot_sources=("baseline",), plink_prefix="panel",
+                                         output_dir="index", gene_coordinate_file="genes", genome_build="hg38",
+                                         snp_identifier="rsid", ld_wind_kb=100)
+    assert index._load_builder_genetic_map(config, {"hg19": None, "hg38": None}) is None
 
 
 def test_builder_reports_shared_rsid_on_different_chromosomes(tmp_path, monkeypatch):

@@ -237,7 +237,7 @@ def _configure_two_chromosome_builder(tmp_path, monkeypatch):
         "_build_embedded_gene_catalog",
         lambda *args, **kwargs: embedded_catalog,
     )
-    monkeypatch.setattr(gene_ldscore_index, "_load_builder_genetic_map", lambda _args: None)
+    monkeypatch.setattr(gene_ldscore_index, "_load_builder_genetic_map", lambda *_args: None)
     monkeypatch.setattr(
         gene_ldscore_index, "read_snp_restriction_keys", lambda *args, **kwargs: {"rs1"}
     )
@@ -274,6 +274,8 @@ def _configure_two_chromosome_builder(tmp_path, monkeypatch):
         padding_bp=100000,
         gene_exclude_regions="mhc",
         ld_wind_cm=1.0,
+        ld_wind_kb=None,
+        ld_wind_snps=None,
         maf_min=None,
         common_maf_min=0.05,
         keep_indivs_file=None,
@@ -974,7 +976,7 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
         lambda *_args, **_kwargs: fake_catalog,
     )
     monkeypatch.setattr(gene_ldscore_index, "_build_embedded_gene_catalog", lambda *args, **kwargs: embedded_catalog)
-    monkeypatch.setattr(gene_ldscore_index, "_load_builder_genetic_map", lambda _args: None)
+    monkeypatch.setattr(gene_ldscore_index, "_load_builder_genetic_map", lambda *_args: None)
     captured_restriction = {}
 
     def fake_read_restriction(path, *args, **kwargs):
@@ -1001,6 +1003,8 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
         padding_bp=100000,
         gene_exclude_regions="mhc",
         ld_wind_cm=1.0,
+        ld_wind_kb=None,
+        ld_wind_snps=None,
         maf_min=None,
         common_maf_min=0.05,
         keep_indivs_file=None,
@@ -1153,7 +1157,7 @@ def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path,
     )
     monkeypatch.setattr(gene_ldscore_index, "_build_embedded_gene_catalog", lambda *args, **kwargs: embedded_catalog)
     monkeypatch.setattr(gene_ldscore_index, "_builder_index_identity", lambda *args, **kwargs: index_identity)
-    monkeypatch.setattr(gene_ldscore_index, "_load_builder_genetic_map", lambda _args: None)
+    monkeypatch.setattr(gene_ldscore_index, "_load_builder_genetic_map", lambda *_args: None)
     monkeypatch.setattr(gene_ldscore_index, "read_snp_restriction_keys", lambda *args, **kwargs: {"rs1"})
     monkeypatch.setattr(gene_ldscore_index.kernel_regions, "load_preset_intervals", lambda *args: None)
     monkeypatch.setattr(gene_ldscore_index, "_read_bim_identity", lambda _prefix: identity_rows.copy())
@@ -1177,6 +1181,8 @@ def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path,
         padding_bp=100000,
         gene_exclude_regions="mhc",
         ld_wind_cm=1.0,
+        ld_wind_kb=None,
+        ld_wind_snps=None,
         maf_min=None,
         common_maf_min=0.05,
         keep_indivs_file=None,
@@ -1341,14 +1347,19 @@ def test_explicit_genetic_map_identity_is_content_bound(tmp_path):
     first.write_text("CHR POS CM\n22 1 0.1\n", encoding="utf-8")
     second.write_text("CHR POS CM\n22 2 0.2\n", encoding="utf-8")
 
-    bim_identity = _genetic_map_identity(Namespace(ld_wind_cm=1.0, genome_build="hg19", genetic_map_hg19_sources=None))
-    explicit = _genetic_map_identity(
-        Namespace(ld_wind_cm=1.0, genome_build="hg19", genetic_map_hg19_sources=f"{first},{second}")
+    config = GeneLDScoreIndexBuildConfig(
+        baseline_annot_sources=("baseline",), plink_prefix="panel", output_dir="index",
+        gene_coordinate_file="genes", genome_build="hg19", snp_identifier="rsid", ld_wind_cm=1.0,
     )
+    bim_identity = _genetic_map_identity(config, {"hg19": None, "hg38": None})
+    explicit = _genetic_map_identity(config, {"hg19": f"{first},{second}", "hg38": None})
 
     assert bim_identity == "bim_cm"
-    assert explicit["kind"] == "explicit_hg19"
-    assert len(explicit["content_sha256"]) == 64
+    # The digest the implementation at c6fb439d gave these two maps; index_id must not change.
+    assert explicit == {
+        "kind": "explicit_hg19",
+        "content_sha256": "8067f84573b896d2066c19ff58ebb53b5820411d879581c1f49060ebffec1c7c",
+    }
 
 
 def _whole_text_canonical_sha256(frame, sort_by=()):

@@ -62,7 +62,7 @@ def _converter_method(h2_result, monkeypatch, **level):
 
 
 def _build_index(h2_result, monkeypatch, **level):
-    _stop_with_level(monkeypatch, gene_ldscore_index, "run_build_gene_ldscore_index_from_args", lambda args: args.log_level)
+    _stop_with_level(monkeypatch, gene_ldscore_index, "_build", lambda config, **kwargs: kwargs["log_level"])
     config = ldsc.GeneLDScoreIndexBuildConfig(
         baseline_annot_sources=("baseline",), plink_prefix="panel", output_dir="index",
         gene_coordinate_file="genes", genome_build="hg19", snp_identifier="rsid", ld_wind_kb=100,

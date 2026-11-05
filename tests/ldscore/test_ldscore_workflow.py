@@ -2409,3 +2409,37 @@ def test_validate_window_positions_sorted_ignores_chromosome_boundary_drop():
     # the window is computed per chromosome.
     metadata = pd.DataFrame({"CHR": ["1", "1", "2"], "POS": [100, 999, 1]})
     validate_window_positions_sorted(metadata, chrom="1")
+
+
+def test_direct_run_resolves_its_genome_build_once(tmp_path, monkeypatch):
+    # The workflow resolves the build; the calculation, the adapters and the workers reuse it.
+    # Opening an R2 matrix chromosome still compares its declared build with the run's
+    # ("reference-panel validation"); that is a check of one artifact, not a resolution.
+    from tests.worker_fixtures import calculation_body, local_task_pool
+    from ldsc import cli
+    from ldsc._genome import build_policy
+
+    panel = tmp_path / "r2"
+    for chrom in ("21", "22"):
+        metadata = pd.DataFrame({"CHR": [chrom] * 3, "SNP": [f"rs{chrom}{i}" for i in range(3)], "POS": [10, 20, 30],
+                                 "A1": ["A"] * 3, "A2": ["C"] * 3, "CM": [0.0, 0.1, 0.2], "MAF": [0.2, 0.3, 0.4]})
+        write_r2_matrix_chromosome(panel, metadata, [{"i": 0, "j": 1, "R2": 0.5, "sign": "+"}],
+                                   snp_identifier="chr_pos", genome_build="hg19", ld_window=("snps", 10.0))
+    regression = tmp_path / "regression.tsv"
+    pd.DataFrame({"CHR": ["21"] * 3 + ["22"] * 3, "POS": [10, 20, 30] * 2}).to_csv(regression, sep="\t", index=False)
+    contexts = []
+    resolve = build_policy.GenomeBuildCheck.resolve
+
+    def recording_resolve(check):
+        contexts.append(check.context)
+        return resolve(check)
+
+    monkeypatch.setattr(build_policy.GenomeBuildCheck, "resolve", recording_resolve)
+    monkeypatch.setattr("ldsc._runtime.parallelism.ProcessPoolExecutor", local_task_pool)
+    with calculation_body():
+        result = cli.main(["ldscore", "--snp-identifier", "chr_pos", "--genome-build", "hg19",
+                           "--r2-matrix-dir", str(panel), "--ld-wind-snps", "10", "--yes-really",
+                           "--regr-snps-file", str(regression), "--output-dir", str(tmp_path / "out")])
+
+    assert len(result.baseline_table) == 6
+    assert [context for context in contexts if context != "reference-panel validation"] == ["ldscore"]

@@ -16,7 +16,7 @@ from .._core.chromosomes import AUTOSOMES, chrom_sort_key
 from ..config import RefPanelConfig
 from ..errors import LDSCInputError, LDSCUserError
 from .._runtime.paths import inspect_plink_inputs, split_cli_path_tokens
-from .._refpanel.adapters import RefPanelLoader
+from .._refpanel.adapters import R2MatrixRefPanel
 from .._refpanel.r2_format import r2_matrix_chromosomes, resolve_r2_build_dir
 from .._runtime.progress import PhaseProgress
 from .outputs import LDScoreDirectoryWriter, QueryDiagnostics
@@ -87,7 +87,7 @@ def inspect_reference_inputs(ref_panel_config, global_config, *, require_autosom
         except (OSError, EOFError, ValueError, LDSCUserError) as exc:
             issue("reference", r2_matrix_dir, "", "invalid_required_input", exc, R2_MATRIX_REPAIR)
             members = []
-        panel = RefPanelLoader(global_config).load(RefPanelConfig(backend="r2_matrix", r2_matrix_dir=r2_matrix_dir)) if members else None
+        panel = R2MatrixRefPanel(global_config, RefPanelConfig(backend="r2_matrix", r2_matrix_dir=r2_matrix_dir)) if members else None
         for chrom in members:
             try:
                 if require_autosomes and chrom not in AUTOSOMES:

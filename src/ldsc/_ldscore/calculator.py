@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import ExitStack, contextmanager
+from copy import copy
 from tempfile import TemporaryDirectory
 from dataclasses import dataclass, field, replace as dataclass_replace
 import logging
@@ -124,7 +125,7 @@ from .._annotation.query_outcomes import (
     emit_bed_query_notice, emit_gene_gate_b_notice, emit_resolved_only_notice,
 )
 from .._genome.build_policy import GenomeBuildCheck
-from .._refpanel.adapters import PlinkRefPanel, RefPanelLoader
+from .._refpanel.adapters import PlinkRefPanel, R2MatrixRefPanel
 from .._annotation.interval_queries import execution_query_bundle
 from .._annotation.gene_lists import GeneCatalog
 from .._annotation.gene_query_storage import resolve_gene_lists_staged, persistent_gene_diagnostics
@@ -342,6 +343,38 @@ def _log_annotation_classification(result):
         LOGGER.debug("Annotation types: %s", result.annotation_types)
 
 
+@dataclass(frozen=True)
+class _RunContext:
+    """What a direct LD-score run settled before ``LDScoreCalculator`` computes it.
+
+    The command-line workflow settles everything first and says so;
+    ``LDScoreCalculator.run`` settles nothing, so the calculation does each
+    remaining step once and repeats none.
+
+    Attributes
+    ----------
+    global_config : GlobalConfig
+        The run's SNP identity, genome build and log level.
+    ref_panel : RefPanel
+        The reference-panel adapter, built with ``global_config``.
+    log_path : Path or None
+        The open workflow log ``diagnostics/ldscore.log``, whose output
+        preflight already ran; ``None`` when the calculation preflights its
+        outputs and opens the log itself.
+    build_resolved : bool
+        The genome build in ``global_config`` and ``ref_panel`` was resolved
+        against every input.
+    reference_checked : bool
+        Every chromosome's R2 matrix footer and sidecar were checked.
+    """
+
+    global_config: GlobalConfig
+    ref_panel: Any
+    log_path: Path | None = None
+    build_resolved: bool = False
+    reference_checked: bool = False
+
+
 class LDScoreCalculator:
     """Orchestrate chromosome-wise LD-score calculation.
 
@@ -427,13 +460,13 @@ class LDScoreCalculator:
         serial execution. Writing runs retain chromosome logs under
         ``diagnostics/chromosome-logs``; no-output calls create no files.
         """
-        return self._run(annotation_bundle, ref_panel, ldscore_config, global_config, output_config,
-                         regression_snps, regression_regions, check_parquet_reference=True)
+        return self._run(annotation_bundle, ldscore_config, output_config, regression_snps, regression_regions,
+                         context=_RunContext(global_config, ref_panel))
 
     @report_phase(LOGGER, "computation", "LD-score calculation")
-    def _run(self, annotation_bundle, ref_panel, ldscore_config, global_config, output_config=None,
-             regression_snps=None, regression_regions=None, *, check_parquet_reference=False, skipped_funnels=()):
-        """Implement :meth:`run`; the CLI calls this after its own reference preflight.
+    def _run(self, annotation_bundle, ldscore_config, output_config=None, regression_snps=None,
+             regression_regions=None, *, context, skipped_funnels=()):
+        """Implement :meth:`run`; ``context`` (``_RunContext``) says what the caller already settled.
 
         An annotation result (``AnnotationResult``) is prepared inside this
         run's output directory, so the annotate output directory, an input
@@ -441,8 +474,8 @@ class LDScoreCalculator:
         ``skipped_funnels`` are the reference-SNP funnels of chromosomes the
         synthetic ``base`` preparation already skipped.
         """
-        arguments = (ref_panel, ldscore_config, global_config, output_config, regression_snps, regression_regions)
-        options = dict(check_parquet_reference=check_parquet_reference, skipped_funnels=skipped_funnels)
+        arguments = (ldscore_config, output_config, regression_snps, regression_regions)
+        options = dict(context=context, skipped_funnels=skipped_funnels)
         if not isinstance(annotation_bundle, AnnotationResult):
             return self._run_prepared(annotation_bundle, *arguments, **options)
         if output_config is None:
@@ -451,9 +484,14 @@ class LDScoreCalculator:
         with annotation_bundle.prepared_in(output_config.output_dir) as bundle:
             return self._run_prepared(bundle, *arguments, **options)
 
-    def _run_prepared(self, annotation_bundle, ref_panel, ldscore_config, global_config, output_config,
-                      regression_snps, regression_regions, *, check_parquet_reference, skipped_funnels):
-        """Run the LD-score calculation for an annotation bundle that needs no further preparation."""
+    def _run_prepared(self, annotation_bundle, ldscore_config, output_config, regression_snps, regression_regions,
+                      *, context, skipped_funnels):
+        """Run the LD-score calculation for an annotation bundle that needs no further preparation.
+
+        Resolves the genome build, checks the R2 matrix and opens the workflow
+        log only where ``context`` says the caller has not.
+        """
+        ref_panel = context.ref_panel
         if ldscore_config.export_ref_metadata and output_config is None:
             raise LDSCUsageError(
                 "LDScoreCalculator.run() requires output_config when export_ref_metadata=True. "
@@ -466,37 +504,17 @@ class LDScoreCalculator:
                 "The R2 matrix sidecars chr<N>_meta.tsv.gz already hold the same CHR, POS, SNP, A1, A2, CM "
                 "and MAF metadata; use them directly and drop the option."
             )
-        if identity_mode_family(global_config.snp_identifier) == "chr_pos":
-            check = GenomeBuildCheck(global_config.genome_build, context='LDScoreCalculator', logger=LOGGER)
-            for role, obj in (("annotations", annotation_bundle), ("reference panel", ref_panel)):
-                snapshot = getattr(obj, 'config_snapshot', None) or getattr(obj, 'global_config', None)
-                build = getattr(snapshot, 'genome_build', None)
-                if build in {'hg19', 'hg38'}:
-                    check.declared(role, role, build)
-                if role == 'annotations':
-                    for chrom in obj.chromosomes:
-                        check.frames(role, f'annotations [chr{chrom}]', [obj.metadata_for_chromosome(chrom)],
-                                     infer_unlabeled=build not in {'hg19', 'hg38'})
-                if role == 'reference panel':
-                    if obj.spec.backend == 'plink':
-                        check.plink('--plink-prefix', obj.spec.plink_prefix)
-                    else:
-                        check.r2('--r2-matrix-dir', obj.spec.r2_matrix_dir)
-                    check.paths('--ref-panel-snps-file', obj.spec.ref_panel_snps_file, restriction_mode=global_config.snp_identifier)
-            global_config = dataclass_replace(global_config, genome_build=check.resolve())
-        if hasattr(ref_panel, 'global_config') and global_config.genome_build in {'hg19', 'hg38'}:
-            from copy import copy
-            ref_panel = copy(ref_panel)
-            ref_panel.global_config = dataclass_replace(ref_panel.global_config, genome_build=global_config.genome_build)
+        global_config = context.global_config
+        if not context.build_resolved:
+            global_config, ref_panel = _resolve_calculator_build(annotation_bundle, ref_panel, global_config)
         chromosomes = _chromosomes_from_bundle(annotation_bundle)
-        validate_workers(ldscore_config.workers)
-        if check_parquet_reference:
+        if not context.reference_checked:
             _check_parquet_reference(ref_panel, chromosomes, ldscore_config, global_config)
         with ExitStack() as stack:
             output_dir = None if output_config is None else output_config.output_dir
             log_paths = stack.enter_context(ldscore_logs(
                 output_dir, chromosomes, overwrite=bool(output_config and output_config.overwrite),
-                log_level=global_config.log_level))
+                log_level=global_config.log_level, main_log=context.log_path))
             worker_count = resolve_worker_count(ldscore_config.workers, len(chromosomes))
             export_root = (stack.enter_context(TemporaryDirectory(prefix=".ldsc-ref-", dir=output_dir))
                            if ldscore_config.export_ref_metadata else None)
@@ -1601,8 +1619,10 @@ def _run_direct_ldscore(configs: _DirectConfigs) -> "LDScoreSource":
             if statuses and not annotation_bundle.query_columns:
                 fail_unusable_queries(_bundle_diagnostics(annotation_bundle),
                                       all_query_annotations_skipped_message(statuses), output_config)
-            result = LDScoreCalculator()._run(annotation_bundle, ref_panel, ldscore_config, global_config,
-                output_config=output_config, regression_snps=regression_snps, regression_regions=regression_regions,
+            context = _RunContext(global_config, ref_panel, log_path=log_path, build_resolved=True,
+                                  reference_checked=True)
+            result = LDScoreCalculator()._run(annotation_bundle, ldscore_config, output_config=output_config,
+                regression_snps=regression_snps, regression_regions=regression_regions, context=context,
                 skipped_funnels=skipped_funnels)
             log_query_outcomes(result.gene_list_batch, result.query_statuses)
             log_outputs(**result.output_paths)
@@ -1722,6 +1742,7 @@ def _run_explicit_indexed_ldscore(configs: _IndexedConfigs) -> "LDScoreSource":
             workers=configs.workers,
             output_dir=str(output_dir),
             overwrite=configs.overwrite,
+            main_log=log_path,
         )
         if configs.emit_console_notices:
             emit_gene_gate_b_notice(
@@ -2046,10 +2067,14 @@ def _regression_region_intervals(
 
 
 def _ref_panel_from_config(config: RefPanelConfig, global_config: GlobalConfig, *, chromosome_prefixes=None):
-    """Build the reference-panel adapter that owns the ``A -> A'`` restriction."""
-    if config.backend == "plink" and chromosome_prefixes is not None:
+    """Build the reference-panel adapter that owns the ``A -> A'`` restriction.
+
+    ``global_config`` carries the build the run already resolved against the
+    panel, so unlike ``RefPanelLoader.load`` this checks no build again.
+    """
+    if config.backend == "plink":
         return PlinkRefPanel(global_config, config, chromosome_prefixes=chromosome_prefixes)
-    return RefPanelLoader(global_config).load(config)
+    return R2MatrixRefPanel(global_config, config)
 
 
 def _reference_metadata_sources(ref_panel) -> tuple[str, str]:
@@ -2105,6 +2130,37 @@ def _ld_window_snp_counts(ref_panel, ldscore_config: LDScoreConfig, chromosome_r
         for result in chromosome_results
     ]
     return pd.DataFrame(rows, columns=["CHR", "panel_snps", "kept_snps", "ld_wind_snps", "counting_basis"])
+
+
+def _resolve_calculator_build(annotation_bundle, ref_panel, global_config: GlobalConfig):
+    """Resolve the build of a prepared-input calculation against its annotations and reference panel.
+
+    ``LDScoreCalculator.run`` callers supply inputs the workflow has not
+    checked. Returns the ``GlobalConfig`` and the reference panel, both with
+    a concrete build in coordinate-family modes.
+    """
+    if identity_mode_family(global_config.snp_identifier) == "chr_pos":
+        check = GenomeBuildCheck(global_config.genome_build, context='LDScoreCalculator', logger=LOGGER)
+        for role, obj in (("annotations", annotation_bundle), ("reference panel", ref_panel)):
+            snapshot = getattr(obj, 'config_snapshot', None) or getattr(obj, 'global_config', None)
+            build = getattr(snapshot, 'genome_build', None)
+            if build in {'hg19', 'hg38'}:
+                check.declared(role, role, build)
+            if role == 'annotations':
+                for chrom in obj.chromosomes:
+                    check.frames(role, f'annotations [chr{chrom}]', [obj.metadata_for_chromosome(chrom)],
+                                 infer_unlabeled=build not in {'hg19', 'hg38'})
+            if role == 'reference panel':
+                if obj.spec.backend == 'plink':
+                    check.plink('--plink-prefix', obj.spec.plink_prefix)
+                else:
+                    check.r2('--r2-matrix-dir', obj.spec.r2_matrix_dir)
+                check.paths('--ref-panel-snps-file', obj.spec.ref_panel_snps_file, restriction_mode=global_config.snp_identifier)
+        global_config = dataclass_replace(global_config, genome_build=check.resolve())
+    if hasattr(ref_panel, 'global_config') and global_config.genome_build in {'hg19', 'hg38'}:
+        ref_panel = copy(ref_panel)
+        ref_panel.global_config = dataclass_replace(ref_panel.global_config, genome_build=global_config.genome_build)
+    return global_config, ref_panel
 
 
 def _check_parquet_reference(ref_panel, chromosomes, ldscore_config: LDScoreConfig, global_config: GlobalConfig) -> None:
@@ -2314,7 +2370,9 @@ def _compute_one_chromosome(
     """Compute one chromosome end-to-end and return a tagged outcome.
 
     Rebuilds the reference-panel adapter locally from ``ref_panel_spec`` so no
-    live reader/file handle crosses the process boundary. ``regression_snps``
+    live reader/file handle crosses the process boundary; ``global_config``
+    carries the build the parent resolved, which is not checked again.
+    ``regression_snps``
     defaults to the pool-initializer-provided global; direct task callers may
     pass it explicitly. Only ``EmptyReferenceSNPs`` returns a skipped outcome,
     carrying the error's reference-SNP funnel so the parent can tell a
@@ -2333,10 +2391,7 @@ def _compute_one_chromosome(
         prefixes = chromosome_prefixes
         if prefixes is None:
             prefixes = chrom_bundle.source_summary.get('chromosome_scope',{}).get('reference_prefixes_by_chrom')
-        if ref_panel_spec.backend == 'plink' and prefixes:
-            ref_panel = PlinkRefPanel(global_config,ref_panel_spec,chromosome_prefixes=prefixes)
-        else:
-            ref_panel = RefPanelLoader(global_config).load(ref_panel_spec)
+        ref_panel = _ref_panel_from_config(ref_panel_spec, global_config, chromosome_prefixes=prefixes or None)
         try:
             if not include_baseline:
                 result = _compute_query_chromosome(chrom, chrom_bundle, ref_panel, ldscore_config, global_config,

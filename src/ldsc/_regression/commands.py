@@ -977,16 +977,16 @@ def _configs_from_args(args, command: str) -> tuple[GlobalConfig, RegressionConf
     lists of ``rg`` are resolved against the loaded traits in :func:`_run_rg`,
     so its config has no prevalences.
     """
-    rg = command == "rg"
+    is_rg = command == "rg"
     config = RegressionConfig(
         num_blocks=args.num_blocks,
         use_common_counts=(args.count_kind == "common"),
         intercept_h2=args.intercept_h2,
-        intercept_gencov=args.intercept_gencov if rg else None,
+        intercept_gencov=args.intercept_gencov if is_rg else None,
         two_step_cutoff=args.two_step_cutoff,
         chisq_max=args.chisq_max,
-        samp_prev=None if rg else args.samp_prev,
-        pop_prev=None if rg else args.pop_prev,
+        samp_prev=None if is_rg else args.samp_prev,
+        pop_prev=None if is_rg else args.pop_prev,
         allow_identity_downgrade=args.allow_identity_downgrade,
     )
     return get_global_config(), config

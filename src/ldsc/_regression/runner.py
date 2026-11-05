@@ -173,7 +173,6 @@ class RegressionRunner:
         return summarize_partitioned_h2(fit.estimator, fit.dataset, selected_queries, samp_prev=samp_prev,
                                         pop_prev=pop_prev)
 
-
     def estimate_partitioned_h2_batch(
         self, sumstats_table, ldscore_result, *, output_dir, query_columns=None,
         config=None, query_batch_size=100, overwrite=False, summary_sort_by="auto", metadata=None,

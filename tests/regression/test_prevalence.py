@@ -52,7 +52,7 @@ def test_rg_pairs_reject_bad_prevalences_before_any_fit(monkeypatch, prevalences
     def no_fit(*args, **kwargs):
         raise AssertionError("a fit ran before the prevalences were checked")
 
-    monkeypatch.setattr(workflow.RegressionRunner, "_fit_h2_dataset", no_fit)
+    monkeypatch.setattr(workflow, "_fit_h2_dataset", no_fit)
     tables = [munged("A", "chr_pos_allele_aware", 1), munged("B", "chr_pos_allele_aware", 2)]
     runner = workflow.RegressionRunner(regression_config=RegressionConfig(num_blocks=10))
     # In-process, so the replaced fit is the one the run would call.

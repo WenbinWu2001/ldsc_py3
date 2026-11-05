@@ -138,7 +138,7 @@ Explicit `--two-step-cutoff` also remains incompatible with fixed intercepts and
 
 The public Python `RegressionConfig.use_intercept=False` option remains supported.
 It selects a heritability intercept of 1 and a covariance intercept of 0; the CLI now uses only `intercept_h2` and `intercept_gencov` for fixed values.
-Sources: `_fit_policy()` and `_FitPolicy.two_step_cutoff()`, which `RegressionRunner._fit_h2_dataset` and `estimate_rg` use, and `_runner_from_args` in [`_regression/runner.py`](../../src/ldsc/_regression/runner.py).
+Sources: `_fit_policy()` and `_FitPolicy.two_step_cutoff()`, which `_fit_h2_dataset` and `RegressionRunner.estimate_rg` use, and `_runner_from_args` in [`_regression/runner.py`](../../src/ldsc/_regression/runner.py).
 Result metadata records the policy applied: `intercept_h2_policy` (`free` or `fixed:<value>`) for `h2` and `partitioned-h2`, both intercept policies for each `rg` pair, and `effective_two_step_cutoff` beside `effective_chisq_max`.
 
 > **Boundary convention.** Every `χ²` threshold in this module is **inclusive**

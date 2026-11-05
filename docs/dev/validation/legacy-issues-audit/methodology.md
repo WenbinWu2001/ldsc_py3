@@ -1,6 +1,6 @@
 # Methodology and interpretation
 
-Last updated on: 2026-10-28
+Last updated on: 2026-11-04
 
 [Audit overview](README.md) · [Workflow counts and membership](workflow-index.md) · [Verification](verification.md)
 
@@ -654,7 +654,7 @@ Baseline redundancy and multiple testing across the requested family still matte
 **Recommended prevention.** State the null hypothesis and conditioning model in plot captions, preserve sign and effect magnitude, and report multiplicity across all tested queries.
 
 **Evidence and verification.** source-inspected
-[docs/reference/results/partitioned-h2.md:11-30](<../../../reference/results/partitioned-h2.md#two-regimes>); [src/ldsc/_regression/runner.py:_fit_partitioned_query](<../../../../src/ldsc/_regression/runner.py>).
+[docs/reference/results/partitioned-h2.md:11-30](<../../../reference/results/partitioned-h2.md#two-regimes>); [src/ldsc/_regression/runner.py:fit_partitioned_query](<../../../../src/ldsc/_regression/runner.py>).
 
 <a id="issue-94"></a>
 
@@ -783,7 +783,7 @@ Different total h2 from richer models may reflect changed assumptions and SNP se
 **Recommended prevention.** Define gene-selection universe and comparison hypothesis before interpretation, use matched controls, and distinguish capability from validated causal inference.
 
 **Evidence and verification.** source-inspected
-[docs/user-guide/workflows/gene-list-ld-scores.md](<../../../user-guide/workflows/gene-list-ld-scores.md>); [src/ldsc/_regression/runner.py:_fit_partitioned_query](<../../../../src/ldsc/_regression/runner.py>); [docs/reference/results/partitioned-h2.md](<../../../reference/results/partitioned-h2.md>).
+[docs/user-guide/workflows/gene-list-ld-scores.md](<../../../user-guide/workflows/gene-list-ld-scores.md>); [src/ldsc/_regression/runner.py:fit_partitioned_query](<../../../../src/ldsc/_regression/runner.py>); [docs/reference/results/partitioned-h2.md](<../../../reference/results/partitioned-h2.md>).
 
 <a id="issue-151"></a>
 

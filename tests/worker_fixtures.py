@@ -20,19 +20,17 @@ def calculation_body():
 class LocalQueryWorkers:
     """Substitute only the process boundary while testing mocked model logic."""
 
-    def __init__(self, workspace, inputs, runner, config, workers):
+    def __init__(self, workspace, inputs, fit, config, workers):
         from ldsc._regression.partitioned_parallel import _stage_frame
         self.snapshot = _stage_frame(inputs.dataset.merged, workspace / "shared")
-        self.inputs, self.runner, self.config = inputs, runner, config
+        self.inputs, self.fit, self.config = inputs, fit, config
 
     def map(self, tasks, *, progress=None):
         results = []
         for query, column, directory in tasks:
             with column.open() as values:
-                result = self.runner._fit_partitioned_query(
-                    self.inputs, query, pd.DataFrame({query: values}, copy=False),
-                    directory, config=self.config,
-                )
+                result = self.fit(self.inputs, query, pd.DataFrame({query: values}, copy=False),
+                                  directory, self.config)
             results.append(result)
             if progress is not None:
                 progress.advance(outcome=result[2]["status"])

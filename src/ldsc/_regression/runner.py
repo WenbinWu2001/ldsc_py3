@@ -82,6 +82,7 @@ from ..config import (
 from .._runtime.paths import ensure_output_directory, normalize_path_token, output_directory_path
 from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from . import estimators as reg
+from . import partitioned_parallel
 from .jackknife import JackknifeIdentifiabilityError
 from .._core.snp_identity import (
     clean_identity_artifact_table,
@@ -609,7 +610,7 @@ class RegressionRunner:
         """
         selected = list(query_columns or [])
         values = self._read_query_batch(prepared, selected) if selected else None
-        return self._dataset_from_query_values(prepared, selected, values, config=config)
+        return _dataset_from_query_values(prepared, selected, values, config or self.regression_config)
 
     def _read_query_batch(self, prepared, columns):
         """Validate the batch's stored rows once and select the shared trait rows.
@@ -628,37 +629,6 @@ class RegressionRunner:
             )
         rows = prepared.source_rows
         return pd.DataFrame({column: frame[column].to_numpy()[rows] for column in columns}, copy=False)
-
-    def _dataset_from_query_values(self, prepared, selected, query_values, *, config=None):
-        """Borrow aligned columns for one model without copying the baseline.
-
-        Preparation and query loading already provide matching RangeIndexes.
-        Borrowed columns must remain unmodified; numerical fitting allocates its
-        own design array after the model's chi-square filter has selected rows.
-        """
-        config = config or self.regression_config
-        ref_ld_columns = list(prepared.dataset.ref_ld_columns) + list(selected)
-        merged = prepared.dataset.merged
-        # A query's damage fails only its own model, inside the query's error handling.
-        problems = _nonfinite_columns(query_values, selected, merged["SNP"]) if selected else []
-        if problems:
-            raise LDSCInputError(
-                f"Regression cannot use query annotation {'; '.join(problems)}: its LD scores are missing or "
-                "infinite on regression SNPs, and every LD score must be finite. Most likely the LD-score directory "
-                "was edited or only partly written after it was created. Regenerate it with `ldsc ldscore`, or "
-                f"restore the original query files. Other causes & fixes: {_NONFINITE_LD_DOC}"
-            )
-        if selected:
-            weight_position = merged.columns.get_loc(prepared.dataset.weight_column)
-            order = [*merged.columns[:weight_position], *selected, *merged.columns[weight_position:]]
-            merged = pd.DataFrame({name: (query_values if name in selected else merged)[name].to_numpy(copy=False)
-                                   for name in order}, copy=False)
-        dataset = replace(prepared.dataset, ref_ld_columns=ref_ld_columns, **_select_model_columns(
-            merged, ref_ld_columns, prepared.counts_by_column, config.use_common_counts, command="h2",
-            known_variances=prepared.ld_variances,
-        ))
-        dataset.validate()
-        return dataset
 
     def build_rg_dataset(
         self,
@@ -814,95 +784,7 @@ class RegressionRunner:
             The ``Hsq`` estimator as ``estimator``, with the SNP rows, block
             count, chi-square cap and diagnostic bins of the fit.
         """
-        return self._fit_h2_dataset(dataset, config=config)
-
-    @serial_calculation
-    def _fit_h2_dataset(
-        self,
-        dataset: RegressionDataset,
-        config: RegressionConfig | None = None,
-        *, log_level=logging.INFO, retain_rows=True,
-    ) -> RegressionFit:
-        """Fit SNP heritability once and retain its exact SNP population and diagnostic bins.
-
-        The aligned frame can borrow read-only worker maps. A multi-annotation
-        design is filled column by column from the rows the chi-square filter
-        keeps, so the frame itself is not copied before the fit; the filtered
-        frame is built afterwards, for the returned dataset. With
-        ``retain_rows=False`` (per-query partitioned fits, which read only the
-        row count) the returned dataset's ``merged`` is an empty frame with one
-        row per fitted SNP. The estimator never modifies the borrowed input columns.
-        """
-        config = config or self.regression_config
-        merged = dataset.merged
-        n_snp = len(merged)
-        n_blocks = min(n_snp, config.num_blocks)
-        chisq = np.asarray(merged["Z"] ** 2).reshape((n_snp, 1))
-        # N.max() is read pre-filter so the partitioned default cap matches legacy.
-        chisq_max = _resolve_default_chisq_max(
-            config.chisq_max, len(dataset.retained_ld_columns), merged["N"].max()
-        )
-        keep = None
-        if chisq_max is not None:
-            mask = np.ravel(chisq <= chisq_max)
-            n_removed = n_snp - int(mask.sum())
-            if n_removed:
-                keep = mask
-                n_snp = int(mask.sum())
-                n_blocks = min(n_snp, config.num_blocks)
-                chisq = chisq[keep]
-                LOGGER.log(log_level,
-                    "Removed %d SNPs with chi^2 > %g (%d SNPs remain).",
-                    n_removed,
-                    chisq_max,
-                    n_snp,
-                )
-        columns = dataset.retained_ld_columns
-        if keep is not None and len(columns) == 1:
-            # Single-annotation fits read the filtered frame for their diagnostic bins.
-            merged, keep = _kept_rows(merged, keep), None
-        x = _ld_design(merged, columns, keep)
-        policy = _fit_policy(config)
-        intercept, two_step = policy.intercept_h2, policy.two_step_cutoff(len(columns))
-        old_weights = len(columns) > 1
-        _raise_on_model_collinearity(dataset, x)
-        reference_snp_counts = np.asarray(
-            dataset.reference_snp_count_totals[dataset.count_key_used_for_regression]
-        ).reshape((1, -1))
-        try:
-            hsq = reg.Hsq(
-                chisq,
-                x,
-                np.asarray(_kept_rows(merged[[dataset.weight_column]], keep)),
-                np.asarray(_kept_rows(merged[["N"]], keep)),
-                reference_snp_counts,
-                n_blocks=n_blocks,
-                intercept=intercept,
-                twostep=two_step,
-                old_weights=old_weights,
-            )
-        except JackknifeIdentifiabilityError as error:
-            # Two-step jackknives may use a different row population. The
-            # partitioned model uses these exact post-filter rows throughout.
-            if two_step is None:
-                _add_jackknife_model_context(error, _kept_rows(merged, keep), columns)
-            raise
-        diagnostic_bins = None
-        if len(columns) == 1:
-            diagnostic_bins = summarize_ld_score_regression_bins(
-                hsq,
-                ld_score=x[:, 0],
-                chi_square=chisq,
-                sample_size=np.asarray(merged[["N"]]),
-                regression_ld_score=np.asarray(merged[[dataset.weight_column]]),
-                reference_snp_count=float(reference_snp_counts[0, 0]),
-            )
-        del x
-        merged = _kept_rows(merged, keep) if retain_rows else pd.DataFrame(index=pd.RangeIndex(n_snp))
-        return RegressionFit(
-            estimator=hsq, dataset=replace(dataset, merged=merged), n_blocks=n_blocks,
-            effective_chisq_max=chisq_max, diagnostic_bins=diagnostic_bins, effective_two_step_cutoff=two_step,
-        )
+        return _fit_h2_dataset(dataset, config or self.regression_config)
 
     @serial_calculation
     def estimate_partitioned_h2(
@@ -949,58 +831,13 @@ class RegressionRunner:
     @serial_calculation
     def _fit_functional_model(self, dataset, *, config):
         """Fit and summarize the complete baseline-only model in one child."""
-        outcome = self._fit_h2_dataset(dataset, config=config)
+        outcome = _fit_h2_dataset(dataset, config)
         samp_prev, pop_prev = _config_prevalence(config)
         summary = summarize_partitioned_h2(
             outcome.estimator, outcome.dataset, outcome.dataset.retained_ld_columns,
             samp_prev=samp_prev, pop_prev=pop_prev,
         )
         return outcome, summary
-
-    def _fit_partitioned_query(self, prepared, query, values, directory, *, config):
-        """Fit, summarize and privately stage one complete genome-wide query.
-
-        Both serial and parallel workers use this boundary. Only model errors
-        become query outcomes; staging errors and interrupts still abort runs.
-        Returned objects contain no estimator, SNP matrix or traceback frames.
-        """
-        stage = "model_preparation"
-        try:
-            with _log_phase_timing("query model preparation", level=logging.DEBUG):
-                dataset = self._dataset_from_query_values(prepared, [query], values, config=config)
-            stage = "estimator"
-            with _log_phase_timing("estimator execution", level=logging.DEBUG):
-                outcome = self._fit_h2_dataset(dataset, config=config, log_level=logging.DEBUG, retain_rows=False)
-            hsq, dataset = outcome.estimator, outcome.dataset
-            stage = "summary"
-            with _log_phase_timing("query summary", level=logging.DEBUG):
-                samp_prev, pop_prev = _config_prevalence(config)
-                full = summarize_partitioned_h2(hsq, dataset, dataset.retained_ld_columns,
-                                               samp_prev=samp_prev, pop_prev=pop_prev)
-                # The summary computes every retained row; the focal row is one of them.
-                focal = (full.set_index("category").loc[[query]].reset_index()
-                         .loc[:, PARTITIONED_H2_COLUMNS].reset_index(drop=True))
-                delete_values = _coefficient_delete_frame(hsq, dataset.retained_ld_columns)
-        except Exception as error:
-            status = "unestimable" if isinstance(error, JackknifeIdentifiabilityError) else "failed"
-            record = {"query_annotation": query, "status": status, "stage": stage,
-                      "error_type": type(error).__name__, "error_message": str(error)}
-            LOGGER.exception("Query %r failed at %s; marked %s: %s", query, stage, status, error)
-            if isinstance(error, JackknifeIdentifiabilityError):
-                LOGGER.error("Query %r jackknife diagnostics: %s", query, json.dumps(error.failures))
-            error.add_note(f"partitioned-h2 query {query!r} failed at {stage}.")
-            error.__traceback__ = error.__cause__ = error.__context__ = None
-            return None, None, record, error
-        with _log_phase_timing("query output staging", level=logging.DEBUG):
-            artifacts = stage_partitioned_h2_fit(
-                directory, full, delete_values,
-                {"dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
-                 **_fit_metadata(outcome),
-                 "effective_snp_identifier": dataset.effective_snp_identifier,
-                 "identity_downgrade_applied": dataset.identity_downgrade_applied},
-            )
-        return focal, artifacts, {"query_annotation": query, "status": "success", "stage": "complete",
-                                  "error_type": "", "error_message": ""}, None
 
     def estimate_partitioned_h2_batch(
         self, sumstats_table, ldscore_result, *, output_dir, query_columns=None,
@@ -1180,9 +1017,9 @@ class RegressionRunner:
                     {name: shared[name] for name in shared.columns if name in fit_columns}, copy=False)),
                 prepared.counts_by_column, prepared.ld_variances)
             del shared
-            from .partitioned_parallel import _QueryWorkers, _stage_query_batch
             with _log_phase_timing("query worker preparation"):
-                worker_pool = _QueryWorkers(workspace.path, models, self, config, worker_count)
+                worker_pool = partitioned_parallel._QueryWorkers(
+                    workspace.path, models, fit_partitioned_query, config, worker_count)
             from .._runtime.progress import PhaseProgress
             total_batches = (len(queries) + query_batch_size - 1) // query_batch_size
             del models
@@ -1198,7 +1035,7 @@ class RegressionRunner:
                             batch = self._read_query_batch(prepared, batch_columns)
                         with TemporaryDirectory(prefix="query-batch-", dir=workspace.path) as batch_root:
                             with _log_phase_timing("query batch mapping", level=logging.DEBUG):
-                                mapped = _stage_query_batch(batch, Path(batch_root) / "values")
+                                mapped = partitioned_parallel._stage_query_batch(batch, Path(batch_root) / "values")
                             batch = None
                             tasks = [(query, mapped[query], workspace.path / f"fit-{start + index}")
                                      for index, query in enumerate(batch_columns)]
@@ -1422,7 +1259,7 @@ class RegressionRunner:
                     h2_dataset = self._dataset_from_prepared(
                         self._prepare_h2_inputs(trait, ldscores, config, build_checked=True), config=config,
                     )
-                    outcome = self._fit_h2_dataset(h2_dataset, config=config, log_level=logging.DEBUG)
+                    outcome = _fit_h2_dataset(h2_dataset, config, log_level=logging.DEBUG)
                     row = summarize_total_h2(
                         outcome.estimator, outcome.dataset, trait_name=trait_name, n_snps_used=outcome.n_snps,
                         samp_prev=samp_prev, pop_prev=pop_prev,
@@ -1509,6 +1346,171 @@ class RegressionRunner:
             dropped_orientation_unknown_rows=[unknown for unknown, _ in alignment_drops],
             dropped_incompatible_allele_rows=[incompatible for _, incompatible in alignment_drops],
         )
+
+
+def _dataset_from_query_values(prepared, selected, query_values, config):
+    """Borrow aligned columns for one model without copying the baseline.
+
+    Preparation and query loading already provide matching RangeIndexes.
+    Borrowed columns must remain unmodified; numerical fitting allocates its
+    own design array after the model's chi-square filter has selected rows.
+    """
+    ref_ld_columns = list(prepared.dataset.ref_ld_columns) + list(selected)
+    merged = prepared.dataset.merged
+    # A query's damage fails only its own model, inside the query's error handling.
+    problems = _nonfinite_columns(query_values, selected, merged["SNP"]) if selected else []
+    if problems:
+        raise LDSCInputError(
+            f"Regression cannot use query annotation {'; '.join(problems)}: its LD scores are missing or "
+            "infinite on regression SNPs, and every LD score must be finite. Most likely the LD-score directory "
+            "was edited or only partly written after it was created. Regenerate it with `ldsc ldscore`, or "
+            f"restore the original query files. Other causes & fixes: {_NONFINITE_LD_DOC}"
+        )
+    if selected:
+        weight_position = merged.columns.get_loc(prepared.dataset.weight_column)
+        order = [*merged.columns[:weight_position], *selected, *merged.columns[weight_position:]]
+        merged = pd.DataFrame({name: (query_values if name in selected else merged)[name].to_numpy(copy=False)
+                               for name in order}, copy=False)
+    dataset = replace(prepared.dataset, ref_ld_columns=ref_ld_columns, **_select_model_columns(
+        merged, ref_ld_columns, prepared.counts_by_column, config.use_common_counts, command="h2",
+        known_variances=prepared.ld_variances,
+    ))
+    dataset.validate()
+    return dataset
+
+
+@serial_calculation
+def _fit_h2_dataset(
+    dataset: RegressionDataset,
+    config: RegressionConfig,
+    *, log_level=logging.INFO, retain_rows=True,
+) -> RegressionFit:
+    """Fit SNP heritability once and retain its exact SNP population and diagnostic bins.
+
+    The aligned frame can borrow read-only worker maps. A multi-annotation
+    design is filled column by column from the rows the chi-square filter
+    keeps, so the frame itself is not copied before the fit; the filtered
+    frame is built afterwards, for the returned dataset. With
+    ``retain_rows=False`` (per-query partitioned fits, which read only the
+    row count) the returned dataset's ``merged`` is an empty frame with one
+    row per fitted SNP. The estimator never modifies the borrowed input columns.
+    """
+    merged = dataset.merged
+    n_snp = len(merged)
+    n_blocks = min(n_snp, config.num_blocks)
+    chisq = np.asarray(merged["Z"] ** 2).reshape((n_snp, 1))
+    # N.max() is read pre-filter so the partitioned default cap matches legacy.
+    chisq_max = _resolve_default_chisq_max(
+        config.chisq_max, len(dataset.retained_ld_columns), merged["N"].max()
+    )
+    keep = None
+    if chisq_max is not None:
+        mask = np.ravel(chisq <= chisq_max)
+        n_removed = n_snp - int(mask.sum())
+        if n_removed:
+            keep = mask
+            n_snp = int(mask.sum())
+            n_blocks = min(n_snp, config.num_blocks)
+            chisq = chisq[keep]
+            LOGGER.log(log_level,
+                "Removed %d SNPs with chi^2 > %g (%d SNPs remain).",
+                n_removed,
+                chisq_max,
+                n_snp,
+            )
+    columns = dataset.retained_ld_columns
+    if keep is not None and len(columns) == 1:
+        # Single-annotation fits read the filtered frame for their diagnostic bins.
+        merged, keep = _kept_rows(merged, keep), None
+    x = _ld_design(merged, columns, keep)
+    policy = _fit_policy(config)
+    intercept, two_step = policy.intercept_h2, policy.two_step_cutoff(len(columns))
+    old_weights = len(columns) > 1
+    _raise_on_model_collinearity(dataset, x)
+    reference_snp_counts = np.asarray(
+        dataset.reference_snp_count_totals[dataset.count_key_used_for_regression]
+    ).reshape((1, -1))
+    try:
+        hsq = reg.Hsq(
+            chisq,
+            x,
+            np.asarray(_kept_rows(merged[[dataset.weight_column]], keep)),
+            np.asarray(_kept_rows(merged[["N"]], keep)),
+            reference_snp_counts,
+            n_blocks=n_blocks,
+            intercept=intercept,
+            twostep=two_step,
+            old_weights=old_weights,
+        )
+    except JackknifeIdentifiabilityError as error:
+        # Two-step jackknives may use a different row population. The
+        # partitioned model uses these exact post-filter rows throughout.
+        if two_step is None:
+            _add_jackknife_model_context(error, _kept_rows(merged, keep), columns)
+        raise
+    diagnostic_bins = None
+    if len(columns) == 1:
+        diagnostic_bins = summarize_ld_score_regression_bins(
+            hsq,
+            ld_score=x[:, 0],
+            chi_square=chisq,
+            sample_size=np.asarray(merged[["N"]]),
+            regression_ld_score=np.asarray(merged[[dataset.weight_column]]),
+            reference_snp_count=float(reference_snp_counts[0, 0]),
+        )
+    del x
+    merged = _kept_rows(merged, keep) if retain_rows else pd.DataFrame(index=pd.RangeIndex(n_snp))
+    return RegressionFit(
+        estimator=hsq, dataset=replace(dataset, merged=merged), n_blocks=n_blocks,
+        effective_chisq_max=chisq_max, diagnostic_bins=diagnostic_bins, effective_two_step_cutoff=two_step,
+    )
+
+
+def fit_partitioned_query(prepared, query, values, directory, config):
+    """Fit, summarize and privately stage one complete genome-wide query.
+
+    Every query worker calls this module-level function, which spawn pickles
+    by name; only model errors become query outcomes, while staging errors
+    and interrupts still abort runs. Returned objects contain no estimator,
+    SNP matrix or traceback frames.
+    """
+    stage = "model_preparation"
+    try:
+        with _log_phase_timing("query model preparation", level=logging.DEBUG):
+            dataset = _dataset_from_query_values(prepared, [query], values, config)
+        stage = "estimator"
+        with _log_phase_timing("estimator execution", level=logging.DEBUG):
+            outcome = _fit_h2_dataset(dataset, config, log_level=logging.DEBUG, retain_rows=False)
+        hsq, dataset = outcome.estimator, outcome.dataset
+        stage = "summary"
+        with _log_phase_timing("query summary", level=logging.DEBUG):
+            samp_prev, pop_prev = _config_prevalence(config)
+            full = summarize_partitioned_h2(hsq, dataset, dataset.retained_ld_columns,
+                                           samp_prev=samp_prev, pop_prev=pop_prev)
+            # The summary computes every retained row; the focal row is one of them.
+            focal = (full.set_index("category").loc[[query]].reset_index()
+                     .loc[:, PARTITIONED_H2_COLUMNS].reset_index(drop=True))
+            delete_values = _coefficient_delete_frame(hsq, dataset.retained_ld_columns)
+    except Exception as error:
+        status = "unestimable" if isinstance(error, JackknifeIdentifiabilityError) else "failed"
+        record = {"query_annotation": query, "status": status, "stage": stage,
+                  "error_type": type(error).__name__, "error_message": str(error)}
+        LOGGER.exception("Query %r failed at %s; marked %s: %s", query, stage, status, error)
+        if isinstance(error, JackknifeIdentifiabilityError):
+            LOGGER.error("Query %r jackknife diagnostics: %s", query, json.dumps(error.failures))
+        error.add_note(f"partitioned-h2 query {query!r} failed at {stage}.")
+        error.__traceback__ = error.__cause__ = error.__context__ = None
+        return None, None, record, error
+    with _log_phase_timing("query output staging", level=logging.DEBUG):
+        artifacts = stage_partitioned_h2_fit(
+            directory, full, delete_values,
+            {"dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
+             **_fit_metadata(outcome),
+             "effective_snp_identifier": dataset.effective_snp_identifier,
+             "identity_downgrade_applied": dataset.identity_downgrade_applied},
+        )
+    return focal, artifacts, {"query_annotation": query, "status": "success", "stage": "complete",
+                              "error_type": "", "error_message": ""}, None
 
 
 def _regression_genome_build(
@@ -3383,7 +3385,7 @@ def run_h2_from_args(args):
             )
         # The fit needs only the aligned rows; release the trait's keyed copy.
         legacy_drops, nonfinite_rows, trait = trait.legacy_drops, trait.dropped_nonfinite_statistic_rows, None
-        outcome = runner._fit_h2_dataset(dataset, config=config)
+        outcome = _fit_h2_dataset(dataset, config)
         hsq, dataset = outcome.estimator, outcome.dataset
         n_snps_used = outcome.n_snps
         summary = summarize_total_h2(

@@ -995,7 +995,7 @@ The log repeats these details as JSON, with support counts before and after the 
 `rg` keeps fitting the other pairs and records the pair as `unestimable`; `h2` stops with exit code 1; `partitioned-h2` follows the query-error policy in [a query regression fails](#partitioned-h2-a-query-regression-fails).
 Do not substitute a pseudoinverse or fabricate uncertainty.
 
-**Developer reference:** `JackknifeIdentifiabilityError` in `_regression/jackknife.py`; `RegressionRunner._fit_h2_dataset()` and `RegressionRunner.estimate_rg()` add the context · **Exception:** `JackknifeIdentifiabilityError`
+**Developer reference:** `JackknifeIdentifiabilityError` in `_regression/jackknife.py`; `_fit_h2_dataset()` in `_regression/runner.py` and `RegressionRunner.estimate_rg()` add the context · **Exception:** `JackknifeIdentifiabilityError`
 
 ### `rg`: a trait has no A1/A2 columns
 

@@ -29,7 +29,7 @@ def _check_shared_models(tmp_path, chisq_max):
             if query == "second":
                 values[query] = 1.0
             query_before = values.copy(deep=True)
-            dataset = runner._dataset_from_query_values(prepared, [query], values)
+            dataset = workflow._dataset_from_query_values(prepared, [query], values, runner.regression_config)
             retained = ["base"] if query == "second" else ["base", query]
             assert dataset.retained_ld_columns == retained
             for column in snapshot.numeric:
@@ -63,8 +63,9 @@ def _fit_query_both_ways(tmp_path, chisq_max):
     runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(num_blocks=6, chisq_max=chisq_max))
     prepared = runner._prepare_h2_inputs(workflow._prepare_trait_sumstats(table, source),
                                          workflow._PreparedLDScores(source), runner.regression_config)
-    dataset = runner._dataset_from_query_values(prepared, ["first"], runner._read_query_batch(prepared, ["first"]))
-    return runner._fit_h2_dataset(dataset), runner._fit_h2_dataset(dataset, retain_rows=False)
+    config = runner.regression_config
+    dataset = workflow._dataset_from_query_values(prepared, ["first"], runner._read_query_batch(prepared, ["first"]), config)
+    return workflow._fit_h2_dataset(dataset, config), workflow._fit_h2_dataset(dataset, config, retain_rows=False)
 
 
 @pytest.mark.parametrize("chisq_max", [80, 1e6])

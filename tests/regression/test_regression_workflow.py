@@ -2961,7 +2961,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             )()
 
             with mock.patch.object(
-                regression_runner.RegressionRunner,
+                regression_runner,
                 "_fit_h2_dataset",
                 side_effect=AssertionError("estimation should not run after preflight failure"),
             ):

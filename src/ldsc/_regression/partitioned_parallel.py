@@ -4,7 +4,8 @@ The parent owns every file and publishes results. Workers borrow mapped numeric
 columns, keep row labels/model metadata once per process, and stage one fit at a
 time. Dedicated pipes carry only query descriptors and compact outcomes. Public
 process sentinels detect worker death; all children exit before scratch removal.
-Statistical preparation and fitting remain in ``_regression.runner``.
+Statistical preparation and fitting remain in ``_regression.runner``, which
+hands the pool its module-level fit function; this module never imports it.
 """
 
 from contextlib import ExitStack, contextmanager
@@ -121,10 +122,8 @@ def _query_worker(connection, snapshot, inputs_path):
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     logs = _WorkerLog()
     try:
-        from .runner import RegressionRunner
-
         with inputs_path.open("rb") as stream:
-            inputs, global_config, config, log_level = pickle.load(stream)
+            inputs, fit, config, log_level = pickle.load(stream)
         logger = logging.getLogger("LDSC")
         logger.handlers = [logs]
         logger.setLevel(log_level)
@@ -132,7 +131,6 @@ def _query_worker(connection, snapshot, inputs_path):
         initialize_worker(log_level)
         with snapshot.open() as frame:
             inputs = replace(inputs, dataset=replace(inputs.dataset, merged=frame))
-            runner = RegressionRunner(global_config, config)
             first_task = True
             while (task := connection.recv()) is not None:
                 query, column, directory = task
@@ -141,9 +139,7 @@ def _query_worker(connection, snapshot, inputs_path):
                     log_native_thread_state(logger)
                     first_task = False
                 with column.open() as values:
-                    result = runner._fit_partitioned_query(
-                        inputs, query, pd.DataFrame({query: values}, copy=False), directory, config=config,
-                    )
+                    result = fit(inputs, query, pd.DataFrame({query: values}, copy=False), directory, config)
                 connection.send((result, logs.records, None))
     except BaseException as error:
         # Output/transport errors and process-control exceptions are run failures.
@@ -158,16 +154,20 @@ def _query_worker(connection, snapshot, inputs_path):
 
 
 class _QueryWorkers:
-    """One task per spawned process, reused across bounded loading batches."""
+    """One task per spawned process, reused across bounded loading batches.
 
-    def __init__(self, workspace, inputs, runner, config, workers):
+    ``fit(inputs, query, values, directory, config)`` runs each task; it must
+    be a module-level function, which spawn pickles by qualified name.
+    """
+
+    def __init__(self, workspace, inputs, fit, config, workers):
         self.processes = []
         self.connections = []
         self.snapshot = _stage_frame(inputs.dataset.merged, workspace / "shared")
         inputs_path = workspace / "model.pkl"
         with inputs_path.open("wb") as stream:
             pickle.dump((replace(inputs, dataset=replace(inputs.dataset, merged=pd.DataFrame())),
-                         runner.global_config, config, logging.getLogger("LDSC").getEffectiveLevel()), stream)
+                         fit, config, logging.getLogger("LDSC").getEffectiveLevel()), stream)
         context = mp.get_context("spawn")
         try:
             for _ in range(workers):

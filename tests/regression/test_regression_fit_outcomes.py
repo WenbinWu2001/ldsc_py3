@@ -36,7 +36,7 @@ def _intercept_cli_config(command, flags):
         command, *inputs, "--ldscore-dir", "ldscores", "--output-dir", "results",
         "--num-blocks", "6", *flags,
     ])
-    return workflow._runner_from_args(args)[1]
+    return workflow._configs_from_args(args, command)[1]
 
 
 def _intercept_fit(command, config):

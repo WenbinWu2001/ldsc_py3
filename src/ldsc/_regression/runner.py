@@ -3377,21 +3377,46 @@ def add_rg_arguments(parser) -> None:
 def run_h2_from_args(args):
     """Run single-trait heritability estimation from parsed CLI arguments.
 
-    The workflow requires ``args.output_dir`` and preflights ``h2.tsv``, the
-    LD score regression-bin diagnostic, metadata, and ``diagnostics/h2.log``
-    before loading inputs. A successful overwrite removes default plots and
-    liability-scale post-processing derived from the superseded h2 result.
-    Returns the :class:`H2Result` of the run.
+    The regression settings become a ``RegressionConfig`` before anything is
+    written. The workflow requires ``args.output_dir`` and preflights
+    ``h2.tsv``, the LD score regression-bin diagnostic, metadata, and
+    ``diagnostics/h2.log`` before loading inputs. A successful overwrite
+    removes default plots and liability-scale post-processing derived from the
+    superseded h2 result. Returns the :class:`H2Result` of the run.
     """
-    output_dir, log_path = _preflight_regression_outputs(args, "h2", H2DirectoryWriter)
-    with workflow_logging("h2", log_path, log_level=getattr(args, "log_level", "INFO")):
-        _inspect_regression_inputs(args, output_dir)
-        runner, config = _runner_from_args(args)
+    global_config, config = _configs_from_args(args, "h2")
+    return _run_h2(
+        global_config, config, sumstats_file=args.sumstats_file, ldscore_dir=args.ldscore_dir,
+        trait_name=args.trait_name, output_dir=args.output_dir, overwrite=args.overwrite, log_level=args.log_level,
+    )
+
+
+def _run_h2(
+    global_config: GlobalConfig,
+    config: RegressionConfig,
+    *,
+    sumstats_file: str,
+    ldscore_dir: str,
+    trait_name: str | None,
+    output_dir: str,
+    overwrite: bool,
+    log_level: str,
+) -> H2Result:
+    """Estimate SNP heritability from typed settings and write the ``h2`` result directory.
+
+    ``global_config`` is the registered configuration, the SNP identifier
+    fallback for an input without recorded provenance; the caller opens the
+    failure-marker scope.
+    """
+    output_dir, log_path = _preflight_regression_outputs(output_dir, overwrite, "h2", H2DirectoryWriter)
+    with workflow_logging("h2", log_path, log_level=log_level):
+        _inspect_regression_inputs(output_dir, sumstats=sumstats_file, ldscore_dir=ldscore_dir)
+        runner = RegressionRunner(global_config, config)
         print_global_config_banner("run_h2_from_args", runner.global_config)
-        log_inputs(sumstats_file=args.sumstats_file, ldscore_dir=args.ldscore_dir, output_dir=output_dir)
-        LOGGER.info(f"Starting h2 regression for '{args.sumstats_file}' using LD-score directory '{args.ldscore_dir}'.")
-        sumstats_table = _load_sumstats_table(args.sumstats_file, getattr(args, "trait_name", None))
-        ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
+        log_inputs(sumstats_file=sumstats_file, ldscore_dir=ldscore_dir, output_dir=output_dir)
+        LOGGER.info(f"Starting h2 regression for '{sumstats_file}' using LD-score directory '{ldscore_dir}'.")
+        sumstats_table = _load_sumstats_table(sumstats_file, trait_name)
+        ldscore_result = load_ldscore_from_dir(ldscore_dir)
         _log_effective_regression_identity([sumstats_table], ldscore_result, runner.global_config, config)
         trait = _prepare_trait_sumstats(sumstats_table, ldscore_result)
         with suppress_global_config_banner():
@@ -3411,7 +3436,7 @@ def run_h2_from_args(args):
             summary,
             H2OutputConfig(
                 output_dir=output_dir,
-                overwrite=getattr(args, "overwrite", False),
+                overwrite=overwrite,
             ),
             metadata=_h2_metadata(
                 sumstats_table, _ldscore_dir_of(ldscore_result), outcome, config,
@@ -3432,7 +3457,9 @@ def run_h2_from_args(args):
 def run_partitioned_h2_from_args(args):
     """Run batch partitioned heritability from parsed CLI arguments.
 
-    The workflow requires ``args.output_dir`` and preflights
+    The regression settings become a ``RegressionConfig``, and ``workers`` and
+    ``query_batch_size`` are checked, before anything is written. The workflow
+    requires ``args.output_dir`` and preflights
     ``partitioned_h2.tsv``, ``diagnostics/query_annotations/``, and
     ``diagnostics/partitioned-h2.log`` before loading inputs. Query-annotation
     runs always write per-query results; baseline-only runs keep the complete
@@ -3455,22 +3482,53 @@ def run_partitioned_h2_from_args(args):
     failures abort under either query-error policy. Requested/effective counts
     and phase timings are recorded in the workflow log.
     """
-    validate_workers(getattr(args, "workers", 1))
     # The argparse types check the command line; keyword calls are checked here, before any write.
-    validate_query_batch_size(getattr(args, "query_batch_size", 100), error_type=LDSCUsageError)
-    output_dir, log_path = _preflight_regression_outputs(args, "partitioned-h2", PartitionedH2DirectoryWriter)
-    with workflow_logging("partitioned-h2", log_path, log_level=getattr(args, "log_level", "INFO")):
-        _inspect_regression_inputs(args, output_dir)
-        runner, config = _runner_from_args(args)
+    validate_workers(args.workers)
+    validate_query_batch_size(args.query_batch_size, error_type=LDSCUsageError)
+    global_config, config = _configs_from_args(args, "partitioned-h2")
+    return _run_partitioned_h2(
+        global_config, config, sumstats_file=args.sumstats_file, ldscore_dir=args.ldscore_dir,
+        trait_name=args.trait_name, output_dir=args.output_dir, overwrite=args.overwrite, log_level=args.log_level,
+        workers=args.workers, query_batch_size=args.query_batch_size,
+        continue_on_query_error=args.continue_on_query_error, summary_sort_by=args.summary_sort_by,
+    )
+
+
+def _run_partitioned_h2(
+    global_config: GlobalConfig,
+    config: RegressionConfig,
+    *,
+    sumstats_file: str,
+    ldscore_dir: str,
+    trait_name: str | None,
+    output_dir: str,
+    overwrite: bool,
+    log_level: str,
+    workers: int,
+    query_batch_size: int,
+    continue_on_query_error: bool,
+    summary_sort_by: str,
+) -> PartitionedH2BatchResult:
+    """Fit partitioned heritability from typed settings and write the ``partitioned-h2`` result directory.
+
+    ``global_config`` is the SNP identifier fallback, as in :func:`_run_h2`;
+    the caller opens the failure-marker scope.
+    """
+    output_dir, log_path = _preflight_regression_outputs(
+        output_dir, overwrite, "partitioned-h2", PartitionedH2DirectoryWriter,
+    )
+    with workflow_logging("partitioned-h2", log_path, log_level=log_level):
+        _inspect_regression_inputs(output_dir, sumstats=sumstats_file, ldscore_dir=ldscore_dir)
+        runner = RegressionRunner(global_config, config)
         print_global_config_banner("run_partitioned_h2_from_args", runner.global_config)
-        log_inputs(sumstats_file=args.sumstats_file, ldscore_dir=args.ldscore_dir, output_dir=output_dir)
+        log_inputs(sumstats_file=sumstats_file, ldscore_dir=ldscore_dir, output_dir=output_dir)
         LOGGER.info(
-            f"Starting partitioned-h2 regression for '{args.sumstats_file}' using LD-score directory '{args.ldscore_dir}'."
+            f"Starting partitioned-h2 regression for '{sumstats_file}' using LD-score directory '{ldscore_dir}'."
         )
         with _log_phase_timing("sumstats loading"):
-            sumstats_table = _load_sumstats_table(args.sumstats_file, getattr(args, "trait_name", None))
+            sumstats_table = _load_sumstats_table(sumstats_file, trait_name)
         with _log_phase_timing("LD-score loading"):
-            ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
+            ldscore_result = load_ldscore_from_dir(ldscore_dir)
         has_queries = bool(ldscore_result.query_columns)
         _log_effective_regression_identity([sumstats_table], ldscore_result, runner.global_config, config)
         _log_partitioned_h2_regime(ldscore_result, has_queries)
@@ -3478,11 +3536,11 @@ def run_partitioned_h2_from_args(args):
         with suppress_global_config_banner():
             result = runner.estimate_partitioned_h2_batch(
                 sumstats_table, ldscore_result, config=config, output_dir=output_dir,
-                query_batch_size=getattr(args, "query_batch_size", 100),
-                workers=getattr(args, "workers", 1),
-                continue_on_query_error=getattr(args, "continue_on_query_error", False),
-                overwrite=getattr(args, "overwrite", False),
-                summary_sort_by=getattr(args, "summary_sort_by", "auto"),
+                query_batch_size=query_batch_size,
+                workers=workers,
+                continue_on_query_error=continue_on_query_error,
+                overwrite=overwrite,
+                summary_sort_by=summary_sort_by,
             )
         log_outputs(**result.output_paths)
         LOGGER.info(
@@ -3499,8 +3557,9 @@ def run_partitioned_h2_from_args(args):
 def run_rg_from_args(args):
     """Run multi-trait genetic-correlation estimation from parsed CLI args.
 
-    The workflow requires ``--output-dir`` and writes the rg result family:
-    ``rg.tsv``, ``rg_full.tsv``, ``h2_per_trait.tsv``, optional
+    The regression settings become a ``RegressionConfig`` before anything is
+    written. The workflow requires ``--output-dir`` and writes the rg result
+    family: ``rg.tsv``, ``rg_full.tsv``, ``h2_per_trait.tsv``, optional
     ``diagnostics/pairs/``, and workflow-owned ``diagnostics/rg.log``. A
     successful overwrite removes the default plot root derived from the
     superseded result.
@@ -3526,26 +3585,62 @@ def run_rg_from_args(args):
     ValueError
         If fewer than two summary-statistics paths resolve or ``output_dir`` is absent.
     """
-    output_dir, log_path = _preflight_regression_outputs(args, "rg", RgDirectoryWriter)
-    with workflow_logging("rg", log_path, log_level=getattr(args, "log_level", "INFO")):
-        declared_inputs = _inspect_regression_inputs(args, output_dir)
+    global_config, config = _configs_from_args(args, "rg")
+    return _run_rg(
+        global_config, config, sumstats_sources=args.sumstats_sources, ldscore_dir=args.ldscore_dir,
+        anchor_trait=args.anchor_trait, samp_prev=args.samp_prev, pop_prev=args.pop_prev,
+        prevalence_manifest=args.prevalence_manifest, output_dir=args.output_dir, overwrite=args.overwrite,
+        write_per_pair_detail=args.write_per_pair_detail, log_level=args.log_level,
+        # run_from_kwargs turns the notice off for Python callers; the command line prints it.
+        emit_console_notices=getattr(args, "_emit_console_notices", True),
+    )
+
+
+def _run_rg(
+    global_config: GlobalConfig,
+    config: RegressionConfig,
+    *,
+    sumstats_sources: Sequence[str],
+    ldscore_dir: str,
+    anchor_trait: str | None,
+    samp_prev: str | None,
+    pop_prev: str | None,
+    prevalence_manifest: str | None,
+    output_dir: str,
+    overwrite: bool,
+    write_per_pair_detail: bool,
+    log_level: str,
+    emit_console_notices: bool,
+) -> RgResultFamily:
+    """Estimate genetic correlations from typed settings and write the ``rg`` result family.
+
+    ``samp_prev`` and ``pop_prev`` are the comma-separated per-trait lists,
+    resolved here against the loaded traits; ``config`` carries no
+    prevalences. ``global_config`` is the SNP identifier fallback, as in
+    :func:`_run_h2`; the caller opens the failure-marker scope.
+    """
+    output_dir, log_path = _preflight_regression_outputs(output_dir, overwrite, "rg", RgDirectoryWriter)
+    with workflow_logging("rg", log_path, log_level=log_level):
+        declared_inputs = _inspect_regression_inputs(
+            output_dir, sumstats=sumstats_sources, ldscore_dir=ldscore_dir, prevalence_manifest=prevalence_manifest,
+        )
         sumstats_paths = declared_inputs.files['sumstats']
         if len(sumstats_paths) < 2:
             raise LDSCUserError(
                 "rg requires at least two summary-statistics inputs. Most likely `--sumstats-sources` "
                 "resolved to fewer than two files. Pass two or more munged `.sumstats` artifacts."
             )
-        runner, config = _runner_from_args(args)
+        runner = RegressionRunner(global_config, config)
         print_global_config_banner("run_rg_from_args", runner.global_config)
         log_inputs(
             sumstats_sources=f"{len(sumstats_paths)} files; source paths are recorded in diagnostics/metadata.json",
-            anchor_trait=getattr(args, "anchor_trait", None) or "none",
-            ldscore_dir=args.ldscore_dir,
+            anchor_trait=anchor_trait or "none",
+            ldscore_dir=ldscore_dir,
             output_dir=output_dir,
         )
         LOGGER.info(
             f"Starting rg regression for {len(sumstats_paths)} summary-statistics files "
-            f"using LD-score directory '{args.ldscore_dir}'."
+            f"using LD-score directory '{ldscore_dir}'."
         )
         gate = InputGate('Summary-statistic content validation', Path(output_dir)/'diagnostics/input_issues.tsv')
         sumstats_tables = []
@@ -3559,9 +3654,9 @@ def run_rg_from_args(args):
         # Resolve prevalence against the original munged names so the manifest
         # duplicate-name guard fires before disambiguation renames collisions.
         prevalences = resolve_rg_prevalences(
-            samp_prev=getattr(args, "samp_prev", None),
-            pop_prev=getattr(args, "pop_prev", None),
-            manifest_path=getattr(args, "prevalence_manifest", None),
+            samp_prev=samp_prev,
+            pop_prev=pop_prev,
+            manifest_path=prevalence_manifest,
             trait_names=[_trait_label(table) for table in sumstats_tables],
             trait_paths=[str(path) for path in sumstats_paths],
         )
@@ -3576,8 +3671,8 @@ def run_rg_from_args(args):
                         for table, (sp, pp) in zip(sumstats_tables, prevalences)
                     )
                 )
-        anchor_index = _resolve_anchor_index(getattr(args, "anchor_trait", None), sumstats_paths, sumstats_tables)
-        ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
+        anchor_index = _resolve_anchor_index(anchor_trait, sumstats_paths, sumstats_tables)
+        ldscore_result = load_ldscore_from_dir(ldscore_dir)
         _log_effective_regression_identity(sumstats_tables, ldscore_result, runner.global_config, config)
         with suppress_global_config_banner():
             result = runner.estimate_rg_pairs(
@@ -3591,8 +3686,8 @@ def run_rg_from_args(args):
             result,
             RgOutputConfig(
                 output_dir=output_dir,
-                overwrite=getattr(args, "overwrite", False),
-                write_per_pair_detail=getattr(args, "write_per_pair_detail", False),
+                overwrite=overwrite,
+                write_per_pair_detail=write_per_pair_detail,
             ),
         )
         log_outputs(**written)
@@ -3600,7 +3695,7 @@ def run_rg_from_args(args):
             f"Finished rg regression for {len(result.rg)} trait pairs "
             f"and {len(result.h2_per_trait)} traits."
         )
-    if getattr(args, "_emit_console_notices", True):
+    if emit_console_notices:
         _emit_rg_alignment_notice(result)
     return replace(result, output_paths=written)
 
@@ -3929,37 +4024,37 @@ def _add_regression_model_arguments(sections: SimpleNamespace, include_h2_interc
 
 
 def _preflight_regression_outputs(
-    args,
+    output_dir: str | None,
+    overwrite: bool,
     workflow_name: str,
     writer,
 ) -> tuple[str, Path]:
     """Preflight regression outputs and return normalized output dir plus log path."""
-    output_dir_arg = getattr(args, "output_dir", None)
-    if not output_dir_arg:
+    if not output_dir:
         raise LDSCUsageError(
             f"{workflow_name} requires `--output-dir`. Most likely a programmatic namespace omitted output_dir. "
             "Pass an explicit result directory."
         )
-    output_dir = ensure_output_directory(output_dir_arg, label="output directory")
-    log_path = output_dir / "diagnostics" / f"{workflow_name}.log"
-    writer.artifact_family(output_dir).preflight(
-        overwrite=getattr(args, "overwrite", False),
+    output_path = ensure_output_directory(output_dir, label="output directory")
+    log_path = output_path / "diagnostics" / f"{workflow_name}.log"
+    writer.artifact_family(output_path).preflight(
+        overwrite=overwrite,
         additional_paths=[log_path],
     )
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    return str(output_dir), log_path
+    return str(output_path), log_path
 
 
-def _inspect_regression_inputs(args, output_dir):
+def _inspect_regression_inputs(output_dir, *, sumstats, ldscore_dir, prevalence_manifest=None):
     """Check the declared summary statistics, prevalence manifest and LD-score directory before any fit.
 
-    Every issue found is recorded in ``diagnostics/input_issues.tsv`` before
-    the run stops; otherwise returns the resolved inputs.
+    ``sumstats`` is the ``--sumstats-file`` path or the ``--sumstats-sources``
+    tokens. Every issue found is recorded in ``diagnostics/input_issues.tsv``
+    before the run stops; otherwise returns the resolved inputs.
     """
     return inspect_declared_inputs(
-        files=[('sumstats', getattr(args, 'sumstats_file', None) or getattr(args, 'sumstats_sources', None)),
-               ('prevalence manifest', getattr(args, 'prevalence_manifest', None))],
-        checks=[('LD scores', args.ldscore_dir, lambda: inspect_artifact_paths(args.ldscore_dir))],
+        files=[('sumstats', sumstats), ('prevalence manifest', prevalence_manifest)],
+        checks=[('LD scores', ldscore_dir, lambda: inspect_artifact_paths(ldscore_dir))],
         issues_path=Path(output_dir)/'diagnostics/input_issues.tsv')
 
 
@@ -4057,32 +4152,30 @@ def _resolve_anchor_index(
     return next(iter(path_matches))
 
 
-def _runner_from_args(args) -> tuple[RegressionRunner, RegressionConfig]:
-    """Build the regression workflow objects from parsed CLI arguments.
+def _configs_from_args(args, command: str) -> tuple[GlobalConfig, RegressionConfig]:
+    """Return the ``GlobalConfig`` and ``RegressionConfig`` of parsed ``command`` arguments.
 
-    For ``h2`` / ``partitioned-h2`` the scalar ``--samp-prev`` / ``--pop-prev``
-    floats are stored on the config, which validates them. For ``rg`` these arguments are
-    comma-separated strings resolved later in :func:`run_rg_from_args` against the
-    resolved trait list, so they are left off the (per-run) config here.
+    ``command`` is ``"h2"``, ``"partitioned-h2"`` or ``"rg"``. Regression
+    reads the SNP identifier mode and genome build from its saved inputs; the
+    registered ``GlobalConfig`` is the fallback for an input without recorded
+    provenance. The scalar ``--samp-prev``/``--pop-prev`` of ``h2`` and
+    ``partitioned-h2`` go on the config, which validates them. The per-trait
+    lists of ``rg`` are resolved against the loaded traits in :func:`_run_rg`,
+    so its config has no prevalences.
     """
-    count_kind = getattr(args, "count_kind", "common")
-    samp_prev = getattr(args, "samp_prev", None)
-    pop_prev = getattr(args, "pop_prev", None)
-    if isinstance(samp_prev, str) or isinstance(pop_prev, str):
-        samp_prev, pop_prev = None, None  # rg comma-lists: resolved in run_rg_from_args
+    rg = command == "rg"
     config = RegressionConfig(
         num_blocks=args.num_blocks,
-        use_common_counts=(count_kind == "common"),
+        use_common_counts=(args.count_kind == "common"),
         intercept_h2=args.intercept_h2,
-        intercept_gencov=getattr(args, "intercept_gencov", None),
+        intercept_gencov=args.intercept_gencov if rg else None,
         two_step_cutoff=args.two_step_cutoff,
         chisq_max=args.chisq_max,
-        samp_prev=samp_prev,
-        pop_prev=pop_prev,
-        allow_identity_downgrade=getattr(args, "allow_identity_downgrade", False),
+        samp_prev=None if rg else args.samp_prev,
+        pop_prev=None if rg else args.pop_prev,
+        allow_identity_downgrade=args.allow_identity_downgrade,
     )
-    runner = RegressionRunner(get_global_config(), config)
-    return runner, config
+    return get_global_config(), config
 
 
 def _load_sumstats_table(path: str, trait_name: str | None) -> SumstatsTable:

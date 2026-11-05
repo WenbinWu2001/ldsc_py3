@@ -61,7 +61,7 @@ This consolidation adds no way to disable automatic two-step estimation.
 
 The public Python `RegressionConfig.use_intercept=False` option remains available and unchanged. The CLI now expresses its standard fixed-intercept behavior through `--intercept-h2` and `--intercept-gencov` only.
 
-Sources: legacy LDSC [`ldsc.py`, intercept flags](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldsc.py#L528) and [`ldscore/sumstats.py`, `estimate_h2` / `estimate_rg`](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldscore/sumstats.py#L321); current [`_regression.runner._add_common_regression_arguments`, `_runner_from_args`, `_fit_h2_dataset`, and `_fit_rg_dataset`](../../src/ldsc/_regression/runner.py), [`RegressionConfig`](../../src/ldsc/config.py), and [regression configuration, “Requesting fixed intercepts”](regression-options.md#15-requesting-fixed-intercepts).
+Sources: legacy LDSC [`ldsc.py`, intercept flags](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldsc.py#L528) and [`ldscore/sumstats.py`, `estimate_h2` / `estimate_rg`](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldscore/sumstats.py#L321); current [`_regression.runner._add_regression_model_arguments`, `_configs_from_args`, `_fit_h2_dataset`, and `RegressionRunner.estimate_rg`](../../src/ldsc/_regression/runner.py), [`RegressionConfig`](../../src/ldsc/config.py), and [regression configuration, “Requesting fixed intercepts”](regression-options.md#15-requesting-fixed-intercepts).
 
 ## Legacy behavior explicitly retained
 

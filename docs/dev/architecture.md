@@ -387,9 +387,14 @@ Architecture invariant: regression only consumes aggregated LD-score directories
 
 `run_h2()`, `run_partitioned_h2()`, and `run_rg()` are the Python forms of the three commands, and `_regression.quantile_h2.run_quantile_h2()` is the form of `quantile-h2`.
 Each passes its keyword arguments and the registered `GlobalConfig` to `_runtime.workflow_kwargs.run_from_kwargs()`, which builds the command's own parser, rejects unknown names, missing required options, values outside declared choices, non-boolean flags, and `log_level`/`snp_identifier`/`genome_build` before any write, takes the log level from the registered `GlobalConfig`, then calls the matching `run_*_from_args()` under a `RUN_FAILED` marker naming the Python function.
-The `*_from_args()` functions remain module-level CLI dispatch targets and are not exported from `ldsc`; `run_h2_from_args()` returns an `H2Result`, `run_partitioned_h2_from_args()` the complete `PartitionedH2BatchResult`, and `run_rg_from_args()` the `RgResultFamily` with the paths written.
-The three share `_inspect_regression_inputs()`, which checks the declared summary statistics, prevalence manifest and LD-score directory before any input is loaded.
-`h2` and `rg` publish from their `*_from_args()` functions; `estimate_partitioned_h2_batch()` publishes its own result directory, because its query workers stage each fitted model inside it.
+The `*_from_args()` functions remain module-level CLI dispatch targets and are not exported from `ldsc`.
+Each is a thin adapter: it turns the parsed arguments into typed settings before any output preflight and calls the command's typed body.
+`_configs_from_args(args, command)` returns the registered `GlobalConfig`, the SNP identifier fallback for an input without recorded provenance, and the `RegressionConfig`, built with the scalar prevalences for `h2` and `partitioned-h2` and without prevalences for `rg`.
+`_run_h2()`, `_run_partitioned_h2()` and `_run_rg()` take those two configs and the other options (inputs, output directory, overwrite, log level, and the command's own options such as workers, query batch size or console notices) as keyword arguments.
+`run_partitioned_h2_from_args()` also checks `workers` and `query_batch_size` before calling its body, because their argparse types check them only on the command line.
+`run_h2_from_args()` returns an `H2Result`, `run_partitioned_h2_from_args()` the complete `PartitionedH2BatchResult`, and `run_rg_from_args()` the `RgResultFamily` with the paths written.
+The three typed bodies share `_inspect_regression_inputs()`, which checks the declared summary statistics, prevalence manifest and LD-score directory before any input is loaded.
+`h2` and `rg` publish from their typed bodies; `estimate_partitioned_h2_batch()` publishes its own result directory, because its query workers stage each fitted model inside it.
 `tests/regression/test_python_regression_workflows.py` checks that the Python and CLI routes write identical result files.
 
 `RegressionFit` values in `_regression/runner.py` carry the estimator, fitted dataset, realized block count, effective cap, two-step cutoff, and optional single-annotation diagnostic bins.

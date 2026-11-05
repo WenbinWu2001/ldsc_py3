@@ -14,6 +14,7 @@ from unittest import mock
 
 import numpy as np
 import pandas as pd
+import pytest
 from scipy import stats
 
 
@@ -27,6 +28,7 @@ from ldsc import cli
 from ldsc._regression import runner as regression_runner
 from ldsc._regression.runner import RegressionRunner
 from ldsc._sumstats.table import SumstatsTable
+from tests.cli_parsing import parse_command
 
 
 @contextlib.contextmanager
@@ -40,6 +42,27 @@ def _stub_h2_kernel(estimator):
     with mock.patch.object(regression_runner.reg, "Hsq", wraps=regression_runner.reg.Hsq, return_value=estimator) as kernel:
         kernel.weights = weights
         yield kernel
+
+
+def _parsed_regression_args(command, options):
+    """Parse ``options`` (option dest to value) with the ``ldsc <command>`` parser, so the others take its defaults.
+
+    ``None`` and ``False`` leave an option unset, ``True`` passes a flag, and a
+    list passes several values. ``output_dir=None`` is set after parsing, for
+    checks that a programmatic namespace without an output directory is refused.
+    """
+    argv = [command]
+    for dest, value in options.items():
+        if value is None or value is False:
+            continue
+        flag = "--" + dest.replace("_", "-")
+        argv += [flag] if value is True else [flag, *map(str, value)] if isinstance(value, list) else [flag, str(value)]
+    if options.get("output_dir") is None:
+        argv += ["--output-dir", "unused"]
+    args = parse_command(argv)
+    if options.get("output_dir") is None:
+        args.output_dir = None
+    return args
 
 
 class RegressionWorkflowTest(unittest.TestCase):
@@ -2132,9 +2155,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                 handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
             self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            args = type(
-                "Args",
-                (),
+            args = _parsed_regression_args(
+                "h2",
                 {
                     "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
                     "trait_name": "trait",
@@ -2149,7 +2171,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "chisq_max": None,
                     "log_level": "INFO",
                 },
-            )()
+            )
 
             marker = tmpdir / "h2_out/RUN_FAILED.txt"
             marker.parent.mkdir()
@@ -2219,9 +2241,8 @@ class RegressionWorkflowTest(unittest.TestCase):
             )
 
     def _h2_args(self, tmpdir, ldscore_dir, *, samp_prev=None, pop_prev=None):
-        return type(
-            "Args",
-            (),
+        return _parsed_regression_args(
+            "h2",
             {
                 "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
                 "trait_name": "trait",
@@ -2237,7 +2258,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 "samp_prev": samp_prev,
                 "pop_prev": pop_prev,
             },
-        )()
+        )
 
     def _write_h2_inputs(self, tmpdir):
         set_global_config(GlobalConfig(snp_identifier="rsid"))
@@ -2293,9 +2314,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                 handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
             self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            args = type(
-                "Args",
-                (),
+            args = _parsed_regression_args(
+                "h2",
                 {
                     "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
                     "trait_name": "trait",
@@ -2309,7 +2329,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "two_step_cutoff": None,
                     "chisq_max": None,
                 },
-            )()
+            )
 
             with mock.patch.object(
                 regression_runner,
@@ -2329,9 +2349,8 @@ class RegressionWorkflowTest(unittest.TestCase):
             set_global_config(GlobalConfig(snp_identifier="rsid"))
             self.write_footer_sumstats_parquet(tmpdir / "trait.parquet", trait_name=None, snp_identifier="rsid")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            args = type(
-                "Args",
-                (),
+            args = _parsed_regression_args(
+                "h2",
                 {
                     "sumstats_file": str(tmpdir / "trait.parquet"),
                     "trait_name": None,
@@ -2345,7 +2364,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "two_step_cutoff": None,
                     "chisq_max": None,
                 },
-            )()
+            )
 
             with _stub_h2_kernel(
                 mock.Mock(
@@ -2510,9 +2529,8 @@ class RegressionWorkflowTest(unittest.TestCase):
             )
 
     def test_run_rg_from_args_rejects_missing_output_dir_before_loading_inputs(self):
-        args = type(
-            "Args",
-            (),
+        args = _parsed_regression_args(
+            "rg",
             {
                 "sumstats_sources": ["a.sumstats.gz", "b.sumstats.gz"],
                 "anchor_trait": None,
@@ -2528,7 +2546,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 "chisq_max": None,
                 "log_level": "INFO",
             },
-        )()
+        )
 
         with mock.patch.object(
             regression_runner,
@@ -2560,9 +2578,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                 per_pair_metadata=[],
                 legacy_sumstats_drops=pd.DataFrame(columns=regression_runner.LEGACY_SUMSTATS_DROP_COLUMNS),
             )
-            args = type(
-                "Args",
-                (),
+            args = _parsed_regression_args(
+                "rg",
                 {
                     "sumstats_sources": sumstats_sources,
                     "anchor_trait": None,
@@ -2578,7 +2595,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "chisq_max": None,
                     "log_level": "INFO",
                 },
-            )()
+            )
 
             expected = replace(expected, rg_full=expected.rg_full.reindex(columns=RG_FULL_COLUMNS))
             marker = tmpdir / "out/RUN_FAILED.txt"
@@ -2622,9 +2639,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                 h2_per_trait=pd.DataFrame(),
                 per_pair_metadata=[],
             )
-            args = type(
-                "Args",
-                (),
+            args = _parsed_regression_args(
+                "rg",
                 {
                     "sumstats_sources": sumstats_sources,
                     "anchor_trait": "SCZ",
@@ -2640,7 +2656,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "chisq_max": None,
                     "log_level": "INFO",
                 },
-            )()
+            )
 
             with mock.patch.object(RegressionRunner, "estimate_rg_pairs", return_value=expected) as patched:
                 result = regression_runner.run_rg_from_args(args)
@@ -2671,9 +2687,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                 per_pair_metadata=[],
                 legacy_sumstats_drops=pd.DataFrame(columns=regression_runner.LEGACY_SUMSTATS_DROP_COLUMNS),
             )
-            args = type(
-                "Args",
-                (),
+            args = _parsed_regression_args(
+                "rg",
                 {
                     "sumstats_sources": sumstats_sources,
                     "anchor_trait": sumstats_sources[1],
@@ -2689,7 +2704,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "chisq_max": None,
                     "log_level": "INFO",
                 },
-            )()
+            )
 
             with mock.patch.object(RegressionRunner, "estimate_rg_pairs", return_value=expected) as patched:
                 regression_runner.run_rg_from_args(args)
@@ -2854,9 +2869,8 @@ class RegressionWorkflowTest(unittest.TestCase):
             stale = output_dir / "diagnostics" / "query_annotations" / "old"
             stale.mkdir(parents=True)
             (stale / "metadata.json").write_text("{}\n", encoding="utf-8")
-            args = type(
-                "Args",
-                (),
+            args = _parsed_regression_args(
+                "partitioned-h2",
                 {
                     "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
                     "trait_name": "trait",
@@ -2869,7 +2883,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "two_step_cutoff": None,
                     "chisq_max": None,
                 },
-            )()
+            )
 
             with mock.patch.object(
                 regression_runner.RegressionRunner,
@@ -2898,9 +2912,8 @@ class RegressionWorkflowTest(unittest.TestCase):
             output_dir.mkdir()
             existing = output_dir / "h2.tsv"
             existing.write_text("existing\n", encoding="utf-8")
-            args = type(
-                "Args",
-                (),
+            args = _parsed_regression_args(
+                "h2",
                 {
                     "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
                     "trait_name": "trait",
@@ -2913,7 +2926,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "two_step_cutoff": None,
                     "chisq_max": None,
                 },
-            )()
+            )
 
             with _stub_h2_kernel(
                 mock.Mock(
@@ -2942,9 +2955,8 @@ class RegressionWorkflowTest(unittest.TestCase):
             existing = output_dir / "diagnostics" / "metadata.json"
             existing.parent.mkdir(parents=True)
             existing.write_text("{}\n", encoding="utf-8")
-            args = type(
-                "Args",
-                (),
+            args = _parsed_regression_args(
+                "h2",
                 {
                     "sumstats_file": str(tmpdir / "missing.sumstats.gz"),
                     "trait_name": "trait",
@@ -2957,7 +2969,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "two_step_cutoff": None,
                     "chisq_max": None,
                 },
-            )()
+            )
 
             with mock.patch.object(
                 regression_runner,
@@ -2987,9 +2999,8 @@ class RegressionWorkflowTest(unittest.TestCase):
             existing_metadata = output_dir / "diagnostics" / "metadata.json"
             existing_metadata.parent.mkdir()
             existing_metadata.write_text('{"old": true}\n', encoding="utf-8")
-            args = type(
-                "Args",
-                (),
+            args = _parsed_regression_args(
+                "h2",
                 {
                     "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
                     "trait_name": "trait",
@@ -3002,7 +3013,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "two_step_cutoff": None,
                     "chisq_max": None,
                 },
-            )()
+            )
 
             with _stub_h2_kernel(
                 mock.Mock(
@@ -3039,3 +3050,17 @@ class RegressionWorkflowTest(unittest.TestCase):
                         writer.artifact_family(output_dir).preflight(overwrite=False)
 
                     self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
+
+
+@pytest.mark.parametrize("command, flags, message", [
+    ("h2", ["--samp-prev", "1.5", "--pop-prev", "0.01"], r"outside the open interval \(0, 1\)"),
+    ("partitioned-h2", ["--num-blocks", "1"], "num_blocks=1 must be greater than 1"),
+    ("rg", ["--num-blocks", "1"], "num_blocks=1 must be greater than 1"),
+])
+def test_regression_settings_are_checked_before_anything_is_written(tmp_path, command, flags, message):
+    # The regression settings become a RegressionConfig before the output preflight, so an invalid one
+    # stops the run before the output directory, its log or the input checks.
+    inputs = ["--sumstats-sources", "a.parquet", "b.parquet"] if command == "rg" else ["--sumstats-file", "a.parquet"]
+    with pytest.raises(LDSCConfigError, match=message):
+        cli.main([command, *inputs, "--ldscore-dir", "missing", "--output-dir", str(tmp_path / "out"), *flags])
+    assert not (tmp_path / "out").exists()

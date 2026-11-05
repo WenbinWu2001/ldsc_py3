@@ -265,6 +265,27 @@ def _read_json(path: Path, label: str) -> dict:
     return payload
 
 
+def require_current_index_format(root: dict) -> None:
+    """Reject root metadata of an index written in an earlier format, asking for a rebuild.
+
+    Both the loader and the declaration preflight of indexed ``ldscore`` call
+    this before any component check: components of an earlier index carry
+    the same earlier version, which a component check would report as a
+    mismatched restore instead.
+    """
+    if root.get("format_version") != _INDEX_FORMAT_VERSION:
+        raise LDSCInputError(
+            f"Unsupported gene LD-score index format version {root.get('format_version')!r} "
+            f"(this package reads version {_INDEX_FORMAT_VERSION}). Rebuild the complete index with the "
+            "current package; earlier indexes cannot be reused or migrated. Version 6 sums baseline "
+            "annotation counts in float64, as direct ldscore does, and stores the annotation_types and "
+            "snp_universe_policy that indexed ldscore output records; version 5 gives each SNP's "
+            "minor allele as A1, as other PLINK-derived files do; version 4 stores each "
+            "chromosome's reference-SNP funnel, which indexed scoring reports; version 3 made PLINK LD "
+            "windows exact, and earlier indexes' LD scores differ slightly from current direct ldscore runs."
+        )
+
+
 def _validate_metadata_identity(metadata: dict, *, index_id: str) -> None:
     if (metadata.get("artifact_type") != "gene_ldscore_index" or metadata.get("index_id") != index_id
             or metadata.get("format_version") != _INDEX_FORMAT_VERSION):
@@ -464,6 +485,7 @@ def inspect_index_paths(directory, *, metadata=None):
     root = Path(directory)
     if metadata is None:
         metadata = _read_json(root/'metadata.json', 'root')
+    require_current_index_format(metadata)
     chromosomes = metadata.get('chromosomes', [])
     if not isinstance(chromosomes, (list, tuple)) or not chromosomes or any(str(chrom) not in AUTOSOMES for chrom in chromosomes):
         raise LDSCInputError(

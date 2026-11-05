@@ -1514,6 +1514,26 @@ def test_chr_pos_index_round_trip_uses_coordinate_identity_and_publishes_plink_l
     assert metadata["index_genome_build"] == "hg19"
 
 
+def test_indexed_ldscore_asks_to_rebuild_an_index_of_an_earlier_format(tmp_path):
+    chromosome, catalog, index_identity = _artifact_payload()
+    index_dir = write_gene_ldscore_index(
+        tmp_path / "index", index_identity=index_identity, gene_catalog=catalog,
+        chromosomes={"22": chromosome},
+    )
+    # An index written by an earlier package version records that format in its root and every component.
+    for path in (index_dir / "metadata.json", index_dir / "chromosomes" / "chr22" / "metadata.json"):
+        metadata = json.loads(path.read_text(encoding="utf-8"))
+        metadata["format_version"] = 5
+        path.write_text(json.dumps(metadata), encoding="utf-8")
+    genes = tmp_path / "focal.txt"
+    genes.write_text("G1\n", encoding="utf-8")
+
+    with pytest.raises(LDSCInputError, match="Unsupported gene LD-score index format version 5") as caught:
+        run_indexed_ldscore(index_dir, query_gene_list_sources=(genes,), output_dir=tmp_path / "out")
+
+    assert "Rebuild the complete index" in str(caught.value)
+
+
 @pytest.mark.parametrize("snp_identifier", ["rsid", "chr_pos"])
 @pytest.mark.parametrize("column, changed_value", [("SNP", "rs_changed"), ("POS", 2), ("A1", "T"), ("A2", "C")])
 def test_index_loader_rejects_component_identity_metadata_and_published_row_tampering(

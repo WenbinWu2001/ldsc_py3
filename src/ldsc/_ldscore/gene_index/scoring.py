@@ -24,13 +24,13 @@ from ..outputs import common_count_config
 from . import artifact as index_artifact
 from .artifact import (
     IndexChromosomeData,
-    _INDEX_FORMAT_VERSION,
     _catalog_identity_records,
     _load_index_chromosome,
     _read_json,
     calculate_index_id,
     index_global_config,
     inspect_index_paths,
+    require_current_index_format,
 )
 from ..._runtime.parallelism import validate_workers
 from ..._runtime.paths import output_directory_path
@@ -162,17 +162,7 @@ def load_gene_ldscore_index(
     """
     index_path = Path(index_dir)
     root = _read_json(index_path / "metadata.json", "root")
-    if root.get("format_version") != _INDEX_FORMAT_VERSION:
-        raise LDSCInputError(
-            f"Unsupported gene LD-score index format version {root.get('format_version')!r} "
-            f"(this package reads version {_INDEX_FORMAT_VERSION}). Rebuild the complete index with the "
-            "current package; earlier indexes cannot be reused or migrated. Version 6 sums baseline "
-            "annotation counts in float64, as direct ldscore does, and stores the annotation_types and "
-            "snp_universe_policy that indexed ldscore output records; version 5 gives each SNP's "
-            "minor allele as A1, as other PLINK-derived files do; version 4 stores each "
-            "chromosome's reference-SNP funnel, which indexed scoring reports; version 3 made PLINK LD "
-            "windows exact, and earlier indexes' LD scores differ slightly from current direct ldscore runs."
-        )
+    require_current_index_format(root)
     if root.get("artifact_type") != "gene_ldscore_index":
         raise LDSCInputError(
             "Gene LD-score index root has the wrong artifact_type."

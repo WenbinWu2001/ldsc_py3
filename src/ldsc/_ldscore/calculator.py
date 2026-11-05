@@ -27,7 +27,7 @@ import argparse
 from contextlib import ExitStack
 from copy import copy
 from tempfile import TemporaryDirectory
-from dataclasses import dataclass, field, replace as dataclass_replace
+from dataclasses import dataclass, replace as dataclass_replace
 import logging
 import sys
 from typing import Any, Sequence

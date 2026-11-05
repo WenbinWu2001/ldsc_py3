@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from ldsc import GlobalConfig, RegressionConfig
-from ldsc._regression import runner as workflow
+from ldsc._regression import fitting, runner as workflow
 from ldsc.errors import LDSCConfigError, LDSCUsageError
 from ldsc._regression.outputs import H2DirectoryWriter, H2OutputConfig
 from ldsc._sumstats.table import SumstatsTable
@@ -130,7 +130,7 @@ def test_h2_fit_outcome_and_written_bins_use_exact_final_population(tmp_path, in
     runner = workflow.RegressionRunner(GlobalConfig(snp_identifier='rsid'), config)
     outcome = runner.estimate_h2(dataset)
     assert isinstance(outcome, workflow.RegressionFit)
-    assert isinstance(outcome.estimator, workflow.reg.Hsq)
+    assert isinstance(outcome.estimator, fitting.reg.Hsq)
     assert outcome.dataset.merged.SNP.tolist() == [f'rs{i}' for i in range(1, 60)]
     assert len(dataset.merged) == 60
     assert outcome.n_snps == 59
@@ -146,7 +146,7 @@ def test_h2_fit_outcome_and_written_bins_use_exact_final_population(tmp_path, in
     np.testing.assert_allclose(np.average(bins.mean_sample_size, weights=bins.n_snps), 1310.)
     table = SumstatsTable(data=dataset.merged, trait_name='trait', has_alleles=False, source_path='trait')
     metadata = workflow._h2_metadata(table, None, outcome, RegressionConfig())
-    summary = workflow.summarize_total_h2(outcome.estimator, outcome.dataset)
+    summary = fitting.summarize_total_h2(outcome.estimator, outcome.dataset)
     H2DirectoryWriter().write(summary, H2OutputConfig(output_dir=tmp_path), metadata=metadata, diagnostic_bins=bins)
     saved = json.loads((tmp_path / 'diagnostics/metadata.json').read_text())
     assert saved['n_snps'] == 59
@@ -172,7 +172,7 @@ def test_rg_outcome_uses_explicit_product_filter_not_h2_cap():
     runner = workflow.RegressionRunner(GlobalConfig(snp_identifier='rsid'), RegressionConfig(chisq_max=10, num_blocks=5, use_intercept=False))
     outcome = runner.estimate_rg(dataset)
     assert isinstance(outcome, workflow.RegressionFit)
-    assert isinstance(outcome.estimator, workflow.reg.RG)
+    assert isinstance(outcome.estimator, fitting.reg.RG)
     assert outcome.dataset.merged.SNP.tolist() == ['rs0'] + [f'rs{i}' for i in range(2, 60)]
     assert outcome.n_snps == 59
     assert outcome.n_blocks == 5
@@ -204,7 +204,7 @@ def test_partitioned_default_cap_uses_prefilter_sample_size_and_retains_annotati
     assert outcome.n_blocks == 6
     # Independent kernel invocation on the known retained rows verifies numerical parity.
     rows = merged.iloc[1:]
-    expected = workflow.reg.Hsq(
+    expected = fitting.reg.Hsq(
         rows[['Z']].to_numpy() ** 2, rows[['base', 'query']].to_numpy(),
         rows[['weight']].to_numpy(), rows[['N']].to_numpy(), np.array([[1000., 100.]]),
         n_blocks=6, intercept=None, twostep=None, old_weights=True,

@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ldsc._regression import alignment, runner as workflow
+from ldsc._regression import alignment, fitting, runner as workflow
 from ldsc import cli, load_ldscore_from_dir
 from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from tests.regression_fixtures import RegressionFixtures
@@ -202,12 +202,12 @@ def test_batch_fits_match_separate_models_and_release_details(tmp_path, monkeypa
         dataset = runner.build_dataset(table, source, query_columns=[query])
         outcome = runner.estimate_h2(dataset)
         expected[query] = (
-            workflow.summarize_partitioned_h2(outcome.estimator, outcome.dataset, [query]),
-            workflow.summarize_partitioned_h2(outcome.estimator, outcome.dataset, outcome.dataset.retained_ld_columns),
-            workflow._coefficient_delete_frame(outcome.estimator, outcome.dataset.retained_ld_columns),
+            fitting.summarize_partitioned_h2(outcome.estimator, outcome.dataset, [query]),
+            fitting.summarize_partitioned_h2(outcome.estimator, outcome.dataset, outcome.dataset.retained_ld_columns),
+            fitting._coefficient_delete_frame(outcome.estimator, outcome.dataset.retained_ld_columns),
         )
     del outcome, dataset
-    original_prepare, original_fit = workflow._prepare_h2_inputs, workflow._fit_h2_dataset
+    original_prepare, original_fit = workflow._prepare_h2_inputs, fitting._fit_h2_dataset
     preparations, live, reads = [], [], []
     original_read = type(source).read_queries
 
@@ -226,7 +226,7 @@ def test_batch_fits_match_separate_models_and_release_details(tmp_path, monkeypa
         return outcome
 
     monkeypatch.setattr(workflow, "_prepare_h2_inputs", prepare)
-    monkeypatch.setattr(workflow, "_fit_h2_dataset", fit)
+    monkeypatch.setattr(fitting, "_fit_h2_dataset", fit)
     monkeypatch.setattr(type(source), "read_queries", read)
     result = runner.estimate_partitioned_h2_batch(table, source, output_dir=tmp_path / "out",
                                                 query_batch_size=batch_size, summary_sort_by="category")
@@ -478,7 +478,7 @@ def _observe_staged_fit_worker(*args):
     import os
     from ldsc._regression.partitioned_parallel import _query_worker
     staged = []
-    original_stage = workflow.stage_partitioned_h2_fit
+    original_stage = fitting.stage_partitioned_h2_fit
 
     def stage(*args, **kwargs):
         artifact = original_stage(*args, **kwargs)
@@ -486,9 +486,9 @@ def _observe_staged_fit_worker(*args):
         Path(os.environ["LDSC_TEST_STAGED_FITS"]).write_text(json.dumps([str(item.full) for item in staged]))
         return artifact
 
-    workflow.stage_partitioned_h2_fit = stage
+    fitting.stage_partitioned_h2_fit = stage
     if os.environ["LDSC_TEST_LATE_FAILURE"] == "fit":
-        original_fit = workflow._fit_h2_dataset
+        original_fit = fitting._fit_h2_dataset
 
         def fit(*args, **kwargs):
             if staged:
@@ -496,7 +496,7 @@ def _observe_staged_fit_worker(*args):
                 raise RuntimeError("late fitting failure")
             return original_fit(*args, **kwargs)
 
-        workflow._fit_h2_dataset = fit
+        fitting._fit_h2_dataset = fit
     _query_worker(*args)
 
 

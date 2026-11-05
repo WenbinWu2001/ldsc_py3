@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ldsc._regression import alignment, runner as workflow
+from ldsc._regression import alignment, fitting, runner as workflow
 from ldsc._core import snp_identity
 from ldsc._regression import estimators as regression
 from ldsc._regression.partitioned_parallel import _stage_frame
@@ -68,7 +68,7 @@ def _fit_query_both_ways(tmp_path, chisq_max):
                                             runner.global_config)
     config = runner.regression_config
     dataset = alignment._dataset_from_query_values(prepared, ["first"], alignment._read_query_batch(prepared, ["first"]), config)
-    return workflow._fit_h2_dataset(dataset, config), workflow._fit_h2_dataset(dataset, config, retain_rows=False)
+    return fitting._fit_h2_dataset(dataset, config), fitting._fit_h2_dataset(dataset, config, retain_rows=False)
 
 
 @pytest.mark.parametrize("chisq_max", [80, 1e6])

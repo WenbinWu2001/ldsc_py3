@@ -800,7 +800,7 @@ or missing — it cannot define a genetic-distance window, and `--yes-really` do
 | Likely cause | Check |
 |---|---|
 | PLINK `.bim` has an all-zero `CM` column (the common PLINK default) | Inspect the third `.bim` column; it is `0` for every SNP |
-| Genome build for the genetic map could not be determined (rsID-family modes) | Confirm whether `--genome-build` was passed |
+| A PLINK genetic map was supplied in an rsID-family mode, where `ldscore` cannot yet select one; the error asks for `--genome-build` | Check `--snp-identifier`; passing `--genome-build` does not help |
 
 **Remedies:**
 
@@ -811,8 +811,8 @@ or missing — it cannot define a genetic-distance window, and `--yes-really` do
    R² matrix built with `ldsc build-r2-matrix --genetic-map-<build>-sources --ld-wind-cm`.
 3. Use a physical-distance window instead: `--ld-wind-kb 1000` or `--ld-wind-snps`.
    With an R² matrix, use the R² matrix's own window unit, no wider than its build window.
-4. In rsID identifier modes, pass `--genome-build hg19` / `--genome-build hg38`
-   so the matching genetic map can be selected.
+4. In rsID-family modes, `ldscore` cannot yet select a PLINK genetic map, and the run stops asking for `--genome-build` even when it was passed.
+   Use remedy 2 or 3, or a coordinate-family mode (`--snp-identifier chr_pos_allele_aware` with `--genome-build`).
 
 ## `build-r2-matrix`
 

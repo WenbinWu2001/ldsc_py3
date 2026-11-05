@@ -32,12 +32,8 @@ class __GenotypeArrayInMemory__(object):
         """Load, filter, and normalize one in-memory genotype matrix."""
         self.m = len(snp_list.IDList)
         self.n = n
-        self.keep_snps = keep_snps
-        self.keep_indivs = keep_indivs
         self.genotype_qc_removed = 0
         self.maf_removed = 0
-        self.df = np.array(snp_list.df[["CHR", "SNP", "BP", "CM"]])
-        self.colnames = ["CHR", "SNP", "POS", "CM"]
         self.mafMin = mafMin if mafMin is not None else 0
         self._currentSNP = 0
         (self.nru, self.geno) = self.__read__(fname, self.m, n)
@@ -79,11 +75,7 @@ class __GenotypeArrayInMemory__(object):
             # The reader is never returned, so its removal counts travel with the error.
             error.genotype_qc_removed, error.maf_removed = self.genotype_qc_removed, self.maf_removed
             raise error
-        self.df = self.df[self.kept_snps, :]
         self.maf = np.minimum(self.freq, np.ones(self.m) - self.freq)
-        self.sqrtpq = np.sqrt(self.freq * (np.ones(self.m) - self.freq))
-        self.df = np.c_[self.df, self.maf]
-        self.colnames.append("MAF")
 
     def __read__(self, fname, m, n):
         """Read the backend-specific genotype representation into memory."""

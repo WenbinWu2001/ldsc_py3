@@ -797,7 +797,7 @@ SNP selection is checked for every chromosome before any genotypes are read, and
 | 1 | The SNP restriction does not overlap the PLINK source panel | Compare the first IDs/coordinates in `--ref-panel-snps-file` against the `.bim` file |
 | 2 | The restriction or PLINK panel is on the wrong genome build | Check `--source-genome-build` and any build-specific restriction position columns |
 | 3 | Identity cleanup dropped all rows because identifiers are missing or duplicated | Inspect `diagnostics/dropped_snps/chr*_dropped.tsv.gz` for `reason` values |
-| 4 | Liftover or duplicate-position filtering removed every retained SNP | Inspect the dropped-SNP sidecar for `unmapped_liftover`, `source_duplicate`, or `target_collision` |
+| 4 | Liftover or duplicate-position filtering removed every retained SNP | Inspect the dropped-SNP sidecar for `unmapped_liftover`, `cross_chromosome_liftover`, or `target_collision` |
 | 5 | MAF or individual filtering removed all SNPs of a chromosome when its genotypes were read | Check the logged counts, `--maf-min`, and the keep-individual file against the `.fam` file |
 
 **Remedies:**

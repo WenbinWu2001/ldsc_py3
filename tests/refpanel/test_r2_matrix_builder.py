@@ -907,18 +907,6 @@ class DuplicatePositionDropAllTest(unittest.TestCase):
         np.testing.assert_array_equal(cleaned, keep)
         self.assertTrue(dropped.empty)
 
-    def test_source_duplicate_drop_all_removes_cluster(self):
-        chrom_df = self._make_chrom_df(["rs1", "rs2", "rs3"], [100, 100, 300])
-        keep = np.array([0, 1, 2])
-
-        cleaned, dropped = r2_matrix_builder._resolve_unique_snp_set("1", chrom_df, keep, {0: 100, 1: 100, 2: 300}, {})
-
-        np.testing.assert_array_equal(cleaned, np.array([2]))
-        self.assertEqual(len(dropped), 2)
-        self.assertTrue((dropped["reason"] == "source_duplicate").all())
-        self.assertTrue(dropped["target_pos"].isna().all())
-        self.assertSetEqual(set(dropped["SNP"]), {"rs1", "rs2"})
-
     def test_target_collision_drop_all_removes_cluster_from_all_builds(self):
         chrom_df = self._make_chrom_df(["rs1", "rs2", "rs3"], [100, 200, 300])
         keep = np.array([0, 1, 2])
@@ -2142,7 +2130,7 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
             with self.assertLogs("LDSC.r2_matrix_builder", level="INFO") as logs:
                 build_state = builder._prepare_build_state(config)
 
-        self.assertEqual(build_state.restriction_values, {"1:100"})
+        self.assertEqual(build_state.restriction_keys.keys, {"1:100"})
         self.assertTrue(any("source_genome_build='hg19'" in message for message in logs.output))
 
     def test_prepare_build_state_uses_resolved_build_and_drops_invalid_restriction_rows(self):
@@ -2170,7 +2158,7 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
             with self.assertLogs("LDSC.r2_matrix_builder", level="WARNING") as logs:
                 build_state = builder._prepare_build_state(config)
 
-        self.assertEqual(build_state.restriction_values, {"1:100"})
+        self.assertEqual(build_state.restriction_keys.keys, {"1:100"})
         self.assertEqual(build_state.restriction_keys.n_input_rows, 3)
         self.assertEqual(build_state.restriction_keys.n_retained_keys, 1)
 
@@ -2191,7 +2179,7 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
             )
 
             state = builder._prepare_build_state(config)
-            self.assertEqual(state.restriction_values, {'1:110'})
+            self.assertEqual(state.restriction_keys.keys, {'1:110'})
 
     def test_chr_pos_restriction_filters_before_liftover(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2207,8 +2195,13 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
                 genetic_map_hg19=None,
                 genetic_map_hg38=None,
                 liftover_chain_paths={("hg19", "hg38"): "chain.over"},
-                restriction_mode="chr_pos",
-                restriction_values={"1:200"},
+                restriction_keys=RestrictionIdentityKeys(
+                    keys={"1:200"},
+                    match_kind="base",
+                    dropped=empty_identity_drop_frame(),
+                    n_input_rows=1,
+                    n_retained_keys=1,
+                ),
             )
             builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos"))
             captured = {}
@@ -2269,8 +2262,13 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
                 genetic_map_hg19=None,
                 genetic_map_hg38=None,
                 liftover_chain_paths={("hg19", "hg38"): "chain.over"},
-                restriction_mode="rsid",
-                restriction_values={"rs2"},
+                restriction_keys=RestrictionIdentityKeys(
+                    keys={"rs2"},
+                    match_kind="base",
+                    dropped=empty_identity_drop_frame(),
+                    n_input_rows=1,
+                    n_retained_keys=1,
+                ),
             )
             builder = r2_matrix_builder.R2MatrixBuilder(
                 global_config=GlobalConfig(snp_identifier="rsid", genome_build="hg38")
@@ -2337,8 +2335,6 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
                 genetic_map_hg19=None,
                 genetic_map_hg38=None,
                 liftover_chain_paths={},
-                restriction_mode="chr_pos_allele_aware",
-                restriction_values=restriction.keys,
                 restriction_keys=restriction,
             )
             builder = r2_matrix_builder.R2MatrixBuilder(
@@ -2384,8 +2380,6 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
                 genetic_map_hg19=None,
                 genetic_map_hg38=None,
                 liftover_chain_paths={},
-                restriction_mode="chr_pos_allele_aware",
-                restriction_values=restriction.keys,
                 restriction_keys=restriction,
             )
             builder = r2_matrix_builder.R2MatrixBuilder(

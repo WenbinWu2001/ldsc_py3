@@ -13,9 +13,7 @@ from ldsc._refpanel.adapters import (
     R2MatrixRefPanel,
     PlinkRefPanel,
     RefPanelLoader,
-    _snp_id_series_for_matching,
 )
-from ldsc._refpanel.build_kernel import build_restriction_mask
 from tests.ref_panel_helpers import ORIENTATION_PANEL, write_counted_plink, write_r2_matrix_chromosome
 
 import numpy as np
@@ -95,20 +93,6 @@ class PlinkRefPanelTest(unittest.TestCase):
         self.assertEqual(metadata.loc[:, ["CHR", "SNP", "CM", "POS"]].columns.tolist(), ["CHR", "SNP", "CM", "POS"])
         self.assertGreater(len(metadata), 0)
 
-    def test_matching_ids_use_rsid_family(self):
-        metadata = pd.DataFrame({"SNP": ["rs1", "rs2"], "A1": ["A", "A"], "A2": ["C", "G"]})
-
-        ids = _snp_id_series_for_matching(metadata, "rsid_allele_aware", context="test")
-
-        self.assertEqual(ids.tolist(), ["rs1:A:C", "rs2:A:G"])
-
-    def test_build_restriction_mask_uses_rsid_family(self):
-        metadata = pd.DataFrame({"SNP": ["rs1", "rs2"]})
-
-        mask = build_restriction_mask(metadata, {"rs2"}, "rsid_allele_aware")
-
-        self.assertEqual(mask.tolist(), [False, True])
-
     def test_ref_panel_restriction_uses_allele_aware_identity_keys(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             restrict_path = Path(tmpdir) / "restrict.tsv"
@@ -127,7 +111,7 @@ class PlinkRefPanelTest(unittest.TestCase):
                 }
             )
 
-            filtered = panel._apply_snp_restriction(metadata)
+            filtered = panel._apply_keep_restriction(metadata)
 
             self.assertEqual(filtered["A2"].tolist(), ["C"])
 

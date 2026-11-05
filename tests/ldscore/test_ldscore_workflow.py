@@ -617,7 +617,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
             keep_indivs=keep_indivs,
             mafMin=maf_min,
         )
-        metadata = pd.DataFrame(bed.df, columns=bed.colnames).rename(columns={"BP": "POS"})
+        metadata = bim.df.iloc[bed.kept_snps].loc[:, ["CHR", "SNP", "BP", "CM"]].rename(columns={"BP": "POS"})
+        metadata["MAF"] = bed.maf
         metadata["CHR"] = metadata["CHR"].astype(str)
         metadata["SNP"] = metadata["SNP"].astype(str)
         metadata["CM"] = pd.to_numeric(metadata["CM"], errors="coerce")

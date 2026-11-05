@@ -1,6 +1,6 @@
 # Input Path Specification
 
-Last updated on: 2026-10-31
+Last updated on: 2026-11-04
 
 Examples below use the munged file names written without a trait label (`sumstats.parquet`, `sumstats.gz`); naming rules are in [artifact metadata](formats/artifact-metadata.md).
 
@@ -521,8 +521,8 @@ Output:
   the current package that the run did not produce.
 - Dropped-SNP audit sidecars are always written for processed chromosomes
   (header-only when clean) and contain liftover-stage rows with reasons
-  `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, and
-  `target_collision`.
+  `unmapped_liftover`, `cross_chromosome_liftover`, and `target_collision`;
+  same-position source rows are dropped earlier by identity cleanup.
 - The reference-panel directory may contain many chromosome/build artifacts. Treat it
   as one owned family only for full `@` suite invocations; concrete
   per-chromosome invocations use chromosome-specific ownership so parallel

@@ -17,7 +17,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .._core.coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from .._core.chromosomes import chrom_sort_key, normalize_chromosome
 from .._core.columns import normalize_genome_build
 from ..config import GlobalConfig, LDScoreConfig, RefPanelConfig, validate_config_compatibility
@@ -57,22 +56,6 @@ from .._core.snp_identity import (
 )
 
 LOGGER = logging.getLogger("LDSC.ref_panel")
-
-
-def _snp_id_series_for_matching(metadata: pd.DataFrame, snp_identifier: str, *, context: str) -> pd.Series:
-    """Build SNP identities for a match boundary, dropping missing CHR/POS in `chr_pos` mode."""
-    mode = normalize_snp_identifier_mode(snp_identifier)
-    if identity_mode_family(mode) == "rsid" or is_allele_aware_mode(mode):
-        return build_snp_id_series(metadata, mode)
-    keyed, _report = build_chr_pos_key_frame(
-        metadata,
-        context=context,
-        drop_missing=True,
-        logger=LOGGER,
-    )
-    keys = pd.Series(pd.NA, index=metadata.index, dtype="object")
-    keys.loc[keyed.index] = keyed[CHR_POS_KEY_COLUMN].astype(str)
-    return keys
 
 
 def _artifact_global_config(metadata, global_config, source):
@@ -192,10 +175,6 @@ class RefPanel(ABC):
             LOGGER.info(f"Removed {removed} reference-panel SNPs with MAF < {maf_min} on chromosome {chrom}.")
         return metadata.loc[keep].reset_index(drop=True)
 
-    def _apply_snp_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
-        """Apply the explicit custom LD-reference SNP restriction when configured."""
-        return self._apply_keep_restriction(metadata)
-
     def _apply_keep_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
         """Filter metadata rows to ``RefPanelConfig.ref_panel_snps_file`` when set.
 
@@ -280,7 +259,7 @@ class PlinkRefPanel(RefPanel):
         funnel.record(REFERENCE_PANEL, "panel_rows", len(metadata))
         if self.spec.ref_panel_snps_file is not None:
             before = len(metadata)
-            metadata = self._apply_snp_restriction(metadata)
+            metadata = self._apply_keep_restriction(metadata)
             funnel.record(REFERENCE_PANEL, "ref_panel_snps_file", before - len(metadata))
         # Cleanup sees only the restricted rows: a position is multi-allelic only when
         # the restriction keeps more than one of its allele pairs. Allele-aware modes
@@ -366,8 +345,7 @@ class PlinkRefPanel(RefPanel):
         source = self._load_source(chrom)
         if keep_snps is not None:
             prefix, bim, fam, metadata, drops, funnel = source
-            keys = _snp_id_series_for_matching(metadata, self.global_config.snp_identifier,
-                                              context=f"PLINK chromosome {chrom}")
+            keys = identifier_keys(metadata, self.global_config.snp_identifier)
             source = prefix, bim, fam, metadata.loc[keys.isin(keep_snps)].reset_index(drop=True), drops, funnel
         return self._load_genotypes(chrom, source, keep_indivs=keep_indivs, maf_min=maf_min)[0]
 
@@ -496,7 +474,7 @@ class R2MatrixRefPanel(RefPanel):
         funnel.record(REFERENCE_PANEL, "panel_rows", len(metadata))
         if self.spec.ref_panel_snps_file is not None:
             before = len(metadata)
-            metadata = self._apply_snp_restriction(metadata)
+            metadata = self._apply_keep_restriction(metadata)
             funnel.record(REFERENCE_PANEL, "ref_panel_snps_file", before - len(metadata))
         if self.spec.maf_min is not None:
             before = len(metadata)

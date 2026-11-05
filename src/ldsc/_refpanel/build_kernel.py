@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from os import PathLike
 from typing import Iterator, Sequence
@@ -10,7 +9,6 @@ from typing import Iterator, Sequence
 import numpy as np
 import pandas as pd
 
-from .._core.coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from .._core.chromosomes import chrom_sort_key, normalize_chromosome
 from .._core.columns import (
     CHR_COLUMN_SPEC,
@@ -23,11 +21,9 @@ from .._core.snp_identity import (
     RestrictionIdentityKeys,
     allele_set_series,
     base_key_series,
-    identity_mode_family,
     restriction_membership_mask,
 )
 
-LOGGER = logging.getLogger("LDSC.r2_matrix_builder.kernel")
 _BUILD_REF_PANEL_LIFTOVER_DOC = (
     "docs/user-guide/troubleshooting.md#build-r2-matrix-liftover-or-genetic-map-configuration-is-incomplete"
 )
@@ -473,37 +469,23 @@ def yield_pairwise_r2_rows(
 
 def build_restriction_mask(
     metadata: pd.DataFrame,
-    restriction_values: set[str] | RestrictionIdentityKeys,
+    restriction: RestrictionIdentityKeys,
     mode: str,
 ) -> np.ndarray:
     """Build the retained-SNP boolean mask for one SNP restriction set."""
-
-    if isinstance(restriction_values, RestrictionIdentityKeys):
-        if restriction_values.match_kind == "identity":
-            return _build_allele_aware_restriction_mask(
-                metadata,
-                restriction_values,
-                mode,
-                context="reference-panel SNP restriction matching",
-            ).to_numpy(dtype=bool)
-        return restriction_membership_mask(
+    if restriction.match_kind == "identity":
+        return _build_allele_aware_restriction_mask(
             metadata,
-            restriction_values,
+            restriction,
             mode,
             context="reference-panel SNP restriction matching",
         ).to_numpy(dtype=bool)
-
-    if identity_mode_family(mode) == "rsid":
-        return metadata["SNP"].astype(str).isin(restriction_values).to_numpy(dtype=bool)
-    keyed, _report = build_chr_pos_key_frame(
-        metadata.loc[:, ["CHR", "POS"]].copy(),
+    return restriction_membership_mask(
+        metadata,
+        restriction,
+        mode,
         context="reference-panel SNP restriction matching",
-        drop_missing=True,
-        logger=LOGGER,
-    )
-    keep = pd.Series(False, index=metadata.index)
-    keep.loc[keyed.index] = keyed[CHR_POS_KEY_COLUMN].isin(restriction_values).to_numpy(dtype=bool)
-    return keep.to_numpy(dtype=bool)
+    ).to_numpy(dtype=bool)
 
 
 def _build_allele_aware_restriction_mask(

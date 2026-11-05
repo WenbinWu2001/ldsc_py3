@@ -374,7 +374,7 @@ Summary-statistics and reference-panel sidecars may include identity reasons (`m
 `multi_allelic_base_key`, `duplicate_identity`) and
 liftover reasons (`missing_coordinate`, `source_duplicate`,
 `unmapped_liftover`, `cross_chromosome_liftover`, and `target_collision`);
-reference-panel sidecars do not emit `missing_coordinate`.
+reference-panel sidecars emit neither `missing_coordinate` nor `source_duplicate`, because identity cleanup already drops same-position rows as `duplicate_identity` or `multi_allelic_base_key`.
 
 ---
 

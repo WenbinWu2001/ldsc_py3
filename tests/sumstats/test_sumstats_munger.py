@@ -1168,6 +1168,7 @@ class SumstatsMungerTest(unittest.TestCase):
                     "source_pos": pd.Series([100], dtype="Int64"),
                     "target_pos": pd.Series([pd.NA], dtype="Int64"),
                     "reason": pd.Series(["unmapped_liftover"], dtype="string"),
+                    "stage": pd.Series(["liftover"], dtype="string"),
                 }
             )
 

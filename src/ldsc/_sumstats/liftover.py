@@ -30,7 +30,13 @@ import pandas as pd
 
 from .._core.columns import normalize_genome_build
 from .._core.coordinates import complete_coordinate_mask, normalize_chr_pos_frame
-from .._core.snp_identity import identity_mode_family, normalize_snp_identifier_mode
+from .._core.snp_identity import (
+    coerce_identity_drop_frame,
+    concat_identity_drop_frames,
+    empty_identity_drop_frame,
+    identity_mode_family,
+    normalize_snp_identifier_mode,
+)
 from .._genome.hm3 import _load_hm3_curated_map_from_path
 from .._genome.liftover import (
     LiftOverTranslator,
@@ -44,7 +50,6 @@ from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsa
 LOGGER = logging.getLogger("LDSC.sumstats_liftover")
 
 SUPPORTED_LIFTOVER_BUILDS = {"hg19", "hg38"}
-LIFTOVER_DROP_COLUMNS = ["CHR", "SNP", "source_pos", "target_pos", "reason"]
 _SUMSTATS_LIFTOVER_TROUBLESHOOTING = (
     "docs/user-guide/troubleshooting.md#munge-sumstats-liftover-dropped-all-rows"
 )
@@ -134,28 +139,6 @@ def default_liftover_metadata() -> dict[str, Any]:
     }
 
 
-def _empty_liftover_drop_frame() -> pd.DataFrame:
-    """Return the canonical empty dropped-SNP sidecar frame."""
-    return pd.DataFrame(
-        {
-            "CHR": pd.Series(dtype="string"),
-            "SNP": pd.Series(dtype="string"),
-            "source_pos": pd.Series(dtype="Int64"),
-            "target_pos": pd.Series(dtype="Int64"),
-            "reason": pd.Series(dtype="string"),
-        },
-        columns=LIFTOVER_DROP_COLUMNS,
-    )
-
-
-def _concat_liftover_drop_frames(frames: Sequence[pd.DataFrame]) -> pd.DataFrame:
-    """Concatenate drop frames while preserving the unified nullable schema."""
-    non_empty = [frame for frame in frames if frame is not None and not frame.empty]
-    if not non_empty:
-        return _empty_liftover_drop_frame()
-    return _coerce_liftover_drop_frame(pd.concat(non_empty, ignore_index=True))
-
-
 def _liftover_drop_frame(
     frame: pd.DataFrame,
     drop_mask: Sequence[bool] | np.ndarray,
@@ -166,7 +149,7 @@ def _liftover_drop_frame(
     target_pos_col: str | None = None,
     snp_col: str = "SNP",
 ) -> pd.DataFrame:
-    """Build unified dropped-SNP sidecar rows from one filtered frame slice."""
+    """Build dropped-SNP sidecar rows, stage ``liftover``, from one filtered frame slice."""
     mask = np.asarray(drop_mask, dtype=bool)
     if len(mask) != len(frame):
         raise LDSCInternalError(
@@ -175,7 +158,7 @@ def _liftover_drop_frame(
             "Re-run with DEBUG logging and report the traceback."
         )
     if not bool(mask.any()):
-        return _empty_liftover_drop_frame()
+        return empty_identity_drop_frame()
     dropped = frame.loc[mask]
     output = pd.DataFrame(index=dropped.index)
     output["CHR"] = dropped[chrom_col] if chrom_col in dropped.columns else pd.NA
@@ -189,22 +172,7 @@ def _liftover_drop_frame(
     else:
         output["target_pos"] = pd.NA
     output["reason"] = reason
-    return _coerce_liftover_drop_frame(output)
-
-
-def _coerce_liftover_drop_frame(frame: pd.DataFrame) -> pd.DataFrame:
-    """Return ``frame`` with canonical dropped-SNP sidecar columns and dtypes."""
-    output = frame.copy()
-    for column in LIFTOVER_DROP_COLUMNS:
-        if column not in output.columns:
-            output[column] = pd.NA
-    output = output.loc[:, LIFTOVER_DROP_COLUMNS]
-    output["CHR"] = output["CHR"].astype("string")
-    output["SNP"] = output["SNP"].astype("string")
-    output["source_pos"] = pd.to_numeric(output["source_pos"], errors="coerce").astype("Int64")
-    output["target_pos"] = pd.to_numeric(output["target_pos"], errors="coerce").astype("Int64")
-    output["reason"] = output["reason"].astype("string")
-    return output.reset_index(drop=True)
+    return coerce_identity_drop_frame(output, default_stage="liftover")
 
 
 def load_hm3_map_file(path: str | PathLike[str]) -> pd.DataFrame:
@@ -230,10 +198,10 @@ def apply_sumstats_liftover(
     missing coordinates, source duplicate ``CHR/POS`` groups, unmapped/cross-
     chromosome chain hits, and target duplicate ``CHR/POS`` groups only when a
     liftover request reaches the mapping stage. It updates ``CHR``/``POS`` but
-    preserves ``SNP`` as a label field. The third return value is a unified
-    nullable dropped-SNP frame with columns ``CHR``, ``SNP``, ``source_pos``,
-    ``target_pos``, and ``reason``; clean/no-op runs return the same schema
-    with zero rows.
+    preserves ``SNP`` as a label field. The third return value lists the
+    dropped rows in the dropped-SNP sidecar schema of
+    ``ldsc._core.snp_identity.coerce_identity_drop_frame``, with stage
+    ``liftover``; clean/no-op runs return the same schema with zero rows.
     """
     logger = LOGGER if logger is None else logger
     request = request or SumstatsLiftoverRequest()
@@ -246,7 +214,7 @@ def apply_sumstats_liftover(
             "Use chr_pos or chr_pos_allele_aware identifiers, or omit liftover for rsID-family inputs."
         )
     if not request.requested:
-        return frame, default_liftover_metadata(), _empty_liftover_drop_frame()
+        return frame, default_liftover_metadata(), empty_identity_drop_frame()
     if source not in SUPPORTED_LIFTOVER_BUILDS:
         raise LDSCUsageError(
             "Cannot apply summary-statistics liftover: the source genome build is unresolved. "
@@ -261,7 +229,7 @@ def apply_sumstats_liftover(
             )
             warnings.warn(message, UserWarning, stacklevel=2)
             logger.warning(message)
-        return frame, default_liftover_metadata(), _empty_liftover_drop_frame()
+        return frame, default_liftover_metadata(), empty_identity_drop_frame()
     if request.method is None:
         raise LDSCUsageError(
             f"Cannot apply summary-statistics liftover from {source} to {request.target_build}: no liftover method was specified. "
@@ -388,7 +356,7 @@ def apply_sumstats_liftover(
         f"Applied summary-statistics liftover {source} -> {request.target_build} using {request.method}: "
         f"{len(frame)} input rows, {len(lifted)} retained, {report['n_dropped']} dropped."
     )
-    drop_frame = _concat_liftover_drop_frames(
+    drop_frame = concat_identity_drop_frames(
         [missing_drop_frame, source_duplicate_frame, method_drop_frame, target_duplicate_frame]
     )
     return lifted, report, drop_frame
@@ -566,5 +534,5 @@ def _apply_chain_liftover(
         kept["POS"] = result.translated_positions.astype(np.int64)
         lifted_parts.append(kept)
     if not lifted_parts:
-        return frame.iloc[0:0].copy(), unmapped_count, cross_chrom_count, _concat_liftover_drop_frames(drop_frames)
-    return pd.concat(lifted_parts, axis=0), unmapped_count, cross_chrom_count, _concat_liftover_drop_frames(drop_frames)
+        return frame.iloc[0:0].copy(), unmapped_count, cross_chrom_count, concat_identity_drop_frames(drop_frames)
+    return pd.concat(lifted_parts, axis=0), unmapped_count, cross_chrom_count, concat_identity_drop_frames(drop_frames)

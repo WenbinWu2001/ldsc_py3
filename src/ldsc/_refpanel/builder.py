@@ -47,10 +47,10 @@ from .._runtime.serial_calculation import serial_calculation
 from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP, output_directory_argument
 from .._runtime.workflow_logging import FAILURE_MARKER, LOG_LEVEL_HELP
 from .._core.snp_identity import (
-    IDENTITY_DROP_COLUMNS,
     RestrictionIdentityKeys,
     clean_identity_artifact_table,
     coerce_identity_drop_frame,
+    concat_identity_drop_frames,
     emit_dropped_snps_notice,
     empty_identity_drop_frame,
     identity_mode_family,
@@ -247,38 +247,6 @@ def _expected_ref_panel_output_paths(
         # for every chromosome this invocation processes, even when header-only.
         paths.append(out_root / "diagnostics" / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz")
     return paths
-
-
-def _empty_unified_drop_frame() -> pd.DataFrame:
-    """Return the canonical empty dropped-SNP sidecar frame."""
-    return _coerce_unified_drop_frame(empty_identity_drop_frame())
-
-
-def _coerce_unified_drop_frame(frame: pd.DataFrame | None) -> pd.DataFrame:
-    """Return dropped-SNP rows with the unified nullable sidecar schema."""
-    if frame is None:
-        return _empty_unified_drop_frame()
-    output = frame.copy()
-    if "stage" not in output.columns and not output.empty:
-        output["stage"] = "ref_panel_liftover"
-    output = coerce_identity_drop_frame(output)
-    for column in IDENTITY_DROP_COLUMNS:
-        if column not in output.columns:
-            output[column] = pd.NA
-    output = output.loc[:, IDENTITY_DROP_COLUMNS]
-    for column in ("CHR", "SNP", "reason", "base_key", "identity_key", "allele_set", "stage"):
-        output[column] = output[column].astype("string")
-    output["source_pos"] = pd.to_numeric(output["source_pos"], errors="coerce").astype("Int64")
-    output["target_pos"] = pd.to_numeric(output["target_pos"], errors="coerce").astype("Int64")
-    return output.reset_index(drop=True)
-
-
-def _concat_drop_frames(frames: Sequence[pd.DataFrame]) -> pd.DataFrame:
-    """Concatenate sidecar rows while preserving the unified nullable schema."""
-    non_empty = [frame for frame in frames if frame is not None and not frame.empty]
-    if not non_empty:
-        return _empty_unified_drop_frame()
-    return _coerce_unified_drop_frame(pd.concat(non_empty, ignore_index=True))
 
 
 def _ref_panel_output_family(
@@ -800,7 +768,7 @@ class R2MatrixBuilder:
             # the column preserves the original indices keep_mask selects against.
             keep_snps = chrom_metadata["_plink_row_index"].to_numpy(dtype=int)[keep_mask]
             if len(keep_snps) == 0:
-                _write_dropped_sidecar(_empty_unified_drop_frame(), sidecar_path, chrom)
+                _write_dropped_sidecar(empty_identity_drop_frame(), sidecar_path, chrom)
                 return _ChromosomeSelection(bim, fam, keep_snps, sidecar_path, len(chrom_df),
                                             empty_stage="SNP restriction")
 
@@ -826,7 +794,7 @@ class R2MatrixBuilder:
             LOGGER.debug(message)
         keep_snps = identity_result.cleaned["_plink_row_index"].to_numpy(dtype=int)
         if len(keep_snps) == 0:
-            dropped_df = _concat_drop_frames(dropped_frames)
+            dropped_df = concat_identity_drop_frames(dropped_frames)
             _write_dropped_sidecar(dropped_df, sidecar_path, chrom)
             return _ChromosomeSelection(bim, fam, keep_snps, sidecar_path, len(chrom_df),
                                         empty_stage="identity cleanup")
@@ -860,7 +828,7 @@ class R2MatrixBuilder:
                     "because they collided in at least one emitted build.",
                     synchronized_drop_count,
                 )
-        dropped_df = _concat_drop_frames(dropped_frames)
+        dropped_df = concat_identity_drop_frames(dropped_frames)
         _write_dropped_sidecar(dropped_df, sidecar_path, chrom)
         return _ChromosomeSelection(
             bim, fam, keep_snps, sidecar_path, len(chrom_df), hg19_lookup, hg38_lookup,
@@ -1057,7 +1025,7 @@ class R2MatrixBuilder:
                     int(idx): int(pos)
                     for idx, pos in zip(retained_snps, candidate_positions)
                 }
-                return retained_snps, hg19_lookup, {}, _empty_unified_drop_frame()
+                return retained_snps, hg19_lookup, {}, empty_identity_drop_frame()
             mapping = self._map_positions(build_state, chrom, candidate_positions, "hg19", "hg38")
             retained_snps = np.asarray(keep_snps, dtype=int)[mapping.keep_mask]
             hg19_lookup = {
@@ -1075,7 +1043,7 @@ class R2MatrixBuilder:
                     int(idx): int(pos)
                     for idx, pos in zip(retained_snps, candidate_positions)
                 }
-                return retained_snps, {}, hg38_lookup, _empty_unified_drop_frame()
+                return retained_snps, {}, hg38_lookup, empty_identity_drop_frame()
             mapping = self._map_positions(build_state, chrom, candidate_positions, "hg38", "hg19")
             retained_snps = np.asarray(keep_snps, dtype=int)[mapping.keep_mask]
             hg38_lookup = {
@@ -1088,7 +1056,7 @@ class R2MatrixBuilder:
             }
 
         dropped = len(keep_snps) - len(retained_snps)
-        liftover_drop_frame = _empty_unified_drop_frame()
+        liftover_drop_frame = empty_identity_drop_frame()
         if dropped:
             drop_frame = pd.DataFrame(
                 {
@@ -1099,9 +1067,9 @@ class R2MatrixBuilder:
                 index=keep_snps,
             )
             unmapped_mask, cross_chrom_mask = mapping_reason_masks(mapping)
-            liftover_drop_frame = _concat_drop_frames(
+            liftover_drop_frame = concat_identity_drop_frames(
                 [
-                    _coerce_unified_drop_frame(
+                    coerce_identity_drop_frame(
                         pd.DataFrame(
                             {
                                 "CHR": [chrom] * int(unmapped_mask.sum()),
@@ -1110,9 +1078,10 @@ class R2MatrixBuilder:
                                 "target_pos": [pd.NA] * int(unmapped_mask.sum()),
                                 "reason": ["unmapped_liftover"] * int(unmapped_mask.sum()),
                             }
-                        )
+                        ),
+                        default_stage="ref_panel_liftover",
                     ),
-                    _coerce_unified_drop_frame(
+                    coerce_identity_drop_frame(
                         pd.DataFrame(
                             {
                                 "CHR": [chrom] * int(cross_chrom_mask.sum()),
@@ -1121,7 +1090,8 @@ class R2MatrixBuilder:
                                 "target_pos": [pd.NA] * int(cross_chrom_mask.sum()),
                                 "reason": ["cross_chromosome_liftover"] * int(cross_chrom_mask.sum()),
                             }
-                        )
+                        ),
+                        default_stage="ref_panel_liftover",
                     ),
                 ]
             )
@@ -1368,17 +1338,17 @@ def _resolve_unique_snp_set(
     cleaned = np.asarray([idx for idx in keep_snps if idx not in drop_set], dtype=keep_snps.dtype)
     columns = ["CHR", "SNP", "source_pos", "target_pos", "reason"]
     if prov_rows:
-        dropped_df = _coerce_unified_drop_frame(pd.DataFrame(prov_rows, columns=columns))
+        dropped_df = coerce_identity_drop_frame(pd.DataFrame(prov_rows, columns=columns), default_stage="ref_panel_liftover")
         dropped_df["target_pos"] = dropped_df["target_pos"].astype("Int64")
     else:
-        dropped_df = _empty_unified_drop_frame()
+        dropped_df = empty_identity_drop_frame()
     return cleaned, dropped_df
 
 
 def _write_dropped_sidecar(dropped_df: pd.DataFrame, path: Path, chrom: str) -> None:
     """Write the always-owned dropped-SNP audit sidecar for one chromosome."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    dropped_df = _coerce_unified_drop_frame(dropped_df)
+    dropped_df = coerce_identity_drop_frame(dropped_df, default_stage="ref_panel_liftover")
     dropped_df.to_csv(path, sep="\t", index=False, compression="gzip", na_rep="")
     n_dropped = len(dropped_df)
     if n_dropped == 0:

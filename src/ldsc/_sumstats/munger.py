@@ -70,8 +70,7 @@ from .._runtime.workflow_logging import (
     workflow_logging,
 )
 from .._core.snp_identity import (
-    IDENTITY_DROP_COLUMNS,
-    coerce_identity_drop_frame,
+    concat_identity_drop_frames,
     identity_mode_family,
     normalize_snp_identifier_mode,
 )
@@ -317,17 +316,7 @@ class SumstatsMunger:
             result = kernel_munge.munge_sumstats(request)
             data = result.data
             coordinate_metadata = result.coordinate_metadata
-            drop_frame = _coerce_sumstats_dropped_snps_frame(
-                result.liftover_drop_frame
-            )
-            identity_drop_frame = _coerce_sumstats_dropped_snps_frame(
-                result.identity_drop_frame,
-                default_stage=None,
-            )
-            drop_frame = _coerce_sumstats_dropped_snps_frame(
-                pd.concat([drop_frame, identity_drop_frame], ignore_index=True),
-                default_stage=None,
-            )
+            drop_frame = concat_identity_drop_frames([result.liftover_drop_frame, result.identity_drop_frame])
             table_config_snapshot = _effective_sumstats_config(config_snapshot, coordinate_metadata)
             qc_thresholds = {"info_min": request.qc.info_min, "maf_min": request.qc.maf_min}
             # Always write the audit sidecar so consumers can distinguish a
@@ -1359,47 +1348,6 @@ def _format_shell_command(command: list[str], *, base_indent: str = "  ", option
         suffix = " \\" if idx < len(command) else ""
         lines.append(f"{option_indent}{rendered}{suffix}")
     return "\n".join(lines)
-
-
-def _empty_sumstats_dropped_snps_frame() -> pd.DataFrame:
-    """Return the canonical empty summary-statistics dropped-SNP sidecar frame."""
-    return pd.DataFrame(
-        {
-            "CHR": pd.Series(dtype="string"),
-            "SNP": pd.Series(dtype="string"),
-            "source_pos": pd.Series(dtype="Int64"),
-            "target_pos": pd.Series(dtype="Int64"),
-            "reason": pd.Series(dtype="string"),
-            "base_key": pd.Series(dtype="string"),
-            "identity_key": pd.Series(dtype="string"),
-            "allele_set": pd.Series(dtype="string"),
-            "stage": pd.Series(dtype="string"),
-        },
-        columns=IDENTITY_DROP_COLUMNS,
-    )
-
-
-def _coerce_sumstats_dropped_snps_frame(
-    frame: pd.DataFrame | None,
-    *,
-    default_stage: str | None = "liftover",
-) -> pd.DataFrame:
-    """Return dropped-SNP rows with the unified nullable sidecar schema."""
-    if frame is None or frame.empty:
-        return _empty_sumstats_dropped_snps_frame()
-    output = coerce_identity_drop_frame(frame)
-    if default_stage is not None:
-        output["stage"] = output["stage"].fillna(default_stage)
-    output["CHR"] = output["CHR"].astype("string")
-    output["SNP"] = output["SNP"].astype("string")
-    output["source_pos"] = pd.to_numeric(output["source_pos"], errors="coerce").astype("Int64")
-    output["target_pos"] = pd.to_numeric(output["target_pos"], errors="coerce").astype("Int64")
-    output["reason"] = output["reason"].astype("string")
-    output["base_key"] = output["base_key"].astype("string")
-    output["identity_key"] = output["identity_key"].astype("string")
-    output["allele_set"] = output["allele_set"].astype("string")
-    output["stage"] = output["stage"].astype("string")
-    return output.reset_index(drop=True)
 
 
 def _log_sumstats_dropped_snps_summary(drop_frame: pd.DataFrame, path: Path) -> None:

@@ -1035,7 +1035,7 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
             def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
                 keep = np.asarray(keep_snps, dtype=int)
                 hg19 = {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep}
-                return keep, hg19, {}, r2_matrix_builder._empty_unified_drop_frame()
+                return keep, hg19, {}, empty_identity_drop_frame()
 
             with mock.patch.object(
                 builder,
@@ -1096,7 +1096,7 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
             def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
                 keep = np.asarray(keep_snps, dtype=int)
                 hg19 = {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep}
-                return keep, hg19, {}, r2_matrix_builder._empty_unified_drop_frame()
+                return keep, hg19, {}, empty_identity_drop_frame()
 
             with mock.patch.object(
                 builder,
@@ -1277,7 +1277,7 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
             def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
                 keep = np.asarray(keep_snps, dtype=int)
                 hg19 = {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep}
-                return keep, hg19, {}, r2_matrix_builder._empty_unified_drop_frame()
+                return keep, hg19, {}, empty_identity_drop_frame()
 
             with mock.patch.object(
                 builder,
@@ -1478,7 +1478,7 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
         def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
             keep = np.asarray(keep_snps, dtype=int)
             hg19 = {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep}
-            return keep, hg19, {}, r2_matrix_builder._empty_unified_drop_frame()
+            return keep, hg19, {}, empty_identity_drop_frame()
 
         with mock.patch.object(
             builder,
@@ -2369,7 +2369,7 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
                     keep,
                     {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep},
                     {},
-                    r2_matrix_builder._empty_unified_drop_frame(),
+                    empty_identity_drop_frame(),
                 )
 
             with mock.patch.object(

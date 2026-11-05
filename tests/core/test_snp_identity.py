@@ -288,6 +288,49 @@ class RestrictionIdentityKeysTest(unittest.TestCase):
         self.assertEqual(result.n_retained_keys, 1)
 
 
+class DroppedSNPSchemaTest(unittest.TestCase):
+    DTYPES = {"CHR": "string", "SNP": "string", "source_pos": "Int64", "target_pos": "Int64", "reason": "string",
+              "base_key": "string", "identity_key": "string", "allele_set": "string", "stage": "string"}
+
+    def test_rows_without_identity_columns_get_the_full_schema_and_default_stage(self):
+        rows = pd.DataFrame({"CHR": [1, 2], "SNP": ["rs1", "rs2"], "source_pos": [10, 20],
+                             "target_pos": [pd.NA, 25], "reason": "unmapped_liftover"}, index=[5, 7])
+
+        frame = si.coerce_identity_drop_frame(rows, default_stage="liftover")
+
+        self.assertEqual(frame.columns.tolist(), si.IDENTITY_DROP_COLUMNS)
+        self.assertEqual({column: str(dtype) for column, dtype in frame.dtypes.items()}, self.DTYPES)
+        self.assertEqual(frame.index.tolist(), [0, 1])
+        self.assertEqual(frame["CHR"].tolist(), ["1", "2"])
+        self.assertEqual(frame["target_pos"].tolist(), [pd.NA, 25])
+        self.assertEqual(frame["stage"].tolist(), ["liftover", "liftover"])
+        self.assertTrue(frame["base_key"].isna().all())
+
+    def test_default_stage_keeps_existing_stages(self):
+        rows = pd.DataFrame({"reason": ["duplicate_identity", "unmapped_liftover"],
+                             "stage": ["post_liftover_identity_cleanup", pd.NA]})
+
+        frame = si.coerce_identity_drop_frame(rows, default_stage="liftover")
+
+        self.assertEqual(frame["stage"].tolist(), ["post_liftover_identity_cleanup", "liftover"])
+
+    def test_a_non_numeric_position_is_kept(self):
+        frame = si.coerce_identity_drop_frame(pd.DataFrame({"source_pos": ["10", "bad"]}))
+
+        self.assertEqual(frame["source_pos"].tolist(), ["10", "bad"])
+
+    def test_empty_and_concatenated_frames_share_the_schema(self):
+        empty = si.empty_identity_drop_frame()
+        rows = pd.DataFrame({"SNP": ["rs1"], "source_pos": [10], "reason": "source_duplicate"})
+
+        combined = si.concat_identity_drop_frames([empty, None, rows, rows], default_stage="liftover")
+
+        self.assertEqual({column: str(dtype) for column, dtype in empty.dtypes.items()}, self.DTYPES)
+        self.assertEqual(len(empty), 0)
+        self.assertEqual({column: str(dtype) for column, dtype in combined.dtypes.items()}, self.DTYPES)
+        self.assertEqual(combined.index.tolist(), [0, 1])
+        self.assertEqual(combined["stage"].tolist(), ["liftover", "liftover"])
+
+
 if __name__ == "__main__":
     unittest.main()
-

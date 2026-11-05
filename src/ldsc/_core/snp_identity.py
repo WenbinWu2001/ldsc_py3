@@ -50,6 +50,7 @@ IDENTITY_DROP_COLUMNS = [
     "allele_set",
     "stage",
 ]
+_DROP_TEXT_COLUMNS = ("CHR", "SNP", "reason", "base_key", "identity_key", "allele_set", "stage")
 IDENTITY_DROP_REASONS = (
     "missing_allele",
     "invalid_allele",
@@ -432,25 +433,43 @@ def restriction_membership_mask(
 
 
 def empty_identity_drop_frame() -> pd.DataFrame:
-    """Return an empty identity drop-report frame with the public schema."""
-    return pd.DataFrame(columns=IDENTITY_DROP_COLUMNS)
+    """Return an empty dropped-SNP frame in the schema of :func:`coerce_identity_drop_frame`."""
+    return coerce_identity_drop_frame(None)
 
 
-def coerce_identity_drop_frame(frame: pd.DataFrame) -> pd.DataFrame:
-    """Coerce ``frame`` to the identity drop-report schema and column order."""
-    if frame is None or frame.empty:
-        return empty_identity_drop_frame()
-    coerced = frame.copy()
-    for column in IDENTITY_DROP_COLUMNS:
-        if column not in coerced.columns:
-            coerced[column] = pd.NA
-    coerced = coerced.loc[:, IDENTITY_DROP_COLUMNS].reset_index(drop=True)
+def coerce_identity_drop_frame(frame: pd.DataFrame | None, *, default_stage: str | None = None) -> pd.DataFrame:
+    """Return ``frame`` in the dropped-SNP sidecar schema shared by every workflow.
+
+    The result has the columns of ``IDENTITY_DROP_COLUMNS`` in that order and
+    a fresh ``RangeIndex``. Columns ``frame`` lacks are added as missing
+    values; other columns are left out. Text columns use the pandas
+    ``string`` dtype. ``source_pos`` and ``target_pos`` use the nullable
+    ``Int64`` dtype unless a value is not numeric, in which case the column
+    keeps its values unchanged rather than losing them. ``default_stage``
+    fills missing ``stage`` values, so callers can build rows without a
+    ``stage`` column. ``None`` gives the empty frame.
+    """
+    coerced = (pd.DataFrame(columns=IDENTITY_DROP_COLUMNS) if frame is None else frame)
+    coerced = coerced.reindex(columns=IDENTITY_DROP_COLUMNS).reset_index(drop=True)
+    if default_stage is not None:
+        coerced["stage"] = coerced["stage"].fillna(default_stage)
+    for column in _DROP_TEXT_COLUMNS:
+        coerced[column] = coerced[column].astype("string")
     for column in ("source_pos", "target_pos"):
         original = coerced[column]
         numeric = pd.to_numeric(original, errors="coerce")
         if bool(original.isna().equals(numeric.isna())):
             coerced[column] = numeric.astype("Int64")
     return coerced
+
+
+def concat_identity_drop_frames(
+    frames: Iterable[pd.DataFrame | None], *, default_stage: str | None = None,
+) -> pd.DataFrame:
+    """Concatenate dropped-SNP frames in order into the :func:`coerce_identity_drop_frame` schema."""
+    rows = [frame for frame in frames if frame is not None and not frame.empty]
+    return coerce_identity_drop_frame(pd.concat(rows, ignore_index=True) if rows else None,
+                                      default_stage=default_stage)
 
 
 def identity_drop_rows(frame: pd.DataFrame, *, reason: str, stage: str) -> pd.DataFrame:
@@ -501,7 +520,7 @@ def clean_identity_artifact_table(
     data, filtered = _filter_identity_rows(frame, mode, context=context, stage=stage)
     cleaned = data.take(np.flatnonzero(filtered.keep))
     cleaned.index = pd.RangeIndex(len(cleaned))
-    dropped = _combine_drop_frames(filtered.drop_frames)
+    dropped = concat_identity_drop_frames(filtered.drop_frames)
     _log_identity_drops(dropped, context=context, logger=logger)
     return IdentityCleanupResult(cleaned=cleaned, dropped=dropped)
 
@@ -514,7 +533,7 @@ def identity_cleanup_keys(frame: pd.DataFrame, mode: str, *, context: str, stage
     as ``pd.NA``; the cleaned table itself is not built.
     """
     _, filtered = _filter_identity_rows(frame, mode, context=context, stage=stage)
-    return filtered.identity_key[filtered.keep], _combine_drop_frames(filtered.drop_frames)
+    return filtered.identity_key[filtered.keep], concat_identity_drop_frames(filtered.drop_frames)
 
 
 def _filter_identity_rows(frame: pd.DataFrame, mode: str, *, context: str, stage: str):
@@ -612,7 +631,7 @@ def collapse_restriction_identity_keys(
     filtered = _IdentityFilter(frame, base, stage="restriction")
     filtered.drop_invalid_alleles(context=context)
     keys = {str(value) for value in pd.Series(filtered.identity_key[filtered.keep], dtype=object).dropna().tolist()}
-    dropped = _combine_drop_frames(filtered.drop_frames)
+    dropped = concat_identity_drop_frames(filtered.drop_frames)
     _log_identity_drops(dropped, context=context, logger=logger)
     return RestrictionIdentityKeys(
         keys=keys,
@@ -642,12 +661,6 @@ def _multi_allelic_base_key_mask(frame: pd.DataFrame) -> pd.Series:
 def _duplicate_identity_mask(identity_key: pd.Series) -> pd.Series:
     valid = identity_key.notna()
     return valid & identity_key.duplicated(keep=False)
-
-
-def _combine_drop_frames(drop_frames: list[pd.DataFrame]) -> pd.DataFrame:
-    if not drop_frames:
-        return empty_identity_drop_frame()
-    return coerce_identity_drop_frame(pd.concat(drop_frames, ignore_index=True))
 
 
 def emit_dropped_snps_notice(paths: Iterable[str | PathLike[str]], *, command: str) -> None:

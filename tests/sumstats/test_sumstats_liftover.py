@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 
+from ldsc._core.snp_identity import IDENTITY_DROP_COLUMNS
 from ldsc._genome.liftover import LiftOverMappingResult
 from ldsc._sumstats.liftover import SumstatsLiftoverRequest, apply_sumstats_liftover, load_hm3_map_file
 from ldsc.errors import LDSCInputError, LDSCUsageError
@@ -22,6 +23,10 @@ class SumstatsLiftoverTest(unittest.TestCase):
         "source_pos": "Int64",
         "target_pos": "Int64",
         "reason": "string",
+        "base_key": "string",
+        "identity_key": "string",
+        "allele_set": "string",
+        "stage": "string",
     }
 
     def write_hm3_map(self, root: Path, text: str) -> Path:
@@ -369,8 +374,9 @@ class SumstatsLiftoverTest(unittest.TestCase):
                 "target_collision",
             },
         )
-        self.assertEqual(drop_frame.columns.tolist(), ["CHR", "SNP", "source_pos", "target_pos", "reason"])
+        self.assertEqual(drop_frame.columns.tolist(), IDENTITY_DROP_COLUMNS)
         self.assertEqual({column: str(dtype) for column, dtype in drop_frame.dtypes.items()}, self.SIDEcar_DTYPES)
+        self.assertEqual(set(drop_frame["stage"]), {"liftover"})
 
     def test_liftover_errors_after_missing_coordinate_drop_removes_everything(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -439,7 +445,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
                 "n_duplicate_target_dropped": None,
             },
         )
-        self.assertEqual(drop_frame.columns.tolist(), ["CHR", "SNP", "source_pos", "target_pos", "reason"])
+        self.assertEqual(drop_frame.columns.tolist(), IDENTITY_DROP_COLUMNS)
         self.assertEqual(len(drop_frame), 0)
         self.assertEqual({column: str(dtype) for column, dtype in drop_frame.dtypes.items()}, self.SIDEcar_DTYPES)
 

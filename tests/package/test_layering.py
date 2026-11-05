@@ -85,7 +85,9 @@ DEFERRED_IMPORTS = {
     ("ldsc._refpanel.builder", "ldsc._refpanel.preflight"):
         "only build-r2-matrix checks genetic-map headers",
     ("ldsc._refpanel.builder", "ldsc._runtime.workflow_kwargs"):
-        "only run_build_r2_matrix checks Python keyword arguments",
+        "only the build-r2-matrix entry points check keyword arguments and record explicit options",
+    ("ldsc.cli", "ldsc._runtime.workflow_kwargs"):
+        "only a command parsed by ldsc itself records its explicit options; ldsc --help loads no workflow",
     ("ldsc._refpanel.query", "ldsc._refpanel.preflight"):
         "only query-r2-matrix checks R2 matrix sidecar headers",
 }

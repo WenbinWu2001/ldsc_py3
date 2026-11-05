@@ -169,7 +169,9 @@ def main(argv: Sequence[str] | None = None):
     module = import_module(command.module, __package__)
     if command.add_arguments is None:
         return module.main(argv[1:])
-    return getattr(module, command.run)(_command_parser(argv[0]).parse_args(argv[1:]))
+    from ._runtime.workflow_kwargs import parse_command_line
+
+    return getattr(module, command.run)(parse_command_line(_command_parser(argv[0]), argv[1:]))
 
 
 def run_cli(argv: Sequence[str] | None = None) -> int:

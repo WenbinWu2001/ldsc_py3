@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import gc
 import logging
+import sys
 
 from dataclasses import asdict, dataclass, field, replace as dataclass_replace
 from pathlib import Path
@@ -1662,9 +1663,9 @@ def run_build_r2_matrix(**kwargs: Any) -> R2MatrixBuildResult:
 
 def main(argv: Sequence[str] | None = None) -> R2MatrixBuildResult:
     """Command-line entry point for the R2 matrix builder."""
+    from .._runtime.workflow_kwargs import parse_command_line
 
-    parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parse_command_line(build_parser(), list(sys.argv[1:] if argv is None else argv))
     result = run_build_r2_matrix_from_args(args)
     emit_dropped_snps_notice(result.output_paths.get("dropped_snps", []), command="build-r2-matrix")
     return result

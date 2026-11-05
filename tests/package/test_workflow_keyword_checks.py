@@ -101,3 +101,33 @@ def test_keyword_and_command_line_routes_record_the_same_explicit_options():
     from_argv = parse_command_line(parser, ["--output-dir", "out", "--maf-min=0.01"])
     assert from_kwargs._explicit_cli_options == from_argv._explicit_cli_options == {"--output-dir", "--maf-min"}
     assert from_argv.maf_min == 0.01
+
+
+# Every command with a keyword wrapper, as `ldsc` parses it; the workflow is replaced by a recorder.
+_COMMAND_LINES = [
+    ("ldsc._ldscore.calculator", "run_ldscore_from_args", ["ldscore", "--plink-prefix", "panel", "--output-dir", "out"]),
+    ("ldsc._refpanel.builder", "run_build_r2_matrix_from_args",
+     ["build-r2-matrix", "--plink-prefix", "panel", "--ld-wind-kb=1", "--output-dir", "out"]),
+    ("ldsc._regression.runner", "run_h2_from_args",
+     ["h2", "--sumstats-file", "trait.parquet", "--ldscore-dir", "ld", "--output-dir", "out"]),
+    ("ldsc._regression.runner", "run_partitioned_h2_from_args",
+     ["partitioned-h2", "--sumstats-file", "trait.parquet", "--ldscore-dir", "ld", "--output-dir=out"]),
+    ("ldsc._regression.runner", "run_rg_from_args",
+     ["rg", "--sumstats-sources", "a.parquet", "b.parquet", "--ldscore-dir", "ld", "--output-dir", "out"]),
+    ("ldsc._regression.quantile_h2", "run_quantile_h2_from_args",
+     ["quantile-h2", "--partitioned-h2-result-dir", "fit", "--target-annot-sources", "target.annot",
+      "--target-annot-column", "target", "--baseline-annot-sources", "base.annot", "--ref-metadata-sources",
+      "meta.tsv", "--output-dir", "out"]),
+]
+
+
+@pytest.mark.parametrize(("module", "run", "argv"), _COMMAND_LINES)
+def test_command_lines_record_explicit_options_like_their_keyword_wrappers(monkeypatch, module, run, argv):
+    from importlib import import_module
+
+    from ldsc import cli
+
+    parsed = []
+    monkeypatch.setattr(import_module(module), run, lambda args: parsed.append(args) or SimpleNamespace(output_paths={}))
+    cli.main(argv)
+    assert parsed[0]._explicit_cli_options == {token.split("=", 1)[0] for token in argv if token.startswith("--")}

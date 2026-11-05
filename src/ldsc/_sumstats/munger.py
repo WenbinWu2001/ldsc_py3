@@ -163,11 +163,8 @@ class SumstatsMunger:
 
     @materializing_overwrite_guard(
         lambda self, raw_sumstats_config, munge_config=None, global_config=None: (
-            (
-                (raw_sumstats_config if munge_config is None or isinstance(munge_config, GlobalConfig) else munge_config).output_dir,
-                (raw_sumstats_config if munge_config is None or isinstance(munge_config, GlobalConfig) else munge_config).overwrite,
-            )
-            if (raw_sumstats_config if munge_config is None or isinstance(munge_config, GlobalConfig) else munge_config).output_dir
+            ((munge_config or raw_sumstats_config).output_dir, (munge_config or raw_sumstats_config).overwrite)
+            if (munge_config or raw_sumstats_config).output_dir
             else None
         ),
         command="SumstatsMunger.run(...)",
@@ -1245,8 +1242,6 @@ def _append_suggested_flag(args: list[str], flag: str) -> None:
     """Append a boolean CLI flag to inference suggestions once."""
     if flag not in args:
         args.append(flag)
-
-
 
 
 def _apply_missing_column_report(

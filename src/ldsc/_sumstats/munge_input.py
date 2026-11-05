@@ -13,6 +13,7 @@ resolved settings.
 """
 
 import bz2
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 import gzip
 import logging
@@ -28,7 +29,8 @@ from .._core.columns import (
 )
 from ..config import GlobalConfig, MungeConfig
 from ..errors import LDSCInputError, LDSCUsageError, LDSCUserError
-from .liftover import SumstatsLiftoverRequest
+from .._core.identifiers import restriction_file_has_allele_columns
+from .liftover import SumstatsLiftoverRequest, load_hm3_map_file
 from .._core.snp_identity import identity_base_mode, identity_mode_family, is_allele_aware_mode
 from .munge_kernel import MungeQC, ResolvedMungeInput, mean_info_list_value, prepare_sumstats_restriction
 from .._genome.build_policy import GenomeBuildCheck
@@ -750,15 +752,19 @@ def _check_increasing_allele_signs(schema: RawSchema) -> None:
 def prepare_munge_input(
     schema: RawSchema,
     global_config: GlobalConfig,
-    liftover_request: SumstatsLiftoverRequest,
+    liftover_for_build: Callable[[str | None], SumstatsLiftoverRequest],
     restriction_path: str | None,
 ) -> ResolvedMungeInput:
-    """Turn a resolved raw schema into a kernel request: source coordinates and keep-list.
+    """Turn a resolved raw schema into a kernel request: source coordinates, liftover and keep-list.
 
     Raises every header issue of ``schema`` first. Only build inference
-    performs a streaming coordinate prepass. No output directory or artifact is
-    touched here; the returned request can be executed without a CLI namespace
-    or any further format/build decisions.
+    performs a streaming coordinate prepass. ``liftover_for_build`` returns the
+    liftover request for the resolved source build. HM3 quick liftover runs
+    only under the packaged HM3 restriction, so for it the HM3 map at
+    ``restriction_path`` is loaded once and serves as both the keep-list and
+    the position lookup. No output directory or artifact is touched here; the
+    returned request can be executed without a CLI namespace or any further
+    format/build decisions.
     """
     schema.raise_issues()
     _check_increasing_allele_signs(schema)
@@ -774,7 +780,12 @@ def prepare_munge_input(
     _, compression = get_compression(source_path)
     metadata_skiprows = count_leading_sumstats_comment_lines(source_path)
     coordinate_metadata = resolve_source_coordinates(source_path, schema.column_map, global_config, restriction_path=restriction_path)
-    restriction = prepare_sumstats_restriction(restriction_path, mode, coordinate_metadata['genome_build'])
+    liftover_request = liftover_for_build(coordinate_metadata['genome_build'])
+    hm3_map = None
+    if liftover_request.method == 'hm3_curated':
+        alleles = is_allele_aware_mode(mode) and restriction_file_has_allele_columns(restriction_path)
+        hm3_map = load_hm3_map_file(restriction_path, alleles=alleles)
+    restriction = prepare_sumstats_restriction(restriction_path, mode, coordinate_metadata['genome_build'], hm3_map=hm3_map)
     info_lists = {clean_header(column) for column in config.info_list_columns}
     return ResolvedMungeInput(
         source_path=source_path,
@@ -796,6 +807,7 @@ def prepare_munge_input(
         restriction=restriction,
         liftover_request=liftover_request,
         qc=schema.qc,
+        hm3_map=hm3_map,
     )
 
 

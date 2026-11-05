@@ -175,13 +175,15 @@ def _liftover_drop_frame(
     return coerce_identity_drop_frame(output, default_stage="liftover")
 
 
-def load_hm3_map_file(path: str | PathLike[str]) -> pd.DataFrame:
+def load_hm3_map_file(path: str | PathLike[str], *, alleles: bool = False) -> pd.DataFrame:
     """Load a curated dual-build HM3 map file into canonical columns.
 
-    Unlike ``ldsc.load_hm3_curated_map``, which loads the packaged map with all
-    its columns, this reads any map file and keeps only the canonical columns.
+    The frame has ``CHR``, ``hg19_POS``, ``hg38_POS`` and ``SNP``.
+    ``alleles=True`` also requires ``A1``/``A2``, returns them uppercase and
+    keeps the file's other columns. Unlike ``ldsc.load_hm3_curated_map``,
+    which loads the packaged map, this reads any map file.
     """
-    return _load_hm3_curated_map_from_path(path, preserve_extra_columns=False)
+    return _load_hm3_curated_map_from_path(path, preserve_extra_columns=alleles)
 
 
 def apply_sumstats_liftover(
@@ -190,6 +192,7 @@ def apply_sumstats_liftover(
     *,
     source_build: str | None,
     snp_identifier: str,
+    hm3_map: pd.DataFrame | None = None,
     logger: logging.Logger | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any], pd.DataFrame]:
     """Apply a summary-statistics liftover request and return metadata plus drops.
@@ -202,6 +205,9 @@ def apply_sumstats_liftover(
     dropped rows in the dropped-SNP sidecar schema of
     ``ldsc._core.snp_identity.coerce_identity_drop_frame``, with stage
     ``liftover``; clean/no-op runs return the same schema with zero rows.
+    HM3 quick liftover maps positions through ``hm3_map``, the dual-build map
+    from :func:`load_hm3_map_file`; the munging workflow loads it once and
+    derives the packaged keep-list from the same frame.
     """
     logger = LOGGER if logger is None else logger
     request = request or SumstatsLiftoverRequest()
@@ -283,6 +289,7 @@ def apply_sumstats_liftover(
         lifted, unmapped_count, method_drop_frame = _apply_hm3_liftover(
             work,
             request,
+            hm3_map,
             source_build=source,
             logger=logger,
         )
@@ -428,18 +435,18 @@ def _raise_sumstats_all_dropped(
 def _apply_hm3_liftover(
     frame: pd.DataFrame,
     request: SumstatsLiftoverRequest,
+    mapping: pd.DataFrame | None,
     *,
     source_build: str,
     logger: logging.Logger | None = None,
 ) -> tuple[pd.DataFrame, int, pd.DataFrame]:
     """Apply coordinate-only HM3 map liftover and return unmapped sidecar rows."""
-    if request.hm3_map_file is None:
-        raise LDSCUsageError(
-            "Cannot apply HM3 quick liftover: hm3_map_file is missing. "
-            "Most likely HM3 quick liftover was enabled without a curated map path. "
-            "Provide the packaged HM3 dual-build map file."
+    if mapping is None:
+        raise LDSCInternalError(
+            "munge-sumstats reached HM3 quick liftover without the loaded HM3 map; this is an unexpected internal state. "
+            "Report the command, LDSC3 version, and saved traceback. "
+            "--log-level DEBUG adds troubleshooting detail."
         )
-    mapping = load_hm3_map_file(request.hm3_map_file)
     source_column = f"{source_build}_POS"
     target_column = f"{request.target_build}_POS"
     lookup = mapping.loc[:, ["CHR", source_column, target_column]].rename(columns={source_column: "POS"})

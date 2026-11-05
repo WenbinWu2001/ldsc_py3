@@ -23,6 +23,7 @@ import logging
 from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -48,6 +49,7 @@ from .._core.snp_identity import (
     allele_set_series,
     base_key_series,
     clean_identity_artifact_table,
+    collapse_restriction_identity_keys,
     identity_mode_family,
     is_allele_aware_mode,
 )
@@ -110,6 +112,8 @@ class ResolvedMungeInput:
     Coordinate-family inputs carry a concrete source build and raw coordinate
     basis. There are no CLI flags, output paths or hidden result attributes.
     The kernel does not mutate this request, including its prepared keep-list.
+    ``hm3_map`` is the dual-build HM3 map loaded once for HM3 quick liftover
+    and the packaged keep-list; it is ``None`` for every other run.
     """
 
     source_path: str
@@ -130,6 +134,7 @@ class ResolvedMungeInput:
     restriction: _SumstatsRestriction | None
     liftover_request: SumstatsLiftoverRequest
     qc: MungeQC
+    hm3_map: pd.DataFrame | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -401,18 +406,23 @@ def parse_dat(dat_gen, request: ResolvedMungeInput) -> _ParsedChunks:
     return _ParsedChunks(dat, tot_snps, {key: int(value) for key, value in drops.items()}, coordinate_counts)
 
 
-def prepare_sumstats_restriction(snps_path: str | None, mode: str, genome_build: str | None):
+def prepare_sumstats_restriction(snps_path: str | None, mode: str, genome_build: str | None, *, hm3_map=None):
     """
     Load the active summary-statistics keep-list before raw chunk parsing.
 
     The returned object stores either rsID strings or packed uint64 CHR/POS
     keys, depending on the resolved SNP identifier mode. Empty files with no usable
     identifiers fail here, before the raw summary-statistics iterator is consumed.
+    ``hm3_map`` is the already loaded dual-build HM3 map that ``snps_path``
+    names, passed for HM3 quick liftover so the file is parsed once; its keys
+    equal those the file readers give for a valid HM3 map.
     """
     if not snps_path:
         return None
 
-    if identity_mode_family(mode) == 'chr_pos' and (
+    if hm3_map is not None:
+        identifiers, identity_keys = _hm3_restriction_keys(hm3_map, snps_path, mode, genome_build)
+    elif identity_mode_family(mode) == 'chr_pos' and (
         mode == 'chr_pos' or not restriction_file_has_allele_columns(snps_path, context=str(snps_path))
     ):
         identifiers = read_global_chr_pos_restriction_key_set(
@@ -454,6 +464,26 @@ def prepare_sumstats_restriction(snps_path: str | None, mode: str, genome_build:
             )
         _raise_sumstats_restriction_empty(restriction, input_rows='not inspected', usable_rows=0)
     return restriction
+
+
+def _hm3_restriction_keys(hm3_map, snps_path, mode, genome_build):
+    """Return chr_pos-family keep-list keys from a loaded HM3 map, as the file readers build them.
+
+    Packed ``CHR``/``POS`` keys in ``chr_pos`` mode or for a map without
+    alleles; collapsed allele-aware identity keys otherwise.
+    """
+    positions = hm3_map[f"{genome_build}_POS"]
+    if mode == 'chr_pos' or not {'A1', 'A2'}.issubset(hm3_map.columns):
+        keys = build_packed_chr_pos_series(hm3_map['CHR'], positions, context=f"restriction file '{snps_path}'")
+        return {int(value) for value in keys.to_numpy(dtype=np.uint64)}, None
+    identity_keys = collapse_restriction_identity_keys(
+        pd.DataFrame({'CHR': hm3_map['CHR'], 'POS': positions, 'A1': hm3_map['A1'], 'A2': hm3_map['A2']}),
+        mode,
+        context=f"SNP restriction file {Path(snps_path)}",
+        has_allele_columns=True,
+        logger=LOGGER,
+    )
+    return identity_keys.keys, identity_keys
 
 
 def _filter_sumstats_chunk_to_restriction(dat, restriction, source_path):
@@ -774,7 +804,7 @@ def munge_sumstats(request: ResolvedMungeInput) -> MungeResult:
     n_before = len(dat)
     dat, liftover_report, liftover_drop_frame = apply_sumstats_liftover(
         dat, request.liftover_request, source_build=request.genome_build,
-        snp_identifier=request.snp_identifier, logger=LOGGER,
+        snp_identifier=request.snp_identifier, hm3_map=request.hm3_map, logger=LOGGER,
     )
     parsed.drop_counts['liftover'] = n_before - len(dat)
     cleanup = clean_identity_artifact_table(

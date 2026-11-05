@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field, replace
+from functools import partial
 import logging
 from os import PathLike
 from pathlib import Path
@@ -295,8 +296,10 @@ class SumstatsMunger:
                 f"packaged_hm3='{_uses_packaged_hm3(munge_config)}', "
                 f"output_genome_build='{liftover_request.target_build}'."
             )
-            request = munge_input.prepare_munge_input(schema, config_snapshot, liftover_request, restriction_path)
-            resolved_liftover = _liftover_request_from_config(munge_config, request.genome_build)
+            request = munge_input.prepare_munge_input(
+                schema, config_snapshot, partial(_liftover_request_from_config, munge_config), restriction_path,
+            )
+            resolved_liftover = request.liftover_request
             if resolved_liftover.liftover_chain_file is not None:
                 resolved_liftover = replace(
                     resolved_liftover,

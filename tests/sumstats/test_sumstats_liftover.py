@@ -97,6 +97,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
                 request,
                 source_build="hg19",
                 snp_identifier="chr_pos",
+                hm3_map=load_hm3_map_file(path),
             )
 
             self.assertEqual(lifted["SNP"].tolist(), ["raw_a", "raw_b"])
@@ -125,6 +126,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
                 request,
                 source_build="hg38",
                 snp_identifier="chr_pos",
+                hm3_map=load_hm3_map_file(path),
             )
 
             self.assertEqual(lifted["SNP"].tolist(), ["raw_a"])
@@ -304,6 +306,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
                     request,
                     source_build="hg19",
                     snp_identifier="chr_pos",
+                    hm3_map=load_hm3_map_file(path),
                 )
 
             self.assertEqual(lifted["SNP"].tolist(), ["rs1"])
@@ -388,7 +391,8 @@ class SumstatsLiftoverTest(unittest.TestCase):
             request = SumstatsLiftoverRequest(target_build="hg38", use_hm3_quick_liftover=True, hm3_map_file=path)
             missing = pd.DataFrame({"CHR": ["1"], "POS": [pd.NA], "SNP": ["rs1"], "Z": [1.0], "N": [100.0]})
             with self.assertRaises(LDSCInputError) as missing_ctx:
-                apply_sumstats_liftover(missing, request, source_build="hg19", snp_identifier="chr_pos")
+                apply_sumstats_liftover(missing, request, source_build="hg19", snp_identifier="chr_pos",
+                                        hm3_map=load_hm3_map_file(path))
             missing_message = str(missing_ctx.exception)
             self.assertIn("Summary-statistics liftover from hg19 to hg38 using hm3_curated dropped all rows", missing_message)
             self.assertIn("Most likely", missing_message)
@@ -400,7 +404,8 @@ class SumstatsLiftoverTest(unittest.TestCase):
 
             unmapped = pd.DataFrame({"CHR": ["1"], "POS": [999], "SNP": ["rs2"], "Z": [1.0], "N": [100.0]})
             with self.assertRaisesRegex(LDSCInputError, "dropped all rows"):
-                apply_sumstats_liftover(unmapped, request, source_build="hg19", snp_identifier="chr_pos")
+                apply_sumstats_liftover(unmapped, request, source_build="hg19", snp_identifier="chr_pos",
+                                        hm3_map=load_hm3_map_file(path))
 
             duplicate_source = pd.DataFrame(
                 {
@@ -412,7 +417,8 @@ class SumstatsLiftoverTest(unittest.TestCase):
                 }
             )
             with self.assertRaisesRegex(LDSCInputError, "dropped all rows"):
-                apply_sumstats_liftover(duplicate_source, request, source_build="hg19", snp_identifier="chr_pos")
+                apply_sumstats_liftover(duplicate_source, request, source_build="hg19", snp_identifier="chr_pos",
+                                        hm3_map=load_hm3_map_file(path))
 
     def test_noop_liftover_metadata_schema(self):
         frame = pd.DataFrame({"CHR": ["1"], "POS": [100], "SNP": ["rs1"], "Z": [1.0], "N": [100.0]})

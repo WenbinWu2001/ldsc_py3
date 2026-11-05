@@ -153,7 +153,7 @@ H2_OUT_OF_BOUNDS_RG_NOTE = (
     "Unestimable: a SNP heritability estimate is not positive (h2 out of bounds); "
     "see the rg_full.tsv error column and diagnostics/rg.log."
 )
-_RG_H2_OUT_OF_BOUNDS_DOC = "docs/user-guide/troubleshooting.md#rg-a-snp-heritability-estimate-is-out-of-bounds"
+_RG_H2_OUT_OF_BOUNDS_DOC = "docs/user-guide/troubleshooting.md#rg-a-snp-heritability-estimate-is-not-positive"
 REGRESSION_IDENTITY_KEY_COLUMN = "_ldsc_regression_identity_key"
 _REGRESSION_NO_OVERLAP_DOC = (
     "docs/user-guide/troubleshooting.md#regression-no-snps-remain-after-merging-regression-inputs"
@@ -2512,7 +2512,7 @@ def _summarize_rg_pair(
     back to the supplied dataset's row count. Workflows supply the fitted dataset.
 
     ``status`` is ``'ok'``, or ``'unestimable'`` with an ``error`` naming the
-    out-of-bounds estimate when either heritability estimate is not positive;
+    estimate that is not positive when either heritability estimate is;
     that row keeps its count and its heritability, genetic covariance and
     intercept estimates, and its ``rg``/``rg_se``/``z``/``p`` are NaN.
     """
@@ -2577,7 +2577,7 @@ def _summarize_rg_pair(
 
 
 def _kernel_rg_estimate(rg_result) -> tuple[dict[str, float], bool]:
-    """Return a fitted pair's ``rg``, ``rg_se``, ``z`` and ``p``, and whether a heritability is out of bounds.
+    """Return a fitted pair's ``rg``, ``rg_se``, ``z`` and ``p``, and whether a heritability estimate is not positive.
 
     When either trait's heritability estimate is at most 0, the ``RG`` kernel
     ported from legacy LDSC sets ``_negative_hsq`` and stores the string
@@ -2597,7 +2597,7 @@ def _h2_out_of_bounds_error(trait_1: str, trait_2: str, h2_1_obs: float, h2_2_ob
         for index, trait, value in ((1, trait_1, h2_1_obs), (2, trait_2, h2_2_obs)) if value <= 0
     )
     return (
-        f"SNP heritability out of bounds: on the pair's {n_snps:,} SNPs, {values}. "
+        f"SNP heritability estimate not positive: on the pair's {n_snps:,} SNPs, {values}. "
         "The genetic correlation divides by the square root of the product of the two heritability estimates, "
         "so rg, rg_se, z and p are NaN; the heritability and genetic covariance estimates are kept. "
         "Most likely the trait has too little heritability signal on these SNPs for its sample size; "

@@ -1020,11 +1020,11 @@ Do not substitute a pseudoinverse or fabricate uncertainty.
 
 **Developer reference:** `_require_rg_alleles()` in `_regression/runner.py` · **Exception:** `LDSCInputError`
 
-### `rg`: a SNP heritability estimate is out of bounds
+### `rg`: a SNP heritability estimate is not positive
 
-**Symptom:** an `rg` pair with `status` `unestimable`, `NaN` in `rg`, `rg_se`, `z` and `p`, and `SNP heritability out of bounds: on the pair's ... SNPs, h2_2_obs (trait '...') is ...` in the `error` column of `rg_full.tsv`; its `rg.tsv` note reads `Unestimable: a SNP heritability estimate is not positive (h2 out of bounds)`.
+**Symptom:** an `rg` pair with `status` `unestimable`, `NaN` in `rg`, `rg_se`, `z` and `p`, and `SNP heritability estimate not positive: on the pair's ... SNPs, h2_2_obs (trait '...') is ...` in the `error` column of `rg_full.tsv`; its `rg.tsv` note reads `Unestimable: a SNP heritability estimate is not positive (h2 out of bounds)`.
 
-The genetic correlation divides the genetic covariance by the square root of the product of the two traits' SNP heritabilities, so it is undefined when either heritability estimate on the pair's SNPs is zero or negative.
+The genetic correlation divides the genetic covariance by the square root of the product of the two traits' SNP heritabilities, so it is undefined when either heritability estimate on the pair's SNPs is not positive.
 Legacy LDSC reports the same pair as `h2 out of bounds` (`RG.summary()` in `ldscore/regressions.py`).
 The pair keeps its SNP count and its heritability, genetic covariance and intercept estimates in `rg_full.tsv`, and the other pairs are still fitted; the run exits with code 0.
 A negative heritability estimate is a valid estimate for a trait with little signal.

@@ -90,8 +90,8 @@ The p-values are nominal two-sided values; apply any multiple-testing correction
 A pair whose fit fails gets `NaN` estimates and a note, and the remaining pairs are still fitted; the reason is in the `error` column of `rg_full.tsv` and in `diagnostics/rg.log`.
 Its `status` in `rg_full.tsv` is `unestimable` when deleting one jackknife block left the trait 1 heritability, trait 2 heritability or genetic covariance fit unidentifiable, and `failed` otherwise.
 An unestimable pair's error names that fit, the block, its genomic span and the annotations left without support; see [a block jackknife deletion is unestimable](../troubleshooting.md#regression-a-block-jackknife-deletion-is-unestimable).
-A pair is also `unestimable` when either trait's SNP heritability estimate on the pair's SNPs is zero or negative, which legacy LDSC reports as `h2 out of bounds`: the genetic correlation is then undefined, so `rg`, `rg_se`, `z` and `p` are `NaN`.
-That pair keeps its `n_snps_used` and its heritability, genetic covariance and intercept estimates, and its error names the estimate that is not positive; see [a SNP heritability estimate is out of bounds](../troubleshooting.md#rg-a-snp-heritability-estimate-is-out-of-bounds).
+A pair is also `unestimable` when either trait's SNP heritability estimate on the pair's SNPs is not positive, which legacy LDSC reports as `h2 out of bounds`: the genetic correlation is then undefined, so `rg`, `rg_se`, `z` and `p` are `NaN`.
+That pair keeps its `n_snps_used` and its heritability, genetic covariance and intercept estimates, and its error names the estimate that is not positive; see [a SNP heritability estimate is not positive](../troubleshooting.md#rg-a-snp-heritability-estimate-is-not-positive).
 Unestimable and failed pairs do not change the exit code.
 
 `rg_full.tsv` adds, for each pair, `z`, the two traits' SNP heritability (`h2_1_obs`, `h2_2_obs`) and genetic covariance (`gencov_obs`) with standard errors, their liability-scale versions, the prevalences used, the intercepts, `ratio_1`, `ratio_2`, `lambda_gc_*`, `mean_chisq_*`, `pair_kind` (`all_pairs` or `anchor`) and `status`.

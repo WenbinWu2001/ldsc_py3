@@ -68,7 +68,7 @@ def test_a_pair_with_a_negative_heritability_is_unestimable_and_keeps_its_fit(ca
     assert kernel.hsq2.tot < 0 < kernel.hsq1.tot
     full = result.rg_full.iloc[0]
     assert full["status"] == "unestimable"
-    assert full["error"].startswith("SNP heritability out of bounds:")
+    assert full["error"].startswith("SNP heritability estimate not positive:")
     assert "h2_2_obs" in full["error"] and "'T2'" in full["error"] and "h2_1_obs" not in full["error"]
     assert "LDSCInternalError" not in full["error"]
     assert full["n_snps_used"] == N_SNPS
@@ -92,7 +92,7 @@ def test_a_pair_with_a_negative_heritability_is_unestimable_and_keeps_its_fit(ca
     assert (metadata["n_snps_used"], metadata["n_blocks_used"]) == (N_SNPS, N_BLOCKS)
     assert metadata["effective_snp_identifier"] == "rsid"
     assert metadata["error"] == full["error"]
-    assert any("rg for pair 'T1' vs 'T2' marked unestimable: SNP heritability out of bounds" in record.getMessage()
+    assert any("rg for pair 'T1' vs 'T2' marked unestimable: SNP heritability estimate not positive" in record.getMessage()
                for record in caplog.records)
 
 
@@ -111,7 +111,7 @@ def test_the_rg_command_counts_the_pair_as_unestimable_and_fits_the_others(tmp_p
     assert full["status"].tolist() == ["unestimable", "ok", "unestimable"]
     assert full.loc[[0, 2], "rg"].tolist() == ["NaN", "NaN"]
     assert float(full.loc[1, "rg"]) == float(full.loc[1, "rg"])  # a number
-    assert full.loc[0, "error"].startswith("SNP heritability out of bounds:")
+    assert full.loc[0, "error"].startswith("SNP heritability estimate not positive:")
     assert float(full.loc[0, "h2_2_obs"]) < 0 < float(full.loc[0, "h2_1_obs"])
     assert float(full.loc[2, "h2_1_obs"]) < 0 < float(full.loc[2, "h2_2_obs"])
     concise = pd.read_csv(out / "rg.tsv", sep="\t", keep_default_na=False)

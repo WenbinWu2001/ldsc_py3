@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from ldsc._ldscore.results import LDScoreResult
-from ldsc._regression import alignment, runner as workflow
+from ldsc._regression import alignment, rg, runner as workflow
 from ldsc._sumstats.table import SumstatsTable
 from ldsc.config import GlobalConfig, RegressionConfig
 from tests.worker_fixtures import calculation_body
@@ -90,13 +90,13 @@ def test_mixed_mode_rg_keys_each_trait_at_most_twice_and_matches_separate_pairs(
     config = RegressionConfig(num_blocks=10, allow_identity_downgrade=True)
     runner = workflow.RegressionRunner(regression_config=config)
     fitted = []
-    original_fit = runner.estimate_rg
+    original_fit = rg._fit_rg_dataset
 
-    def record(dataset, config=None):
+    def record(dataset, config):
         fitted.append(dataset)
-        return original_fit(dataset, config=config)
+        return original_fit(dataset, config)
 
-    monkeypatch.setattr(runner, "estimate_rg", record)
+    monkeypatch.setattr(rg, "_fit_rg_dataset", record)
     keyings = counting(monkeypatch, "_key_regression_rows")
 
     with calculation_body():

@@ -35,9 +35,9 @@ from .._runtime.paths import normalize_path_token
 from .._runtime.serial_calculation import serial_calculation
 from ..config import RegressionConfig
 from ..errors import LDSCInputError, LDSCInternalError
-from .._ldscore.calculator import LDScoreResult
+from .._ldscore.results import LDScoreResult
 from .._ldscore.source import LDScoreSource
-from .._sumstats.munger import SumstatsTable
+from .._sumstats.table import SumstatsTable
 from . import estimators as reg
 from .jackknife import JackknifeIdentifiabilityError
 from .overlap_model import assemble_model_overlap, overlap_aware_category_table, model_collinearity_error

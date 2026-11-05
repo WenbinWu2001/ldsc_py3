@@ -7,7 +7,8 @@ import pandas as pd
 
 from ldsc._regression import runner as workflow
 from ldsc._regression.outputs import (
-    LEGACY_SUMSTATS_DROP_COLUMNS, H2DirectoryWriter, H2OutputConfig, RgDirectoryWriter, RgOutputConfig,
+    LEGACY_SUMSTATS_DROP_COLUMNS, RG_CONCISE_COLUMNS, RG_FULL_COLUMNS, H2DirectoryWriter, H2OutputConfig,
+    RgDirectoryWriter, RgOutputConfig,
 )
 from ldsc._regression.results import RgResultFamily
 from ldsc.config import RegressionConfig
@@ -53,8 +54,8 @@ def test_an_overwrite_without_legacy_input_removes_the_audit_and_its_entry(tmp_p
 
 
 def test_rg_writer_publishes_the_audit_its_result_carries(tmp_path):
-    result = RgResultFamily(rg=pd.DataFrame(columns=workflow.RG_CONCISE_COLUMNS),
-                            rg_full=pd.DataFrame(columns=workflow.RG_FULL_COLUMNS),
+    result = RgResultFamily(rg=pd.DataFrame(columns=RG_CONCISE_COLUMNS),
+                            rg_full=pd.DataFrame(columns=RG_FULL_COLUMNS),
                             h2_per_trait=pd.DataFrame(), per_pair_metadata=[], legacy_sumstats_drops=DROPS)
 
     paths = RgDirectoryWriter().write(result, RgOutputConfig(output_dir=tmp_path))

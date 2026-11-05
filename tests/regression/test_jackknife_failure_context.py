@@ -9,7 +9,7 @@ import pytest
 from ldsc import cli
 from ldsc._ldscore.results import LDScoreResult
 from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
-from ldsc._regression import runner as workflow
+from ldsc._regression import rg, runner as workflow
 from ldsc._regression.jackknife import JackknifeIdentifiabilityError
 from ldsc._sumstats.munger import SumstatsMunger
 from ldsc._sumstats.table import SumstatsTable
@@ -79,7 +79,7 @@ def test_rg_marks_a_singular_pair_unestimable_with_its_context(tmp_path):
     shared_snps = N_SNPS - len(SECOND_A) - len(SECOND_B)
     assert int(full.loc[0, "n_snps_used"]) == shared_snps
     concise = pd.read_csv(out / "rg.tsv", sep="\t", keep_default_na=False)
-    assert concise.loc[0, "note"] == workflow.UNESTIMABLE_RG_NOTE
+    assert concise.loc[0, "note"] == rg.UNESTIMABLE_RG_NOTE
     assert not [column for column in [*full.columns, *concise.columns] if column.startswith("_ldsc")]
     log = (out / "diagnostics/rg.log").read_text()
     assert "'A' vs 'B' jackknife diagnostics" in log

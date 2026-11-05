@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ldsc._regression import alignment, fitting, runner as workflow
+from ldsc._regression import alignment, fitting, partitioned, runner as workflow
 from ldsc import cli, load_ldscore_from_dir
 from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from tests.regression_fixtures import RegressionFixtures
@@ -20,7 +20,7 @@ from tests.worker_fixtures import LocalQueryWorkers
 from ldsc._ldscore.results import LDScoreResult
 from ldsc._ldscore.overlap_table import LDScoreOverlap
 from ldsc._annotation.overlap import OverlapContribution
-from ldsc.errors import LDSCUsageError
+from ldsc.errors import LDSCInputError, LDSCUsageError
 
 
 def ld_directory(tmp_path):
@@ -169,10 +169,10 @@ def test_partitioned_batch_rejects_missing_requested_common_counts_before_fittin
 ):
     table, source = _without_common_count(tmp_path, column)
     runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(num_blocks=6))
-    monkeypatch.setattr(workflow, "_prepare_h2_inputs",
+    monkeypatch.setattr(partitioned, "_prepare_h2_inputs",
                         lambda *args, **kwargs: pytest.fail("regression inputs were prepared before count validation"))
 
-    with pytest.raises(workflow.LDSCInputError, match=r"common-SNP count(.|\n)*--count-kind all"):
+    with pytest.raises(LDSCInputError, match=r"common-SNP count(.|\n)*--count-kind all"):
         runner.estimate_partitioned_h2_batch(table, source, output_dir=tmp_path / "out",
                                              continue_on_query_error=continue_on_query_error)
 
@@ -207,7 +207,7 @@ def test_batch_fits_match_separate_models_and_release_details(tmp_path, monkeypa
             fitting._coefficient_delete_frame(outcome.estimator, outcome.dataset.retained_ld_columns),
         )
     del outcome, dataset
-    original_prepare, original_fit = workflow._prepare_h2_inputs, fitting._fit_h2_dataset
+    original_prepare, original_fit = partitioned._prepare_h2_inputs, fitting._fit_h2_dataset
     preparations, live, reads = [], [], []
     original_read = type(source).read_queries
 
@@ -225,7 +225,7 @@ def test_batch_fits_match_separate_models_and_release_details(tmp_path, monkeypa
         live.append(weakref.ref(outcome.estimator))
         return outcome
 
-    monkeypatch.setattr(workflow, "_prepare_h2_inputs", prepare)
+    monkeypatch.setattr(partitioned, "_prepare_h2_inputs", prepare)
     monkeypatch.setattr(fitting, "_fit_h2_dataset", fit)
     monkeypatch.setattr(type(source), "read_queries", read)
     result = runner.estimate_partitioned_h2_batch(table, source, output_dir=tmp_path / "out",
@@ -609,7 +609,7 @@ def _near_collinear_rg_inputs(tmp_path, *, with_overlap, shared_rows_only=False)
 def test_rg_pair_fit_stops_on_a_collinear_design_when_overlap_is_stored(tmp_path):
     (first, second), source = _near_collinear_rg_inputs(tmp_path, with_overlap=True)
     runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(num_blocks=6))
-    with pytest.raises(workflow.LDSCInputError, match="design matrix is collinear"):
+    with pytest.raises(LDSCInputError, match="design matrix is collinear"):
         runner.estimate_rg(runner.build_rg_dataset(first, second, source))
 
 

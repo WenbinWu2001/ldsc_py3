@@ -4,7 +4,7 @@ import pytest
 
 import ldsc
 from ldsc._regression import prevalence
-from ldsc._regression import runner as workflow
+from ldsc._regression import rg, runner as workflow
 from ldsc.config import RegressionConfig
 from ldsc.errors import LDSCConfigError, LDSCUsageError
 from tests.regression.test_trait_preparation import munged, panel
@@ -67,7 +67,7 @@ def test_rg_pairs_reject_bad_prevalences_before_any_fit(monkeypatch, prevalences
     def no_fit(*args, **kwargs):
         raise AssertionError("a fit ran before the prevalences were checked")
 
-    monkeypatch.setattr(workflow, "_fit_h2_dataset", no_fit)
+    monkeypatch.setattr(rg, "_fit_h2_dataset", no_fit)
     tables = [munged("A", "chr_pos_allele_aware", 1), munged("B", "chr_pos_allele_aware", 2)]
     runner = workflow.RegressionRunner(regression_config=RegressionConfig(num_blocks=10))
     # In-process, so the replaced fit is the one the run would call.
@@ -82,7 +82,7 @@ def test_rg_pairs_reject_a_config_that_sets_one_prevalence_pair(monkeypatch, rou
     def no_fit(*args, **kwargs):
         raise AssertionError("a fit ran before the config prevalences were rejected")
 
-    monkeypatch.setattr(workflow, "_fit_h2_dataset", no_fit)
+    monkeypatch.setattr(rg, "_fit_h2_dataset", no_fit)
     tables = [munged("A", "chr_pos_allele_aware", 1), munged("B", "chr_pos_allele_aware", 2)]
     config = RegressionConfig(num_blocks=10, samp_prev=0.5, pop_prev=0.01)
     runner = workflow.RegressionRunner(regression_config=config if route == "runner config" else None)

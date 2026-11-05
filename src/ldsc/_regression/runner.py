@@ -57,7 +57,6 @@ import numbers
 import sys
 from dataclasses import replace
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from typing import Sequence
 
@@ -70,17 +69,14 @@ from ..config import (
     GlobalConfig,
     RegressionConfig,
     get_global_config,
-    normalize_prevalence_pair,
     print_global_config_banner,
     suppress_global_config_banner,
 )
-from .._runtime.paths import ensure_output_directory, normalize_path_token, output_directory_path
+from .._runtime.paths import ensure_output_directory, normalize_path_token
 from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
-from . import partitioned_parallel
-from .jackknife import JackknifeIdentifiabilityError
+from . import partitioned, rg
 from .._runtime.parallelism import (
-    WORKERS_HELP, parse_query_batch_size, parse_workers, resolve_worker_count, validate_query_batch_size,
-    validate_workers,
+    WORKERS_HELP, parse_query_batch_size, parse_workers, validate_query_batch_size, validate_workers,
 )
 from .._ldscore.results import LDScoreResult
 from .._ldscore.source import LDScoreSource, load_ldscore_from_dir
@@ -88,58 +84,39 @@ from .outputs import (
     H2DirectoryWriter,
     H2OutputConfig,
     PartitionedH2DirectoryWriter,
-    PartitionedH2OutputConfig,
-    published_query_artifacts,
-    RG_CONCISE_COLUMNS,
-    RG_FULL_COLUMNS,
     RgDirectoryWriter,
     RgOutputConfig,
 )
 from .results import H2Result, PartitionedH2BatchResult, RegressionDataset, RegressionFit, RgResultFamily
 from .alignment import (
-    _PartitionedModelInputs,
     _PreparedLDScores,
-    _count_totals_for_columns,
     _dataset_from_prepared,
-    _ldscore_identity_mode,
     _log_effective_regression_identity,
     _prepare_h2_inputs,
     _prepare_trait_sumstats,
-    _read_query_batch,
-    _regression_genome_build,
     _require_rg_alleles,
     _rg_dataset,
-    _select_count_key,
     _trait_label,
     _validate_partitioned_query_columns,
 )
 from .fitting import (
-    PARTITIONED_H2_REQUIRES_OVERLAP_MESSAGE,
-    _absolute_ldscore_dir,
-    _coefficient_delete_frame,
-    _concise_rg_row,
     _config_prevalence,
-    _dataset_metadata,
-    _failed_h2_row,
-    _failed_rg_full_row,
     _fit_h2_dataset,
-    _fit_metadata,
     _fit_rg_dataset,
-    _format_exception,
-    _genome_build_of,
     _h2_metadata,
-    _intercept_policies,
     _ldscore_dir_of,
     _log_phase_timing,
-    _rg_pair_metadata,
-    _summarize_rg_pair,
-    fit_partitioned_query,
     summarize_partitioned_h2,
     summarize_total_h2,
 )
-from .._annotation.storage import AnnotationWorkspace
+from .partitioned import (
+    PARTITIONED_H2_SUMMARY_SORT_COLUMNS,
+    _log_partitioned_h2_regime,
+    _log_quantitative_annotation_interpretation,
+)
+from .rg import _disambiguate_trait_names
 from .._sumstats.table import SumstatsTable, load_sumstats
-from ..errors import LDSCInputError, LDSCInternalError, LDSCUsageError, LDSCUserError
+from ..errors import LDSCUsageError, LDSCUserError
 from .._runtime.progress import PhaseProgress
 from .prevalence import resolve_rg_prevalences
 from .._runtime.preflight import InputGate, inspect_artifact_paths, inspect_declared_inputs
@@ -147,28 +124,6 @@ from .._runtime.workflow_kwargs import command_parser, run_from_kwargs
 
 
 LOGGER = logging.getLogger("LDSC.regression_runner")
-PARTITIONED_H2_SUMMARY_SORT_COLUMNS = {
-    "category": "category",
-    "prop-snps": "prop_snps",
-    "prop-h2": "prop_h2",
-    "enrichment": "enrichment",
-    "enrichment-p": "enrichment_p",
-    "coefficient": "coefficient",
-    "coefficient-p": "coefficient_p",
-}
-PARTITIONED_H2_SUMMARY_ASCENDING_SORTS = {
-    "enrichment-p",
-    "coefficient-p",
-}
-FAILED_RG_NOTE = "Failed; see the rg_full.tsv error column and diagnostics/rg.log."
-UNESTIMABLE_RG_NOTE = (
-    "Unestimable: a jackknife block deletion left the fit unidentifiable; "
-    "see the rg_full.tsv error column and diagnostics/rg.log."
-)
-H2_OUT_OF_BOUNDS_RG_NOTE = (
-    "Unestimable: a SNP heritability estimate is not positive (h2 out of bounds); "
-    "see the rg_full.tsv error column and diagnostics/rg.log."
-)
 
 
 class RegressionRunner:
@@ -298,16 +253,6 @@ class RegressionRunner:
         return summarize_partitioned_h2(fit.estimator, fit.dataset, selected_queries, samp_prev=samp_prev,
                                         pop_prev=pop_prev)
 
-    @serial_calculation
-    def _fit_functional_model(self, dataset, *, config):
-        """Fit and summarize the complete baseline-only model in one child."""
-        outcome = _fit_h2_dataset(dataset, config)
-        samp_prev, pop_prev = _config_prevalence(config)
-        summary = summarize_partitioned_h2(
-            outcome.estimator, outcome.dataset, outcome.dataset.retained_ld_columns,
-            samp_prev=samp_prev, pop_prev=pop_prev,
-        )
-        return outcome, summary
 
     def estimate_partitioned_h2_batch(
         self, sumstats_table, ldscore_result, *, output_dir, query_columns=None,
@@ -401,149 +346,12 @@ class RegressionRunner:
         Shared loading/publication errors and interrupts can stop the scan
         before that final diagnostic table is written.
         """
-        validate_workers(workers)
-        validate_query_batch_size(query_batch_size, error_type=LDSCUsageError)
-        if not isinstance(continue_on_query_error, bool):
-            raise ValueError("continue_on_query_error must be a boolean.")
-        config = config or self.regression_config
-        if ldscore_result.overlap is None:
-            raise LDSCInputError(PARTITIONED_H2_REQUIRES_OVERLAP_MESSAGE)
-        queries = list(ldscore_result.query_columns if query_columns is None else query_columns)
-        queries = _validate_partitioned_query_columns(ldscore_result, queries)
-        # Check requested counts before fitting: baseline counts are shared by
-        # every model; query counts too unless continuation was requested, which
-        # records a query lacking its counts as a failed query instead.
-        model_columns = [*ldscore_result.baseline_columns, *([] if continue_on_query_error else queries)]
-        count_key = _select_count_key(_count_totals_for_columns(ldscore_result.count_records, model_columns),
-                                      config.use_common_counts, model_columns)
-        worker_count = resolve_worker_count(workers, max(1, len(queries)),
-                                             task_unit="query-plus-baseline model", batch_size=query_batch_size)
-        sort_by = _resolve_summary_sort(summary_sort_by, has_queries=bool(queries))
-        output_dir = str(output_directory_path(output_dir))
-        writer = PartitionedH2DirectoryWriter()
-        writer.artifact_family(output_dir, write_per_query_results=bool(queries),
-                               coefficient_delete_values=not queries, query_status=bool(queries)).preflight(overwrite=overwrite)
-        metadata = dict(metadata or {})
-        defaults = {
-            "trait_name": _trait_label(sumstats_table),
-            "count_kind": "common" if config.use_common_counts else "all",
-            "analysis_type": "cell_type_specific" if queries else "functional_category",
-            "headline_metric": "coefficient" if queries else "enrichment",
-            "enrichment_p_test": "two_sided_t", "coefficient_p_test": "one_sided_greater",
-            "annotation_types": dict(ldscore_result.annotation_types),
-        }
-        ldscore_dir = _ldscore_dir_of(ldscore_result)
-        if ldscore_dir:
-            defaults["ldscore_dir"] = ldscore_dir
-        for name, value in defaults.items():
-            metadata.setdefault(name, value)
-        if metadata.get("ldscore_dir"):
-            metadata["ldscore_dir"] = _absolute_ldscore_dir(metadata["ldscore_dir"])
-        with AnnotationWorkspace(output_dir) as workspace:
-            with _log_phase_timing("shared regression preparation"):
-                trait = _prepare_trait_sumstats(sumstats_table, ldscore_result)
-                prepared = _prepare_h2_inputs(trait, _PreparedLDScores(ldscore_result), config, self.global_config)
-                # The trait's provenance, which h2 metadata records as well.
-                metadata.update(
-                    sumstats_file=sumstats_table.source_path, genome_build=_genome_build_of(prepared.dataset),
-                    effective_snp_identifier=prepared.dataset.effective_snp_identifier,
-                    identity_downgrade_applied=prepared.dataset.identity_downgrade_applied,
-                    count_key_used_for_regression=count_key,
-                    dropped_nonfinite_statistic_rows=trait.dropped_nonfinite_statistic_rows,
-                    intercept_h2_policy=_intercept_policies(config)["intercept_h2_policy"],
-                )
-                # Fits need only the aligned rows; release the trait's keyed copy.
-                legacy_drops, trait = trait.legacy_drops, None
-            if not queries:
-                dataset = _dataset_from_prepared(prepared, config)
-                if len(dataset.retained_ld_columns) == 1:
-                    LOGGER.warning(
-                        "partitioned-h2 functional regime retained a single annotation (%s); the fit is "
-                        "degenerate and collapses to single-annotation h2 behavior (two-step estimator, no "
-                        "default chi-square cap). Most likely the LD-score directory has only one baseline "
-                        "annotation. Provide multiple baseline annotations for a meaningful partitioned analysis.",
-                        dataset.retained_ld_columns[0],
-                    )
-                outcome, summary = self._fit_functional_model(dataset, config=config)
-                summary = _sort_partitioned_h2_summary(summary, sort_by)
-                with _log_phase_timing("output writing"):
-                    paths = writer.write(
-                        summary, PartitionedH2OutputConfig(output_dir=output_dir, overwrite=overwrite),
-                        metadata={**metadata, **_fit_metadata(outcome)},
-                        coefficient_delete_values=_coefficient_delete_frame(outcome.estimator, outcome.dataset.retained_ld_columns),
-                        legacy_sumstats_drops=legacy_drops,
-                    )
-                return PartitionedH2BatchResult(summary, paths, legacy_sumstats_drops=legacy_drops)
-
-            rows, private_artifacts, statuses = [], {}, []
-            first_error = None
-            metadata.update(query_workers_requested=workers, query_workers_effective=worker_count,
-                            query_worker_native_threads=1)
-            # Workers read the model's numeric columns, SNP and the panel coordinates only.
-            fit_columns = {*prepared.dataset.ref_ld_columns, prepared.dataset.weight_column, "Z", "N", "SNP",
-                           "_ldsc_panel_CHR", "_ldsc_panel_POS"}
-            shared = prepared.dataset.merged
-            models = _PartitionedModelInputs(
-                replace(prepared.dataset, merged=pd.DataFrame(
-                    {name: shared[name] for name in shared.columns if name in fit_columns}, copy=False)),
-                prepared.counts_by_column, prepared.ld_variances)
-            del shared
-            with _log_phase_timing("query worker preparation"):
-                worker_pool = partitioned_parallel._QueryWorkers(
-                    workspace.path, models, fit_partitioned_query, config, worker_count)
-            total_batches = (len(queries) + query_batch_size - 1) // query_batch_size
-            del models
-            # Loading a batch needs only the LD-score source and row map, not the aligned frame.
-            prepared = replace(prepared, dataset=replace(prepared.dataset, merged=pd.DataFrame()))
-            with worker_pool as pool, PhaseProgress(LOGGER, "computation", "query fitting", len(queries)) as progress:
-                for start in range(0, len(queries), query_batch_size):
-                    ordinal = start // query_batch_size + 1
-                    with PhaseProgress(LOGGER, "batch", f"query fitting {ordinal}/{total_batches}",
-                                       min(query_batch_size, len(queries) - start)) as batch_progress:
-                        batch_columns = queries[start:start + query_batch_size]
-                        with _log_phase_timing("query batch loading", level=logging.DEBUG):
-                            batch = _read_query_batch(prepared, batch_columns)
-                        with TemporaryDirectory(prefix="query-batch-", dir=workspace.path) as batch_root:
-                            with _log_phase_timing("query batch mapping", level=logging.DEBUG):
-                                mapped = partitioned_parallel._stage_query_batch(batch, Path(batch_root) / "values")
-                            batch = None
-                            tasks = [(query, mapped[query], workspace.path / f"fit-{start + index}")
-                                     for index, query in enumerate(batch_columns)]
-                            with _log_phase_timing("query batch execution", level=logging.DEBUG):
-                                outcomes = pool.map(tasks, progress=progress)
-                        for focal, artifacts, status, error in outcomes:
-                            statuses.append(status)
-                            if error is not None:
-                                first_error = first_error or error
-                            else:
-                                rows.append(focal)
-                                private_artifacts[status["query_annotation"]] = artifacts
-                        del outcomes, batch
-                        batch_progress.completed = len(batch_columns)
-            del prepared
-            query_status = pd.DataFrame(statuses)
-            n_failed = len(queries) - len(rows)
-            metadata.update(query_error_policy="continue" if continue_on_query_error else "raise",
-                            n_queries_requested=len(queries), n_queries_successful=len(rows), n_queries_failed=n_failed)
-            if first_error is not None:
-                LOGGER.warning("Partitioned-h2 query scan: %d successful, %d failed. See diagnostics/query_status.tsv "
-                               "and diagnostics/partitioned-h2.log.", len(rows), n_failed)
-                if not continue_on_query_error or not rows:
-                    writer.write_query_status(output_dir, query_status)
-                    first_error.add_note(
-                        f"{n_failed}/{len(queries)} queries failed; no results published. "
-                        + ("No query fit succeeded." if not rows else
-                           "Use --continue-on-query-error to publish successful query fits.")
-                    )
-                    raise first_error
-            summary = _sort_partitioned_h2_summary(pd.concat(rows, ignore_index=True), sort_by)
-            with _log_phase_timing("output writing"):
-                paths = writer.write(summary, PartitionedH2OutputConfig(output_dir=output_dir, overwrite=overwrite,
-                                                                       write_per_query_results=True),
-                                     per_query_artifacts=private_artifacts, metadata=metadata, query_status=query_status,
-                                     legacy_sumstats_drops=legacy_drops)
-            return PartitionedH2BatchResult(summary, paths, published_query_artifacts(output_dir, summary), query_status,
-                                            legacy_drops)
+        return partitioned.estimate_partitioned_h2_batch(
+            sumstats_table, ldscore_result, config or self.regression_config, self.global_config,
+            output_dir=output_dir, query_columns=query_columns, query_batch_size=query_batch_size,
+            overwrite=overwrite, summary_sort_by=summary_sort_by, metadata=metadata,
+            continue_on_query_error=continue_on_query_error, workers=workers,
+        )
 
     def estimate_rg(
         self,
@@ -579,7 +387,6 @@ class RegressionRunner:
         """
         return _fit_rg_dataset(dataset, config or self.regression_config)
 
-    @serial_calculation
     def estimate_rg_pairs(
         self,
         sumstats_tables: Sequence[SumstatsTable],
@@ -642,231 +449,10 @@ class RegressionRunner:
             (``LDSCUsageError``). Whole-run input failures, such as
             incompatible h2 datasets, also propagate as ordinary exceptions.
         """
-        config = config or self.regression_config
-        if config.samp_prev is not None or config.pop_prev is not None:
-            raise LDSCUsageError(
-                f"rg regression does not read the prevalences of RegressionConfig (samp_prev={config.samp_prev!r}, "
-                f"pop_prev={config.pop_prev!r}), which hold one trait's pair; ignoring them would report observed-scale "
-                "estimates. Pass one (samp_prev, pop_prev) pair per trait, in input order, with prevalences=..., "
-                "and leave samp_prev and pop_prev unset in the config."
-            )
-        tables = list(sumstats_tables)
-        if len(tables) < 2:
-            raise LDSCUserError(
-                "rg regression requires at least two summary-statistics inputs. Most likely `--sumstats-sources` "
-                "resolved to fewer than two files. Pass two or more munged `.sumstats` artifacts."
-            )
-        if anchor_index is not None and not 0 <= anchor_index < len(tables):
-            raise LDSCUsageError(
-                f"rg regression received anchor_index={anchor_index}, but valid indices are 0 through {len(tables) - 1}. "
-                "Most likely the anchor trait was resolved against a different input list. "
-                "Pass an anchor trait name or path that belongs to the current `--sumstats-sources` list."
-            )
-        if prevalences is not None and len(prevalences) != len(tables):
-            raise LDSCUsageError(
-                f"rg regression received {len(prevalences)} prevalence pairs for {len(tables)} traits. "
-                "Most likely the prevalence list was built for a different input list. "
-                "Pass one (samp_prev, pop_prev) pair per trait, in input order."
-            )
-        prev = ([normalize_prevalence_pair(*pair) for pair in prevalences] if prevalences is not None
-                else [(None, None)] * len(tables))
-        # Reject allele-free traits before any fit; a pair-level error would be
-        # recorded as a failed pair instead of stopping the run.
-        _require_rg_alleles(tables)
-        tables = _disambiguate_trait_names(tables)
-        # Run-level preparation: each trait is projected once, and one joint
-        # genome-build check covers every pair, whose effective SNP identifier
-        # mode stays in the LD-score directory's family.
-        traits = [_prepare_trait_sumstats(table, ldscore_result) for table in tables]
-        tables = [trait.table for trait in traits]
-        _regression_genome_build(tables, ldscore_result,
-                                 _ldscore_identity_mode(ldscore_result, self.global_config), context="rg")
-        ldscores = _PreparedLDScores(ldscore_result)
-
-        h2_rows = []
-        with suppress_global_config_banner(), PhaseProgress(LOGGER, "computation", "per-trait h2", len(tables)) as progress:
-            for trait, (samp_prev, pop_prev) in zip(traits, prev):
-                trait_name = _trait_label(trait.table)
-                h2_dataset = None
-                try:
-                    # As for pairs, an error fails only this trait's own fit; its pairs are still fitted.
-                    h2_dataset = _dataset_from_prepared(
-                        _prepare_h2_inputs(trait, ldscores, config, self.global_config, build_checked=True), config,
-                    )
-                    outcome = _fit_h2_dataset(h2_dataset, config, log_level=logging.DEBUG)
-                    row = summarize_total_h2(
-                        outcome.estimator, outcome.dataset, trait_name=trait_name, n_snps_used=outcome.n_snps,
-                        samp_prev=samp_prev, pop_prev=pop_prev,
-                    ).assign(status="ok", error="")
-                except Exception as exc:
-                    status = "unestimable" if isinstance(exc, JackknifeIdentifiabilityError) else "failed"
-                    LOGGER.warning(f"SNP heritability of trait '{trait_name}' marked {status}: {_format_exception(exc)}",
-                                   exc_info=True)
-                    if status == "unestimable":
-                        LOGGER.error("Trait %r jackknife diagnostics: %s", trait_name, json.dumps(exc.failures))
-                    row = _failed_h2_row(trait_name=trait_name, error=_format_exception(exc), status=status,
-                                         n_snps=0 if h2_dataset is None else len(h2_dataset.merged),
-                                         samp_prev=samp_prev, pop_prev=pop_prev)
-                h2_rows.append(row)
-                progress.advance(outcome=row["status"].iloc[0])
-                h2_dataset = outcome = None  # release this trait before the next is built
-        h2_per_trait = pd.concat(h2_rows, axis=0, ignore_index=True) if h2_rows else pd.DataFrame()
-
-        rg_full_rows: list[dict[str, object]] = []
-        rg_rows: list[dict[str, object]] = []
-        per_pair_metadata: list[dict[str, object]] = []
-        alignment_drops: list[tuple[int, int]] = []
-        pair_kind = "anchor" if anchor_index is not None else "all_pairs"
-        pair_count = len(tables) - 1 if anchor_index is not None else len(tables) * (len(tables) - 1) // 2
-        with suppress_global_config_banner(), PhaseProgress(LOGGER, "computation", "rg pairs", pair_count) as progress:
-            for i, j in _iter_rg_pairs(len(tables), anchor_index):
-                trait_1 = _trait_label(tables[i])
-                trait_2 = _trait_label(tables[j])
-                drops = (0, 0)
-                try:
-                    # Pair-specific keyed rows are built here, so an error fails only this pair.
-                    dataset = _rg_dataset(traits[i], traits[j], ldscores, config, self.global_config,
-                                          build_checked=True)
-                    drops = (dataset.dropped_orientation_unknown_rows, dataset.dropped_incompatible_allele_rows)
-                    outcome = self.estimate_rg(dataset, config=config)
-                    fitted, dataset = outcome.estimator, outcome.dataset
-                    n_snps_used = outcome.n_snps
-                    full_row = _summarize_rg_pair(
-                        fitted, dataset, trait_1=trait_1, trait_2=trait_2, pair_kind=pair_kind,
-                        n_snps_used=n_snps_used,
-                        samp_prev_1=prev[i][0], pop_prev_1=prev[i][1],
-                        samp_prev_2=prev[j][0], pop_prev_2=prev[j][1],
-                    )
-                    note = ""
-                    if full_row["status"] == "unestimable":
-                        note = H2_OUT_OF_BOUNDS_RG_NOTE
-                        LOGGER.warning(f"rg for pair '{trait_1}' vs '{trait_2}' marked unestimable: {full_row['error']}")
-                    metadata = _rg_pair_metadata(tables[i], tables[j], full_row, config, pair_kind, (prev[i], prev[j]),
-                                                 {**_fit_metadata(outcome, "n_snps_used"), **_dataset_metadata(dataset)})
-                except Exception as exc:
-                    drops = getattr(exc, "allele_alignment_drops", drops)
-                    error = _format_exception(exc)
-                    status = "unestimable" if isinstance(exc, JackknifeIdentifiabilityError) else "failed"
-                    note = UNESTIMABLE_RG_NOTE if status == "unestimable" else FAILED_RG_NOTE
-                    LOGGER.warning(f"rg for pair '{trait_1}' vs '{trait_2}' marked {status}: {error}", exc_info=True)
-                    if status == "unestimable":
-                        LOGGER.error("Pair %r vs %r jackknife diagnostics: %s", trait_1, trait_2, json.dumps(exc.failures))
-                    fit_summary = getattr(exc, "fit_summary", None)
-                    full_row = _failed_rg_full_row(trait_1=trait_1, trait_2=trait_2, pair_kind=pair_kind, error=error,
-                                                   status=status, n_snps_used=fit_summary["n_snps"] if fit_summary else 0,
-                                                   samp_prev_1=prev[i][0], pop_prev_1=prev[i][1],
-                                                   samp_prev_2=prev[j][0], pop_prev_2=prev[j][1])
-                    fit = None if fit_summary is None else {
-                        "n_snps_used": fit_summary["n_snps"], "n_blocks_used": fit_summary["n_blocks"],
-                        **{key: value for key, value in fit_summary.items() if key not in {"n_snps", "n_blocks"}},
-                    }
-                    metadata = _rg_pair_metadata(tables[i], tables[j], full_row, config, pair_kind, (prev[i], prev[j]),
-                                                 fit)
-                rg_full_rows.append(full_row)
-                rg_rows.append(_concise_rg_row(full_row, note))
-                per_pair_metadata.append(metadata)
-                alignment_drops.append(drops)
-                progress.advance(outcome=full_row["status"])
-                dataset = outcome = fitted = None  # release this pair before the next is built
-
-        rg_full = pd.DataFrame(rg_full_rows, columns=RG_FULL_COLUMNS)
-        rg = pd.DataFrame(rg_rows, columns=RG_CONCISE_COLUMNS)
-        legacy_drops = [trait.legacy_drops for trait in traits if trait.legacy_drops is not None]
-        return RgResultFamily(
-            rg=rg, rg_full=rg_full, h2_per_trait=h2_per_trait, per_pair_metadata=per_pair_metadata,
-            sumstats_files=[table.source_path for table in tables],
-            ldscore_dir=_ldscore_dir_of(ldscore_result),
-            legacy_sumstats_drops=pd.concat(legacy_drops, ignore_index=True) if legacy_drops else None,
-            dropped_nonfinite_statistic_rows=[trait.dropped_nonfinite_statistic_rows for trait in traits],
-            dropped_orientation_unknown_rows=[unknown for unknown, _ in alignment_drops],
-            dropped_incompatible_allele_rows=[incompatible for _, incompatible in alignment_drops],
+        return rg.estimate_rg_pairs(
+            sumstats_tables, ldscore_result, config or self.regression_config, self.global_config,
+            anchor_index=anchor_index, prevalences=prevalences,
         )
-
-
-def _iter_rg_pairs(n_traits: int, anchor_index: int | None) -> list[tuple[int, int]]:
-    """Return rg pair indices in the public output order."""
-    if anchor_index is not None:
-        return [(anchor_index, idx) for idx in range(n_traits) if idx != anchor_index]
-    return [(i, j) for i in range(n_traits) for j in range(i + 1, n_traits)]
-
-
-def _resolve_summary_sort(sort_by: str, *, has_queries: bool) -> str:
-    """Resolve the ``auto`` summary sort to a regime-appropriate column key.
-
-    Cell-type runs (query annotations present) surface the most significant query
-    first by ``coefficient-p``; functional runs preserve baseline order with
-    ``category``. Any explicit choice is returned unchanged.
-    """
-    if sort_by != "auto":
-        return sort_by
-    return "coefficient-p" if has_queries else "category"
-
-
-def _log_partitioned_h2_regime(ldscore_result: LDScoreSource | LDScoreResult, has_queries: bool) -> None:
-    """Log a one-block banner naming the regime and the column to focus on."""
-    if has_queries:
-        LOGGER.info(
-            "Cell-type-specific regime: baseline + one query per model (%d queries). "
-            "Focus on `coefficient` together with the one-sided `coefficient_p` "
-            "(a one-sided test of whether `coefficient` > 0): a positive `coefficient` with a small "
-            "`coefficient_p` means the query annotation contributes heritability beyond the baseline "
-            "annotations. The `enrichment` column is confounded by the query annotation's overlap with "
-            "the baseline annotations, so use `coefficient_p` to judge whether the additional "
-            "contribution is significant.",
-            len(ldscore_result.query_columns),
-        )
-    else:
-        LOGGER.info(
-            "Functional-category regime: joint fit of %d baseline annotations. "
-            "Focus on `enrichment` and `enrichment_p`: `enrichment > 1` means the annotation's SNPs "
-            "explain a larger share of heritability than their share of SNPs (`< 1` means a smaller "
-            "share); a small `enrichment_p` indicates the enrichment is significantly different from 1, "
-            "i.e. significantly larger or smaller.",
-            len(ldscore_result.baseline_columns),
-        )
-
-
-def _log_quantitative_annotation_interpretation(ldscore_result: LDScoreResult) -> None:
-    """Warn once when a fitted model contains continuous annotations."""
-    quantitative = [
-        name for name, annotation_type in ldscore_result.annotation_types.items()
-        if annotation_type == "quantitative"
-    ]
-    if not quantitative:
-        return
-    LOGGER.warning(
-        "Continuous annotation(s) detected: count=%d; names are recorded in LD-score annotation_types metadata. Numerical prop_snps, prop_h2, and enrichment summaries "
-        "remain visible for compatibility, but they are weighted summaries and do not have the ordinary "
-        "binary-annotation interpretation. Interpret the coefficient (`coefficient`), its SE, and its coefficient zero-test; "
-        "use `ldsc quantile-h2` for post-fit quantile enrichment. To estimate distinct conditional coefficients "
-        "for bins, construct binary quantile annotations and refit partitioned-h2.",
-        len(quantitative),
-    )
-
-
-def _sort_partitioned_h2_summary(summary: pd.DataFrame, sort_by: str = "category") -> pd.DataFrame:
-    """Return ``summary`` ordered by a public partitioned-h2 summary column."""
-    if sort_by == "category":
-        return summary.reset_index(drop=True)
-    column = PARTITIONED_H2_SUMMARY_SORT_COLUMNS.get(sort_by)
-    if column is None:
-        valid = ", ".join(PARTITIONED_H2_SUMMARY_SORT_COLUMNS)
-        raise LDSCUsageError(
-            f"partitioned-h2 summary sort key {sort_by!r} is not supported. "
-            f"Choose one of: {valid}."
-        )
-    if column not in summary.columns:
-        raise LDSCInternalError(
-            f"partitioned-h2 summary cannot be sorted by {sort_by!r} because required column {column!r} "
-            "is missing. Most likely the regression workflow returned a result table with the wrong schema. "
-            "Re-run with DEBUG logging and report the traceback."
-        )
-    return summary.sort_values(
-        by=column,
-        ascending=sort_by in PARTITIONED_H2_SUMMARY_ASCENDING_SORTS,
-        na_position="last",
-        kind="mergesort",
-    ).reset_index(drop=True)
 
 
 def _add_scalar_prevalence_arguments(parser) -> None:
@@ -1723,62 +1309,6 @@ def _inspect_regression_inputs(output_dir, *, sumstats, ldscore_dir, prevalence_
         files=[('sumstats', sumstats), ('prevalence manifest', prevalence_manifest)],
         checks=[('LD scores', ldscore_dir, lambda: inspect_artifact_paths(ldscore_dir))],
         issues_path=Path(output_dir)/'diagnostics/input_issues.tsv')
-
-
-def _distinguishing_path_suffixes(paths: Sequence[Path]) -> list[str]:
-    """Return the shortest trailing path parts that tell distinct paths apart.
-
-    Parent directories are tried first, so files sharing a name show only their
-    directories. Files in the same directory fall back to suffixes ending in the
-    file name. One suffix length is used for the whole group, which keeps the
-    labels independent of input order.
-    """
-    for parts in ([path.parent.parts for path in paths], [path.parts for path in paths]):
-        for depth in range(1, max(map(len, parts)) + 1):
-            suffixes = [Path(*item[-depth:]).as_posix() for item in parts]
-            if len(set(suffixes)) == len(suffixes):
-                return suffixes
-    return [path.as_posix() for path in paths]
-
-
-def _disambiguate_trait_names(tables: Sequence[SumstatsTable]) -> list[SumstatsTable]:
-    """Return tables with deterministic unique trait names for rg outputs.
-
-    A label shared by several inputs becomes ``label@<path suffix>``, using the
-    shortest source-path suffix that separates that group.
-    """
-    labels = [_trait_label(table) for table in tables]
-    unique = list(labels)
-    for label in dict.fromkeys(labels):
-        members = [index for index, item in enumerate(labels) if item == label]
-        if len(members) == 1:
-            continue
-        if any(not tables[index].source_path for index in members):
-            raise LDSCInputError(
-                f"rg cannot give each input a unique trait label: '{label}' labels {len(members)} inputs, and "
-                "at least one has no source path to tell them apart. Give each SumstatsTable a distinct "
-                "trait_name."
-            )
-        suffixes = _distinguishing_path_suffixes([Path(tables[index].source_path) for index in members])
-        for index, suffix in zip(members, suffixes):
-            unique[index] = f"{label}@{suffix}"
-    collisions = [label for label in dict.fromkeys(unique) if unique.count(label) > 1]
-    if collisions:
-        sources = ", ".join(f"'{table.source_path}'" for table, label in zip(tables, unique) if label == collisions[0])
-        raise LDSCInputError(
-            f"rg cannot give each input a unique trait label: '{collisions[0]}' would label {sources}. "
-            "Most likely one trait name contains '@' and equals the label generated to separate "
-            "inputs that share a trait name. Re-run `ldsc munge-sumstats` for one of these inputs "
-            "with a distinct --trait-name."
-        )
-
-    renamed = sum(original != resolved for original, resolved in zip(labels, unique))
-    if renamed:
-        LOGGER.info("Renamed %d duplicate rg trait labels; resolved names and source paths are recorded in diagnostics/metadata.json.", renamed)
-    for original, resolved in zip(labels, unique):
-        if original != resolved:
-            LOGGER.debug("Disambiguated duplicate rg trait name '%s' as '%s'.", original, resolved)
-    return [replace(table, trait_name=label) for table, label in zip(tables, unique)]
 
 
 def _resolve_anchor_index(

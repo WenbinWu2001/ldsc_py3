@@ -10,7 +10,7 @@ from ldsc import cli
 from ldsc._ldscore.results import LDScoreResult
 from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from ldsc._regression import estimators as reg
-from ldsc._regression import runner as workflow
+from ldsc._regression import rg, runner as workflow
 from ldsc._sumstats.munger import SumstatsMunger
 from ldsc._sumstats.table import SumstatsTable
 from ldsc.config import GlobalConfig, RegressionConfig
@@ -87,7 +87,7 @@ def test_a_pair_with_a_negative_heritability_is_unestimable_and_keeps_its_fit(ca
     concise = result.rg.iloc[0]
     assert np.isnan(concise["rg"]) and np.isnan(concise["rg_se"]) and np.isnan(concise["p"])
     assert concise["n_snps_used"] == N_SNPS
-    assert concise["note"] == workflow.H2_OUT_OF_BOUNDS_RG_NOTE
+    assert concise["note"] == rg.H2_OUT_OF_BOUNDS_RG_NOTE
     metadata = result.per_pair_metadata[0]
     assert metadata["status"] == "unestimable"
     assert (metadata["n_snps_used"], metadata["n_blocks_used"]) == (N_SNPS, N_BLOCKS)
@@ -116,7 +116,7 @@ def test_the_rg_command_counts_the_pair_as_unestimable_and_fits_the_others(tmp_p
     assert float(full.loc[0, "h2_2_obs"]) < 0 < float(full.loc[0, "h2_1_obs"])
     assert float(full.loc[2, "h2_1_obs"]) < 0 < float(full.loc[2, "h2_2_obs"])
     concise = pd.read_csv(out / "rg.tsv", sep="\t", keep_default_na=False)
-    assert concise["note"].tolist() == [workflow.H2_OUT_OF_BOUNDS_RG_NOTE, "", workflow.H2_OUT_OF_BOUNDS_RG_NOTE]
+    assert concise["note"].tolist() == [rg.H2_OUT_OF_BOUNDS_RG_NOTE, "", rg.H2_OUT_OF_BOUNDS_RG_NOTE]
     assert concise["n_snps_used"].tolist() == [N_SNPS] * 3
     manifest = pd.read_csv(out / "diagnostics/pairs/manifest.tsv", sep="\t")
     pair = json.loads((out / manifest.loc[0, "metadata_path"]).read_text())

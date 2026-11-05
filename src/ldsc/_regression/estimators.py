@@ -1,7 +1,8 @@
-# Derived from legacy LDSC ldscore/regressions.py and ldscore/sumstats.py.
+# Derived from legacy LDSC ldscore/regressions.py.
 # GPLv3 (LICENSE). Modified 2024 for Python 3; 2026 for package layering,
-# allele helpers, regression outputs, liability-scale calculations, and naming the
-# failed rg component.
+# regression outputs, liability-scale calculations, and naming the failed rg
+# component. The allele-matching tables from ldscore/sumstats.py that this
+# module held moved to ldsc._core.snp_identity in 2026.
 # See NOTICE for attribution and dated modifications.
 
 '''

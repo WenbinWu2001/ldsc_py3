@@ -1,3 +1,10 @@
+# The allele-matching tables VALID_SNPS, MATCH_ALLELES and FLIP_ALLELES derive
+# from LDSC ldscore/sumstats.py.
+# (c) 2014 Brendan Bulik-Sullivan and Hilary Finucane
+# GPLv3 (LICENSE). Python 3 adaptation by Anthony Abrantes, 2024. Modified 2026:
+# built from the module's one base-complement table.
+# See NOTICE for attribution and dated modifications.
+
 """Shared SNP identity policy for artifact and restriction matching.
 
 This module is the package-wide authority for SNP identity semantics. Public

@@ -738,7 +738,7 @@ def test_open_text_reads_utf8_and_any_case_gzip_suffix(tmp_path):
 
 def _bad_config_cases():
     from ldsc.config import GlobalConfig, MungeConfig, R2MatrixBuildConfig
-    from ldsc._genome.liftover import SumstatsLiftoverRequest
+    from ldsc._sumstats.liftover import SumstatsLiftoverRequest
 
     return [
         (lambda: GlobalConfig(snp_identifier="rsidd"),

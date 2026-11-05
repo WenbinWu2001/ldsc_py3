@@ -10,12 +10,8 @@ import numpy as np
 import pandas as pd
 
 
-from ldsc._genome.liftover import (
-    LiftOverMappingResult,
-    SumstatsLiftoverRequest,
-    apply_sumstats_liftover,
-    load_hm3_map_file,
-)
+from ldsc._genome.liftover import LiftOverMappingResult
+from ldsc._sumstats.liftover import SumstatsLiftoverRequest, apply_sumstats_liftover, load_hm3_map_file
 from ldsc.errors import LDSCInputError, LDSCUsageError
 
 
@@ -150,7 +146,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
             unmapped_count=0,
             cross_chrom_count=1,
         )
-        with mock.patch("ldsc._genome.liftover.LiftOverTranslator", return_value=fake_translator):
+        with mock.patch("ldsc._sumstats.liftover.LiftOverTranslator", return_value=fake_translator):
             lifted, report, drop_frame = apply_sumstats_liftover(
                 frame,
                 request,
@@ -191,8 +187,8 @@ class SumstatsLiftoverTest(unittest.TestCase):
             )
 
         fake_translator.map_positions.side_effect = fake_map
-        with mock.patch("ldsc._genome.liftover.LiftOverTranslator", return_value=fake_translator):
-            with self.assertLogs("LDSC.liftover", level="INFO") as caught:
+        with mock.patch("ldsc._sumstats.liftover.LiftOverTranslator", return_value=fake_translator):
+            with self.assertLogs("LDSC.sumstats_liftover", level="INFO") as caught:
                 lifted, report, drop_frame = apply_sumstats_liftover(
                     frame,
                     request,
@@ -227,7 +223,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
             cross_chrom_count=0,
         )
 
-        with mock.patch("ldsc._genome.liftover.LiftOverTranslator", return_value=fake_translator):
+        with mock.patch("ldsc._sumstats.liftover.LiftOverTranslator", return_value=fake_translator):
             lifted, report, drop_frame = apply_sumstats_liftover(
                 frame,
                 request,
@@ -263,7 +259,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
             cross_chrom_count=0,
         )
 
-        with mock.patch("ldsc._genome.liftover.LiftOverTranslator", return_value=fake_translator):
+        with mock.patch("ldsc._sumstats.liftover.LiftOverTranslator", return_value=fake_translator):
             lifted, report, drop_frame = apply_sumstats_liftover(
                 frame,
                 request,
@@ -297,7 +293,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
                 }
             )
 
-            with self.assertLogs("LDSC.liftover", level="INFO") as caught:
+            with self.assertLogs("LDSC.sumstats_liftover", level="INFO") as caught:
                 lifted, report, drop_frame = apply_sumstats_liftover(
                     frame,
                     request,
@@ -353,7 +349,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
             cross_chrom_mask=np.asarray([False, True, False, False, False], dtype=bool),
         )
 
-        with mock.patch("ldsc._genome.liftover.LiftOverTranslator", return_value=fake_translator):
+        with mock.patch("ldsc._sumstats.liftover.LiftOverTranslator", return_value=fake_translator):
             lifted, report, drop_frame = apply_sumstats_liftover(
                 frame,
                 request,

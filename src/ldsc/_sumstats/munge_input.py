@@ -28,7 +28,7 @@ from .._core.columns import (
 )
 from ..config import GlobalConfig, MungeConfig
 from ..errors import LDSCInputError, LDSCUsageError, LDSCUserError
-from .._genome.liftover import SumstatsLiftoverRequest
+from .liftover import SumstatsLiftoverRequest
 from .._core.snp_identity import identity_base_mode, identity_mode_family, is_allele_aware_mode
 from .munge_kernel import MungeQC, ResolvedMungeInput, mean_info_list_value, prepare_sumstats_restriction
 from .._genome.build_policy import GenomeBuildCheck

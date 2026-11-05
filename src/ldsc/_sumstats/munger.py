@@ -75,7 +75,7 @@ from .._core.snp_identity import (
     identity_mode_family,
     normalize_snp_identifier_mode,
 )
-from .._genome.liftover import SumstatsLiftoverRequest
+from .liftover import SumstatsLiftoverRequest
 from . import munge_kernel as kernel_munge
 from . import munge_input
 from .outputs import (

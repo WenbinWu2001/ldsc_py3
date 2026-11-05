@@ -10,7 +10,8 @@ import pytest
 from ldsc import GlobalConfig, MungeConfig, SumstatsMunger, load_sumstats
 from ldsc._sumstats import munge_input
 from ldsc._sumstats import munge_kernel as kernel_munge
-from ldsc._genome.liftover import LiftOverMappingResult, SumstatsLiftoverRequest
+from ldsc._genome.liftover import LiftOverMappingResult
+from ldsc._sumstats.liftover import SumstatsLiftoverRequest
 
 
 @pytest.mark.parametrize("suffix,compress", [(".tsv", str.encode), (".gz", lambda text: gzip.compress(text.encode())), (".bz2", lambda text: bz2.compress(text.encode()))])
@@ -162,7 +163,7 @@ def test_production_build_inference_uses_bounded_raw_evidence_before_qc(tmp_path
 
 
 def test_coordinate_liftover_and_identity_counts_are_exclusive(tmp_path, monkeypatch):
-    from ldsc._genome import liftover
+    from ldsc._sumstats import liftover
 
     raw = tmp_path / "raw.tsv"
     raw.write_text(

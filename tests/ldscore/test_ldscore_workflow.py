@@ -2,7 +2,7 @@ from __future__ import annotations
 from ldsc._runtime.serial_calculation import serial_calculation
 from tests.annotation_fixtures import build_annotation_fixture, make_annotation_bundle, fixture_metadata, fixture_values, replace_fixture_queries
 
-from tests.ref_panel_helpers import compute_plink, plink_panel, write_r2_matrix_chromosome, write_tiny_plink
+from tests.ref_panel_helpers import compute_plink, open_r2_matrix_chromosome, plink_panel, write_r2_matrix_chromosome, write_tiny_plink
 
 from contextlib import contextmanager
 from dataclasses import fields as dataclass_fields, replace as dataclass_replace
@@ -20,7 +20,7 @@ import pandas as pd
 import pytest
 
 
-from ldsc.config import ConfigMismatchError, GlobalConfig, LDWindow
+from ldsc.config import ConfigMismatchError, GlobalConfig
 from ldsc.errors import LDSCInputError, LDSCInternalError, LDSCUsageError
 from ldsc._annotation.query_outcomes import QueryAnnotationStatus, emit_gene_gate_b_notice
 
@@ -49,13 +49,8 @@ from ldsc._core import plink_files as kernel_formats
 from ldsc._ldscore import compute as kernel_ldscore
 from ldsc._annotation.overlap import annotation_statistics
 from ldsc._refpanel import plink as plink_bed
-from ldsc._refpanel import adapters as ref_panel_adapters, r2_format, windows as ld_windows
+from ldsc._refpanel import windows as ld_windows
 from ldsc._refpanel.prepared import ArrayAnnotations, ChromosomeAnnotations
-from ldsc._refpanel.windows import (
-    assert_cm_usable,
-    validate_window_positions_sorted,
-    window_coordinates,
-)
 from ldsc._core.identifiers import build_snp_id_series
 from ldsc._core.snp_identity import RestrictionIdentityKeys, empty_identity_drop_frame
 
@@ -1973,158 +1968,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
             np.testing.assert_allclose(result.baseline_table["base"].to_numpy(), expected_ld)
 
 
-def _open_r2_chromosome(build_dir, panel, pairs=(), **options):
-    """Write one R2 matrix chromosome with the package writers and open it for ldscore."""
-    write_r2_matrix_chromosome(build_dir, panel, pairs, **options)
-    return r2_format.R2MatrixChromosome.open(build_dir, str(panel["CHR"].iloc[0]), command="ldscore")
-
-
-def _set_footer_metadata(path, **values):
-    """Overwrite ``ldsc:<key>`` entries in one R2 Parquet file footer."""
-    import pyarrow.parquet as pq
-
-    table = pq.read_table(path)
-    metadata = dict(table.schema.metadata)
-    metadata.update({f"ldsc:{key}".encode(): str(value).encode() for key, value in values.items()})
-    pq.write_table(table.replace_schema_metadata(metadata), path)
-
-
-class LDScoreParquetNormalizationTest(unittest.TestCase):
-
-    def test_sorted_r2_block_reader_rejects_auto_genome_build_at_kernel_boundary(self):
-        panel = pd.DataFrame({"CHR": ["1", "1"], "POS": [100, 110], "SNP": ["rs0", "rs1"],
-                              "A1": ["A", "A"], "A2": ["C", "C"], "MAF": [0.3, 0.3]})
-        with tempfile.TemporaryDirectory() as tmpdir:
-            chromosome = _open_r2_chromosome(Path(tmpdir), panel)
-            with self.assertRaisesRegex(AssertionError, "concrete"):
-                chromosome.pair_reader(panel, "chr_pos", "auto")
-
-
-class IndexBindingTest(unittest.TestCase):
-    PANEL = pd.DataFrame({"CHR": ["1", "1", "1"], "POS": [10, 20, 30],
-                          "SNP": ["rsA", "rsB", "rsC"], "A1": ["A", "C", "G"],
-                          "A2": ["G", "T", "A"], "CM": [0.0, 0.0, 0.0], "MAF": [0.2, 0.3, 0.4]})
-
-    def test_sidecar_reads_canonical_columns_once(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            chromosome = _open_r2_chromosome(Path(tmp), self.PANEL)
-            sidecar = chromosome.sidecar()
-            self.assertEqual(list(sidecar.columns), list(r2_format.SIDECAR_COLUMNS))
-            self.assertEqual(sidecar["CHR"].tolist(), ["1", "1", "1"])
-            self.assertEqual(sidecar["POS"].dtype, np.int64)
-            self.assertEqual(sidecar["POS"].tolist(), [10, 20, 30])
-            self.assertEqual(sidecar["MAF"].tolist(), [0.2, 0.3, 0.4])
-            self.assertIs(chromosome.sidecar(), sidecar)
-
-    def test_sidecar_binding_rejects_hash_and_row_count_mismatch(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            chromosome = _open_r2_chromosome(Path(tmp), self.PANEL)
-            chromosome.sidecar()  # matched pair: no raise
-            for values, reason in (({"sidecar_identity_sha256": "0" * 64}, "ldsc:sidecar_identity_sha256"),
-                                   ({"n_snps": 999}, "ldsc:n_snps=999")):
-                _set_footer_metadata(chromosome.parquet_path, **values)
-                reopened = r2_format.R2MatrixChromosome.open(Path(tmp), "1", command="ldscore")
-                with self.assertRaisesRegex(LDSCInputError, reason):
-                    reopened.sidecar()
-
-
-class IndexRemapTest(unittest.TestCase):
-    def test_remap_maps_build_rows_to_retained_indices_chr_pos(self):
-        from ldsc._refpanel.r2_format import build_index_remap
-
-        full = pd.DataFrame({"CHR": ["1"] * 4, "POS": [10, 20, 30, 40],
-                             "SNP": ["a", "b", "c", "d"], "A1": list("ACGT"), "A2": list("GTAC")})
-        # retained = rows 2 and 0 of the panel, in matrix order [pos30, pos10]
-        retained = full.iloc[[2, 0]].reset_index(drop=True)
-        remap, retained_build_idx = build_index_remap(full, retained, "chr_pos")
-        # build row 2 (pos30) -> retained idx 0 ; build row 0 (pos10) -> retained idx 1 ; others -1
-        self.assertEqual(remap.tolist(), [1, -1, 0, -1])
-        # retained_build_idx[matrix_idx] = build row
-        self.assertEqual(retained_build_idx.tolist(), [2, 0])
-
-    def test_remap_allele_aware_uses_alleles(self):
-        from ldsc._refpanel.r2_format import build_index_remap
-
-        # Two multi-allelic variants at the same position with distinct,
-        # non-strand-complement allele sets: {A,G} vs {A,C}.
-        full = pd.DataFrame({"CHR": ["1", "1"], "POS": [10, 10],
-                             "SNP": ["a", "b"], "A1": ["A", "A"], "A2": ["G", "C"]})
-        retained = full.iloc[[1]].reset_index(drop=True)  # the A/C variant at pos10
-        remap, _ = build_index_remap(full, retained, "chr_pos_allele_aware")
-        self.assertEqual(remap.tolist(), [-1, 0])
-
-
-class IndexReaderDecodeTest(unittest.TestCase):
-    def test_streaming_drops_unretained_endpoint(self):
-        full = pd.DataFrame({"CHR": ["1"] * 4, "POS": [10, 20, 30, 40],
-                             "SNP": ["a", "b", "c", "d"], "A1": list("ACGT"),
-                             "A2": list("GTAC"), "CM": [0.0] * 4, "MAF": [0.3] * 4})
-        rows = [
-            {"i": 0, "j": 1, "R2": 0.5, "sign": "+"},
-            {"i": 0, "j": 2, "R2": 0.2, "sign": "+"},
-            {"i": 1, "j": 2, "R2": 0.4, "sign": "-"},
-            {"i": 2, "j": 3, "R2": 0.9, "sign": "+"},
-        ]
-        with tempfile.TemporaryDirectory() as tmp:
-            chromosome = _open_r2_chromosome(Path(tmp), full, rows)
-            # retained = panel rows 0,1,2 (drop pos40); matrix order = [10,20,30]
-            retained = full.iloc[[0, 1, 2]].reset_index(drop=True)
-            reader = chromosome.pair_reader(retained, "chr_pos", "hg19")
-            seen = {}
-            for i, j, r2v in reader.iter_all_pairs():
-                for a, b, v in zip(i.tolist(), j.tolist(), r2v.tolist()):
-                    seen[(a, b)] = v
-            reader.close()
-            # pair (2,3) touches the dropped SNP (pos40) -> excluded by remap
-            self.assertEqual(sorted(seen), [(0, 1), (0, 2), (1, 2)])
-            # off-diagonal R2 is int16-quantized: tolerance is the half-step (1.5e-5)
-            self.assertAlmostEqual(seen[(0, 1)], 0.5, delta=2e-5)
-            self.assertAlmostEqual(seen[(0, 2)], 0.2, delta=2e-5)
-            self.assertAlmostEqual(seen[(1, 2)], 0.4, delta=2e-5)
-
-
-class R2MatrixWindowValidationTest(unittest.TestCase):
-    TWO_SNPS = pd.DataFrame({"CHR": ["1", "1"], "POS": [100, 200], "SNP": ["rs1", "rs2"], "A1": ["A", "A"],
-                             "A2": ["C", "C"], "CM": [0.0, 1.0], "MAF": [0.3, 0.3]})
-
-    def _chromosome(self, tmp, ld_window, panel=None, pairs=()):
-        return _open_r2_chromosome(Path(tmp), self.TWO_SNPS if panel is None else panel, pairs, ld_window=ld_window)
-
-    def test_ldscore_accepts_equal_recorded_r2_matrix_window(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            chromosome = self._chromosome(tmp, ("cm", 1.0))
-            chromosome.check_ld_window(LDWindow("cm", 1.0))
-
-    def test_ldscore_rejects_window_wider_than_recorded_r2_matrix_window(self):
-        panel = pd.DataFrame({"CHR": ["1"] * 3, "POS": [100, 200, 300], "SNP": ["rs1", "rs2", "rs3"],
-                              "A1": ["A"] * 3, "A2": ["C"] * 3, "CM": [0.0, 0.1, 0.2], "MAF": [0.3] * 3})
-        with tempfile.TemporaryDirectory() as tmp:
-            chromosome = self._chromosome(tmp, ("kb", 0.1), panel, [{"i": 0, "j": 1, "R2": 0.5, "sign": "+"}])
-            with self.assertRaisesRegex(
-                LDSCUsageError,
-                "user-requested LD window `--ld-wind-kb 1.0` is wider than the input R2 matrix window `--ld-wind-kb 0.1`",
-            ):
-                chromosome.check_ld_window(LDWindow("kb", 1.0))
-
-    def test_ldscore_rejects_any_strictly_larger_same_mode_window(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            chromosome = self._chromosome(tmp, ("cm", 1.0))
-            with self.assertRaisesRegex(LDSCUsageError, "is wider than the input R2 matrix window"):
-                chromosome.check_ld_window(LDWindow("cm", float(np.nextafter(1.0, 2.0))))
-
-    def test_ldscore_rejects_requested_window_mode_differing_from_r2_matrix_mode(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            chromosome = self._chromosome(tmp, ("cm", 1.0))
-            with self.assertRaises(LDSCUsageError) as caught:
-                chromosome.check_ld_window(LDWindow("kb", 100.0))
-
-        message = str(caught.exception)
-        self.assertIn("with `--ld-wind-kb 100.0`", message)
-        self.assertIn("the R2 matrix was built with `--ld-wind-cm 1.0`", message)
-        self.assertIn("windows in different units cannot be checked for coverage", message)
-        self.assertIn("ldsc build-r2-matrix --ld-wind-kb 100.0", message)
-
-
 class IndexCrossModeParityTest(unittest.TestCase):
     """One index parquet must produce identical LD scores in all four modes."""
 
@@ -2149,7 +1992,7 @@ class IndexCrossModeParityTest(unittest.TestCase):
         expected = oracle.sum(axis=1)  # [1.6, 2.0, 2.3, 1.5]
 
         with tempfile.TemporaryDirectory() as tmp:
-            chromosome = _open_r2_chromosome(Path(tmp), panel, pairs)
+            chromosome = open_r2_matrix_chromosome(Path(tmp), panel, pairs)
             mode_scores = {}
             for mode in ("rsid", "chr_pos", "rsid_allele_aware", "chr_pos_allele_aware"):
                 reader = chromosome.pair_reader(panel, mode, "hg19")
@@ -2166,26 +2009,6 @@ class IndexCrossModeParityTest(unittest.TestCase):
             # Dense oracle uses exact R2; int16 quantization adds <= a few half-steps.
             np.testing.assert_allclose(first, expected, rtol=0, atol=5e-5,
                                        err_msg="quantized LD scores drifted from dense oracle")
-
-
-class R2DequantizationTest(unittest.TestCase):
-    def test_reader_dequantizes_int16_panel_to_float32(self):
-        panel = pd.DataFrame({"CHR": ["1"] * 3, "POS": [100, 120, 140],
-                              "SNP": ["rs1", "rs2", "rs3"], "A1": ["A"] * 3, "A2": ["C"] * 3,
-                              "CM": [0.0] * 3, "MAF": [0.3] * 3})
-        pairs = [{"i": 0, "j": 1, "R2": 1.0, "sign": "+"},
-                 {"i": 0, "j": 2, "R2": 0.2, "sign": "-"}]
-        with tempfile.TemporaryDirectory() as tmp:
-            chromosome = _open_r2_chromosome(Path(tmp), panel, pairs)
-            reader = chromosome.pair_reader(panel, "chr_pos", "hg19")
-            self.assertEqual(reader.contract.r2_scale, 32767.0)
-            i, j, r2_values = next(reader.iter_all_pairs())
-            reader.close()
-            self.assertEqual(r2_values.dtype, np.float32)
-            # endpoint exact; 0.2 within half-step
-            got = dict(zip(zip(i.tolist(), j.tolist()), r2_values.tolist()))
-            self.assertEqual(got[(0, 1)], 1.0)
-            self.assertAlmostEqual(got[(0, 2)], 0.2, delta=2e-5)
 
 
 def test_ldscore_parser_regr_snp_region_flag_default_and_choices():
@@ -2368,56 +2191,6 @@ def test_gene_list_mhc_query_keeps_reference_counts_but_not_regression_row(tmp_p
     np.testing.assert_array_equal(overlap.query_diagonal_all, np.array([1.0]))
 
 
-def test_window_coordinates_select_each_window_mode():
-    """One window builder serves ldscore and build-r2-matrix for every mode."""
-    positions = np.array([100, 250, 900, 2_000])
-    cm = np.array([0.0, 0.4, 0.9, 1.6])
-
-    coords, dist = window_coordinates(positions, cm, LDWindow("cm", 1.0))
-    np.testing.assert_array_equal(coords, cm)
-    assert dist == 1.0
-    np.testing.assert_array_equal(ld_windows.get_block_lefts(coords, dist), [0, 0, 0, 2])
-
-    coords, dist = window_coordinates(positions, None, LDWindow("kb", 1.0))
-    np.testing.assert_array_equal(coords, positions.astype(float))
-    assert dist == 1000.0
-
-    coords, dist = window_coordinates(positions, None, LDWindow("snps", 2))
-    np.testing.assert_array_equal(coords, [0.0, 1.0, 2.0, 3.0])
-    assert dist == 2.0
-
-
-def test_window_coordinates_count_panel_rows_when_given():
-    """``--ld-wind-snps`` counts R2 matrix sidecar rows, not retained rows."""
-    coords, dist = window_coordinates(
-        np.array([10, 20, 30]), None, LDWindow("snps", 1), snp_positions=np.array([0, 5, 6]),
-    )
-    np.testing.assert_array_equal(coords, [0.0, 5.0, 6.0])
-    np.testing.assert_array_equal(ld_windows.get_block_lefts(coords, dist), [0, 1, 1])
-
-
-def test_ldscore_window_rejects_missing_cm():
-    metadata = pd.DataFrame({"CHR": ["22"] * 3, "POS": [1, 2, 3], "SNP": ["rs1", "rs2", "rs3"],
-                             "CM": [0.0, np.nan, 0.2]})
-    config = SimpleNamespace(ld_wind_snps=None, ld_wind_kb=None, ld_wind_cm=1.0, whole_chromosome_ok=True)
-    with pytest.raises(LDSCInputError, match="ldscore cannot use `--ld-wind-cm`.*missing CM"):
-        ref_panel_adapters._prepare_window(metadata, "22", config, "rsid")
-
-
-def test_assert_cm_usable_rejects_all_zero():
-    with pytest.raises(LDSCInputError, match="all zero|uninformative"):
-        assert_cm_usable(pd.Series([0.0, 0.0, 0.0]), chrom="1")
-
-
-def test_assert_cm_usable_rejects_constant():
-    with pytest.raises(LDSCInputError):
-        assert_cm_usable(pd.Series([2.5, 2.5, 2.5]), chrom="1")
-
-
-def test_assert_cm_usable_accepts_two_distinct_values():
-    assert_cm_usable(pd.Series([0.0, 0.1, 0.1]), chrom="1")  # no raise
-
-
 @serial_calculation
 def test_public_plink_calculation_prepares_genotypes_once():
     pytest.importorskip("bitarray")
@@ -2461,25 +2234,6 @@ def test_build_parser_accepts_genetic_map_and_export_flags():
     ])
     assert args.genetic_map_hg38_sources == "map_hg38.txt"
     assert args.export_ref_metadata is True
-
-
-def test_validate_window_positions_sorted_accepts_non_decreasing():
-    metadata = pd.DataFrame({"CHR": ["1", "1", "1"], "POS": [100, 100, 250]})
-    # Non-decreasing (including a tie) must pass without raising.
-    validate_window_positions_sorted(metadata, chrom="1")
-
-
-def test_validate_window_positions_sorted_rejects_unsorted_metadata():
-    metadata = pd.DataFrame({"CHR": ["1", "1", "1"], "POS": [100, 300, 250]})
-    with pytest.raises(LDSCInternalError, match="non-decreasing order"):
-        validate_window_positions_sorted(metadata, chrom="1")
-
-
-def test_validate_window_positions_sorted_ignores_chromosome_boundary_drop():
-    # A position drop across a chromosome boundary is expected, not an error:
-    # the window is computed per chromosome.
-    metadata = pd.DataFrame({"CHR": ["1", "1", "2"], "POS": [100, 999, 1]})
-    validate_window_positions_sorted(metadata, chrom="1")
 
 
 def test_direct_run_resolves_its_genome_build_once(tmp_path, monkeypatch):

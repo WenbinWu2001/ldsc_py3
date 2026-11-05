@@ -270,6 +270,7 @@ Each test folder has an `__init__.py`, which makes those full module paths impor
 | annotation workflow | `tests/annotation/test_annotation.py` |
 | reference-panel builder | `tests/refpanel/test_r2_matrix_builder.py` |
 | R² pair query | `tests/refpanel/test_r2_matrix_query.py` |
+| R² matrix chromosome reads and LD windows | `tests/refpanel/test_r2_format.py`, `tests/refpanel/test_windows.py` |
 | LD-score workflow | `tests/ldscore/test_ldscore_workflow.py` |
 | gene coordinate catalog and gene-list resolution | `tests/annotation/test_gene_list_resolver.py` |
 | summary-statistics munging | `tests/sumstats/test_sumstats_munger.py`, `tests/sumstats/test_sumstats_outputs.py`, `tests/sumstats/test_sumstats_liftover.py` |

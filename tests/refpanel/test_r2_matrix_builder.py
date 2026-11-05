@@ -23,7 +23,6 @@ from ldsc._refpanel import build_kernel as kernel_builder
 from ldsc._refpanel import genetic_map as genetic_maps, plink_source
 from ldsc._refpanel import r2_format
 from ldsc._refpanel.r2_format import build_runtime_metadata_table
-from ldsc._refpanel.windows import window_coordinates
 from ldsc._core.snp_identity import IDENTITY_DROP_COLUMNS, RestrictionIdentityKeys, empty_identity_drop_frame
 from ldsc.config import GlobalConfig, LDWindow, R2MatrixBuildConfig
 from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
@@ -400,14 +399,6 @@ class RetainedSnpOrderingTest(unittest.TestCase):
         )
 
         self.assertEqual(sorted_snps.tolist(), [20, 10, 30])
-
-    def test_kb_window_coordinates_use_requested_build_positions(self):
-        build_positions = np.array([100, 250], dtype=np.int64)
-
-        coords, max_dist = window_coordinates(build_positions, None, LDWindow("kb", 1.0))
-
-        np.testing.assert_array_equal(coords, np.array([100.0, 250.0]))
-        self.assertEqual(max_dist, 1000.0)
 
     def test_cm_window_rejects_missing_interpolated_cm(self):
         config = R2MatrixBuildConfig(plink_prefix="plink/panel.@", output_dir="out", ld_wind_cm=1.0,

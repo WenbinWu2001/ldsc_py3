@@ -8,6 +8,7 @@ from ldsc.config import LDWindow
 from ldsc._core.snp_identity import sidecar_identity_sha256
 from ldsc._ldscore import compute as ldscore
 from ldsc._refpanel.r2_format import (
+    R2MatrixChromosome,
     build_runtime_metadata_table,
     r2_matrix_file_paths,
     write_r2_parquet,
@@ -41,6 +42,12 @@ def write_r2_matrix_chromosome(build_dir, panel, pairs=(), *, snp_identifier="ch
         ld_window=LDWindow(*ld_window), r2_min=r2_min, row_group_size=row_group_size,
     )
     return parquet_path, sidecar_path
+
+
+def open_r2_matrix_chromosome(build_dir, panel, pairs=(), **options):
+    """Write one R2 matrix chromosome with ``write_r2_matrix_chromosome`` and open it for ``ldscore``."""
+    write_r2_matrix_chromosome(build_dir, panel, pairs, **options)
+    return R2MatrixChromosome.open(build_dir, str(panel["CHR"].iloc[0]), command="ldscore")
 
 
 def write_tiny_plink(prefix, metadata):

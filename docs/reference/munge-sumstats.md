@@ -62,9 +62,11 @@ With the default HM3 keep-list, allele-aware modes keep none of them, because th
 
 ## Preparation and Run Accounting
 
-`_sumstats.munge_input.resolve_raw_schema()` reads the raw header once for both the run and `--infer-only`: it detects the format and resolves column aliases and hints, DANER sample-size settings, the signed statistic, QC thresholds and allele columns.
+`_sumstats.munge_input.resolve_munge_plan()` makes every decision a run takes before it reads data rows, for the run, `--infer-only` and `infer_raw_sumstats()` alike, so the two previews report exactly the problems the run stops on.
+It reads the raw header once with `_sumstats.munge_input.resolve_raw_schema()`, which detects the format and resolves column aliases and hints, DANER sample-size settings, the signed statistic, QC thresholds and allele columns; it then resolves the raw coordinate build/basis and the liftover request for that build, including its chain file.
 It collects every header problem; the run raises them together in one error, and a single problem keeps its own message.
-`_sumstats.munge_input.prepare_munge_input()` then resolves the raw coordinate build/basis, the liftover request for that build, and the optional keep-list.
+An unresolved source build, different builds without a liftover method, or a chain file that does not resolve is raised after the header problems.
+`_sumstats.munge_input.prepare_munge_input()` then raises those problems for the run, checks `INC_ALLELE`/`DEC_ALLELE` orientation against the signed statistic, and loads the optional keep-list.
 Under HM3 quick liftover the packaged HM3 map is read once and serves as both the keep-list and the position lookup.
 The kernel accepts a `ResolvedMungeInput` and returns a `MungeResult` containing the munged table, counts, coordinate provenance, and separate identity/liftover drop records.
 CLI parsing stays in `_sumstats/munger.py`, artifact writing in `SumstatsDirectoryWriter` (`_sumstats/outputs.py`), and the munged table and its loader in `_sumstats/table.py`; the kernel neither parses CLI flags nor mutates configuration to return results.
@@ -248,9 +250,11 @@ values are available. Downstream LDSC3 commands do not consume this file.
 
 ## `--infer-only`
 
-`--infer-only` reads the header through the same schema as the run, so it lists every header problem the run would stop on: missing or conflicting columns, ambiguous sample-size or signed-statistic columns, unusable old DANER counts and missing allele orientation.
+`--infer-only` and its Python form `infer_raw_sumstats()` report the plan the run resolves (`resolve_munge_plan()`), so they list every header problem the run would stop on: missing or conflicting columns, ambiguous sample-size or signed-statistic columns, unusable old DANER counts and missing allele orientation.
 Each appears under `Missing fields` with the run's message as a note, and the report says `Runnable: no`.
-It also checks the build and liftover options against the SNP identifier mode with the run's own check.
+In coordinate-family modes they also report the source build the run would use (`source_genome_build` is missing when it cannot be resolved), the liftover method and whether a chain file resolves.
+They check the build and liftover options against the SNP identifier mode with the run's own check, which raises the run's error.
+The two previews return the same report; the CLI also prints a suggested command.
 
 `--infer-only` diagnoses the input without writing artifacts. It requires nonempty `--raw-sumstats-file` and `--output-dir` values, but does not create the output directory. Suggested commands preserve column overrides, sample-size constants, filters, and other effective CLI options alongside resolved format/build choices.
 

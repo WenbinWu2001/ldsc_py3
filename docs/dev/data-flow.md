@@ -446,7 +446,8 @@ Before calling the kernel, the workflow runs format and column inference:
 VCF-style headers, old DANER, and new DANER. `--infer-only` runs that inference
 pass, still requires `--output-dir` for the uniform CLI contract, creates no
 output directory, and prints missing fields plus exact repair suggestions.
-`_sumstats.munge_input.resolve_raw_schema()` resolves the raw schema and sample-size settings, shared with `--infer-only`, and `_sumstats.munge_input.prepare_munge_input()` adds the source build/basis, the liftover request for that build and the keep-list into `ResolvedMungeInput`.
+`_sumstats.munge_input.resolve_munge_plan()` resolves the raw schema and sample-size settings (`resolve_raw_schema()`), the source build/basis and the liftover request for that build into a `MungePlan`, shared with `--infer-only` and `infer_raw_sumstats()`.
+`_sumstats.munge_input.prepare_munge_input()` raises the plan's problems and adds the keep-list into `ResolvedMungeInput`.
 When the request selects HM3 quick liftover, `prepare_munge_input()` loads the packaged HM3 map once and derives both the keep-list and the liftover position lookup from it.
 The kernel returns a `MungeResult` with parsed row counts, exclusive per-stage drop counts, coordinate provenance and separate identity/liftover drop records. Row counting occurs during chunk parsing; there is no post-run full-file count pass. Source-build inference uses the shared bounded coordinate evidence reader before chunk QC, including when those informative rows will later be filtered out.
 

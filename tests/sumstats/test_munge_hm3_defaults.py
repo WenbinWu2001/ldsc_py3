@@ -3,14 +3,14 @@
 import pytest
 
 from ldsc import GlobalConfig, LDSCConfigError, LDSCInputError, LDSCUsageError, MungeConfig, SumstatsMunger
-from ldsc._sumstats import munger as workflow
+from ldsc._sumstats import munge_input, munger as workflow
 
 
 @pytest.fixture
 def inputs(tmp_path, monkeypatch):
     hm3 = tmp_path / "hm3.tsv"
     hm3.write_text("CHR\thg19_POS\thg38_POS\tSNP\n1\t100\t1000\tkeep\n")
-    monkeypatch.setattr(workflow, "packaged_hm3_curated_map_path", lambda: str(hm3))
+    monkeypatch.setattr(munge_input, "packaged_hm3_curated_map_path", lambda: str(hm3))
     raw = tmp_path / "raw.tsv"
     raw.write_text("CHR POS SNP A1 A2 P BETA N\n1 100 keep A G .05 .1 1000\n1 500 outside A G .05 -.1 1000\n")
     return raw
@@ -210,7 +210,7 @@ def test_packaged_map_is_parsed_once_per_run(tmp_path, monkeypatch, mode, target
 
     hm3 = tmp_path / "hm3.tsv"
     hm3.write_text("CHR\thg19_POS\thg38_POS\tSNP\tA1\tA2\n1\t100\t1000\tkeep\tA\tG\n1\t200\t2000\tother\tA\tC\n")
-    monkeypatch.setattr(workflow, "packaged_hm3_curated_map_path", lambda: str(hm3))
+    monkeypatch.setattr(munge_input, "packaged_hm3_curated_map_path", lambda: str(hm3))
     raw = tmp_path / "raw.tsv"
     raw.write_text("CHR POS SNP A1 A2 P BETA N\n1 100 keep A G .05 .1 1000\n1 200 other A G .05 -.1 1000\n")
     calls = {"map": 0, "keep_list": 0}
@@ -263,21 +263,18 @@ def test_keep_list_from_the_loaded_map_equals_the_file_readers(tmp_path, mode, b
     assert (from_map.identity_keys is None) == (from_file.identity_keys is None)
 
 
-def test_quick_liftover_names_the_map_file_it_loaded(tmp_path):
-    from ldsc._sumstats import munge_input
-    from ldsc._sumstats.liftover import SumstatsLiftoverRequest
-
+def test_quick_liftover_names_the_map_file_it_loaded(tmp_path, monkeypatch):
     hm3 = tmp_path / "hm3.tsv"
     hm3.write_text("CHR\thg19_POS\thg38_POS\tSNP\n1\t100\t1000\tkeep\n")
+    monkeypatch.setattr(munge_input, "packaged_hm3_curated_map_path", lambda: str(hm3))
     raw = tmp_path / "raw.tsv"
     raw.write_text("CHR POS SNP A1 A2 P BETA N\n1 100 keep A G .05 .1 1000\n")
-    config = GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
-    schema = munge_input.resolve_raw_schema(str(raw), MungeConfig(), config)
-    # The workflow's request names no map: the keep-list file is the map that
+    config = MungeConfig(raw_sumstats_file=raw, source_genome_build="hg19", output_genome_build="hg38")
+    plan = munge_input.resolve_munge_plan(
+        config, munge_input.resolve_source_config(config, GlobalConfig(snp_identifier="chr_pos")))
+    # The plan's request names no map: the keep-list file is the map that
     # quick liftover reads, so the request records that file.
-    request = munge_input.prepare_munge_input(
-        schema, config, lambda build: SumstatsLiftoverRequest(target_build="hg38", use_hm3_quick_liftover=True),
-        str(hm3),
-    )
+    assert plan.liftover.method == "hm3_curated" and plan.liftover.hm3_map_file is None
+    request = munge_input.prepare_munge_input(plan)
     assert request.liftover_request.hm3_map_file == str(hm3)
     assert request.hm3_map["hg38_POS"].tolist() == [1000]

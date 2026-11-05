@@ -7,13 +7,14 @@
 """Resolve raw summary-statistics inputs for the munging workflow.
 
 Header aliases, DANER profiles, sample-size selection and bounded source-build
-inference belong here. :func:`resolve_raw_schema` reads a raw header once for
-both the munging run and ``--infer-only``; the numerical kernel receives only
-resolved settings.
+inference belong here. :func:`resolve_munge_plan` makes every decision a
+munging run takes before it reads data rows (the raw schema from
+:func:`resolve_raw_schema`, the source build and the liftover request), for
+the run, ``--infer-only`` and ``infer_raw_sumstats()`` alike; the numerical
+kernel receives only resolved settings.
 """
 
 import bz2
-from collections.abc import Callable
 from dataclasses import dataclass, replace
 import gzip
 import logging
@@ -31,9 +32,16 @@ from ..config import GlobalConfig, MungeConfig
 from ..errors import LDSCInputError, LDSCUsageError, LDSCUserError
 from .._core.identifiers import restriction_file_has_allele_columns
 from .liftover import SumstatsLiftoverRequest, load_hm3_map_file
-from .._core.snp_identity import identity_base_mode, identity_mode_family, is_allele_aware_mode
+from .._core.snp_identity import (
+    identity_base_mode,
+    identity_mode_family,
+    is_allele_aware_mode,
+    normalize_snp_identifier_mode,
+)
 from .munge_kernel import MungeQC, ResolvedMungeInput, mean_info_list_value, prepare_sumstats_restriction
 from .._genome.build_policy import GenomeBuildCheck
+from .._genome.hm3 import packaged_hm3_curated_map_path
+from .._runtime.paths import resolve_scalar_path
 
 LOGGER = logging.getLogger('LDSC.sumstats_munger')
 
@@ -742,25 +750,210 @@ def _check_increasing_allele_signs(schema: RawSchema) -> None:
         )
 
 
-def prepare_munge_input(
-    schema: RawSchema,
-    global_config: GlobalConfig,
-    liftover_for_build: Callable[[str | None], SumstatsLiftoverRequest],
-    restriction_path: str | None,
-) -> ResolvedMungeInput:
-    """Turn a resolved raw schema into a kernel request: source coordinates, liftover and keep-list.
+@dataclass(frozen=True)
+class MungePlan:
+    """The decisions one munging run makes before it reads data rows.
 
-    Raises every header issue of ``schema`` first. Only build inference
-    performs a streaming coordinate prepass. ``liftover_for_build`` returns the
-    liftover request for the resolved source build. HM3 quick liftover runs
-    only under the packaged HM3 restriction, so for it the HM3 map at
-    ``restriction_path`` is loaded once and serves as both the keep-list and
-    the position lookup, and the returned liftover request names that file in
-    ``hm3_map_file``. No output directory or artifact is touched here; the
-    returned request can be executed without a CLI namespace or any further
-    format/build decisions.
+    :func:`resolve_munge_plan` builds it for ``SumstatsMunger.run``,
+    ``--infer-only`` and ``infer_raw_sumstats()``, so the run and both
+    previews agree; the run raises the problems that the previews report.
+
+    Attributes
+    ----------
+    config : MungeConfig
+        The munging request.
+    source_config : GlobalConfig
+        SNP identifier mode and log level, with the source build as requested
+        (``auto`` until resolved; ``None`` in rsID-family modes), from
+        :func:`resolve_source_config`.
+    schema : RawSchema
+        The raw header reading and its issues.
+    coordinates : dict or None
+        Source-coordinate metadata from :func:`resolve_source_coordinates`,
+        including the resolved ``genome_build``; ``None`` when the source build
+        could not be resolved.
+    liftover : SumstatsLiftoverRequest
+        The liftover request for the resolved source build, with its chain
+        file path resolved.
+    build_issue : RawSchemaIssue or None
+        The source-build or liftover problem that stops the run: an
+        unresolved source build (``source_genome_build``), different builds
+        without a liftover method (``liftover_method``) or a chain file that
+        does not resolve (``liftover_chain_file``). At most one can occur,
+        because each needs the step before it to succeed.
     """
-    schema.raise_issues()
+
+    config: MungeConfig
+    source_config: GlobalConfig
+    schema: RawSchema
+    coordinates: dict | None
+    liftover: SumstatsLiftoverRequest
+    build_issue: RawSchemaIssue | None
+
+    @property
+    def source_build(self) -> str | None:
+        """Return the resolved source build, or ``None`` when unresolved or not applicable."""
+        return None if self.coordinates is None else self.coordinates['genome_build']
+
+    def raise_issues(self) -> None:
+        """Raise the header issues first, as one error, then the source-build or liftover problem."""
+        self.schema.raise_issues()
+        if self.build_issue is not None:
+            raise self.build_issue.error(self.build_issue.message)
+
+
+def require_raw_sumstats_file(config: MungeConfig) -> None:
+    """Stop when ``config`` names no raw summary-statistics file."""
+    if config.raw_sumstats_file is None:
+        raise LDSCUserError(
+            "No input summary statistics given to munge-sumstats. Most likely --raw-sumstats-file was omitted. "
+            "Pass --raw-sumstats-file <file>."
+        )
+
+
+def resolve_source_config(config: MungeConfig, global_config: GlobalConfig) -> GlobalConfig:
+    """Check the build and liftover options against the SNP identifier mode; return the config the raw file is read under.
+
+    The returned config carries the mode and log level of ``global_config``
+    and, in coordinate-family modes, ``config.source_genome_build``. Option
+    misuse raises ``LDSCUsageError`` naming the CLI flag and the config field:
+    build or liftover options in an rsID-family mode, or no output build in a
+    coordinate-family mode.
+    """
+    mode = normalize_snp_identifier_mode(global_config.snp_identifier)
+    if identity_mode_family(mode) == "rsid":
+        if config.source_genome_build != "auto":
+            raise LDSCUsageError(
+                "munge-sumstats cannot use `--source-genome-build` (`MungeConfig.source_genome_build`) with an "
+                "rsID-family SNP identifier. Most likely a coordinate-build option was copied from a chr_pos run "
+                "into an rsID-based run. Drop the build option (leave it at 'auto') or switch to a chr_pos identifier."
+            )
+        if config.output_genome_build is not None:
+            raise LDSCUsageError(
+                "munge-sumstats cannot use `--output-genome-build` (`MungeConfig.output_genome_build`) with an "
+                "rsID-family SNP identifier. Most likely a coordinate-liftover option was copied from a chr_pos run "
+                "into an rsID-based run. Drop the output build or switch to a chr_pos identifier."
+            )
+        if config.liftover_chain_file is not None:
+            raise LDSCUsageError(
+                "munge-sumstats cannot run summary-statistics liftover (`--liftover-chain-file` "
+                "(`MungeConfig.liftover_chain_file`)) with an rsID-family SNP identifier. Most likely a liftover "
+                "option was supplied while SNP identity is based on rsIDs rather than coordinates. Drop the "
+                "liftover option or switch to a chr_pos identifier."
+            )
+        return GlobalConfig(snp_identifier=mode, log_level=global_config.log_level)
+    if config.output_genome_build is None:
+        raise LDSCUsageError(
+            "munge-sumstats needs an output genome build (`--output-genome-build` (`MungeConfig.output_genome_build`)) "
+            "for chr_pos-family SNP identifiers. Most likely it was omitted. Pass --output-genome-build hg19 or hg38, "
+            "or set output_genome_build='hg19' or 'hg38' in Python."
+        )
+    return GlobalConfig(snp_identifier=mode, genome_build=config.source_genome_build, log_level=global_config.log_level)
+
+
+def uses_packaged_hm3(config: MungeConfig) -> bool:
+    """Return whether the default packaged HM3 restriction is active."""
+    return not config.no_snp_restriction and config.sumstats_snps_file is None
+
+
+def snp_restriction_file(config: MungeConfig) -> str | None:
+    """Return the keep-list a run applies: the packaged HM3 map, a custom file, or ``None``."""
+    if uses_packaged_hm3(config):
+        return packaged_hm3_curated_map_path()
+    return config.sumstats_snps_file
+
+
+def liftover_request(config: MungeConfig, source_build: str | None) -> SumstatsLiftoverRequest:
+    """Return the liftover request for ``source_build``, selecting a method only when concrete builds differ.
+
+    Under the packaged HM3 restriction the method is HM3 quick liftover unless
+    a chain file is given; otherwise it is the chain file, if any.
+    """
+    target = config.output_genome_build
+    if source_build not in {"hg19", "hg38"} or target is None or source_build == target:
+        return SumstatsLiftoverRequest(target_build=target)
+    return SumstatsLiftoverRequest(
+        target_build=target,
+        liftover_chain_file=config.liftover_chain_file,
+        use_hm3_quick_liftover=uses_packaged_hm3(config) and config.liftover_chain_file is None,
+    )
+
+
+def liftover_issue(request: SumstatsLiftoverRequest, source_build: str | None) -> RawSchemaIssue | None:
+    """Return the problem of a request whose concrete builds differ without a liftover method, or ``None``.
+
+    The run checks it before any input IO when the source build is given
+    explicitly, and the plan checks it again once ``auto`` is resolved.
+    """
+    if source_build not in {"hg19", "hg38"} or request.target_build in {None, source_build} or request.method is not None:
+        return None
+    return RawSchemaIssue('liftover_method', (
+        "munge-sumstats cannot convert source_genome_build to output_genome_build because no liftover "
+        "method was specified. Most likely the requested builds differ. Add --liftover-chain-file "
+        "<chain.over.chain.gz> for custom-list or unrestricted SNPs; packaged HM3 uses automatic quick liftover."
+    ), LDSCUsageError)
+
+
+def resolve_munge_plan(config: MungeConfig, source_config: GlobalConfig) -> MungePlan:
+    """Resolve every decision a munging run makes before it reads data rows.
+
+    Reads the raw header (:func:`resolve_raw_schema`), checks or infers the
+    source build in coordinate-family modes (:func:`resolve_source_coordinates`,
+    which samples coordinate rows when the build is ``auto``), selects the
+    liftover method for the resolved build and resolves its chain file.
+    Problems that stop the run are collected, not raised: header issues in
+    the schema and at most one source-build or liftover problem in
+    ``build_issue``. Nothing is written and the keep-list is not loaded.
+
+    Parameters
+    ----------
+    config : MungeConfig
+        The munging request.
+    source_config : GlobalConfig
+        The config from :func:`resolve_source_config`.
+
+    Returns
+    -------
+    MungePlan
+        The decisions and the problems that :meth:`MungePlan.raise_issues`
+        raises for the run and the previews report.
+    """
+    require_raw_sumstats_file(config)
+    source_path = resolve_scalar_path(config.raw_sumstats_file, label="raw sumstats")
+    schema = resolve_raw_schema(source_path, config, source_config)
+    coordinates, issue = None, None
+    try:
+        coordinates = resolve_source_coordinates(
+            source_path, schema.column_map, source_config, restriction_path=snp_restriction_file(config))
+    except LDSCUserError as exc:
+        issue = RawSchemaIssue('source_genome_build', str(exc), type(exc))
+    source_build = None if coordinates is None else coordinates['genome_build']
+    liftover = liftover_request(config, source_build)
+    if issue is None:
+        issue = liftover_issue(liftover, source_build)
+    if issue is None and liftover.liftover_chain_file is not None:
+        try:
+            liftover = replace(liftover, liftover_chain_file=resolve_scalar_path(
+                liftover.liftover_chain_file, label="liftover chain file"))
+        except LDSCInputError as exc:
+            issue = RawSchemaIssue('liftover_chain_file', str(exc))
+    return MungePlan(config, source_config, schema, coordinates, liftover, issue)
+
+
+def prepare_munge_input(plan: MungePlan) -> ResolvedMungeInput:
+    """Turn a munging plan into a kernel request: raise its problems, then load the keep-list.
+
+    Raises the plan's problems first (header issues, then the source-build or
+    liftover problem) and checks ``INC_ALLELE``/``DEC_ALLELE`` orientation
+    against the signed statistic. HM3 quick liftover runs only under the
+    packaged HM3 restriction, so for it the HM3 map is loaded once and serves
+    as both the keep-list and the position lookup, and the returned liftover
+    request names that file in ``hm3_map_file``. No output directory or
+    artifact is touched here; the returned request can be executed without a
+    CLI namespace or any further format/build decisions.
+    """
+    plan.raise_issues()
+    schema = plan.schema
     _check_increasing_allele_signs(schema)
     if schema.detected_format == 'daner-old':
         LOGGER.info(
@@ -770,14 +963,18 @@ def prepare_munge_input(
     LOGGER.info('\n'.join([x + ':\t' + schema.field_descriptions[x]
                        for x in schema.field_descriptions]) + '\n')
 
-    source_path, config, mode = schema.source_path, schema.config, global_config.snp_identifier
+    source_path, config, mode = schema.source_path, schema.config, plan.source_config.snp_identifier
     _, compression = get_compression(source_path)
     metadata_skiprows = count_leading_sumstats_comment_lines(source_path)
-    coordinate_metadata = resolve_source_coordinates(source_path, schema.column_map, global_config, restriction_path=restriction_path)
-    liftover_request = liftover_for_build(coordinate_metadata['genome_build'])
+    coordinate_metadata = plan.coordinates
+    restriction_path = snp_restriction_file(plan.config)
+    if restriction_path is not None:
+        label = "packaged HM3 SNP map" if uses_packaged_hm3(plan.config) else "summary-statistics SNPs file"
+        restriction_path = resolve_scalar_path(restriction_path, label=label)
+    liftover = plan.liftover
     hm3_map = None
-    if liftover_request.method == 'hm3_curated':
-        liftover_request = replace(liftover_request, hm3_map_file=restriction_path)
+    if liftover.method == 'hm3_curated':
+        liftover = replace(liftover, hm3_map_file=restriction_path)
         alleles = is_allele_aware_mode(mode) and restriction_file_has_allele_columns(restriction_path)
         hm3_map = load_hm3_map_file(restriction_path, alleles=alleles)
     restriction = prepare_sumstats_restriction(restriction_path, mode, coordinate_metadata['genome_build'], hm3_map=hm3_map)
@@ -800,7 +997,7 @@ def prepare_munge_input(
         coordinate_basis=coordinate_metadata['coordinate_basis'],
         coordinate_metadata=coordinate_metadata,
         restriction=restriction,
-        liftover_request=liftover_request,
+        liftover_request=liftover,
         qc=schema.qc,
         hm3_map=hm3_map,
     )

@@ -1711,7 +1711,7 @@ class SumstatsMungerTest(unittest.TestCase):
             hm3_path = tmpdir / "hm3.tsv"
             hm3_path.write_text("CHR\thg19_POS\thg38_POS\tSNP\n1\t10\t20\trs2\n", encoding="utf-8")
 
-            with mock.patch("ldsc._sumstats.munger.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
+            with mock.patch("ldsc._sumstats.munge_input.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
                 table = SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, trait_name="trait", output_dir=tmpdir / "munged"),
                     global_config=GlobalConfig(snp_identifier="rsid"),
@@ -1753,7 +1753,7 @@ class SumstatsMungerTest(unittest.TestCase):
             hm3_path = tmpdir / "hm3.tsv"
             hm3_path.write_text("CHR\thg19_POS\thg38_POS\tSNP\n1\t200\t999\trs2\n", encoding="utf-8")
 
-            with mock.patch("ldsc._sumstats.munger.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
+            with mock.patch("ldsc._sumstats.munge_input.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
                 table = SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, trait_name="trait", output_dir=tmpdir / "munged", source_genome_build="hg19", output_genome_build="hg19"),
                     global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
@@ -1775,7 +1775,7 @@ class SumstatsMungerTest(unittest.TestCase):
             hm3_path = tmpdir / "hm3.tsv"
             hm3_path.write_text("CHR\thg19_POS\thg38_POS\tSNP\tA1\tA2\n1\t100\t200\trs1\tA\tC\n", encoding="utf-8")
 
-            with mock.patch("ldsc._sumstats.munger.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
+            with mock.patch("ldsc._sumstats.munge_input.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
                 table = SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, trait_name="trait", output_dir=tmpdir / "munged"),
                     global_config=GlobalConfig(snp_identifier="rsid_allele_aware"),
@@ -1798,7 +1798,7 @@ class SumstatsMungerTest(unittest.TestCase):
             hm3_path = tmpdir / "hm3.tsv"
             hm3_path.write_text("CHR\thg19_POS\thg38_POS\tSNP\tA1\tA2\n1\t100\t200\trs2\tA\tC\n", encoding="utf-8")
 
-            with mock.patch("ldsc._sumstats.munger.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
+            with mock.patch("ldsc._sumstats.munge_input.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
                 table = SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, trait_name="trait", output_dir=tmpdir / "munged", source_genome_build="hg19", output_genome_build="hg19"),
                     global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19"),
@@ -2573,7 +2573,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            result = sumstats_workflow.infer_raw_sumstats(MungeConfig(raw_sumstats_file=raw_path))
+            result = sumstats_workflow.infer_raw_sumstats(MungeConfig(raw_sumstats_file=raw_path), global_config=GlobalConfig(snp_identifier="rsid"))
 
             self.assertEqual(result.detected_format, "daner-new")
             self.assertFalse(result.column_hints)
@@ -2590,7 +2590,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            result = sumstats_workflow.infer_raw_sumstats(MungeConfig(raw_sumstats_file=raw_path))
+            result = sumstats_workflow.infer_raw_sumstats(MungeConfig(raw_sumstats_file=raw_path), global_config=GlobalConfig(snp_identifier="rsid"))
 
             self.assertEqual(result.detected_format, "plain")
             self.assertIn("--input-format", result.suggested_args)

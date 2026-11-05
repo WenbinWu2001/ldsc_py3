@@ -258,6 +258,29 @@ def test_run_and_python_inference_read_every_option_from_one_config(tmp_path):
     assert str(caught.value) in report.notes
 
 
+def test_run_infer_only_and_python_inference_share_one_build_plan(tmp_path, capsys):
+    # Audit D9: for 50 chromosome-1 rows that no HM3 SNP supports, --infer-only reported the source build as
+    # missing while infer_raw_sumstats() reported the file runnable; the run stops on the same build check.
+    from ldsc import GlobalConfig, MungeConfig, SumstatsMunger, infer_raw_sumstats
+
+    raw = tmp_path / 'raw.tsv'
+    raw.write_text('SNP CHR POS A1 A2 P BETA N\n'
+                   + ''.join(f'rs{i} 1 {1000 * (i + 1)} A G 0.5 0.1 1000\n' for i in range(50)))
+    cli = workflow.main(['--raw-sumstats-file', str(raw), '--output-dir', str(tmp_path / 'unused'),
+                         '--snp-identifier', 'chr_pos', '--output-genome-build', 'hg38', '--infer-only'])
+    config = MungeConfig(raw_sumstats_file=raw, output_genome_build='hg38', output_dir=tmp_path / 'out')
+    chr_pos = GlobalConfig(snp_identifier='chr_pos')
+    python = infer_raw_sumstats(config, global_config=chr_pos)
+    assert not cli.runnable and not python.runnable
+    assert python.missing_fields == cli.missing_fields == ('source_genome_build',)
+    assert python.notes == cli.notes
+    assert (python.source_genome_build, python.output_genome_build) == (None, 'hg38')
+    assert (cli.source_genome_build, cli.output_genome_build) == (None, 'hg38')
+    with pytest.raises(LDSCUserError, match='Genome-build consistency check failed') as caught:
+        SumstatsMunger().run(config, global_config=chr_pos)
+    assert any(str(caught.value) in note for note in python.notes)
+
+
 def test_run_lists_every_header_problem_in_one_error(tmp_path):
     raw = tmp_path / 'raw.tsv'
     raw.write_text('SNP A1 A2 P effect_size\nrs1 A G 0.05 0.1\n')

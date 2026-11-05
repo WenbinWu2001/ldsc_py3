@@ -393,8 +393,9 @@ The summary also records `used_n_rule` (the sample-size strategy actually used) 
 
 ### Preview without writing
 
-`infer_raw_sumstats` is the Python counterpart of `--infer-only`: it reads the header and the first data row and writes nothing.
-It takes the `MungeConfig` that `SumstatsMunger.run` would take and reads every option from it, so a QC threshold whose column is missing appears in `missing_fields` exactly where the run would stop.
+`infer_raw_sumstats` is the Python counterpart of `--infer-only` and returns the same report; it writes nothing.
+It takes the `MungeConfig` that `SumstatsMunger.run` would take, reads every option from it and resolves the plan the run resolves: the header and first data row, the source genome build and liftover method in coordinate-family modes, and a bounded scan for columns without values.
+So a QC threshold whose column is missing, or a source build that cannot be inferred, appears in `missing_fields` exactly where the run would stop.
 
 ```python
 from ldsc import MungeConfig, infer_raw_sumstats

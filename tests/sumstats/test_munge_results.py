@@ -11,7 +11,6 @@ from ldsc import GlobalConfig, MungeConfig, SumstatsMunger, load_sumstats
 from ldsc._sumstats import munge_input
 from ldsc._sumstats import munge_kernel as kernel_munge
 from ldsc._genome.liftover import LiftOverMappingResult
-from ldsc._sumstats.liftover import SumstatsLiftoverRequest
 
 
 @pytest.mark.parametrize("suffix,compress", [(".tsv", str.encode), (".gz", lambda text: gzip.compress(text.encode())), (".bz2", lambda text: bz2.compress(text.encode()))])
@@ -61,9 +60,9 @@ def test_resolved_request_can_run_twice_without_accumulating_state(tmp_path):
     raw.write_text("SNP P BETA N\nkeep .05 .05 1000\noutside .05 -.05 1000\n")
     keep = tmp_path / "keep.tsv"
     keep.write_text("SNP\nkeep\n")
-    config = GlobalConfig(snp_identifier="rsid")
-    schema = munge_input.resolve_raw_schema(str(raw), MungeConfig(no_snp_restriction=True), config)
-    request = munge_input.prepare_munge_input(schema, config, lambda build: SumstatsLiftoverRequest(), str(keep))
+    config = MungeConfig(raw_sumstats_file=raw, sumstats_snps_file=keep)
+    plan = munge_input.resolve_munge_plan(config, munge_input.resolve_source_config(config, GlobalConfig(snp_identifier="rsid")))
+    request = munge_input.prepare_munge_input(plan)
     first = kernel_munge.munge_sumstats(request)
     second = kernel_munge.munge_sumstats(request)
     assert first.n_input_rows == second.n_input_rows == 2

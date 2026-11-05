@@ -111,13 +111,6 @@ def parse_workers(value: str) -> int:
         raise argparse.ArgumentTypeError(str(error)) from error
 
 
-def validate_query_batch_size(query_batch_size: int, *, error_type: type[Exception] = ValueError) -> int:
-    """Require a positive Python integer, excluding booleans, without coercion."""
-    if isinstance(query_batch_size, bool) or not isinstance(query_batch_size, int) or query_batch_size < 1:
-        raise error_type("query_batch_size must be a positive integer.")
-    return query_batch_size
-
-
 def parse_query_batch_size(value: str) -> int:
     """Parse CLI integer syntax and apply the shared query-batch-size validator."""
     try:

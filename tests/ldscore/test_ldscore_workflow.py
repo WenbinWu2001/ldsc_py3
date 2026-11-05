@@ -2491,3 +2491,27 @@ def test_direct_run_resolves_its_genome_build_once(tmp_path, monkeypatch):
 
     assert len(result.baseline_table) == 6
     assert [context for context in contexts if context != "reference-panel validation"] == ["ldscore"]
+
+
+@pytest.mark.parametrize("genome_build", ["hg19", "GRCh37", "hg37"])
+def test_genome_build_alias_selects_its_child_of_a_two_build_r2_matrix(tmp_path, genome_build):
+    # A build-r2-matrix root with hg19/ and hg38/ children: every spelling of hg19 reads the hg19 child.
+    from ldsc import cli
+
+    metadata = pd.DataFrame({"CHR": ["22"] * 3, "SNP": ["rs1", "rs2", "rs3"], "POS": [10, 20, 30],
+                             "A1": ["A"] * 3, "A2": ["C"] * 3, "CM": [0.0, 0.1, 0.2], "MAF": [0.2, 0.3, 0.4]})
+    for build, r2 in (("hg19", 0.5), ("hg38", 0.1)):
+        write_r2_matrix_chromosome(tmp_path / "r2" / build, metadata, [{"i": 0, "j": 1, "R2": r2, "sign": "+"}],
+                                   snp_identifier="chr_pos", genome_build=build, ld_window=("snps", 10.0))
+    regression = tmp_path / "regression.tsv"
+    metadata[["CHR", "POS"]].to_csv(regression, sep="\t", index=False)
+
+    result = cli.main(["ldscore", "--snp-identifier", "chr_pos", "--genome-build", genome_build,
+                       "--r2-matrix-dir", str(tmp_path / "r2"), "--ld-wind-snps", "10", "--yes-really",
+                       "--regr-snps-file", str(regression), "--regr-snps-exclude-regions", "none",
+                       "--output-dir", str(tmp_path / "out")])
+
+    assert result.config_snapshot.genome_build == "hg19"
+    # LD score of rs1 = its own R2 of 1 plus the hg19 child's R2 with rs2 (0.1 in the hg38 child);
+    # the R2 matrix stores R2 at reduced precision.
+    assert result.baseline_table["base"].tolist() == pytest.approx([1.5, 1.5, 1.0], abs=1e-4)

@@ -205,6 +205,24 @@ print(ldsc.__file__)
                     f"`ldsc {' '.join(argv)}` should not import heavy workflows, but imported: {imported_heavy}",
                 )
 
+    def test_regression_reads_munged_artifacts_without_the_munging_workflow(self):
+        # Regression reads munged summary statistics through `_sumstats.table`
+        # alone; the munging workflow (parser, input resolution, kernel,
+        # liftover, writer) stays unloaded. Run in a clean subprocess so that
+        # modules loaded by other tests cannot hide an import.
+        probe = (
+            "import importlib, pkgutil, sys\n"
+            "import ldsc._regression as regression\n"
+            "for module in pkgutil.walk_packages(regression.__path__, 'ldsc._regression.'):\n"
+            "    importlib.import_module(module.name)\n"
+            "print(','.join(sorted(name for name in sys.modules if name.startswith('ldsc._sumstats'))))\n"
+        )
+        completed = subprocess.run(
+            [sys.executable, "-c", probe], capture_output=True, text=True, cwd=tempfile.gettempdir(),
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.splitlines()[-1], "ldsc._sumstats,ldsc._sumstats.table")
+
     def test_annotation_builder_owns_public_workflow_entrypoints(self):
         from ldsc._annotation import builder as annotation_builder
 

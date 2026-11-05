@@ -178,7 +178,8 @@ def test_threads_negative_and_positive_allowed(monkeypatch):
 
 
 def _chrom1_inputs(build_dir: Path):
-    """Build (chrom, bundle, spec, ldscore_config, global_config, regression) for chr1."""
+    """Build (chrom, bundle, panel, ldscore_config, global_config, regression) for chr1."""
+    from ldsc._refpanel.adapters import R2MatrixRefPanel
     from ldsc.config import GlobalConfig, LDScoreConfig, RefPanelConfig
 
     panel, _pairs = _PANEL_CHROMS["1"]
@@ -200,20 +201,21 @@ def _chrom1_inputs(build_dir: Path):
         source_summary={},
         config_snapshot=GlobalConfig(snp_identifier="rsid"),
     )
-    spec = RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir))
+    global_config = GlobalConfig(snp_identifier="rsid")
+    panel = R2MatrixRefPanel(global_config, RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)))
     ldscore_config = LDScoreConfig(ld_wind_kb=1.0, snp_batch_size=2, whole_chromosome_ok=True)
-    return "1", bundle, spec, ldscore_config, GlobalConfig(snp_identifier="rsid"), None
+    return "1", bundle, panel, ldscore_config, global_config, None
 
 
-def test_compute_one_chromosome_returns_success_outcome(two_chrom_panel):
-    from ldsc._ldscore.calculator import _compute_one_chromosome
+def test_compute_one_chromosome_returns_the_chromosome_result(two_chrom_panel):
+    from ldsc._ldscore.direct_batches import _compute_one_chromosome
+    from ldsc._ldscore.results import ChromLDScoreResult
 
-    chrom, bundle, spec, ldcfg, gcfg, reg = _chrom1_inputs(two_chrom_panel)
-    outcome = _compute_one_chromosome(chrom, bundle, spec, ldcfg, gcfg, regression_snps=reg)
+    chrom, bundle, panel, ldcfg, gcfg, reg = _chrom1_inputs(two_chrom_panel)
+    outcome = _compute_one_chromosome(chrom, bundle, panel, ldcfg, gcfg, regression_snps=reg)
+    assert isinstance(outcome, ChromLDScoreResult)
     assert outcome.chrom == "1"
-    assert outcome.skipped is False
-    assert outcome.result is not None
-    assert outcome.result.baseline_table["SNP"].tolist() == ["rs1", "rs2", "rs3", "rs4"]
+    assert outcome.baseline_table["SNP"].tolist() == ["rs1", "rs2", "rs3", "rs4"]
 
 
 @pytest.mark.parametrize("error_type", [ValueError, LDSCInputError])
@@ -224,40 +226,38 @@ def test_compute_one_chromosome_returns_success_outcome(two_chrom_panel):
 def test_worker_propagates_untyped_errors_even_with_empty_intersection_wording(
     two_chrom_panel, monkeypatch, error_type, message,
 ):
-    from ldsc._ldscore.calculator import LDScoreCalculator, _compute_one_chromosome
+    from ldsc._ldscore import direct_batches
 
     error = error_type(message)
 
     def fail(*args, **kwargs):
         raise error
 
-    monkeypatch.setattr(LDScoreCalculator, "compute_chromosome", fail)
-    chrom, bundle, spec, ldcfg, gcfg, reg = _chrom1_inputs(two_chrom_panel)
+    monkeypatch.setattr(direct_batches, "compute_direct_chromosome", fail)
+    chrom, bundle, panel, ldcfg, gcfg, reg = _chrom1_inputs(two_chrom_panel)
     with pytest.raises(error_type) as caught:
-        _compute_one_chromosome(chrom, bundle, spec, ldcfg, gcfg, regression_snps=reg)
+        direct_batches._compute_one_chromosome(chrom, bundle, panel, ldcfg, gcfg, regression_snps=reg)
     assert caught.value is error
 
 
 def test_worker_skips_typed_empty_reference_independent_of_message(two_chrom_panel, monkeypatch):
-    from ldsc._ldscore.calculator import LDScoreCalculator, _compute_one_chromosome
+    from ldsc._ldscore import direct_batches
 
     def empty(*args, **kwargs):
         raise EmptyReferenceSNPs("The requested SNP filters retained no computational rows.")
 
-    monkeypatch.setattr(LDScoreCalculator, "compute_chromosome", empty)
-    chrom, bundle, spec, ldcfg, gcfg, reg = _chrom1_inputs(two_chrom_panel)
-    outcome = _compute_one_chromosome(chrom, bundle, spec, ldcfg, gcfg, regression_snps=reg)
-    assert outcome.chrom == "1"
-    assert outcome.skipped is True
-    assert outcome.result is None
-    assert outcome.skip_message == "The requested SNP filters retained no computational rows."
+    monkeypatch.setattr(direct_batches, "compute_direct_chromosome", empty)
+    chrom, bundle, panel, ldcfg, gcfg, reg = _chrom1_inputs(two_chrom_panel)
+    outcome = direct_batches._compute_one_chromosome(chrom, bundle, panel, ldcfg, gcfg, regression_snps=reg)
+    assert isinstance(outcome, direct_batches._SkippedChromosome)
+    assert outcome.message == "The requested SNP filters retained no computational rows."
 
 
 # --- Task 4: pool initializer -----------------------------------------------
 
 
 def _inspect_ld_worker():
-    from ldsc._ldscore.calculator import _WORKER_STATE
+    from ldsc._ldscore.direct_batches import _WORKER_STATE
     from ldsc._runtime.worker_runtime import native_thread_state
     return _WORKER_STATE, native_thread_state(), dict((key, os.environ[key]) for key in
                                                    ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"))
@@ -266,7 +266,7 @@ def _inspect_ld_worker():
 def test_init_worker_overrides_inherited_limits_in_child(monkeypatch):
     from concurrent.futures import ProcessPoolExecutor
     import multiprocessing as mp
-    from ldsc._ldscore.calculator import _init_worker
+    from ldsc._ldscore.direct_batches import _init_worker
     monkeypatch.setenv("OMP_NUM_THREADS", "4")
     with ProcessPoolExecutor(max_workers=1, mp_context=mp.get_context("spawn"), initializer=_init_worker,
                              initargs=({"rs1", "rs2"}, None, "WARNING")) as pool:

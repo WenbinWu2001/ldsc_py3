@@ -14,7 +14,7 @@ from tests.ldscore.test_ldscore_chromosome_scope import write_r2_inputs
 @pytest.mark.parametrize('batch_size', [1,2,1000])
 def test_direct_file_queries_use_shards_and_leave_only_persistent_outputs(tmp_path,monkeypatch,batch_size):
     from ldsc._annotation.builder import AnnotationBuilder
-    from ldsc._ldscore import calculator as ldscore_calculator
+    from ldsc._ldscore import direct_batches
     from ldsc import config
     monkeypatch.setattr(config, "_GLOBAL_CONFIG", config.GlobalConfig(snp_identifier="rsid"))
 
@@ -27,14 +27,14 @@ def test_direct_file_queries_use_shards_and_leave_only_persistent_outputs(tmp_pa
     def eager_path(*args,**kwargs):
         raise AssertionError('Whole-genome annotation preparation was invoked')
     monkeypatch.setattr(AnnotationBuilder,'run',eager_path)
-    original_diagnostics = ldscore_calculator._stage_chromosome_drops
+    original_diagnostics = direct_batches._stage_chromosome_drops
     diagnostic_paths = []
     def stage_diagnostics(*args, **kwargs):
         assert all(not path.exists() for path in diagnostic_paths), "previous batch diagnostics remain in scratch"
         result = original_diagnostics(*args, **kwargs)
         diagnostic_paths.append(result.path)
         return result
-    monkeypatch.setattr(ldscore_calculator, '_stage_chromosome_drops', stage_diagnostics)
+    monkeypatch.setattr(direct_batches, '_stage_chromosome_drops', stage_diagnostics)
     output = tmp_path/'out'
     result = run_ldscore(output_dir=output,baseline_annot_sources=args.baseline_annot_sources,
         query_annot_sources=str(query),r2_matrix_dir=args.r2_matrix_dir,
@@ -79,7 +79,7 @@ def _observe_prepared_chromosome(*args, **kwargs):
     """Check annotation ownership inside the actual persistent serial child."""
     import os
     import weakref
-    from ldsc._ldscore import calculator as ldscore_calculator
+    from ldsc._ldscore import direct_batches
     from ldsc._refpanel.adapters import R2MatrixRefPanel
     previous = []
     loads = []
@@ -92,7 +92,7 @@ def _observe_prepared_chromosome(*args, **kwargs):
         return state
     R2MatrixRefPanel.prepare_chromosome = measured
     try:
-        result = ldscore_calculator._compute_one_chromosome(*args, **kwargs)
+        result = direct_batches._compute_one_chromosome(*args, **kwargs)
         assert all(reference() is None for reference in previous)
         with Path(os.environ['LDSC_TEST_PREPARED_LOADS']).open('a') as stream:
             stream.write('\n'.join(loads) + '\n')
@@ -103,7 +103,7 @@ def _observe_prepared_chromosome(*args, **kwargs):
 
 def test_sequential_run_releases_prepared_chromosome_before_loading_next(tmp_path,monkeypatch):
     from ldsc import config
-    from ldsc._ldscore import calculator as ldscore_calculator
+    from ldsc._ldscore import direct_batches
     from tests.ldscore.test_ldscore_parallelism import _PANEL_CHROMS, _write_index_panel
     monkeypatch.setattr(config,'_GLOBAL_CONFIG',config.GlobalConfig(snp_identifier='rsid'))
     panel = tmp_path/'panel'
@@ -112,7 +112,7 @@ def test_sequential_run_releases_prepared_chromosome_before_loading_next(tmp_pat
     regression.write_text('SNP\n'+'\n'.join(f'rs{i}' for i in range(1,8))+'\n')
     events = tmp_path/'prepared-loads.txt'
     monkeypatch.setenv('LDSC_TEST_PREPARED_LOADS', str(events))
-    monkeypatch.setattr(ldscore_calculator, '_compute_one_chromosome', _observe_prepared_chromosome)
+    monkeypatch.setattr(direct_batches, '_compute_one_chromosome', _observe_prepared_chromosome)
     run_ldscore(output_dir=str(tmp_path/'out'),r2_matrix_dir=str(panel),
         regr_snps_file=str(regression),regr_snps_exclude_regions='none',
         ld_wind_kb=1,yes_really=True,workers=1)

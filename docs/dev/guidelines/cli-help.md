@@ -1,6 +1,6 @@
 # CLI flag descriptions and ordering
 
-Last updated on: 2026-11-03
+Last updated on: 2026-11-04
 
 These are the agreed rules for writing flag descriptions and organizing `--help` across all public `ldsc` commands. A user should be able to identify the inputs they need, understand what an option changes, and choose a valid combination without knowing the package implementation.
 
@@ -150,7 +150,7 @@ For a workflow that writes a log, the logging description can read:
 
 Do not promise that increasing `--log-level` prints progress to the terminal. Ordinary progress/debug messages go to the workflow log; console error reporting and explicit scientific notices have their own routing. See [workflow logging, “Console vs File Routing”](../../reference/logs-and-outputs.md#console-vs-file-routing).
 
-The examples are grounded in [`_sumstats.munger.build_parser`](../../../src/ldsc/_sumstats/munger.py), [`_ldscore.calculator.build_parser` and `_write_one_ref_metadata_sidecar`](../../../src/ldsc/_ldscore/calculator.py), [`window_coordinates` and `get_block_lefts`](../../../src/ldsc/_refpanel/windows.py), and [`_WorkflowLoggingContext`](../../../src/ldsc/_runtime/workflow_logging.py). Preserve these behavioral distinctions when adapting the examples to other commands.
+The examples are grounded in [`_sumstats.munger.build_parser`](../../../src/ldsc/_sumstats/munger.py), [`_ldscore.calculator.build_parser`](../../../src/ldsc/_ldscore/calculator.py), [`_ldscore.direct_batches._write_one_ref_metadata_sidecar`](../../../src/ldsc/_ldscore/direct_batches.py), [`window_coordinates` and `get_block_lefts`](../../../src/ldsc/_refpanel/windows.py), and [`_WorkflowLoggingContext`](../../../src/ldsc/_runtime/workflow_logging.py). Preserve these behavioral distinctions when adapting the examples to other commands.
 
 ## Naming rules
 

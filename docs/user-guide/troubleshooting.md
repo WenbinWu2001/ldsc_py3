@@ -707,7 +707,7 @@ Inspect `diagnostics/reference_snp_funnel.tsv` when it was written, to see which
 
 A chromosome emptied by `--ref-panel-snps-file`, by identity cleanup of the PLINK rows that restriction kept, or by genotype QC is skipped with a WARNING instead; check its funnel rows if that skip was not intended.
 
-**Developer reference:** `_refpanel.adapters._align_annotations()` during `RefPanel.prepare_chromosome()`, the gene-support pass `_apply_direct_gene_gate_b()`, and the batch check in `_ldscore.calculator._DirectProducer.reduce()` · **Exception:** `LDSCInputError`
+**Developer reference:** `_refpanel.adapters._align_annotations()` during `RefPanel.prepare_chromosome()`, the gene-support pass `_apply_direct_gene_gate_b()`, and the batch check in `_ldscore.direct_batches._DirectProducer.reduce()` · **Exception:** `LDSCInputError`
 
 ### `ldscore`: a PLINK chromosome has no usable SNP identity
 

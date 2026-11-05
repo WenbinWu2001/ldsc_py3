@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 
 from ldsc import AnnotationBundle, LDScoreCalculator
-from ldsc._ldscore import calculator as ldscore_calculator
+from ldsc._ldscore import direct_batches
 from ldsc._ldscore.outputs import LDScoreOutputConfig
 from tests.ldscore.test_ldscore_query_batches import prepared_case
 from tests.ldscore.test_gene_query_integration import inputs, direct_args
@@ -82,7 +82,7 @@ def test_direct_parent_releases_and_deletes_each_consumed_fragment(tmp_path, mon
 def _fail_last_batch(*args, **kwargs):
     if kwargs["batch_label"] == "batch 2/2" and args[0] == "2":
         raise OSError("injected final-batch chromosome failure")
-    return ldscore_calculator._compute_one_chromosome(*args, **kwargs)
+    return direct_batches._compute_one_chromosome(*args, **kwargs)
 
 
 @pytest.mark.parametrize("failure", ["worker", "alignment", "writer"])
@@ -110,7 +110,7 @@ def test_direct_final_batch_failure_removes_private_outputs(tmp_path, monkeypatc
         return original_write(result, baseline_table, path, compression)
 
     if failure == "worker":
-        monkeypatch.setattr(ldscore_calculator, "_compute_one_chromosome", _fail_last_batch)
+        monkeypatch.setattr(direct_batches, "_compute_one_chromosome", _fail_last_batch)
     monkeypatch.setattr(outputs, "_write_query_fragments", write)
     before = {child.pid for child in multiprocessing.active_children()}
     with AnnotationBundle.from_frames(metadata, baseline, queries, config_snapshot=config) as bundle:
@@ -146,7 +146,7 @@ def test_real_plink_gene_batches_preserve_all_metadata_and_diagnostics(tmp_path,
         return run_ldscore_from_args(args)
 
     from contextlib import contextmanager
-    from ldsc._ldscore.calculator import _DirectProducer
+    from ldsc._ldscore.direct_batches import _DirectProducer
     streamed_batch = _DirectProducer.open_batch
 
     @contextmanager

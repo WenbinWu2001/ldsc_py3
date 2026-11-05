@@ -386,7 +386,7 @@ The following locations must be kept consistent with this document.
 | Location | What to keep in sync |
 |----------|---------------------|
 | `src/ldsc/_core/columns.py` — `INTERNAL_SUMSTATS_ARTIFACT_SPECS` | Tuple order: `CHR, POS, SNP, ...` |
-| `src/ldsc/_ldscore/calculator.py` — `_split_ldscore_table` | Public output order: baseline `CHR, SNP, POS, regression_ld_scores, ...`; query `CHR, SNP, POS, ...` |
+| `src/ldsc/_ldscore/direct_batches.py` — `_split_ldscore_table` | Public output order: baseline `CHR, SNP, POS, regression_ld_scores, ...`; query `CHR, SNP, POS, ...` |
 | `src/ldsc/_ldscore/outputs.py` — `_ChromosomeRowGroups` | Exactly one row group per `CHR` in `ldscore.baseline.parquet` and each query batch file, for up to 67,108,864 rows per chromosome; pyarrow splits a larger chromosome, and the loader then rejects the directory |
 | `src/ldsc/_ldscore/source.py` — `validate_ldscore_baseline_table` / `validate_ldscore_query_table` | Baseline requires `CHR`, `POS`, `SNP`, `regression_ld_scores`, and baseline columns; query requires `CHR`, `POS`, `SNP`, and query columns |
 

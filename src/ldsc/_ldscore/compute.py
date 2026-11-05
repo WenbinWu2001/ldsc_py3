@@ -37,7 +37,7 @@ correction. Each unordered off-diagonal pair contributes in both directions,
 and the diagonal is added internally as one.
 
 This module returns in-memory results and writes no artifacts. Public result
-normalization and aggregation live in ``ldsc._ldscore.calculator``; canonical
+normalization and aggregation live in ``ldsc._ldscore.direct_batches``; canonical
 output layout belongs to ``ldsc._ldscore.outputs``. See
 ``docs/reference/formats/r2-matrices.md`` for the file contract.
 """

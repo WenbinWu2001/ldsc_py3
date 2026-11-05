@@ -104,24 +104,24 @@ def test_direct_chromosome_logs_append_across_batches_and_reset_on_overwrite(tmp
 
 
 def _fail_second_chromosome(*args, **kwargs):
-    from ldsc._ldscore.calculator import LDScoreCalculator, _compute_one_chromosome
-    original = LDScoreCalculator.compute_chromosome
-    def fail(self, chrom, **options):
+    from ldsc._ldscore import direct_batches
+    original = direct_batches.compute_direct_chromosome
+    def fail(chrom, *options, **keywords):
         if chrom == "22":
             raise OSError("simulated chromosome failure")
-        return original(self, chrom=chrom, **options)
-    LDScoreCalculator.compute_chromosome = fail
+        return original(chrom, *options, **keywords)
+    direct_batches.compute_direct_chromosome = fail
     try:
-        return _compute_one_chromosome(*args, **kwargs)
+        return direct_batches._compute_one_chromosome(*args, **kwargs)
     finally:
-        LDScoreCalculator.compute_chromosome = original
+        direct_batches.compute_direct_chromosome = original
 
 
 def test_direct_failure_keeps_logs_but_removes_staged_reference_metadata(tmp_path, monkeypatch):
-    from ldsc._ldscore import calculator as direct
+    from ldsc._ldscore import calculator as direct, direct_batches
     from tests.ldscore.test_plink_workflow_resolution import write_inputs
     write_inputs(tmp_path)
-    monkeypatch.setattr(direct, "_compute_one_chromosome", _fail_second_chromosome)
+    monkeypatch.setattr(direct_batches, "_compute_one_chromosome", _fail_second_chromosome)
     args = parse_command_line(direct.build_parser(), [
         "--baseline-annot-sources", str(tmp_path / "baseline.annot"),
         "--plink-prefix", str(tmp_path / "1000G.EUR.QC.*"),
@@ -159,11 +159,11 @@ def test_abnormal_ld_termination_reports_unconfirmed_source_and_retains_logs(tmp
     from concurrent.futures.process import BrokenProcessPool
     output = tmp_path / "out"
     if mode == "direct":
-        from ldsc._ldscore import calculator as direct
+        from ldsc._ldscore import direct_batches
         from tests.ldscore.test_ldscore_parallelism import _write_index_panel, _PANEL_CHROMS, _run_minimal_ldscore
         panel = tmp_path / "panel"
         _write_index_panel(panel, _PANEL_CHROMS)
-        monkeypatch.setattr(direct, "_compute_one_chromosome", _crash_direct_task)
+        monkeypatch.setattr(direct_batches, "_compute_one_chromosome", _crash_direct_task)
         run = lambda: _run_minimal_ldscore(panel, output, 2)
     else:
         from ldsc._ldscore.gene_index import batches as indexed, build as core

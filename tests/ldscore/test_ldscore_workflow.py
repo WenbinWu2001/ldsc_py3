@@ -39,6 +39,7 @@ from ldsc._ldscore.calculator import (
     _regression_region_intervals,
     _resolve_build,
 )
+from ldsc._ldscore import direct_batches
 from ldsc._ldscore.results import ChromLDScoreResult, LDScoreResult
 from ldsc._runtime.workflow_kwargs import parse_command_line
 from ldsc._core import plink_files as kernel_formats
@@ -384,7 +385,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(chrom_result.baseline_table["regression_ld_scores"].tolist(), [3.0])
         self.assertEqual(chrom_result.query_table["query"].tolist(), [2.0])
 
-    def test_wrap_chrom_result_carries_overlap(self):
+    def test_chromosome_record_carries_overlap(self):
         from ldsc._annotation.overlap import OverlapContribution
 
         contribution = OverlapContribution(np.array([[2.0]]), None, np.array([]), None, 2, None)
@@ -402,9 +403,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             query_columns=[],
             overlap=contribution,
         )
-        result = ldscore_workflow.LDScoreCalculator()._wrap_chrom_result(
-            legacy_result, global_config=GlobalConfig(snp_identifier="rsid")
-        )
+        result = direct_batches._chromosome_record(legacy_result, GlobalConfig(snp_identifier="rsid"))
         self.assertIs(result.overlap, contribution)
 
     def test_aggregate_chromosome_results_sums_overlap_blocks(self):
@@ -428,7 +427,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
         c1 = OverlapContribution(np.array([[10.0, 4.0]]), None, np.array([6.0]), None, 10, None)
         c2 = OverlapContribution(np.array([[5.0, 3.0]]), None, np.array([4.0]), None, 7, None)
-        result = ldscore_workflow.LDScoreCalculator()._aggregate_chromosome_results(
+        result = direct_batches._aggregate_chromosome_results(
             [make_chrom("1", "rs1", c1), make_chrom("2", "rs2", c2)]
         )
         self.assertIsNotNone(result.overlap)
@@ -460,12 +459,12 @@ class LDScoreWorkflowTest(unittest.TestCase):
         # count, already in metadata) that no downstream regression consumes.
         c1 = OverlapContribution(np.array([[10.0]]), None, np.array([]), None, 10, None)
         c2 = OverlapContribution(np.array([[7.0]]), None, np.array([]), None, 7, None)
-        result = ldscore_workflow.LDScoreCalculator()._aggregate_chromosome_results(
+        result = direct_batches._aggregate_chromosome_results(
             [make_chrom("1", "rs1", c1), make_chrom("2", "rs2", c2)]
         )
         self.assertIsNone(result.overlap)
 
-    def test_wrap_chrom_result_keeps_allele_aware_identity_after_split(self):
+    def test_chromosome_record_keeps_allele_aware_identity_after_split(self):
         legacy_result = kernel_ldscore.ChromComputationResult(
             chrom="1",
             metadata=pd.DataFrame(
@@ -488,10 +487,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             query_columns=[],
         )
 
-        result = ldscore_workflow.LDScoreCalculator()._wrap_chrom_result(
-            legacy_result,
-            global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware"),
-        )
+        result = direct_batches._chromosome_record(legacy_result, GlobalConfig(snp_identifier="chr_pos_allele_aware"))
 
         self.assertEqual(result.baseline_table.columns.tolist(), ["CHR", "SNP", "POS", "A1", "A2", "regression_ld_scores", "base"])
         self.assertEqual(frozenset(build_snp_id_series(result.baseline_table, "chr_pos_allele_aware")),
@@ -511,7 +507,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(LDSCInternalError, "A1/A2"):
-            ldscore_workflow._split_ldscore_table(
+            direct_batches._split_ldscore_table(
                 ldscore_table,
                 baseline_columns=["base"],
                 query_columns=[],
@@ -581,8 +577,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         return metadata.reset_index(drop=True), np.ravel(ld_scores)
 
     def test_aggregate_chromosome_results(self):
-        calc = ldscore_workflow.LDScoreCalculator()
-        result = calc._aggregate_chromosome_results(
+        result = direct_batches._aggregate_chromosome_results(
             [
                 self.make_chrom_result("2", 20, 2.0, 20.0),
                 self.make_chrom_result("1", 10, 1.0, 10.0),
@@ -1123,7 +1118,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         )
         ref_panel = SimpleNamespace(spec=SimpleNamespace(genome_build="hg19", backend="plink"))
 
-        with mock.patch.object(calc, "compute_chromosome") as patched_compute:
+        with mock.patch.object(direct_batches, "compute_direct_chromosome") as patched_compute:
             with self.assertRaisesRegex(ConfigMismatchError, "AnnotationBundle and LDScoreCalculator runtime config"):
                 calc.run(
                     annotation_bundle=annotation_bundle,
@@ -1238,7 +1233,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertIn("empty_input", (output_dir / "diagnostics" / "ldscore.log").read_text(encoding="utf-8"))
 
     def test_run_ldscore_from_args_gene_list_writes_query_and_resolution_diagnostics(self):
-        # Output ownership is tested here with a deliberately mocked calculator.
+        # Output ownership is tested here with a deliberately mocked chromosome task, which
+        # returns a materialized chromosome result that the writer publishes as such.
         from tests.worker_fixtures import calculation_body, local_task_pool
         self.enterContext(calculation_body())
         self.enterContext(mock.patch("ldsc._runtime.parallelism.ProcessPoolExecutor", local_task_pool))
@@ -1308,8 +1304,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
             )
 
             with mock.patch.object(
-                ldscore_workflow.LDScoreCalculator,
-                "compute_chromosome",
+                direct_batches,
+                "compute_direct_chromosome",
                 autospec=True,
                 return_value=chrom_result,
             ):
@@ -1539,8 +1535,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 autospec=True,
                 return_value=ref_panel,
             ), mock.patch.object(
-                ldscore_workflow.LDScoreCalculator,
-                "compute_chromosome",
+                direct_batches,
+                "compute_direct_chromosome",
                 autospec=True,
                 side_effect=AssertionError("calculation should not run after preflight failure"),
             ):
@@ -1552,7 +1548,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertFalse((output_dir / "diagnostics" / "ldscore.log").exists())
 
     def test_run_ldscore_from_args_overwrite_removes_stale_query_parquet(self):
-        # Output ownership is tested here with a deliberately mocked calculator.
+        # Output ownership is tested here with a deliberately mocked chromosome task, which
+        # returns a materialized chromosome result that the writer publishes as such.
         from tests.worker_fixtures import calculation_body, local_task_pool
         self.enterContext(calculation_body())
         self.enterContext(mock.patch("ldsc._runtime.parallelism.ProcessPoolExecutor", local_task_pool))
@@ -1578,8 +1575,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 autospec=True,
                 return_value=ref_panel,
             ), mock.patch.object(
-                ldscore_workflow.LDScoreCalculator,
-                "compute_chromosome",
+                direct_batches,
+                "compute_direct_chromosome",
                 autospec=True,
                 return_value=self.make_baseline_only_chrom_result("1", 10, 1.0, 5.0),
             ):
@@ -1591,7 +1588,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertNotIn("query", result.output_paths)
 
     def test_run_ldscore_from_args_overwrite_preserves_current_overlap_artifact(self):
-        # Output ownership is tested here with a deliberately mocked calculator.
+        # Output ownership is tested here with a deliberately mocked chromosome task, which
+        # returns a materialized chromosome result that the writer publishes as such.
         from tests.worker_fixtures import calculation_body, local_task_pool
         self.enterContext(calculation_body())
         self.enterContext(mock.patch("ldsc._runtime.parallelism.ProcessPoolExecutor", local_task_pool))
@@ -1650,8 +1648,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 autospec=True,
                 return_value=ref_panel,
             ), mock.patch.object(
-                ldscore_workflow.LDScoreCalculator,
-                "compute_chromosome",
+                direct_batches,
+                "compute_direct_chromosome",
                 autospec=True,
                 return_value=chrom_result,
             ):
@@ -2291,9 +2289,9 @@ def test_regression_region_mask_leaves_reference_counts_and_ld_contributors_inta
         query_columns=["query"],
         overlap=None,
         reference_snp_count=3, regression_selected_snp_count=3,
-        regression_region_removed_snp_count=1,
+        regression_region_removed_snp_count=1, annotation_types={},
     )
-    wrapped = ldscore_workflow.LDScoreCalculator()._wrap_chrom_result(legacy, GlobalConfig(snp_identifier="rsid"))
+    wrapped = direct_batches._chromosome_record(legacy, GlobalConfig(snp_identifier="rsid"))
     assert wrapped.baseline_table["SNP"].tolist() == ["near_mhc", "outside"]
     np.testing.assert_allclose(wrapped.baseline_table["regression_ld_scores"], [1.0, 1.0])
     assert wrapped.snp_count_totals["all_reference_snp_counts"][0] == 2.0

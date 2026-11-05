@@ -24,12 +24,11 @@ serial execution; workers are reused across query batches.
 from __future__ import annotations
 
 import argparse
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack
 from copy import copy
 from tempfile import TemporaryDirectory
 from dataclasses import dataclass, field, replace as dataclass_replace
 import logging
-from pathlib import Path
 import sys
 from typing import Any, Sequence
 
@@ -38,19 +37,19 @@ import pandas as pd
 
 from .._runtime.serial_calculation import serial_calculation
 from .diagnostics import (
-    chromosome_log,
     emit_reference_snp_funnel_notice,
     fail_gene_list_resolution,
     fail_unusable_queries,
     ldscore_logs,
     log_query_outcomes,
     log_reference_snp_funnel_warning,
-    reference_snp_funnel_path,
 )
 from .batch_execution import finalize_batch, run_chromosome_batch, run_query_batches
-from .direct_batches import stage_direct_chromosome, stage_query_table
-from .results import ChromLDScoreResult, DirectChromosomeFragment, LDScoreResult, StagedLDScoreBatch
-from .._core.chromosomes import chrom_sort_key
+from .direct_batches import (
+    _DirectProducer, _chromosome_annotations, _grid_emptied_message, _init_worker, _ref_panel_from_config,
+    _slice_annotation_bundle, _warn_ld_window_snp_subset, compute_direct_chromosome,
+)
+from .results import ChromLDScoreResult
 from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP, output_directory_argument
 from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
 from .._runtime.parallelism import (
@@ -58,9 +57,9 @@ from .._runtime.parallelism import (
 )
 from .._runtime.progress import report_phase, PhaseProgress
 from .._annotation.saved_results import AnnotationResult
-from .._annotation.storage import TsvDiagnostics, AnnotationWorkspace
+from .._annotation.storage import AnnotationWorkspace
 from .source import LDScoreSource
-from .._core.snp_identity import coerce_identity_drop_frame, IDENTITY_DROP_COLUMNS, identity_mode_family, is_allele_aware_mode
+from .._core.snp_identity import identity_mode_family
 from .._core.columns import normalize_genome_build
 from .._core.snp_identity import emit_dropped_snps_notice, normalize_snp_identifier_mode
 from ..config import (
@@ -71,7 +70,6 @@ from ..config import (
     RefPanelConfig,
     get_global_config,
     print_global_config_banner,
-    validate_config_compatibility,
 )
 from .._genome.hm3 import packaged_hm3_curated_map_path
 from .outputs import (
@@ -79,10 +77,6 @@ from .outputs import (
     LDScoreDirectoryWriter,
     LDScoreOutputConfig,
     QueryDiagnostics,
-    REGRESSION_LD_SCORE_COLUMN,
-    common_count_config,
-    ref_metadata_file,
-    snp_universe_policy_record,
 )
 from .._runtime.paths import (
     ensure_output_directory,
@@ -95,28 +89,15 @@ from .._runtime.paths import (
 from .._runtime.workflow_logging import (
     log_inputs, log_outputs, materializing_overwrite_guard, overwrite_failure_marker, workflow_logging,
 )
-from . import compute as kernel_ldscore
-from .._refpanel.funnel import (
-    REFERENCE_PANEL,
-    annotation_snp_grid_emptied,
-    concat_funnels,
-    funnel_summary,
-    read_reference_snp_funnel,
-)
-from .._refpanel.prepared import ChromosomeAnnotations, MappedAnnotations
+from .._refpanel.funnel import annotation_snp_grid_emptied, read_reference_snp_funnel
 from .._core import regions as kernel_regions
-from .._annotation.overlap import sum_overlap_contributions
-from .._annotation.semantics import combine_annotation_types
 from .._core.regions import REGR_SNPS_EXCLUDE_REGIONS_CHOICES, regr_snps_exclude_regions_choice_to_presets
-from .._refpanel.r2_format import SIDECAR_FLOAT_FORMAT
 from .._core.identifiers import read_snp_restriction_keys
 from .._core.snp_identity import RestrictionIdentityKeys
-from .._core.row_alignment import concat_chromosome_tables, sort_frame_by_genomic_position
 from ..errors import (
     EmptyReferenceSNPs,
     LDSCConfigError,
     LDSCInputError,
-    LDSCInternalError,
     LDSCUsageError,
     LDSCUserError,
 )
@@ -125,8 +106,6 @@ from .._annotation.query_outcomes import (
     emit_bed_query_notice, emit_gene_gate_b_notice, emit_resolved_only_notice,
 )
 from .._genome.build_policy import GenomeBuildCheck
-from .._refpanel.adapters import PlinkRefPanel, R2MatrixRefPanel
-from .._annotation.interval_queries import execution_query_bundle
 from .._annotation.gene_lists import GeneCatalog
 from .._annotation.gene_query_storage import resolve_gene_lists_staged, persistent_gene_diagnostics
 from .._annotation.preflight import (
@@ -137,7 +116,6 @@ from .._annotation.preflight import (
 )
 from .._runtime.preflight import InputGate
 from .gene_index.scoring import run_indexed_ldscore
-from .._runtime.worker_runtime import initialize_worker
 
 
 LOGGER = logging.getLogger("LDSC.ldscore_calculator")
@@ -149,9 +127,6 @@ _QUERY_REQUIRES_BASELINE_MESSAGE = (
     "Pass matching baseline annotations, or create an explicit all-ones `base` "
     "baseline annotation over the same SNP rows as the query annotations before estimating "
     "partitioned heritability."
-)
-_LDSCORE_INTERSECTION_DOC = (
-    "docs/user-guide/troubleshooting.md#ldscore-no-reference-snps-remain-on-the-annotation-snp-grid"
 )
 
 
@@ -328,7 +303,7 @@ class LDScoreCalculator:
         global_config = context.global_config
         if not context.build_resolved:
             global_config, ref_panel = _resolve_calculator_build(annotation_bundle, ref_panel, global_config)
-        chromosomes = _chromosomes_from_bundle(annotation_bundle)
+        chromosomes = list(annotation_bundle.chromosomes)
         if not context.reference_checked:
             _check_parquet_reference(ref_panel, chromosomes, ldscore_config, global_config)
         with ExitStack() as stack:
@@ -346,8 +321,8 @@ class LDScoreCalculator:
             cm_source, maf_source = _reference_metadata_sources(ref_panel)
             LOGGER.info("Reference-panel CM source: %s; MAF source: %s (annotation CM/MAF are ignored).",
                         cm_source, maf_source)
-            producer = _DirectProducer(self, annotation_bundle, ref_panel, ldscore_config, global_config,
-                                       regression_regions, log_paths, output_dir=output_dir, export_dir=export_root,
+            producer = _DirectProducer(annotation_bundle, ref_panel, ldscore_config, global_config, regression_regions,
+                                       log_paths, output_dir=output_dir, export_dir=export_root,
                                        skipped_funnels=skipped_funnels)
             if output_config is None:
                 if len(annotation_bundle.query_columns) > ldscore_config.query_batch_size:
@@ -398,405 +373,8 @@ class LDScoreCalculator:
         """
         if isinstance(annotation_bundle, AnnotationResult):
             raise LDSCUsageError(_annotation_result_message("compute_chromosome()"))
-        backend = getattr(getattr(ref_panel, "spec", None), "backend", None)
-        chrom_annotations = _chromosome_annotations(annotation_bundle,chrom)
-        LOGGER.info(f"Computing chromosome {chrom} LD scores with backend '{backend or 'unknown'}' and {len(chrom_annotations.metadata)} annotation rows.")
-        with ref_panel.prepare_chromosome(chrom, chrom_annotations, ldscore_config) as prepared:
-            funnel = prepared.reference_snp_funnel
-            if funnel is not None:
-                LOGGER.info("Chromosome %s reference-SNP funnel: %s.", chrom, funnel_summary(funnel))
-            chrom_result = kernel_ldscore.compute_chromosome(
-                chrom, prepared, snp_identifier=global_config.snp_identifier,
-                snp_batch_size=ldscore_config.snp_batch_size,
-                common_maf_min=ldscore_config.common_maf_min,
-                regression_keys=regression_snps, regression_regions=regression_regions,
-                query_batch_size=ldscore_config.query_batch_size,
-            )
-            if export_dir is not None:
-                _write_one_ref_metadata_sidecar(prepared.metadata, chrom, export_dir)
-        drops = _stage_chromosome_drops(annotation_bundle, chrom, chrom_result.identity_drops)
-        result = self._wrap_chrom_result(
-            chrom_result,
-            global_config=global_config,
-            annotation_types=chrom_result.annotation_types,
-            identity_drops=drops,
-        )
-        LOGGER.info(f"Finished chromosome {chrom} with {len(result.baseline_table)} retained SNP rows.")
-        return dataclass_replace(result, reference_snp_funnel=funnel)
-
-    def _wrap_chrom_result(
-        self,
-        chrom_result: kernel_ldscore.ChromComputationResult,
-        global_config: GlobalConfig,
-        annotation_types: dict[str, str] | None = None,
-        identity_drops: TsvDiagnostics | None = None,
-    ) -> ChromLDScoreResult:
-        """Convert one kernel chromosome result into the typed public result.
-
-        The kernel's metadata is already a private frame with a RangeIndex. The
-        baseline and query tables are column subsets of one sorted table, so
-        their rows match by construction and need no row comparison.
-        """
-        reference_metadata = chrom_result.metadata
-        ld_scores = pd.DataFrame(chrom_result.ld_scores, columns=list(chrom_result.ldscore_columns))
-        metadata_columns = ["CHR", "SNP", "POS", *[column for column in ("A1", "A2") if column in reference_metadata.columns]]
-        regression_weights = np.asarray(chrom_result.w_ld, dtype=np.float32).reshape(-1)
-        ldscore_table = pd.concat(
-            [
-                reference_metadata.loc[:, metadata_columns],
-                ld_scores,
-                pd.DataFrame({REGRESSION_LD_SCORE_COLUMN: regression_weights}, copy=False),
-            ],
-            axis=1,
-            copy=False,
-        )
-        ldscore_table = sort_frame_by_genomic_position(ldscore_table)
-        count_map = {
-            "all_reference_snp_counts": np.asarray(chrom_result.M, dtype=np.float64),
-            "common_reference_snp_counts": np.asarray(chrom_result.M_5_50, dtype=np.float64),
-        }
-        baseline_table, query_table = _split_ldscore_table(
-            ldscore_table,
-            baseline_columns=list(chrom_result.baseline_columns),
-            query_columns=list(chrom_result.query_columns),
-            snp_identifier=global_config.snp_identifier,
-        )
-        result = ChromLDScoreResult(
-            chrom=str(chrom_result.chrom),
-            baseline_table=baseline_table,
-            query_table=query_table,
-            baseline_columns=list(chrom_result.baseline_columns),
-            query_columns=list(chrom_result.query_columns),
-            snp_count_totals=count_map,
-            config_snapshot=global_config,
-            overlap=getattr(chrom_result, "overlap", None),
-            reference_snp_count=chrom_result.reference_snp_count,
-            regression_selected_snp_count=chrom_result.regression_selected_snp_count,
-            regression_region_removed_snp_count=chrom_result.regression_region_removed_snp_count,
-            identity_drops=identity_drops,
-            annotation_types=dict(annotation_types or {}),
-        )
-        return result
-
-    def _aggregate_chromosome_results(
-        self,
-        chromosome_results: Sequence[ChromLDScoreResult | DirectChromosomeFragment],
-        count_config: dict[str, Any] | None = None,
-    ) -> LDScoreResult | StagedLDScoreBatch:
-        """Combine chromosome statistics, retaining query paths for writing runs.
-
-        The annotation overlap matrix is aggregated only for partitioned runs (two
-        or more LD-score columns). Single-annotation runs (e.g. the synthetic
-        unpartitioned ``base``) leave ``LDScoreResult.overlap`` as ``None`` so the
-        downstream writer emits no redundant overlap artifact.
-        """
-        if not chromosome_results:
-            raise LDSCInternalError(
-                "LD-score calculation could not assemble its chromosome results because none were returned. "
-                "This is an unexpected internal state; its cause has not been established. "
-                "Report the command, package version, and saved traceback. "
-                "--log-level DEBUG adds developer context if the run needs to be reproduced."
-            )
-        snapshots = [result.config_snapshot for result in chromosome_results if result.config_snapshot is not None]
-        if snapshots:
-            for snapshot in snapshots[1:]:
-                validate_config_compatibility(
-                    snapshots[0],
-                    snapshot,
-                    context="ChromLDScoreResult aggregation",
-                )
-
-        # Later direct batches carry query statistics only; batch 1 supplied the baseline.
-        include_baseline = chromosome_results[0].baseline_table is not None
-        baseline_columns = list(chromosome_results[0].baseline_columns)
-        query_columns = list(chromosome_results[0].query_columns)
-        counted_baseline = baseline_columns if include_baseline else []
-        count_keys = sorted(set.intersection(*(set(result.snp_count_totals) for result in chromosome_results)))
-        count_totals = {
-            key: np.sum(np.vstack([result.snp_count_totals[key] for result in chromosome_results]), axis=0)
-            for key in count_keys
-        }
-        from .overlap_table import LDScoreOverlap
-
-        # The overlap (Gram) matrix is only consumed by partitioned-h2 and the
-        # design-matrix collinearity check, both of which need >=2 LD-score
-        # columns. A single-column run (e.g. the synthetic unpartitioned `base`)
-        # yields a degenerate 1x1 overlap equal to a SNP count already in
-        # metadata, so the artifact is suppressed rather than written redundantly.
-        n_ld_columns = len(baseline_columns) + len(query_columns)
-        overlaps = [result.overlap for result in chromosome_results if result.overlap is not None]
-        aggregated_overlap = None
-        if n_ld_columns >= 2 and len(overlaps) == len(chromosome_results):
-            aggregated_overlap = LDScoreOverlap.from_contribution(
-                sum_overlap_contributions(overlaps), baseline_columns, query_columns,
-                include_baseline=include_baseline,
-            )
-        annotation_types = combine_annotation_types(
-            [*counted_baseline, *query_columns], [result.annotation_types for result in chromosome_results])
-        shared = dict(
-            baseline_columns=baseline_columns,
-            query_columns=query_columns,
-            count_records=_count_records_from_totals(
-                baseline_columns=counted_baseline,
-                query_columns=query_columns,
-                count_totals=count_totals,
-            ),
-            count_config=dict(count_config or {}),
-            config_snapshot=snapshots[0] if snapshots else None,
-            overlap=aggregated_overlap,
-            identity_drops_by_chrom={
-                result.chrom: result.identity_drops
-                for result in chromosome_results if result.identity_drops is not None
-            },
-            annotation_types=annotation_types,
-        )
-        if isinstance(chromosome_results[0], DirectChromosomeFragment):
-            baseline_table = None
-            if include_baseline:
-                # Each worker sorted its chromosome; placing chromosomes in order
-                # gives the genomic order that the query fragments below follow.
-                baseline_table = concat_chromosome_tables(
-                    [(result.chrom, result.baseline_table) for result in chromosome_results])
-            ordered = sorted(chromosome_results, key=lambda result: chrom_sort_key(result.chrom))
-            return StagedLDScoreBatch(
-                baseline_table=baseline_table,
-                query_fragments=tuple(result.query_fragment for result in ordered if result.query_fragment is not None),
-                query_statuses=(), gene_list_batch=None, chromosome_scope={}, index_provenance={}, **shared,
-            )
-        baseline_table = concat_chromosome_tables([(result.chrom, result.baseline_table) for result in chromosome_results])
-        query_table = None
-        if query_columns:
-            query_table = concat_chromosome_tables([(result.chrom, result.query_table) for result in chromosome_results])
-        result = LDScoreResult(
-            baseline_table=baseline_table,
-            query_table=query_table,
-            **shared,
-        )
-        result.validate()
-        return result
-
-
-@dataclass(frozen=True)
-class _DirectBatch:
-    """One direct query batch: its prepared annotations and private fragment directory."""
-
-    bundle: Any
-    source_drops: dict
-    ordinal: int = 0
-    fragment_dir: str | None = None
-
-
-class _DirectProducer:
-    """Direct LD-score producer: each task computes one chromosome from the reference panel.
-
-    A batch projects its active query annotations, workers compute and stage
-    each chromosome's LD scores, and ``reduce`` combines them with the run's
-    direct provenance. The no-output path reuses ``prepare``, the tasks, and
-    ``reduce`` for its single materialized batch. ``skipped_funnels`` belong to
-    chromosomes skipped before the bundle was built, which have no task.
-    """
-
-    batch_name, phase, task = "batch", "LD-score calculation", "LD-score computation"
-
-    def __init__(self, calculator, annotation_bundle, ref_panel, ldscore_config, global_config,
-                 regression_regions, log_paths, *, output_dir=None, export_dir=None, skipped_funnels=()):
-        self.calculator = calculator
-        self.annotation_bundle = annotation_bundle
-        self.ref_panel = ref_panel
-        self.ldscore_config = ldscore_config
-        self.global_config = global_config
-        self.regression_regions = regression_regions
-        self.log_paths = log_paths or {}
-        self.logger = LOGGER
-        self.output_dir = output_dir
-        self.export_dir = export_dir
-        self.skipped_funnels = list(skipped_funnels)
-        self.chromosomes = _chromosomes_from_bundle(annotation_bundle)
-        self.prefixes = ref_panel._resolved_prefixes() if isinstance(ref_panel, PlinkRefPanel) else None
-
-    def prepare(self, bundle, *, ordinal=0, fragment_dir=None) -> _DirectBatch:
-        """Check the bundle against the run's identity and partition its source identity drops."""
-        global_config = self.global_config
-        if bundle.config_snapshot is not None:
-            validate_config_compatibility(
-                (dataclass_replace(bundle.config_snapshot, genome_build=global_config.genome_build)
-                 if global_config.genome_build in {"hg19", "hg38"} else bundle.config_snapshot),
-                global_config,
-                context="AnnotationBundle and LDScoreCalculator runtime config",
-            )
-        # Identity drops are published from the first batch only.
-        source_drops = _partition_annotation_drops(bundle) if ordinal == 0 else {}
-        return _DirectBatch(dataclass_replace(bundle, chromosome_identity_drops=source_drops), source_drops,
-                            ordinal, fragment_dir)
-
-    @contextmanager
-    def open_batch(self, ordinal, query_columns, statuses, scratch):
-        """Project the batch's BED or gene-list queries and release them after consumption."""
-        with execution_query_bundle(self.annotation_bundle, query_columns, statuses, self.output_dir) as active:
-            yield self.prepare(active, ordinal=ordinal, fragment_dir=str(scratch))
-
-    def submit(self, pool, chrom, batch, label):
-        """Submit one chromosome's computation with its slice of the batch's annotations.
-
-        Only the first batch exports reference metadata, and only the first
-        batch of a staged (writing) run computes the baseline; later staged
-        batches compute their query scores and statistics alone.
-        """
-        first = batch.ordinal == 0
-        return pool.submit(_compute_one_chromosome, chrom,
-            _slice_annotation_bundle(batch.bundle, chrom), self.ref_panel.spec,
-            self.ldscore_config, self.global_config, self.export_dir if first else None,
-            chromosome_prefixes=self.prefixes, log_path=self.log_paths.get(chrom), batch_label=label,
-            fragment_dir=batch.fragment_dir, include_baseline=first or batch.fragment_dir is None)
-
-    def reduce(self, outcomes, batch):
-        """Combine chromosome outcomes; skipped chromosomes contribute only their funnels.
-
-        A chromosome emptied by the annotation SNP grid fails the run; one
-        emptied by an explicit restriction or genotype QC is skipped with a
-        WARNING. Returns the staged or materialized batch and, for staged
-        batches, each computed chromosome's query variation.
-        """
-        ref_panel, ldscore_config = self.ref_panel, self.ldscore_config
-        chromosome_results, funnels, grid_emptied = [], list(self.skipped_funnels), []
-        for chrom in self.chromosomes:
-            outcome = outcomes[chrom]
-            funnel = outcome.reference_snp_funnel if outcome.skipped else outcome.result.reference_snp_funnel
-            funnels.append(funnel)
-            if outcome.skipped:
-                if funnel is not None and annotation_snp_grid_emptied(funnel):
-                    grid_emptied.append(funnel)
-                else:
-                    LOGGER.warning("Skipping chromosome %s: %s", chrom, outcome.skip_message)
-                continue
-            chromosome_results.append(outcome.result)
-        if grid_emptied:
-            raise LDSCInputError(_grid_emptied_message(grid_emptied))
-        if not chromosome_results:
-            raise LDSCInputError(
-                "ldscore could not compute any chromosome results after intersecting annotations "
-                "with the reference panel. Most likely the annotation SNP identities, genome build, "
-                "or allele-aware identifier mode do not match the reference panel. Use matching "
-                "annotation and reference-panel artifacts, or rerun with the correct "
-                "`--snp-identifier` and `--genome-build`. "
-                f"Other causes & fixes: {_LDSCORE_INTERSECTION_DOC}"
-            )
-        result = self.calculator._aggregate_chromosome_results(
-            chromosome_results,
-            count_config=common_count_config(ldscore_config.common_maf_min),
-        )
-        result = dataclass_replace(
-            result,
-            identity_drops_by_chrom={**batch.source_drops, **result.identity_drops_by_chrom},
-            gene_list_batch=getattr(batch.bundle, "gene_list_batch", None),
-            chromosome_scope=dict(batch.bundle.source_summary.get("chromosome_scope", {})),
-            ld_window={**ldscore_config.ld_window.record(), "whole_chromosome_ok": ldscore_config.whole_chromosome_ok},
-        )
-        if batch.ordinal == 0:  # every batch shares the reference and regression SNPs; batch 1 records them
-            result = dataclass_replace(
-                result,
-                snp_universe_policy=_snp_universe_policy(
-                    ref_panel=ref_panel,
-                    ldscore_config=ldscore_config,
-                    regression_regions=self.regression_regions,
-                    chromosome_results=chromosome_results,
-                ),
-                ld_window_snp_counts=_ld_window_snp_counts(ref_panel, ldscore_config, chromosome_results),
-                reference_snp_funnel=concat_funnels(funnels),
-            )
-        if batch.ordinal == 0 and self.output_dir is not None:  # every batch shares chromosomes and counts
-            _warn_ld_window_snp_subset(
-                result.ld_window_snp_counts,
-                str(Path(self.output_dir) / "diagnostics" / "ld_window_snp_counts.tsv"))
-            log_reference_snp_funnel_warning(result.reference_snp_funnel, reference_snp_funnel_path(self.output_dir))
-        LOGGER.debug(f"Computed LD scores for {len(chromosome_results)} chromosomes.")
-        staged = isinstance(result, StagedLDScoreBatch)
-        return result, [item.variation for item in chromosome_results] if staged else []
-
-
-def _split_ldscore_table(
-    ldscore_table: pd.DataFrame,
-    *,
-    baseline_columns: list[str],
-    query_columns: list[str],
-    snp_identifier: str = "chr_pos_allele_aware",
-) -> tuple[pd.DataFrame, pd.DataFrame | None]:
-    """Split a merged LD-score table into baseline and optional query tables."""
-    if is_allele_aware_mode(snp_identifier) and not {"A1", "A2"}.issubset(ldscore_table.columns):
-        raise LDSCInternalError(
-            "LD-score split-table assembly failed in _split_ldscore_table(): allele-aware "
-            f"SNP identifier mode '{snp_identifier}' requires A1/A2 columns, but the LD-score "
-            "table does not contain both. Most likely an upstream reference-panel or annotation "
-            "assembly step dropped allele columns. Re-run with DEBUG logging and report the traceback."
-        )
-    metadata_columns = ["CHR", "SNP", "POS", *[column for column in ("A1", "A2") if column in ldscore_table.columns]]
-    baseline_order = [*metadata_columns, REGRESSION_LD_SCORE_COLUMN, *baseline_columns]
-    query_order = [*metadata_columns, *query_columns]
-    missing_baseline = [column for column in baseline_order if column not in ldscore_table.columns]
-    if missing_baseline:
-        raise LDSCInternalError(
-            "LD-score split-table assembly failed in _split_ldscore_table(): "
-            f"the merged table is missing baseline columns {missing_baseline}. Most likely "
-            "a kernel result omitted expected baseline annotation scores. Re-run with DEBUG "
-            "logging and report the traceback."
-        )
-    if not isinstance(ldscore_table.index, pd.RangeIndex) or ldscore_table.index.start != 0:
-        ldscore_table = ldscore_table.reset_index(drop=True)
-    # Both tables are column selections (copies) of one frame, so their rows match.
-    baseline_table = ldscore_table.loc[:, baseline_order]
-    query_table = None
-    if query_columns:
-        missing_query = [column for column in query_order if column not in ldscore_table.columns]
-        if missing_query:
-            raise LDSCInternalError(
-                "LD-score split-table assembly failed in _split_ldscore_table(): "
-                f"the merged table is missing query columns {missing_query}. Most likely "
-                "a kernel result omitted expected query annotation scores. Re-run with DEBUG "
-                "logging and report the traceback."
-            )
-        query_table = ldscore_table.loc[:, query_order]
-    return baseline_table, query_table
-
-
-def _count_records_from_totals(
-    *,
-    baseline_columns: list[str],
-    query_columns: list[str],
-    count_totals: dict[str, np.ndarray],
-) -> list[dict[str, Any]]:
-    """Convert positional count vectors into metadata-friendly column records."""
-    columns = [*baseline_columns, *query_columns]
-    groups = ["baseline"] * len(baseline_columns) + ["query"] * len(query_columns)
-    all_counts = np.asarray(count_totals.get("all_reference_snp_counts"), dtype=np.float64)
-    if all_counts.size != len(columns):
-        raise LDSCInternalError(
-            "LD-score count assembly failed in _count_records_from_totals(): "
-            f"all_reference_snp_counts has length {all_counts.size}, but there are "
-            f"{len(columns)} annotation columns. Most likely the kernel returned count "
-            "vectors for a different annotation matrix. Re-run with DEBUG logging and "
-            "report the traceback."
-        )
-    common_raw = count_totals.get("common_reference_snp_counts")
-    common_counts = None if common_raw is None else np.asarray(common_raw, dtype=np.float64)
-    if common_counts is not None and common_counts.size != len(columns):
-        raise LDSCInternalError(
-            "LD-score count assembly failed in _count_records_from_totals(): "
-            f"common_reference_snp_counts has length {common_counts.size}, but there are "
-            f"{len(columns)} annotation columns. Most likely the kernel returned common-SNP "
-            "count vectors for a different annotation matrix. Re-run with DEBUG logging and "
-            "report the traceback."
-        )
-    records: list[dict[str, Any]] = []
-    for idx, (group, column) in enumerate(zip(groups, columns)):
-        record: dict[str, Any] = {
-            "group": group,
-            "column": column,
-            "all_reference_snp_count": float(all_counts[idx]),
-        }
-        if common_counts is not None:
-            record["common_reference_snp_count"] = float(common_counts[idx])
-        records.append(record)
-    return records
+        return compute_direct_chromosome(chrom, annotation_bundle, ref_panel, ldscore_config, global_config,
+                                         regression_snps, regression_regions, export_dir=export_dir)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1661,7 +1239,7 @@ def _apply_direct_gene_gate_b(annotation_bundle, ref_panel, ldscore_config):
     errors = []
     input_issues = []
     grid_emptied = []
-    for chrom in _chromosomes_from_bundle(annotation_bundle):
+    for chrom in annotation_bundle.chromosomes:
         genes = interval_frame[interval_frame["chrom"].astype(str).eq(str(chrom))]
         chrom_bundle = _slice_annotation_bundle(annotation_bundle, chrom)
         chrom_annotations = _chromosome_annotations(chrom_bundle,chrom)
@@ -1905,17 +1483,6 @@ def _regression_region_intervals(
     return kernel_regions.load_preset_intervals(presets, build)
 
 
-def _ref_panel_from_config(config: RefPanelConfig, global_config: GlobalConfig, *, chromosome_prefixes=None):
-    """Build the reference-panel adapter that owns the ``A -> A'`` restriction.
-
-    ``global_config`` carries the build the run already resolved against the
-    panel, so unlike ``RefPanelLoader.load`` this checks no build again.
-    """
-    if config.backend == "plink":
-        return PlinkRefPanel(global_config, config, chromosome_prefixes=chromosome_prefixes)
-    return R2MatrixRefPanel(global_config, config)
-
-
 def _reference_metadata_sources(ref_panel) -> tuple[str, str]:
     """Return ``(cm_source, maf_source)`` provenance labels for the reference panel."""
     spec = getattr(ref_panel, "spec", None)
@@ -1924,51 +1491,6 @@ def _reference_metadata_sources(ref_panel) -> tuple[str, str]:
         return "parquet_sidecar", "parquet_sidecar"
     has_map = bool(getattr(spec, "genetic_map_hg19_sources", None) or getattr(spec, "genetic_map_hg38_sources", None))
     return ("genetic_map" if has_map else "plink_bim"), "plink_genotypes"
-
-
-def _snp_universe_policy(
-    *,
-    ref_panel,
-    ldscore_config: LDScoreConfig,
-    regression_regions: kernel_regions.RegionIntervals | None,
-    chromosome_results: Sequence[ChromLDScoreResult | DirectChromosomeFragment],
-) -> dict[str, Any]:
-    """Describe the computed chromosomes' reference SNPs and regression SNPs.
-
-    See ``snp_universe_policy_record`` for the persisted fields.
-    """
-    return snp_universe_policy_record(
-        ref_panel_snps_file=getattr(getattr(ref_panel, "spec", None), "ref_panel_snps_file", None),
-        regr_snps_file=ldscore_config.regr_snps_file,
-        regression_regions=regression_regions,
-        retained_snp_count=sum(result.reference_snp_count for result in chromosome_results),
-        selected_snp_count_before_region_exclusion=sum(
-            result.regression_selected_snp_count for result in chromosome_results),
-        region_excluded_snp_count=sum(result.regression_region_removed_snp_count for result in chromosome_results),
-        written_snp_count=sum(len(result.baseline_table) for result in chromosome_results),
-    )
-
-
-def _ld_window_snp_counts(ref_panel, ldscore_config: LDScoreConfig, chromosome_results) -> pd.DataFrame | None:
-    """Per-chromosome R2 matrix and kept SNP counts behind an R2 matrix ``--ld-wind-snps`` window.
-
-    On an R2 matrix the window counts R2 matrix (sidecar) rows, so a chromosome
-    keeping fewer SNPs than the R2 matrix gives its SNPs fewer than K reference SNPs
-    per side. ``None`` for kb/cM windows and PLINK reference panels.
-    """
-    if ldscore_config.ld_wind_snps is None or getattr(getattr(ref_panel, "spec", None), "backend", None) != "r2_matrix":
-        return None
-    rows = [
-        {
-            "CHR": str(result.chrom),
-            "panel_snps": ref_panel.open_chromosome(result.chrom).contract.n_snps,
-            "kept_snps": int(result.reference_snp_count),
-            "ld_wind_snps": int(ldscore_config.ld_wind_snps),
-            "counting_basis": "panel_rows",
-        }
-        for result in chromosome_results
-    ]
-    return pd.DataFrame(rows, columns=["CHR", "panel_snps", "kept_snps", "ld_wind_snps", "counting_basis"])
 
 
 def _resolve_calculator_build(annotation_bundle, ref_panel, global_config: GlobalConfig):
@@ -2025,23 +1547,6 @@ def _check_parquet_reference(ref_panel, chromosomes, ldscore_config: LDScoreConf
     gate.finish()
 
 
-def _warn_ld_window_snp_subset(counts: pd.DataFrame | None, where: str) -> None:
-    """Warn once per run when a parquet ``--ld-wind-snps`` window spans dropped R2 matrix SNPs."""
-    if counts is None:
-        return
-    subset = counts.loc[counts["kept_snps"] < counts["panel_snps"]]
-    if subset.empty:
-        return
-    first = subset.iloc[0]
-    window = int(first["ld_wind_snps"])
-    LOGGER.warning(
-        f"ldscore `--ld-wind-snps {window}` counts positions in the R2 matrix; this run kept fewer "
-        f"SNPs than the R2 matrix on {len(subset)} chromosome(s) (e.g. chr{first['CHR']}: {first['kept_snps']} of "
-        f"{first['panel_snps']}), so those SNPs have fewer than {window} reference SNPs per side. "
-        f"Per-chromosome counts: {where}."
-    )
-
-
 def _emit_reference_snp_notices(output_paths: dict) -> None:
     """Print the funnel and dropped-SNP WARNINGs to stderr after a successful command-line run."""
     path = output_paths.get("reference_snp_funnel")
@@ -2049,25 +1554,6 @@ def _emit_reference_snp_notices(output_paths: dict) -> None:
         emit_reference_snp_funnel_notice(read_reference_snp_funnel(path), path)
     emit_dropped_snps_notice([path for key, path in output_paths.items() if key.startswith("dropped_snps")],
                              command="ldscore")
-
-
-def _grid_emptied_message(funnels: Sequence[pd.DataFrame]) -> str:
-    """Describe every chromosome whose annotation SNP grid matched no remaining panel SNP."""
-    details = []
-    for funnel in funnels:
-        grid = funnel.loc[funnel["step"].eq("annotation_snp_grid")].set_index("funnel")
-        chrom = funnel["chrom"].iloc[0]
-        panel_snps = int(grid.loc[REFERENCE_PANEL, "removed"])
-        grid_rows = int(grid.loc["annotation_snp_grid", "removed"])
-        details.append(f"chromosome {chrom} ({grid_rows} annotation rows, {panel_snps} reference-panel SNPs)")
-    return (
-        "ldscore found no reference SNPs on the annotation SNP grid for " + "; ".join(details) + ": "
-        "after the panel's filters, none of the panel SNPs on these chromosomes has an annotation row. "
-        "Most likely the annotation SNP identifiers, genome build, or allele-aware identifier mode do not "
-        "match the reference panel. Use annotation and reference-panel artifacts built with the same SNP "
-        "identifier mode and genome build, or leave a chromosome out of the annotation files to exclude it on purpose. "
-        f"Other causes & fixes: {_LDSCORE_INTERSECTION_DOC}"
-    )
 
 
 def _annotation_result_message(caller: str) -> str:
@@ -2085,221 +1571,3 @@ def _bundle_diagnostics(bundle, input_issues=None) -> QueryDiagnostics:
                             bundle.gene_list_batch, input_issues)
 
 
-def _write_one_ref_metadata_sidecar(metadata: pd.DataFrame, chrom: str, output_dir: str) -> None:
-    """Write one opt-in reference-metadata file (PLINK backend).
-
-    The file is a gzip TSV with the ``CHR POS SNP A1 A2 CM MAF`` columns,
-    the minor allele in the retained reference individuals as ``A1``, and
-    the float format of an R2 matrix sidecar. It is not an R2 matrix
-    sidecar: it has no ``# ldsc:`` metadata lines, and ``CM`` is the value
-    this run used, interpolated from a supplied genetic map for a cM window
-    and otherwise the ``.bim`` value (often 0), where ``build-r2-matrix``
-    writes ``NA`` without a genetic map. Written from
-    inside the per-chromosome worker so the lean cross-process result does
-    not carry per-SNP metadata.
-    """
-    columns = [c for c in ("CHR", "POS", "SNP", "A1", "A2", "CM", "MAF") if c in metadata.columns]
-    path = Path(output_dir) / ref_metadata_file(chrom)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    metadata[columns].to_csv(path, sep="\t", index=False, na_rep="NA", float_format=SIDECAR_FLOAT_FORMAT,
-                             compression="gzip")
-    LOGGER.info(f"Wrote reference-metadata sidecar '{ref_metadata_file(chrom)}'.")
-
-
-def _chromosomes_from_bundle(annotation_bundle) -> list[str]:
-    """Return declared chromosome order without reading annotation metadata."""
-    return list(annotation_bundle.chromosomes)
-
-
-def _slice_annotation_bundle(annotation_bundle, chrom: str):
-    """Borrow one chromosome descriptor without copying annotation payloads."""
-    drops = (annotation_bundle.identity_drops if annotation_bundle.chromosome_identity_drops is None
-             else annotation_bundle.chromosome_identity_drops.get(str(chrom)))
-    return dataclass_replace(annotation_bundle, shards={str(chrom): annotation_bundle.shard(chrom)},
-                             gene_list_batch=None, identity_drops=drops, chromosome_identity_drops=None)
-
-
-def _partition_annotation_drops(bundle):
-    """Partition source diagnostics once, including fully removed chromosomes."""
-    from uuid import uuid4
-
-    artifacts = {}
-    if bundle.identity_drops is None:
-        return artifacts
-    if bundle.diagnostics_in_memory:
-        from .._annotation.in_memory import MemoryDiagnostics
-        frames = list(bundle.identity_drops.frames())
-        if frames:
-            for chrom, rows in pd.concat(frames, ignore_index=True).groupby("CHR", sort=False):
-                artifacts[str(chrom)] = MemoryDiagnostics(rows.reset_index(drop=True))
-        return artifacts
-    prefix = uuid4().hex
-    for frame in bundle.identity_drops.frames():
-        for chrom, rows in frame.groupby("CHR", sort=False):
-            chrom = str(chrom)
-            first = chrom not in artifacts
-            if first:
-                artifacts[chrom] = TsvDiagnostics(bundle.workspace.path / f"source-drops-{prefix}-{chrom}.tsv.gz", bundle.workspace)
-            rows.to_csv(artifacts[chrom].path, sep="\t", index=False, header=first, mode="a", compression="gzip", na_rep="")
-    return artifacts
-
-
-def _stage_chromosome_drops(bundle, chrom, reference_drops):
-    """Stream source cleanup followed by reference-stage drops into one artifact."""
-    import gzip
-    from uuid import uuid4
-
-    if bundle.diagnostics_in_memory:
-        from .._annotation.in_memory import MemoryDiagnostics
-        frames = [frame.loc[frame.CHR.astype(str).eq(str(chrom))] for frame in bundle.identity_drops.frames()] if bundle.identity_drops is not None else []
-        frames.append(coerce_identity_drop_frame(reference_drops))
-        return MemoryDiagnostics(coerce_identity_drop_frame(pd.concat(frames, ignore_index=True)))
-
-    path = bundle.workspace.path / f"ldscore-drops-{chrom}-{uuid4().hex}.tsv.gz"
-    with gzip.open(path, "wt") as stream:
-        pd.DataFrame(columns=IDENTITY_DROP_COLUMNS).to_csv(stream, sep="\t", index=False)
-        if bundle.identity_drops is not None:
-            for frame in bundle.identity_drops.frames():
-                frame = frame.loc[frame.CHR.astype(str).eq(str(chrom))]
-                if not frame.empty:
-                    frame.to_csv(stream, sep="\t", index=False, header=False, na_rep="", chunksize=65536)
-        coerce_identity_drop_frame(reference_drops).to_csv(stream, sep="\t", index=False, header=False,
-                                                         na_rep="", chunksize=65536)
-    return TsvDiagnostics(path, bundle.workspace)
-
-
-def _chromosome_annotations(bundle, chrom):
-    """Borrow one chromosome's metadata and selected annotation reader."""
-    shard = bundle.shard(chrom)
-    metadata = shard.metadata()
-    values = MappedAnnotations(shard, np.arange(shard.n_rows), tuple(bundle.baseline_columns + bundle.query_columns))
-    return ChromosomeAnnotations(metadata, values, list(bundle.baseline_columns), list(bundle.query_columns))
-
-
-# Worker state shared within a pool worker process. ``regression_snps`` is set
-# once by the pool initializer so a large SNP set is transferred per worker, not
-# per task; direct task probes can pass it explicitly instead.
-_WORKER_UNSET = "__use_worker_global__"
-_WORKER_STATE: dict[str, Any] = {}
-
-
-@dataclass(frozen=True)
-class _ChromOutcome:
-    """Tagged result of one chromosome's LD-score computation in a worker."""
-
-    chrom: str
-    result: "ChromLDScoreResult | DirectChromosomeFragment | None"
-    skipped: bool
-    skip_message: str | None = None
-    reference_snp_funnel: pd.DataFrame | None = None
-
-
-def _compute_one_chromosome(
-    chrom: str,
-    chrom_bundle,
-    ref_panel_spec,
-    ldscore_config: LDScoreConfig,
-    global_config: GlobalConfig,
-    export_dir: str | None = None,
-    regression_snps=_WORKER_UNSET,
-    regression_regions=_WORKER_UNSET,
-    chromosome_prefixes=None,
-    log_path=None, batch_label="batch 1/1", fragment_dir=None, include_baseline=True,
-) -> _ChromOutcome:
-    """Compute one chromosome end-to-end and return a tagged outcome.
-
-    Rebuilds the reference-panel adapter locally from ``ref_panel_spec`` so no
-    live reader/file handle crosses the process boundary; ``global_config``
-    carries the build the parent resolved, which is not checked again.
-    ``regression_snps``
-    defaults to the pool-initializer-provided global; direct task callers may
-    pass it explicitly. Only ``EmptyReferenceSNPs`` returns a skipped outcome,
-    carrying the error's reference-SNP funnel so the parent can tell a
-    chromosome emptied by the annotation SNP grid from one emptied by an
-    explicit restriction; other failures propagate across the pool boundary.
-    With ``fragment_dir``, the outcome carries a private query path and compact
-    summaries; otherwise it retains the materialized chromosome result.
-    ``include_baseline=False`` (later batches of a writing run) computes only
-    the query scores and statistics and needs ``fragment_dir``.
-    """
-    with chromosome_log(log_path, chrom, batch_label):
-        if regression_snps == _WORKER_UNSET:
-            regression_snps = _WORKER_STATE.get("regression_snps")
-        if regression_regions == _WORKER_UNSET:
-            regression_regions = _WORKER_STATE.get("regression_regions")
-        prefixes = chromosome_prefixes
-        if prefixes is None:
-            prefixes = chrom_bundle.source_summary.get('chromosome_scope',{}).get('reference_prefixes_by_chrom')
-        ref_panel = _ref_panel_from_config(ref_panel_spec, global_config, chromosome_prefixes=prefixes or None)
-        try:
-            if not include_baseline:
-                result = _compute_query_chromosome(chrom, chrom_bundle, ref_panel, ldscore_config, global_config,
-                                                   regression_snps, regression_regions, fragment_dir)
-                return _ChromOutcome(chrom=chrom, result=result, skipped=False)
-            result = LDScoreCalculator().compute_chromosome(
-                chrom=chrom,
-                annotation_bundle=chrom_bundle,
-                ref_panel=ref_panel,
-                ldscore_config=ldscore_config,
-                global_config=global_config,
-                regression_snps=regression_snps,
-                regression_regions=regression_regions,
-                export_dir=export_dir,
-            )
-        except EmptyReferenceSNPs as exc:
-            return _ChromOutcome(chrom=chrom, result=None, skipped=True, skip_message=str(exc),
-                                 reference_snp_funnel=getattr(exc, "reference_snp_funnel", None))
-        if fragment_dir is not None:
-            result = stage_direct_chromosome(result, fragment_dir)
-        return _ChromOutcome(chrom=chrom, result=result, skipped=False)
-
-
-def _compute_query_chromosome(chrom, chrom_bundle, ref_panel, ldscore_config, global_config,
-                              regression_snps, regression_regions, fragment_dir) -> DirectChromosomeFragment:
-    """Compute one chromosome of a later query batch and stage its query scores.
-
-    The first batch already returned this chromosome's baseline table, counts,
-    overlap and identity drops. This batch projects only its queries; the rows
-    are sorted exactly as the first batch sorted its combined table, and the
-    parent checks them against the shared first-batch baseline.
-    """
-    chrom_annotations = _chromosome_annotations(chrom_bundle, chrom)
-    LOGGER.info(f"Computing chromosome {chrom} query LD scores with backend '{ref_panel.spec.backend}' "
-                f"and {len(chrom_annotations.metadata)} annotation rows.")
-    with ref_panel.prepare_chromosome(chrom, chrom_annotations, ldscore_config) as prepared:
-        funnel = prepared.reference_snp_funnel
-        chrom_result = kernel_ldscore.compute_chromosome(
-            chrom, prepared, snp_identifier=global_config.snp_identifier,
-            snp_batch_size=ldscore_config.snp_batch_size,
-            common_maf_min=ldscore_config.common_maf_min,
-            regression_keys=regression_snps, regression_regions=regression_regions,
-            query_batch_size=ldscore_config.query_batch_size, include_baseline=False,
-        )
-    metadata = chrom_result.metadata
-    metadata_columns = ["CHR", "SNP", "POS", *[column for column in ("A1", "A2") if column in metadata.columns]]
-    query_table = sort_frame_by_genomic_position(pd.concat(
-        [metadata.loc[:, metadata_columns],
-         pd.DataFrame(chrom_result.ld_scores, columns=list(chrom_result.query_columns))], axis=1))
-    path, variation = stage_query_table(chrom_result.chrom, query_table, chrom_result.query_columns, fragment_dir)
-    LOGGER.info(f"Finished chromosome {chrom} with {len(query_table)} retained SNP rows.")
-    return DirectChromosomeFragment(
-        chrom=str(chrom_result.chrom), baseline_table=None, query_fragment=path,
-        baseline_columns=list(chrom_result.baseline_columns), query_columns=list(chrom_result.query_columns),
-        snp_count_totals={
-            "all_reference_snp_counts": np.asarray(chrom_result.M, dtype=np.float64),
-            "common_reference_snp_counts": np.asarray(chrom_result.M_5_50, dtype=np.float64),
-        },
-        config_snapshot=global_config, overlap=chrom_result.overlap,
-        reference_snp_count=chrom_result.reference_snp_count,
-        regression_selected_snp_count=chrom_result.regression_selected_snp_count,
-        regression_region_removed_snp_count=chrom_result.regression_region_removed_snp_count,
-        identity_drops=None, annotation_types=dict(chrom_result.annotation_types),
-        variation=variation, reference_snp_funnel=funnel,
-    )
-
-
-def _init_worker(regression_snps, regression_regions=None, log_level: str = "INFO") -> None:
-    """Initialize shared keys and fixed, worker-owned native thread limits."""
-    _WORKER_STATE["regression_snps"] = regression_snps
-    _WORKER_STATE["regression_regions"] = regression_regions
-    initialize_worker(log_level)

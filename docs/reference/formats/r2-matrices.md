@@ -1,6 +1,6 @@
 # R² Matrix: Format Specification and Read Pipeline
 
-Last updated on: 2026-11-03
+Last updated on: 2026-11-04
 
 This document defines the canonical **index** format for R² matrices and describes how the read pipeline validates, binds, and streams them into the LD-score accumulation.
 
@@ -354,7 +354,7 @@ Every R² matrix `--ld-wind-snps` run writes `diagnostics/ld_window_snp_counts.t
 SNPs that share a position are computed in sidecar row order and written sorted by `CHR`, `POS`, then `SNP`.
 That output order matches an annotation-ordered run only because SNPs that share `CHR`, `POS` and `SNP` never reach computation: the identity policy drops them as duplicate or multi-allelic.
 If that policy changes to keep such SNPs, `R2MatrixRefPanel.prepare_chromosome` would also need to return them to annotation order.
-Code: `window_coordinates` in `src/ldsc/_refpanel/windows.py`, `R2MatrixRefPanel.prepare_chromosome` in `src/ldsc/_refpanel/adapters.py`, and `_ld_window_snp_counts` in `src/ldsc/_ldscore/calculator.py`.
+Code: `window_coordinates` in `src/ldsc/_refpanel/windows.py`, `R2MatrixRefPanel.prepare_chromosome` in `src/ldsc/_refpanel/adapters.py`, and `_ld_window_snp_counts` in `src/ldsc/_ldscore/direct_batches.py`.
 
 **`CM` and `MAF` come from the reference panel.**
 Annotation `CM` and `MAF` values are ignored.

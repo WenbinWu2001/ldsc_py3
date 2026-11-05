@@ -60,18 +60,18 @@ DEFERRED_IMPORTS = {
         "the plot builders import Matplotlib, which loads only for a figure",
     ("ldsc._annotation.bundle", "ldsc._annotation.in_memory"):
         "only AnnotationBundle.from_frames builds in-memory annotations",
-    ("ldsc._ldscore.calculator", "ldsc._annotation.in_memory"):
-        "only in-memory Python runs keep dropped-SNP diagnostics in memory",
     ("ldsc._ldscore.calculator", "ldsc._ldscore.direct_annotation"):
         "only the ldscore command prepares direct BED and gene-list annotations",
-    ("ldsc._ldscore.calculator", "ldsc._ldscore.overlap_table"):
-        "the overlap matrix is assembled only after chromosome results exist",
     ("ldsc._ldscore.calculator", "ldsc._ldscore.preflight"):
         "only the ldscore command preflights its reference inputs",
     ("ldsc._ldscore.calculator", "ldsc._refpanel.preflight"):
         "only R2 matrix runs check their sidecar headers",
     ("ldsc._ldscore.calculator", "ldsc._runtime.workflow_kwargs"):
         "only the ldscore entry points check keyword arguments and record explicit options",
+    ("ldsc._ldscore.direct_batches", "ldsc._annotation.in_memory"):
+        "only in-memory Python runs keep dropped-SNP diagnostics in memory",
+    ("ldsc._ldscore.direct_batches", "ldsc._ldscore.overlap_table"):
+        "the overlap matrix is assembled only after chromosome results exist",
     ("ldsc._ldscore.gene_index.build", "ldsc._refpanel.preflight"):
         "only an index build checks genetic-map headers",
     ("ldsc._ldscore.gene_index.scoring", "ldsc._ldscore.gene_index.batches"):

@@ -23,6 +23,7 @@ from scipy import sparse
 from ldsc import cli
 from ldsc._ldscore.gene_index import build as gene_ldscore_index
 from ldsc._ldscore import calculator as ldscore_calculator
+from ldsc._ldscore import direct_batches
 from ldsc._ldscore.gene_index.artifact import _canonical_frame_sha256, _catalog_identity_records
 from ldsc.config import GeneLDScoreIndexBuildConfig, GlobalConfig, LDScoreConfig, reset_global_config, set_global_config
 from ldsc._core.plink_files import PlinkFAMFile
@@ -39,7 +40,6 @@ from ldsc._ldscore.gene_index.build import (
 )
 from ldsc._ldscore.gene_index.artifact import calculate_index_id, IndexChromosomeData
 from ldsc._annotation.gene_lists import GeneCatalog, GeneCatalogValidationError
-from ldsc._ldscore.calculator import LDScoreCalculator
 from tests.cli_parsing import parse_command
 from ldsc._core.chromosomes import AUTOSOMES
 from ldsc._ldscore.gene_index.scoring import load_gene_ldscore_index, run_indexed_ldscore
@@ -587,7 +587,7 @@ def test_direct_plink_projects_annotations_and_regression_weights_in_one_travers
     np.testing.assert_array_equal(result.overlap.baseline_block_common, values[common, :2].T @ values[common])
     np.testing.assert_array_equal(result.overlap.query_diagonal_all, (values[:, 2:] ** 2).sum(axis=0))
     np.testing.assert_array_equal(result.overlap.query_diagonal_common, (values[common, 2:] ** 2).sum(axis=0))
-    public = LDScoreCalculator()._wrap_chrom_result(result, GlobalConfig(snp_identifier="rsid"))
+    public = direct_batches._chromosome_record(result, GlobalConfig(snp_identifier="rsid"))
     assert public.baseline_table.columns.tolist() == [
         "CHR", "SNP", "POS", "A1", "A2", "regression_ld_scores", "base", "baseline_aux"
     ]

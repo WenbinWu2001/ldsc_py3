@@ -54,7 +54,7 @@ For PLINK panels the grid step runs before genotype QC, so a reference-panel SNP
 For R² matrices the MAF floor comes from the sidecar and runs before the grid step, and identity cleanup ran when `build-r2-matrix` wrote the sidecar, so `panel_rows` counts rows that already passed it.
 Both funnels of a chromosome end at the same count: the reference SNPs that enter LD scores, SNP counts and overlap.
 The counts come from one reference preparation per chromosome per run; later query batches and the gene-list support pass add nothing.
-Sources: `ReferenceSNPFunnel` in [_refpanel/funnel.py](../../src/ldsc/_refpanel/funnel.py), `_align_annotations()` and each panel's `prepare_chromosome()` in [_refpanel/adapters.py](../../src/ldsc/_refpanel/adapters.py), and `_DirectProducer.reduce()` in [_ldscore/calculator.py](../../src/ldsc/_ldscore/calculator.py).
+Sources: `ReferenceSNPFunnel` in [_refpanel/funnel.py](../../src/ldsc/_refpanel/funnel.py), `_align_annotations()` and each panel's `prepare_chromosome()` in [_refpanel/adapters.py](../../src/ldsc/_refpanel/adapters.py), and `_DirectProducer.reduce()` in [_ldscore/direct_batches.py](../../src/ldsc/_ldscore/direct_batches.py).
 
 ### Empty chromosomes
 

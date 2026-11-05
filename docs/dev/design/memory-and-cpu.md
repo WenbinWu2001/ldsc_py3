@@ -356,7 +356,7 @@ Limits: one machine, one chromosome stretch per panel, and single runs; Linux BL
 Memory outside the kernel does not depend on the batch size, including each chromosome's in-memory genotypes (`SNPs × samples / 4` bytes) and annotation reads, and it repeats for each worker.
 `build-r2-matrix` uses the same chunk walk but was not timed; its stored pairs are identical for any batch size, with R² differing by at most one int16 unit from float32 summation order (see `tests/ldscore/test_plink_exact_windows.py`).
 
-For direct file-writing workflows, [`stage_direct_chromosome()`](../../../src/ldsc/_ldscore/direct_batches.py) writes the existing post-kernel float32 query table to a private Parquet fragment before the worker returns.
+For direct file-writing workflows, each chromosome task ([`compute_direct_chromosome()`](../../../src/ldsc/_ldscore/direct_batches.py)) writes the existing post-kernel float32 query table to a private Parquet fragment before the worker returns.
 In the first batch the parent receives baseline data, counts, overlaps, variation summaries, and diagnostic descriptors, then combines them without a genome-wide query matrix.
 Later batches return no baseline table, no baseline counts, no identity drops and no exported reference metadata; their query statistics and baseline-by-query overlap blocks are combined with the first batch's.
 The parent concatenates the first batch's chromosome baselines in chromosome order (`concat_chromosome_tables()` in [`_core/row_alignment.py`](../../../src/ldsc/_core/row_alignment.py)) instead of sorting them again: each worker already sorted its chromosome, and a stable sort cannot move ordered rows.

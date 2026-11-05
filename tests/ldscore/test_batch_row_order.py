@@ -16,7 +16,7 @@ import pytest
 
 from ldsc import AnnotationBundle, GlobalConfig, LDScoreCalculator, LDScoreConfig, PlinkRefPanel, RefPanelConfig
 from ldsc._core.row_alignment import concat_chromosome_tables, sort_frame_by_genomic_position
-from ldsc._ldscore import calculator as ldscore_calculator
+from ldsc._ldscore import direct_batches
 from ldsc._ldscore import outputs
 from ldsc._ldscore.outputs import LDScoreOutputConfig
 from ldsc._refpanel.adapters import R2MatrixRefPanel
@@ -81,15 +81,16 @@ def _row_groups(path):
 
 def test_later_batches_carry_no_baseline_table(tmp_path, monkeypatch):
     seen = []
-    original = ldscore_calculator._DirectProducer.reduce
+    original = direct_batches._DirectProducer.reduce
 
     def reduce(self, outcomes, batch):
-        tables = [outcome.result.baseline_table is None for outcome in outcomes.values() if not outcome.skipped]
+        tables = [outcome.baseline_table is None for outcome in outcomes.values()
+                  if not isinstance(outcome, direct_batches._SkippedChromosome)]
         staged, variation = original(self, outcomes, batch)
         seen.append((batch.ordinal, tables, staged.baseline_table is None))
         return staged, variation
 
-    monkeypatch.setattr(ldscore_calculator._DirectProducer, "reduce", reduce)
+    monkeypatch.setattr(direct_batches._DirectProducer, "reduce", reduce)
     _run(_r2_case(tmp_path), tmp_path / "out", width=2)
     assert [ordinal for ordinal, _, _ in seen] == [0, 1, 2]
     assert seen[0][1] == [False, False, False] and not seen[0][2]

@@ -246,7 +246,14 @@ class LDScoreResult:
 
 @dataclass(frozen=True)
 class DirectChromosomeFragment:
-    """Direct chromosome statistics with a private query path instead of scores."""
+    """Direct chromosome statistics with a private query path instead of scores.
+
+    The staged counterpart of ``ChromLDScoreResult`` in a writing run: the
+    chromosome task writes its query table to a private Parquet fragment and
+    returns the fragment's path (``None`` without queries) and the scores'
+    variation summary, so query scores never cross the process boundary.
+    Later query batches carry no baseline table and no identity drops.
+    """
 
     chrom: str
     baseline_table: pd.DataFrame | None

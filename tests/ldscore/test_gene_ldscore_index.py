@@ -782,7 +782,8 @@ def test_plink_index_fuses_baseline_and_regression_weights_but_keeps_atom_batche
         scores = original(reader, block_left, batch_size, annot=annot, **kwargs)
         options.append(kwargs)
         assert len(scores) == int(persisted.sum())
-        calls.append((start_cursor, reader._currentSNP, np.asarray(annot).copy()))
+        values = annot.read() if hasattr(annot, "read") else np.asarray(annot)
+        calls.append((start_cursor, reader._currentSNP, values.copy()))
         return scores
 
     monkeypatch.setattr(kernel_ldscore, "ld_scores_from_genotypes", traced_ldscore)
@@ -798,8 +799,9 @@ def test_plink_index_fuses_baseline_and_regression_weights_but_keeps_atom_batche
         atom_batch_size=1,
     )
 
-    # One common pass projects baseline and the separate regression mask;
-    # each remaining call is the intentional one-column gene-atom operator batch.
+    # One common pass (compute_chromosome's) projects baseline and the separate
+    # regression mask; each remaining call is the intentional one-column
+    # gene-atom operator batch.
     assert len(calls) == 1 + result.atom_model.n_atoms
     assert all((start, end) == (0, len(prepared.metadata)) for start, end, _ in calls)
     np.testing.assert_array_equal(
@@ -808,16 +810,16 @@ def test_plink_index_fuses_baseline_and_regression_weights_but_keeps_atom_batche
     np.testing.assert_array_equal(options[0]["weight_mask"], persisted)
     for kwargs in options:
         np.testing.assert_array_equal(kwargs["output_rows"], np.flatnonzero(persisted))
-    assert calls[0][2].dtype == np.float64
     assert all(projected.shape == (len(prepared.metadata), 1) for _, _, projected in calls[1:])
     assert all(projected.dtype == np.bool_ for _, _, projected in calls[1:])
 
     expected_rows = prepared.metadata.loc[
         persisted, ["CHR", "SNP", "POS", "A1", "A2"]
     ].reset_index(drop=True)
-    expected_rows["regression_ld_scores"] = expected_weights[persisted]
-    expected_rows["base"] = expected_baseline[persisted, 0]
-    expected_rows["baseline_aux"] = expected_baseline[persisted, 1]
+    # Persisted LD scores are float32, as in direct ldscore.
+    expected_rows["regression_ld_scores"] = expected_weights[persisted].astype(np.float32)
+    expected_rows["base"] = expected_baseline[persisted, 0].astype(np.float32)
+    expected_rows["baseline_aux"] = expected_baseline[persisted, 1].astype(np.float32)
     pd.testing.assert_frame_equal(result.baseline_rows, expected_rows)
     assert result.total_reference_snps_all == len(prepared.metadata)
     common = (prepared.metadata["MAF"] >= config.common_maf_min).to_numpy()
@@ -1304,7 +1306,9 @@ def test_plink_operator_matches_independent_dense_adjusted_r2_reference(snp_batc
     assert indexed.operator.toarray()[0, 0] == pytest.approx(1.0)  # non-regression rs_4 still contributes
     assert indexed.operator.toarray()[0, 3] == 0.0  # outside the one-SNP window
     # A batch wider than the window must not widen it, as legacy LDSC chunk rounding did.
-    np.testing.assert_allclose(indexed.baseline_rows["base"], dense_r[persisted].sum(axis=1), rtol=0, atol=1e-12)
+    # Baseline LD scores are float32, as direct ldscore writes them.
+    assert indexed.baseline_rows["base"].dtype == np.float32
+    np.testing.assert_array_equal(indexed.baseline_rows["base"], dense_r[persisted].sum(axis=1).astype(np.float32))
 
 
 def test_semantic_id_uses_canonical_scientific_identity_only():

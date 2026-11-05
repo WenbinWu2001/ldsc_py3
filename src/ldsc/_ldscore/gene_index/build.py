@@ -44,7 +44,6 @@ from ..._runtime.progress import report_phase, PhaseProgress
 from .. import compute as kernel_ldscore
 from ..diagnostics import emit_reference_snp_funnel_notice, log_reference_snp_funnel_warning
 from ..outputs import snp_universe_policy_record
-from ..._annotation.overlap import annotation_statistics
 from ..._annotation.semantics import combine_annotation_types
 from ..._refpanel.adapters import PlinkRefPanel, resolve_keep_individuals
 from ..._refpanel.funnel import concat_funnels, funnel_from_records, funnel_records, with_grid_rows
@@ -57,7 +56,7 @@ from .atoms import (
     map_snps_to_atoms,
     validate_ldscore_operator,
 )
-from ..._core.regions import RegionIntervals, region_exclusion_keep_mask
+from ..._core.regions import RegionIntervals
 from ..._core.identifiers import read_snp_restriction_keys
 from ..._core.plink_files import PlinkFAMFile
 from ..._core.snp_identity import (
@@ -1484,56 +1483,36 @@ def build_plink_index_chromosome(
     windowing, regression SNPs, and atom projection are those of direct
     PLINK LD-score preparation.
 
-    Baseline and regression-weight scores share one traversal. Each atom batch
-    repeats genotype traversal, bounding the active dense atom projection.
-    Sparse float64 operator blocks remain live until horizontal assembly, so
+    The baseline pass is direct ``ldscore``'s ``compute_chromosome``: baseline
+    and regression-weight scores share one traversal, and baseline counts,
+    overlaps and ``annotation_types`` classifications come from its float64
+    ``annotation_statistics`` call. Each atom batch then repeats genotype
+    traversal, bounding the active dense atom projection. Sparse float64
+    operator blocks remain live until horizontal assembly, so
     ``atom_batch_size`` does not bound the final operator or assembly copies.
-    The chromosome baseline matrix is also explicitly materialized in float64.
-    Baseline counts, overlaps and ``annotation_types`` classifications come
-    from the same ``annotation_statistics`` call as in direct ``ldscore``, so
-    counts and overlaps accumulate in float64.
+    The chromosome baseline matrix is also explicitly materialized in float64
+    for the atom statistics.
     """
-    snp_identifier = ref_panel.global_config.snp_identifier
     snp_batch_size = ldscore_config.snp_batch_size
     common_maf_min = ldscore_config.common_maf_min
     with ref_panel.prepare_chromosome(chrom, baseline_bundle, ldscore_config, genetic_map=genetic_map) as prepared:
-        metadata = prepared.metadata
-        baseline = np.asarray(prepared.annotations.read(), dtype=np.float64)
-        geno = prepared.reader
-
-        selected = kernel_ldscore.regression_mask_from_keys(metadata, regression_keys, snp_identifier).astype(bool)
-        persisted = selected
-        if regression_regions is not None and regression_regions.intervals:
-            # The same membership with excluded regions removed, without matching the keys again.
-            persisted = selected & np.asarray(region_exclusion_keep_mask(metadata, regression_regions), dtype=bool)
-        n_baseline_columns = baseline.shape[1]
-        output_rows = np.flatnonzero(persisted)
-        geno._currentSNP = 0
-        combined_scores = np.asarray(
-            kernel_ldscore.ld_scores_from_genotypes(
-                geno,
-                prepared.block_left,
-                snp_batch_size,
-                annot=baseline,
-                output_rows=output_rows,
-                n_baseline=n_baseline_columns,
-                weight_mask=persisted,
-            ),
-            dtype=np.float64,
+        computed = kernel_ldscore.compute_chromosome(
+            chrom, prepared, snp_identifier=ref_panel.global_config.snp_identifier,
+            snp_batch_size=snp_batch_size, common_maf_min=common_maf_min,
+            regression_keys=regression_keys, regression_regions=regression_regions,
         )
-        baseline_scores = combined_scores[:, :n_baseline_columns]
-        regression_scores = combined_scores[:, n_baseline_columns]
-
-        baseline_count_all, baseline_count_common, overlap, annotation_types = annotation_statistics(
-            metadata, prepared.annotations, n_baseline_columns, common_maf_min=common_maf_min)
+        metadata = prepared.metadata
         # A SNP without MAF would silently leave the common-SNP counts the index stores.
-        if baseline_count_common is None or metadata["MAF"].isna().any():
+        if computed.M_5_50 is None or metadata["MAF"].isna().any():
             raise LDSCInternalError(
                 f"Gene LD-score index construction received reference metadata without MAF on chromosome "
                 f"{chrom}, so the common-SNP counts the index stores cannot be computed. PLINK panel "
                 "preparation always supplies MAF for every SNP; re-run with DEBUG logging and report the traceback."
             )
         common_mask = metadata["MAF"].to_numpy(dtype=np.float64) >= float(common_maf_min)
+        output_rows = computed.regression_rows
+        baseline = np.asarray(prepared.annotations.read(), dtype=np.float64)
+        geno = prepared.reader
 
         atom_model = build_disjoint_atoms(
             chrom,
@@ -1564,23 +1543,23 @@ def build_plink_index_chromosome(
         operator = (
             sparse.hstack(operator_blocks, format="csr", dtype=np.float64)
             if operator_blocks
-            else sparse.csr_matrix((int(persisted.sum()), 0), dtype=np.float64)
+            else sparse.csr_matrix((len(output_rows), 0), dtype=np.float64)
         )
         operator_blocks = block_scores = None  # the assembled operator owns these values
         operator.sort_indices()
-        validate_ldscore_operator(operator, n_rows=int(persisted.sum()), n_atoms=atom_model.n_atoms)
+        validate_ldscore_operator(operator, n_rows=len(output_rows), n_atoms=atom_model.n_atoms)
 
         identity_columns = ["CHR", "SNP", "POS", *[c for c in ("A1", "A2") if c in metadata.columns]]
-        baseline_rows = metadata.loc[persisted, identity_columns].reset_index(drop=True)
-        baseline_rows["regression_ld_scores"] = regression_scores
+        baseline_rows = computed.metadata.loc[:, identity_columns].copy()
+        baseline_rows["regression_ld_scores"] = computed.w_ld[:, 0]
         for column_index, column in enumerate(baseline_bundle.baseline_columns):
-            baseline_rows[column] = baseline_scores[:, column_index]
+            baseline_rows[column] = computed.ld_scores[:, column_index]
         return IndexChromosomeData(
             baseline_rows=baseline_rows,
-            baseline_count_all=np.asarray(baseline_count_all, dtype=np.float64),
-            baseline_count_common=np.asarray(baseline_count_common, dtype=np.float64),
-            baseline_overlap_all=np.asarray(overlap.baseline_block_all, dtype=np.float64),
-            baseline_overlap_common=np.asarray(overlap.baseline_block_common, dtype=np.float64),
+            baseline_count_all=np.asarray(computed.M, dtype=np.float64),
+            baseline_count_common=np.asarray(computed.M_5_50, dtype=np.float64),
+            baseline_overlap_all=np.asarray(computed.overlap.baseline_block_all, dtype=np.float64),
+            baseline_overlap_common=np.asarray(computed.overlap.baseline_block_common, dtype=np.float64),
             total_reference_snps_all=len(metadata),
             total_reference_snps_common=int(common_mask.sum()),
             atom_model=atom_model,
@@ -1591,8 +1570,8 @@ def build_plink_index_chromosome(
             maf_removed=prepared.maf_removed,
             cm_source=prepared.cm_source,
             reference_snp_funnel=prepared.reference_snp_funnel,
-            annotation_types=annotation_types,
-            regression_selected_snp_count=int(selected.sum()),
+            annotation_types=computed.annotation_types,
+            regression_selected_snp_count=computed.regression_selected_snp_count,
         )
 
 

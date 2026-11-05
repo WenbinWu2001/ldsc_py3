@@ -71,7 +71,12 @@ _CSR_CHUNK_PAIRS = 16_000_000
 
 @dataclass
 class ChromComputationResult:
-    """Chromosome-level LD-score outputs before cross-chromosome aggregation."""
+    """Chromosome-level LD-score outputs before cross-chromosome aggregation.
+
+    ``regression_rows`` holds the positions, among the prepared reference
+    SNPs, of the regression SNPs whose rows ``metadata``, ``ld_scores`` and
+    ``w_ld`` hold.
+    """
     chrom: str
     metadata: pd.DataFrame
     ld_scores: np.ndarray
@@ -87,6 +92,7 @@ class ChromComputationResult:
     annotation_types: dict = field(default_factory=dict)
     overlap: OverlapContribution | None = None
     identity_drops: pd.DataFrame = field(default_factory=empty_identity_drop_frame)
+    regression_rows: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.int64))
 
 
 # Shared computational helpers.
@@ -372,6 +378,7 @@ def compute_chromosome(
         reference_snp_count=len(metadata), regression_selected_snp_count=int(regression_selected.sum()),
         regression_region_removed_snp_count=int(regression_selected.sum()-len(output_rows)),
         annotation_types=kinds, overlap=overlap, identity_drops=prepared.identity_drops,
+        regression_rows=output_rows,
     )
 
 

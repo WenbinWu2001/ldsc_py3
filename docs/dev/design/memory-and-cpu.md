@@ -462,11 +462,11 @@ Query selectors take the Boolean union of selected genes' atoms, so overlap, nes
 SNP-to-atom lookup uses sorted interval boundaries; atom counts and baseline-overlap summaries use bin counts and sparse membership rather than a complete dense SNP-by-atom matrix.
 The [index mathematics](../../reference/methods/gene-ldscore-index-math.md) defines why multiplication by a union selector reproduces the requested query.
 
-[`build_plink_index_chromosome()`](../../../src/ldsc/_ldscore/gene_index/build.py) computes shared baseline and regression-weight projections in one traversal.
+[`build_plink_index_chromosome()`](../../../src/ldsc/_ldscore/gene_index/build.py) computes shared baseline and regression-weight projections in one traversal, through direct `ldscore`'s `compute_chromosome()`.
 It then traverses the genotype blocks again for each atom batch, retaining the resulting float64 sparse operator blocks until their final horizontal assembly.
 Atom batching bounds the active dense projection but does not bound the complete chromosome operator or the final assembly copies.
-This builder also explicitly reads its chromosome baseline matrix into float64.
-Its baseline counts and overlaps come from `annotation_statistics()`, which reads the baseline again in bounded tiles, as in direct `ldscore`.
+Its baseline counts and overlaps come from the `annotation_statistics()` call inside `compute_chromosome()`, which reads the baseline in bounded tiles, as in direct `ldscore`.
+This builder then also explicitly reads its chromosome baseline matrix into float64 for the atom statistics.
 Common-SNP atom overlaps multiply the baseline by a common-row indicator instead of a copied common-row baseline, adding the same rows in the same order.
 Each construction task receives only its own chromosome's genetic-map rows.
 These are remaining large allocations, not eliminated by compressed NPZ storage.

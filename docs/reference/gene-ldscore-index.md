@@ -165,12 +165,8 @@ Recomputation guarantees that $L_A$, the atom operator $Y=PRH$, counts, overlaps
 The baseline all-SNP counts, common-SNP counts and overlaps come from the same `annotation_statistics()` call as in direct `ldscore` ([`_annotation/overlap.py`](../../src/ldsc/_annotation/overlap.py)), which sums the float32 annotation values in float64; indexed output therefore gives a continuous baseline annotation the counts a direct run gives it, up to float64 rounding.
 Merely residing beside the annotation shards does not make a legacy `.ldscore.gz`, `.M`, or `.M_5_50` file an index input.
 
-The fixed baseline and weight payload is projected in one PLINK traversal: the
-builder appends the binary regression selector $p$ after the supplied baseline
-matrix $A$, evaluates $R[A\;p]$ once, then splits $L_A=PRA$ from $w=PRp$ on the
-persisted rows. Construction of $Y=PRH$ remains separate and intentionally
-evaluates bounded atom-column batches, resetting the genotype cursor for each
-batch to keep peak memory independent of the total atom count.
+The fixed baseline and weight payload is projected in one PLINK traversal by direct `ldscore`'s `compute_chromosome()` ([`_ldscore/compute.py`](../../src/ldsc/_ldscore/compute.py)): it appends the binary regression selector $p$ after the supplied baseline matrix $A$, evaluates $R[A\;p]$ once, then splits $L_A=PRA$ from $w=PRp$ on the persisted rows.
+Construction of $Y=PRH$ remains separate and intentionally evaluates bounded atom-column batches, resetting the genotype cursor for each batch to keep peak memory independent of the total atom count.
 
 ## Artifact and identity contract
 

@@ -571,6 +571,8 @@ Regression merges on the effective key for the resolved mode: `SNP` in `rsid`,
 is regression-only; it allows same-family allele-aware/base mixes to run under
 the base mode and logs the original modes plus duplicate-key rows dropped before
 merge. rsID-family and coordinate-family modes never mix.
+The run log then names the SNP identifier mode each prepared dataset used (per pair for `rg`).
+The fits read the estimator results through `ldsc._regression.kernel_values`, which turns the kernel's `'NA'` sentinels into NaN.
 
 ### Required inputs
 

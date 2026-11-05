@@ -143,11 +143,9 @@ coordinate-family modes never mix.
 
 ### 4. The global registry is a convenience default only
 
-`set_global_config()` and `get_global_config()` are retained for notebook UX:
-setting the config once at the top of a notebook is ergonomic. But the registry is
-demoted: workflow functions read from it only as a fallback when no explicit config
-is passed, and the snapshot captured at computation time — not the registry — is what
-travels with results.
+`set_global_config()` and `get_global_config()` are retained for notebook UX: setting the config once at the top of a notebook is ergonomic.
+But the registry is demoted: a workflow function that accepts an explicit config reads the registry only as a fallback when none is passed, and the snapshot captured at computation time — not the registry — is what travels with results.
+The keyword wrappers that mirror one command are the exception: `run_ldscore()`, `run_build_r2_matrix()`, `run_h2()`, `run_partitioned_h2()`, `run_rg()` and `run_quantile_h2()` take no explicit config and read the fields they need from the registry at every call (see [Caveats and Known Limitations](#caveats-and-known-limitations)).
 
 Calling `set_global_config()` mid-analysis will not corrupt previously computed
 results, because those results carry their own frozen snapshots.
@@ -474,8 +472,7 @@ re-runs an earlier cell that did not capture a config explicitly, and then combi
 results, they will get a `ConfigMismatchError`. This is the intended behavior — the
 error message explains the mismatch clearly. It is not a silent corruption.
 
-**The `run_ldscore()` and `run_build_r2_matrix()` convenience wrappers read the global
-registry at call time.**
+**The `run_ldscore()` and `run_build_r2_matrix()` convenience wrappers read the global registry at call time.**
 They take no `global_config=` argument.
 `_runtime.workflow_kwargs.namespace_from_kwargs()` is the one place they read the registered SNP identifier mode, genome build and log level, so a parser default never stands in for them; `build-r2-matrix` records `genome_build="auto"` (`None` in rsID-family modes) and reads the PLINK build from `source_genome_build`.
 

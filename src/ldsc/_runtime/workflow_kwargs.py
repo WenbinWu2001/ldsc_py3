@@ -1,12 +1,13 @@
 """Keyword entry points for Python workflows that mirror one command.
 
 Functions such as ``run_h2(**kwargs)`` and ``run_ldscore(**kwargs)`` take the
-command's option names without the leading ``--`` and run the same
-``*_from_args`` workflow as the CLI. A keyword call never passes through
-argparse, so this module repeats the checks argparse makes on a command line --
-known option names, required options, declared choices and on/off flags --
-before any directory, file or log is created. A misspelled or invalid keyword
-would otherwise fall back to a default and silently change the analysis.
+command's option names without the leading ``--`` and run the same workflow
+as the CLI (its typed body or its ``*_from_args`` function). A keyword call
+never passes through argparse, so this module repeats the checks argparse
+makes on a command line -- known option names, required options, declared
+choices and on/off flags -- before any directory, file or log is created. A
+misspelled or invalid keyword would otherwise fall back to a default and
+silently change the analysis.
 
 Options a keyword call may not pass, such as the SNP identifier mode, take
 their value from the registered ``GlobalConfig`` here and nowhere else, so a
@@ -80,8 +81,10 @@ def namespace_from_kwargs(
         parser defines takes the registered ``snp_identifier``,
         ``genome_build`` or ``log_level`` of the same name; any other
         rejected option is absent, so reading it fails rather than returning
-        the parser default. ``_explicit_cli_options`` records the supplied
-        keywords as long options.
+        the parser default. Every option rejected today is one of those three
+        fields, so the absent case guards only a future rejected option.
+        ``_explicit_cli_options`` records the supplied keywords as long
+        options.
 
     Raises
     ------

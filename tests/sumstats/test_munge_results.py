@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ldsc import GlobalConfig, MungeConfig, SumstatsMunger, load_sumstats
+from ldsc import GlobalConfig, LDSCInputError, MungeConfig, SumstatsMunger, load_sumstats
 from ldsc._sumstats import munge_input
 from ldsc._sumstats import munge_kernel as kernel_munge
 from ldsc._genome.liftover import LiftOverMappingResult
@@ -293,3 +293,36 @@ def test_unsupported_contig_rows_are_dropped_before_any_output_in_every_mode(tmp
     assert summary.drop_counts["coordinates"] == 1
     assert sum(summary.drop_counts.values()) == 1
     assert table.provenance["coordinate_provenance"]["n_invalid_chr_pos"] == 1
+
+
+@pytest.mark.parametrize("alleles,reason", [(("1", "2"), "invalid_allele"), (("NA", "NA"), "missing_allele")])
+@pytest.mark.parametrize("mode", ["rsid_allele_aware", "chr_pos_allele_aware"])
+def test_identity_cleanup_that_drops_every_row_stops_before_writing(tmp_path, mode, alleles, reason):
+    # A 0-row artifact is a silent analysis change: stop as the parse step does when it retains no row.
+    raw = tmp_path / "raw.tsv"
+    raw.write_text("SNP CHR POS A1 A2 Z P N\n" + "".join(
+        f"rs{idx} 1 {1000 + idx} {alleles[0]} {alleles[1]} {(-1) ** idx * 2.0} 0.05 1000\n" for idx in range(20)))
+    builds = {} if mode.startswith("rsid") else {"source_genome_build": "hg19", "output_genome_build": "hg19"}
+    out = tmp_path / "out"
+    with pytest.raises(LDSCInputError, match="retained 0 of 20 input rows after SNP identity cleanup") as caught:
+        SumstatsMunger().run(
+            MungeConfig(raw_sumstats_file=raw, output_dir=out, no_snp_restriction=True, output_format="both", **builds),
+            global_config=GlobalConfig(snp_identifier=mode),
+        )
+    assert "identity=20" in str(caught.value) and f"{reason}=20" in str(caught.value)
+    assert sorted(path.relative_to(out).as_posix() for path in out.rglob("*") if path.is_file()) == [
+        "diagnostics/sumstats.log"]
+
+
+def test_sample_size_filtering_that_drops_every_row_stops_before_writing(tmp_path):
+    raw = tmp_path / "raw.tsv"
+    raw.write_text("SNP A1 A2 Z P N\nrs1 A G 2.0 0.05 1000\nrs2 A G -2.0 0.05 1000\n")
+    out = tmp_path / "out"
+    with pytest.raises(LDSCInputError, match="retained 0 of 2 input rows after sample-size filtering") as caught:
+        SumstatsMunger().run(
+            MungeConfig(raw_sumstats_file=raw, output_dir=out, no_snp_restriction=True, N_min=5000),
+            global_config=GlobalConfig(snp_identifier="rsid"),
+        )
+    assert "N=2" in str(caught.value)
+    assert sorted(path.relative_to(out).as_posix() for path in out.rglob("*") if path.is_file()) == [
+        "diagnostics/sumstats.log"]

@@ -1589,17 +1589,19 @@ class SumstatsMungerTest(unittest.TestCase):
             raw_path.write_text(
                 "SNP A1 A2 P BETA N\n"
                 "rs_missing_1 . . 0.05 0.1 1000\n"
-                "rs_missing_2 . . 0.05 0.1 1000\n",
+                "rs_missing_2 . . 0.05 0.1 1000\n"
+                "rs_ok A G 0.05 -0.1 1000\n",
                 encoding="utf-8",
             )
             output_dir = tmpdir / "munged"
 
+            # The first two-row chunk has no allele value; a run that keeps no row stops instead.
             table = SumstatsMunger().run(
-                MungeConfig(raw_sumstats_file=raw_path, no_snp_restriction=True, output_dir=output_dir),
+                MungeConfig(raw_sumstats_file=raw_path, no_snp_restriction=True, output_dir=output_dir, chunk_size=2),
                 global_config=GlobalConfig(snp_identifier="rsid_allele_aware"),
             )
 
-            self.assertEqual(table.data["SNP"].tolist(), [])
+            self.assertEqual(table.data["SNP"].tolist(), ["rs_ok"])
             dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
             self.assertEqual(dropped["SNP"].tolist(), ["rs_missing_1", "rs_missing_2"])
             self.assertEqual(dropped["reason"].tolist(), ["missing_allele", "missing_allele"])
@@ -1611,24 +1613,27 @@ class SumstatsMungerTest(unittest.TestCase):
             raw_path.write_text(
                 "SNP A1 A2 P BETA N\n"
                 "rs_bad AT C 0.05 0.1 1000\n"
-                "rs_identical G G 0.05 0.1 1000\n",
+                "rs_identical G G 0.05 0.1 1000\n"
+                "rs_ok A C 0.05 -0.1 1000\n",
                 encoding="utf-8",
             )
             keep_path = tmpdir / "keep.tsv"
             keep_path.write_text(
                 "SNP\tA1\tA2\n"
                 "rs_bad\tA\tC\n"
-                "rs_identical\tA\tC\n",
+                "rs_identical\tA\tC\n"
+                "rs_ok\tA\tC\n",
                 encoding="utf-8",
             )
             output_dir = tmpdir / "munged"
 
+            # Every allele of the first two-row chunk is unusable; a run that keeps no row stops instead.
             table = SumstatsMunger().run(
-                MungeConfig(raw_sumstats_file=raw_path, output_dir=output_dir, sumstats_snps_file=keep_path),
+                MungeConfig(raw_sumstats_file=raw_path, output_dir=output_dir, sumstats_snps_file=keep_path, chunk_size=2),
                 global_config=GlobalConfig(snp_identifier="rsid_allele_aware"),
             )
 
-            self.assertEqual(table.data["SNP"].tolist(), [])
+            self.assertEqual(table.data["SNP"].tolist(), ["rs_ok"])
             dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
             self.assertEqual(dropped["SNP"].tolist(), ["rs_bad", "rs_identical"])
             self.assertEqual(dropped["reason"].tolist(), ["invalid_allele", "invalid_allele"])

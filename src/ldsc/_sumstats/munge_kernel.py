@@ -800,6 +800,18 @@ def _coordinate_metadata(dat, request, counts):
     return metadata
 
 
+def _require_retained_rows(dat, parsed, stage, advice):
+    """Stop the run when ``stage`` left no row, before anything is written: a 0-row artifact would change the analysis."""
+    if len(dat):
+        return
+    removed = ", ".join(f"{reason}={int(count)}" for reason, count in parsed.drop_counts.items() if count) or "none recorded"
+    raise LDSCInputError(
+        f"munge-sumstats retained 0 of {parsed.n_input_rows} input rows after {stage}. "
+        f"Recorded removal counts: {removed}. {advice} "
+        "Other causes & fixes: docs/user-guide/troubleshooting.md#munge-sumstats-no-snps-remain-after-filtering"
+    )
+
+
 def munge_sumstats(request: ResolvedMungeInput) -> MungeResult:
     """Execute resolved chunk QC, global N filtering, sign conversion and liftover.
 
@@ -820,16 +832,11 @@ def munge_sumstats(request: ResolvedMungeInput) -> MungeResult:
     with dat_gen:
         parsed = parse_dat(dat_gen, request)
     dat = parsed.data
-    if len(dat) == 0:
-        removed = ", ".join(f"{reason}={int(count)}" for reason, count in parsed.drop_counts.items() if count) or "none recorded"
-        raise LDSCInputError(
-            f"munge-sumstats retained 0 of {parsed.n_input_rows} input rows after QC and SNP restriction. "
-            f"Recorded removal counts: {removed}. "
-            "Check the mapped input columns, --info-min/--maf-min, the reported QC counts, and the selected SNP restriction. "
-            "Correct unintended settings; changing an intended threshold or restriction changes the analysis. "
-            "Earlier QC and restriction removals are not individual rows in the dropped-SNP sidecar. "
-            "Other causes & fixes: docs/user-guide/troubleshooting.md#munge-sumstats-no-snps-remain-after-filtering"
-        )
+    _require_retained_rows(dat, parsed, "QC and SNP restriction", (
+        "Check the mapped input columns, --info-min/--maf-min, the reported QC counts, and the selected SNP restriction. "
+        "Correct unintended settings; changing an intended threshold or restriction changes the analysis. "
+        "Earlier QC and restriction removals are not individual rows in the dropped-SNP sidecar."
+    ))
 
     # Parsed chunks are concatenated with a fresh RangeIndex; the parsed
     # result is not used again, so the steps below may change it in place.
@@ -843,6 +850,10 @@ def munge_sumstats(request: ResolvedMungeInput) -> MungeResult:
     used_n_rule = 'input_columns' if has_n_column else ('fixed_N' if qc.N else 'fixed_case_control_N')
     dat = process_n(dat, qc)
     parsed.drop_counts['N' if has_n_column else 'NSTUDY'] = n_before - len(dat)
+    _require_retained_rows(dat, parsed, "sample-size filtering", (
+        "Check --N-min or --nstudy-min against the sample sizes in the input, and the mapped sample-size columns; "
+        "changing an intended threshold changes the analysis."
+    ))
     dat.P = p_to_z(dat.P, dat.N)
     dat.rename(columns={'P': 'Z'}, inplace=True)
     if not request.a1_inc:
@@ -861,6 +872,14 @@ def munge_sumstats(request: ResolvedMungeInput) -> MungeResult:
     )
     parsed.drop_counts['identity'] = len(dat) - len(cleanup.cleaned)
     dat = cleanup.cleaned
+    reasons = ", ".join(f"{reason}={int(count)}" for reason, count in
+                        cleanup.dropped["reason"].value_counts(sort=False).items())
+    _require_retained_rows(dat, parsed, "SNP identity cleanup", (
+        f"No remaining row has a usable SNP identity under snp_identifier='{request.snp_identifier}' "
+        f"(identity drop reasons: {reasons or 'none recorded'}). Most likely the allele columns hold codes other than "
+        "A/C/G/T or no values (allele-aware identifier modes need both letters), or every SNP is listed more than once. "
+        "Check the --a1/--a2 columns, or rerun with a base --snp-identifier if allele-aware identity is not needed."
+    ))
     coordinate_metadata['liftover'] = liftover_report
     if liftover_report.get('applied'):
         coordinate_metadata['genome_build'] = liftover_report['target_build']

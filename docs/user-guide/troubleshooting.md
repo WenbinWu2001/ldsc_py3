@@ -351,7 +351,7 @@ All four also write each affected file to `diagnostics/input_issues.tsv` in the 
 
 ### `munge-sumstats`: no SNPs remain after filtering
 
-**Symptom:** `munge-sumstats removed every SNP...` / `...no SNPs remain after SNP keep-list restriction`
+**Symptom:** `munge-sumstats retained 0 of <N> input rows after ...` / `...no SNPs remain after SNP keep-list restriction`
 
 Munging restricts to packaged HM3 by default.
 First use the error and log counts to identify whether QC, the SNP restriction, or a later stage removed the rows.
@@ -369,6 +369,7 @@ Concrete source/output build options do not apply to rsID-family munging.
 | 2 | Keep-list and summary statistics are on different genome builds | Compare the `genome_build` in the error line against the keep-list build |
 | 3 | Imputation-quality (INFO), minor-allele-frequency (MAF), or sample-size (N) filters removed every row | Inspect filter counts in the error/log and verify the column meanings and intended thresholds; earlier QC removals are not in the dropped-SNP sidecar |
 | 4 | Input is effectively empty after a delimiter/format mis-parse | `zcat <file> \| wc -l` |
+| 5 | SNP identity cleanup removed every remaining row: in an allele-aware `--snp-identifier`, the allele columns hold codes other than A/C/G/T (such as `1`/`2`) or no values, or every SNP is listed more than once | The error names the stage (`after SNP identity cleanup`) and the identity drop reasons, such as `invalid_allele=<n>` or `missing_allele=<n>` |
 
 **Remedies:**
 
@@ -378,8 +379,10 @@ Concrete source/output build options do not apply to rsID-family munging.
 3. Earlier QC and SNP-restriction removals have counts rather than individual rows in the dropped-SNP sidecar.
    Use `diagnostics/dropped_snps/dropped.tsv.gz` for liftover or final identity-cleanup removals only when that file was written.
    See [whole-run row accounting](../reference/munge-sumstats.md#preparation-and-run-accounting).
+4. When identity cleanup removed every row, the run stops before writing any file, so the error lists the drop reasons instead.
+   Map the effect and other allele columns with `--a1`/`--a2`, or rerun with a base `--snp-identifier` (`rsid` or `chr_pos`) if allele-aware identity is not needed for the analysis.
 
-**Developer reference:** `_sumstats.munge_kernel` (post-filter and keep-list paths) · **Exception:** `LDSCInputError`
+**Developer reference:** `_sumstats.munge_kernel` (post-filter and keep-list paths; `_require_retained_rows()` after parsing, sample-size filtering and identity cleanup) · **Exception:** `LDSCInputError`
 
 ### `munge-sumstats`: munged summary statistics are malformed or outdated
 

@@ -89,6 +89,8 @@ For Python users, `munger.build_run_summary()` reports parsed `n_input_rows`, fi
 | `liftover` | Liftover-stage exclusions, including source/target duplicate coordinates |
 | `identity` | Final global identity cleanup |
 
+If parsing with QC and the SNP restriction, sample-size filtering, or SNP identity cleanup leaves no row, the run stops before writing any file with `munge-sumstats retained 0 of <N> input rows after <stage>` and the recorded counts; after identity cleanup the error also lists the identity drop reasons.
+A liftover that drops every row stops with its own error.
 All keys are present, including stages with zero drops. Detailed coordinate reason counts in provenance can overlap when a row has multiple invalid fields; the `coordinates` stage count counts that row once. `used_n_rule` reports the strategy actually used: `input_columns`, `fixed_N`, or `fixed_case_control_N`. Per-variant N or case/control columns retain their existing precedence over supplied constant sample sizes. Row-level audit sidecars remain limited to identity and liftover drops.
 
 ## Raw Format Profiles

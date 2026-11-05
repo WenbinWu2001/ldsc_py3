@@ -12,6 +12,7 @@ import json
 
 import numpy as np
 import pandas as pd
+import pytest
 from scipy.stats import norm
 
 from ldsc import GlobalConfig, MungeConfig, SumstatsMunger, load_sumstats
@@ -121,3 +122,33 @@ def test_rg_keeps_every_snp_from_both_outputs_of_a_lowercase_base_mode_munge(tmp
         assert dataset.dropped_incompatible_allele_rows == 0
         assert sorted(dataset.merged["SNP"]) == sorted(f"rs{i}" for i in range(N_SNPS))
     assert datasets["parquet"].merged["SNP"].tolist() == datasets["sumstats.gz"].merged["SNP"].tolist()
+
+
+@pytest.mark.parametrize("mode", ["rsid", "chr_pos"])
+def test_rg_drops_missing_alleles_of_base_mode_munge_tables_passed_in_memory(tmp_path, mode):
+    # Every seventh SNP has no A1 in either trait, so rg cannot align it; every other SNP lists A/C in both.
+    ld_scores = panel(mode)
+    missing = np.arange(N_SNPS) % 7 == 0
+    coordinates = {} if mode == "rsid" else {"CHR": "1", "POS": ld_scores.baseline_table["POS"]}
+    builds = {} if mode == "rsid" else {"source_genome_build": "hg38", "output_genome_build": "hg38"}
+    global_config = GlobalConfig(snp_identifier=mode, **({} if mode == "rsid" else {"genome_build": "hg38"}))
+    tables = []
+    for name, seed in (("t1", 51), ("t2", 52)):
+        # Each magnitude appears with both signs, so the median Z, which munging checks, is 0.
+        magnitude = np.abs(signed_statistics(np.random.default_rng(seed), ld_scores.baseline_table["base"]))
+        z = np.repeat(magnitude[: N_SNPS // 2], 2) * np.tile([1, -1], N_SNPS // 2)
+        raw = pd.DataFrame({**coordinates, "SNP": [f"rs{i}" for i in range(N_SNPS)],
+                            "A1": np.where(missing, "NA", "A"), "A2": "C",
+                            "P": 2 * norm.sf(np.abs(z)), "Z": z, "N": 10_000})
+        raw.to_csv(tmp_path / f"{name}.txt", sep="\t", index=False)
+        tables.append(SumstatsMunger().run(
+            MungeConfig(raw_sumstats_file=tmp_path / f"{name}.txt", output_dir=tmp_path / name, trait_name=name,
+                        no_snp_restriction=True, **builds),
+            global_config=global_config,
+        ))
+    runner = RegressionRunner(global_config=global_config, regression_config=RegressionConfig(num_blocks=10))
+
+    result = runner.estimate_rg_pairs(tables, ld_scores)
+
+    assert result.rg_full["status"].tolist() == ["ok"]
+    assert result.rg_full["n_snps_used"].tolist() == [int((~missing).sum())]

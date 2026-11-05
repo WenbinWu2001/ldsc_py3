@@ -285,13 +285,16 @@ def _uppercase_alleles(alleles, mode):
     value as text and keeps missing alleles missing. Allele-aware modes store
     the pandas string dtype; base modes, which do not validate alleles, store
     Python objects and leave a column without letters (numeric allele codes,
-    or only missing values) as parsed.
+    or only missing values) as parsed. A missing base-mode allele stays the
+    float ``NaN`` the reader gave it, not ``pd.NA``: the ``rg`` allele
+    comparison of an in-memory table needs comparisons that return ``False``.
     """
     if is_allele_aware_mode(mode):
         return alleles.astype("string").str.upper()
     if pd.api.types.is_numeric_dtype(alleles):
         return alleles
-    return alleles.astype("string").str.upper().astype(object)
+    upper = alleles.astype("string").str.upper()
+    return upper.astype(object).where(upper.notna(), np.nan)
 
 
 @report_phase(LOGGER, "preparation", "summary-statistic rows")

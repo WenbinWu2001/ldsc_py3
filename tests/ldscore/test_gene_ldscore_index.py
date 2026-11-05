@@ -158,6 +158,14 @@ def _fixture_funnel(chrom, rows=2):
     return funnel.frame()
 
 
+def _built(record):
+    """Return what ``build_plink_index_chromosome`` returns for a fixture payload with one binary ``base``."""
+    rows = len(record.baseline_rows)
+    return record, {"reference_rows_before_genotype_qc": record.total_reference_snps_all, "genotype_qc_removed": 0,
+                    "maf_removed": 0, "regression_selected_rows": rows, "annotation_types": {"base": "binary"},
+                    "cm_source": "bim_cm"}
+
+
 def _artifact_payload():
     atom_model = build_disjoint_atoms("22", np.array([[0, 10], [5, 15]], dtype=np.int64))
     chromosome = IndexChromosomeData(
@@ -178,8 +186,6 @@ def _artifact_payload():
             np.array([[1.0, 1.0, 0.0]]), np.array([[1.0, 0.0, 0.0]]),
         ),
         reference_snp_funnel=_fixture_funnel("22"),
-        annotation_types={"base": "binary"},
-        regression_selected_snp_count=2,
     )
     catalog = pd.DataFrame(
         {
@@ -307,12 +313,12 @@ def _build_fixture_index(tmp_path, monkeypatch):
     chromosome, output, args = _configure_two_chromosome_builder(tmp_path, monkeypatch)
 
     def fixture_chromosome(chrom, *_args, **_kwargs):
-        return replace(
+        return _built(replace(
             chromosome,
             baseline_rows=chromosome.baseline_rows.assign(CHR=chrom),
             atom_model=build_disjoint_atoms(chrom, np.array([[0, 10], [5, 15]], dtype=np.int64)),
             reference_snp_funnel=_fixture_funnel(chrom),
-        )
+        ))
 
     monkeypatch.setattr(gene_ldscore_index, "build_plink_index_chromosome", fixture_chromosome)
     return output, args, gene_ldscore_index._builder_index_identity()
@@ -691,7 +697,7 @@ def test_plink_atom_operator_matches_direct_union_in_atom_batches(tmp_path, snp_
     regression_keys = RestrictionIdentityKeys(regression_keys, "base", empty_identity_drop_frame(), len(metadata), len(regression_keys))
     gene_intervals = np.array([[0, 4], [2, 7], [3, 5]], dtype=np.int64)
 
-    indexed_one = build_plink_index_chromosome(
+    indexed_one, _ = build_plink_index_chromosome(
         "1",
         base_bundle,
         panel, config,
@@ -702,7 +708,7 @@ def test_plink_atom_operator_matches_direct_union_in_atom_batches(tmp_path, snp_
         padding_bp=0,
         atom_batch_size=1,
     )
-    indexed_many = build_plink_index_chromosome(
+    indexed_many, _ = build_plink_index_chromosome(
         "1",
         base_bundle,
         panel, config,
@@ -789,7 +795,7 @@ def test_plink_index_fuses_baseline_and_regression_weights_but_keeps_atom_batche
         return scores
 
     monkeypatch.setattr(kernel_ldscore, "ld_scores_from_genotypes", traced_ldscore)
-    result = build_plink_index_chromosome(
+    result, evidence = build_plink_index_chromosome(
         "1",
         bundle,
         panel, config,
@@ -829,8 +835,8 @@ def test_plink_index_fuses_baseline_and_regression_weights_but_keeps_atom_batche
     np.testing.assert_array_equal(result.baseline_count_common, baseline64[common].sum(axis=0))
     np.testing.assert_array_equal(result.baseline_overlap_all, baseline64.T @ baseline64)
     np.testing.assert_array_equal(result.baseline_overlap_common, baseline64[common].T @ baseline64[common])
-    assert result.annotation_types == {"base": "binary", "baseline_aux": "binary"}
-    assert result.regression_selected_snp_count == int(persisted.sum())
+    assert evidence["annotation_types"] == {"base": "binary", "baseline_aux": "binary"}
+    assert evidence["regression_selected_rows"] == int(persisted.sum())
 
 
 @pytest.mark.parametrize("missing_rows", [slice(0, 1), slice(None)])
@@ -990,7 +996,7 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
     monkeypatch.setattr(gene_ldscore_index, "read_snp_restriction_keys", fake_read_restriction)
     monkeypatch.setattr(gene_ldscore_index.kernel_regions, "load_preset_intervals", lambda *args: None)
     monkeypatch.setattr(gene_ldscore_index, "_read_bim_identity", lambda _prefix: identity_rows.copy())
-    monkeypatch.setattr(gene_ldscore_index, "build_plink_index_chromosome", lambda *args, **kwargs: chromosome)
+    monkeypatch.setattr(gene_ldscore_index, "build_plink_index_chromosome", lambda *args, **kwargs: _built(chromosome))
     monkeypatch.setattr(gene_ldscore_index, "_builder_index_identity", lambda *args, **kwargs: index_identity)
     _write_plink_trio(tmp_path / "1000G.EUR.QC.22", ["22"])
 
@@ -1130,7 +1136,7 @@ def test_completed_chromosome_is_durably_staged_before_other_workers_finish(
         if chrom == "2":
             weakref.finalize(record, second_record_released.set)
             second_computed.set()
-        return record
+        return _built(record)
 
     monkeypatch.setattr(gene_ldscore_index, "build_plink_index_chromosome", fake_build)
     live_log = output / ".build" / "build-gene-ldscore-index.log"
@@ -1261,7 +1267,7 @@ def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path,
     assert any((build_state / "history").glob("*.log"))
 
     monkeypatch.setattr(gene_ldscore_index, "intersect_baseline_plink_by_identifier", original_intersection)
-    monkeypatch.setattr(gene_ldscore_index, "build_plink_index_chromosome", lambda *args, **kwargs: chromosome)
+    monkeypatch.setattr(gene_ldscore_index, "build_plink_index_chromosome", lambda *args, **kwargs: _built(chromosome))
     index_dir = gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
     assert (index_dir / "metadata.json").exists()
     assert (index_dir / "diagnostics" / "build-gene-ldscore-index.log").exists()
@@ -1278,14 +1284,14 @@ def test_chromosome_failure_cleans_staged_shards_without_publication(tmp_path, m
         if chrom == "2":
             assert first_durable.wait(timeout=10)
             raise RuntimeError("injected chromosome failure")
-        return replace(
+        return _built(replace(
             chromosome,
             baseline_rows=chromosome.baseline_rows.assign(CHR=chrom),
             atom_model=build_disjoint_atoms(
                 chrom, np.array([[0, 10], [5, 15]], dtype=np.int64)
             ),
             reference_snp_funnel=_fixture_funnel(chrom),
-        )
+        ))
 
     monkeypatch.setattr(gene_ldscore_index, "build_plink_index_chromosome", fake_build)
     real_replace = gene_ldscore_index.os.replace
@@ -1316,10 +1322,10 @@ def test_chromosome_failure_cleans_staged_shards_without_publication(tmp_path, m
     archived = list((output / ".build").glob("history/chromosome-logs.*/chr2.log"))
     assert len(archived) == 1 and "injected chromosome failure" in archived[0].read_text(encoding="utf-8")
 
-    monkeypatch.setattr(gene_ldscore_index, "build_plink_index_chromosome", lambda chrom, *_a, **_k: replace(
+    monkeypatch.setattr(gene_ldscore_index, "build_plink_index_chromosome", lambda chrom, *_a, **_k: _built(replace(
         chromosome, baseline_rows=chromosome.baseline_rows.assign(CHR=chrom),
         atom_model=build_disjoint_atoms(chrom, np.array([[0, 10], [5, 15]], dtype=np.int64)),
-        reference_snp_funnel=_fixture_funnel(chrom)))
+        reference_snp_funnel=_fixture_funnel(chrom))))
     gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
     published = output / "diagnostics" / "chromosome-logs"
     assert sorted(path.name for path in published.iterdir()) == ["chr1.log", "chr2.log"]
@@ -1342,7 +1348,7 @@ def test_plink_operator_matches_independent_dense_adjusted_r2_reference(snp_batc
     panel = plink_panel(prefix)
     config = LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True, snp_batch_size=snp_batch_size)
     persisted_keys = {"rs_5", "rs_6"}
-    indexed = build_plink_index_chromosome(
+    indexed, _ = build_plink_index_chromosome(
         "1", bundle, panel, config,
         regression_keys=persisted_keys,
         regression_regions=None,

@@ -656,7 +656,7 @@ def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, c
         )
         included = chrom_catalog["included"].to_numpy(dtype=bool)
         phase = "genotype QC and atomic LD-score construction"
-        record = build_plink_index_chromosome(
+        record, build_evidence = build_plink_index_chromosome(
             chrom,
             kernel_bundle,
             ref_panel,
@@ -682,28 +682,21 @@ def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, c
         raise
     catalog_genes = int(included.sum())
     genes_with_atoms = int(np.count_nonzero(np.diff(record.atom_model.gene_to_atom.indptr)))
-    rows_before_genotype_qc = int(record.reference_rows_before_genotype_qc or record.total_reference_snps_all)
-    genotype_qc_removed = int(record.genotype_qc_removed)
-    maf_removed = int(record.maf_removed)
     # Reference preparation saw only the baseline/PLINK intersection; the grid is every baseline row.
     record = replace(record, reference_snp_funnel=with_grid_rows(record.reference_snp_funnel, grid_rows))
     evidence = {
         **intersection.diagnostics,
+        **build_evidence,
         "baseline_content_sha256": _retained_baseline_content_sha256(
             intersection.metadata,
             intersection.annotations,
             config.snp_identifier,
         ),
         "reference_snp_funnel": funnel_records(record.reference_snp_funnel),
-        "reference_rows_before_genotype_qc": rows_before_genotype_qc,
         "retained_reference_rows": int(record.total_reference_snps_all),
         "retained_common_reference_rows": int(record.total_reference_snps_common),
-        "genotype_qc_removed": genotype_qc_removed,
-        "maf_removed": maf_removed,
-        "genotype_qc_or_maf_removed": genotype_qc_removed + maf_removed,
+        "genotype_qc_or_maf_removed": build_evidence["genotype_qc_removed"] + build_evidence["maf_removed"],
         "regression_rows": int(len(record.baseline_rows)),
-        "regression_selected_rows": int(record.regression_selected_snp_count),
-        "annotation_types": dict(record.annotation_types),
         "baseline_plink_identity": f"inner_join_by_{config.snp_identifier}",
         "catalog_genes": catalog_genes,
         "genes_with_padded_atoms": genes_with_atoms,
@@ -713,7 +706,6 @@ def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, c
         "snp_batch_size": int(config.snp_batch_size),
         "atom_batch_size": int(config.atom_batch_size),
         "maf_filter_policy": "disabled" if config.maf_min is None else f">={config.maf_min}",
-        "cm_source": record.cm_source,
     }
     try:
         component_metadata = _index_chromosome_metadata(
@@ -1510,8 +1502,15 @@ def build_plink_index_chromosome(
     padding_bp: int,
     atom_batch_size: int,
     genetic_map: pd.DataFrame | None = None,
-) -> IndexChromosomeData:
+) -> tuple[IndexChromosomeData, dict]:
     """Construct exact common and atom payloads from one PLINK chromosome.
+
+    Returns the chromosome payload the index stores and the build evidence
+    the coordinator records but the payload does not store: reference rows
+    before genotype QC, genotype-QC and MAF removals, regression SNPs before
+    the region subtraction (``regression_selected_rows``), each baseline
+    column's ``binary`` or ``quantitative`` classification
+    (``annotation_types``) and the CM source.
 
     ``ref_panel`` prepares the chromosome with ``ldscore_config``, which gives
     the LD window, the whole-chromosome policy, the genotype batch size and
@@ -1591,7 +1590,7 @@ def build_plink_index_chromosome(
         baseline_rows["regression_ld_scores"] = computed.w_ld[:, 0]
         for column_index, column in enumerate(baseline_bundle.baseline_columns):
             baseline_rows[column] = computed.ld_scores[:, column_index]
-        return IndexChromosomeData(
+        payload = IndexChromosomeData(
             baseline_rows=baseline_rows,
             baseline_count_all=np.asarray(computed.M, dtype=np.float64),
             baseline_count_common=np.asarray(computed.M_5_50, dtype=np.float64),
@@ -1602,14 +1601,17 @@ def build_plink_index_chromosome(
             atom_model=atom_model,
             operator=operator,
             atom_statistics=atom_statistics,
-            reference_rows_before_genotype_qc=prepared.reference_rows_before_genotype_qc,
-            genotype_qc_removed=prepared.genotype_qc_removed,
-            maf_removed=prepared.maf_removed,
-            cm_source=prepared.cm_source,
             reference_snp_funnel=prepared.reference_snp_funnel,
-            annotation_types=computed.annotation_types,
-            regression_selected_snp_count=computed.regression_selected_snp_count,
         )
+        build_evidence = {
+            "reference_rows_before_genotype_qc": int(prepared.reference_rows_before_genotype_qc or len(metadata)),
+            "genotype_qc_removed": int(prepared.genotype_qc_removed),
+            "maf_removed": int(prepared.maf_removed),
+            "regression_selected_rows": int(computed.regression_selected_snp_count),
+            "annotation_types": dict(computed.annotation_types),
+            "cm_source": prepared.cm_source,
+        }
+        return payload, build_evidence
 
 
 @dataclass(frozen=True)

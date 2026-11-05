@@ -16,7 +16,7 @@ import logging
 import os
 import shutil
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
@@ -199,12 +199,9 @@ def _catalog_identity_records(frame: pd.DataFrame) -> list[dict[str, object]]:
 class IndexChromosomeData:
     """Validated in-memory scientific payload for one index chromosome.
 
-    ``reference_snp_funnel`` counts the SNPs each reference-preparation step
-    removed; writing a payload requires it. ``annotation_types`` (each
-    baseline column's ``binary`` or ``quantitative`` classification on this
-    chromosome) and ``regression_selected_snp_count`` (regression SNPs before
-    the region subtraction) are build results the coordinator combines into
-    root metadata; the payload does not store them.
+    Every field is stored in the chromosome's component files and loaded
+    back. ``reference_snp_funnel`` counts the SNPs each reference-preparation
+    step removed; writing a payload requires it.
     """
 
     baseline_rows: pd.DataFrame
@@ -217,13 +214,7 @@ class IndexChromosomeData:
     atom_model: ChromosomeAtomModel
     operator: sparse.csr_matrix
     atom_statistics: AtomStatistics
-    reference_rows_before_genotype_qc: int = 0
-    genotype_qc_removed: int = 0
-    maf_removed: int = 0
-    cm_source: str = "bim_cm"
     reference_snp_funnel: pd.DataFrame | None = None
-    annotation_types: dict[str, str] = field(default_factory=dict)
-    regression_selected_snp_count: int = 0
 
 
 @dataclass(frozen=True)

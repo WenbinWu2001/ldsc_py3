@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ldsc._annotation.semantics import combine_annotation_types
 from ldsc._ldscore.gene_index import artifact as gene_index_artifact
 from ldsc._ldscore.gene_index import build as gene_index_build
 from ldsc._ldscore.gene_index.artifact import (
@@ -38,9 +37,9 @@ def write_gene_ldscore_index(index_dir, *, index_identity, gene_catalog, chromos
     chromosome's payload, write the coordinator metadata, publish with reload
     validation, then remove the build directory. ``chromosomes`` maps labels to ``IndexChromosomeData`` in index
     order and must equal the narrowed index chromosome set. Root
-    ``annotation_types`` and ``snp_universe_policy`` combine the records as
-    the coordinator does, with no reference-panel or regression-SNP file and
-    no region subtraction. ``index_dir`` must be absent or empty; publication-transaction
+    ``annotation_types`` classifies every baseline column as ``binary``;
+    ``snp_universe_policy`` records no reference-panel or regression-SNP file
+    and no region subtraction. ``index_dir`` must be absent or empty; publication-transaction
     behavior is tested through the build command itself.
     """
     destination = Path(index_dir)
@@ -59,20 +58,18 @@ def write_gene_ldscore_index(index_dir, *, index_identity, gene_catalog, chromos
         records = list(chromosomes.values())
         baseline_columns = component_metadata["baseline_columns"]
         written = sum(len(record.baseline_rows) for record in records)
-        selected = sum(record.regression_selected_snp_count for record in records)
         _finalize_staged_index_artifact(
             staged_index,
             index_id=calculate_index_id(index_identity),
             index_identity=index_identity,
             gene_catalog=gene_catalog,
             chromosomes=staged,
-            annotation_types=combine_annotation_types(
-                baseline_columns, [record.annotation_types for record in records]),
+            annotation_types=dict.fromkeys(baseline_columns, "binary"),
             snp_universe_policy=snp_universe_policy_record(
                 ref_panel_snps_file=None, regr_snps_file=None, regression_regions=None,
                 retained_snp_count=sum(record.total_reference_snps_all for record in records),
-                selected_snp_count_before_region_exclusion=selected,
-                region_excluded_snp_count=selected - written, written_snp_count=written),
+                selected_snp_count_before_region_exclusion=written,
+                region_excluded_snp_count=0, written_snp_count=written),
         )
         return gene_index_build._publish_staged_gene_ldscore_index(staged_index, destination)
     finally:

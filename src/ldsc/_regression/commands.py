@@ -42,7 +42,7 @@ from .outputs import (
     RgOutputConfig,
 )
 from .results import H2Result, PartitionedH2BatchResult, RgResultFamily
-from .alignment import _log_effective_regression_identity, _prepare_h2_dataset, _trait_label
+from .alignment import _log_regression_identity, _prepare_h2_dataset, _trait_label
 from .fitting import _fit_h2_dataset, _h2_metadata, _ldscore_dir_of, _log_phase_timing, summarize_total_h2
 from .partitioned import (
     PARTITIONED_H2_SUMMARY_SORT_COLUMNS,
@@ -249,10 +249,11 @@ def _run_h2(
         LOGGER.info(f"Starting h2 regression for '{sumstats_file}' using LD-score directory '{ldscore_dir}'.")
         sumstats_table = _load_sumstats_table(sumstats_file, trait_name)
         ldscore_result = load_ldscore_from_dir(ldscore_dir)
-        _log_effective_regression_identity([sumstats_table], ldscore_result, global_config, config)
         prepared = _prepare_h2_dataset(sumstats_table, ldscore_result, config, global_config)
         dataset, legacy_drops, nonfinite_rows = (prepared.dataset, prepared.legacy_drops,
                                                  prepared.dropped_nonfinite_statistic_rows)
+        _log_regression_identity([sumstats_table], ldscore_result, global_config,
+                                 [(dataset.effective_snp_identifier, dataset.identity_downgrade_applied)])
         prepared = None  # the fitted dataset below replaces the unfiltered one
         outcome = _fit_h2_dataset(dataset, config)
         hsq, dataset = outcome.estimator, outcome.dataset
@@ -356,7 +357,6 @@ def _run_partitioned_h2(
         with _log_phase_timing("LD-score loading"):
             ldscore_result = load_ldscore_from_dir(ldscore_dir)
         has_queries = bool(ldscore_result.query_columns)
-        _log_effective_regression_identity([sumstats_table], ldscore_result, global_config, config)
         _log_partitioned_h2_regime(ldscore_result, has_queries)
         _log_quantitative_annotation_interpretation(ldscore_result)
         result = partitioned.estimate_partitioned_h2_batch(
@@ -504,7 +504,6 @@ def _run_rg(
                 )
         anchor_index = _resolve_anchor_index(anchor_trait, sumstats_paths, sumstats_tables)
         ldscore_result = load_ldscore_from_dir(ldscore_dir)
-        _log_effective_regression_identity(sumstats_tables, ldscore_result, global_config, config)
         result = rg.estimate_rg_pairs(
             sumstats_tables,
             ldscore_result,
@@ -512,6 +511,13 @@ def _run_rg(
             global_config,
             anchor_index=anchor_index,
             prevalences=prevalences,
+        )
+        # The pair run fits in a child; its per-pair metadata records each pair's realized mode.
+        resolved = [pair for pair in result.per_pair_metadata if "effective_snp_identifier" in pair]
+        _log_regression_identity(
+            sumstats_tables, ldscore_result, global_config,
+            [(pair["effective_snp_identifier"], pair["identity_downgrade_applied"]) for pair in resolved],
+            unresolved_pairs=len(result.per_pair_metadata) - len(resolved),
         )
         written = RgDirectoryWriter().write(
             result,

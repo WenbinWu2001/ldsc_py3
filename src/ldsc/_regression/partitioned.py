@@ -36,6 +36,7 @@ from .alignment import (
     _PreparedLDScores,
     _count_totals_for_columns,
     _dataset_from_prepared,
+    _log_regression_identity,
     _prepare_h2_inputs,
     _prepare_trait_sumstats,
     _read_query_batch,
@@ -142,6 +143,9 @@ def estimate_partitioned_h2_batch(
         with _log_phase_timing("shared regression preparation"):
             trait = _prepare_trait_sumstats(sumstats_table, ldscore_result)
             prepared = _prepare_h2_inputs(trait, _PreparedLDScores(ldscore_result), config, global_config)
+            _log_regression_identity([sumstats_table], ldscore_result, global_config,
+                                     [(prepared.dataset.effective_snp_identifier,
+                                       prepared.dataset.identity_downgrade_applied)])
             # The trait's provenance, which h2 metadata records as well.
             metadata.update(
                 sumstats_file=sumstats_table.source_path, genome_build=_genome_build_of(prepared.dataset),

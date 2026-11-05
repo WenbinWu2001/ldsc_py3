@@ -3,8 +3,11 @@
 import numpy as np
 import pandas as pd
 
+from ldsc import cli
 from ldsc._ldscore.results import LDScoreResult
+from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from ldsc._regression import alignment, rg, runner as workflow
+from ldsc._sumstats.munger import SumstatsMunger
 from ldsc._sumstats.table import SumstatsTable
 from ldsc.config import GlobalConfig, RegressionConfig
 from tests.worker_fixtures import calculation_body
@@ -150,3 +153,40 @@ def test_build_dataset_projects_a_legacy_table_once(monkeypatch):
 
     assert projections == ["L1"]
     assert len(dataset.merged) == N_SNPS
+
+
+def identity_lines(log_path):
+    return [line for line in log_path.read_text(encoding="utf-8").splitlines() if "SNP identifier" in line
+            and "used for this regression" in line]
+
+
+def run_rg_command(tmp_path, tables, *flags):
+    LDScoreDirectoryWriter().write_batches([panel()], LDScoreOutputConfig(output_dir=tmp_path / "ld"))
+    sources = [SumstatsMunger().write_output(table, tmp_path / table.trait_name) for table in tables]
+    code = cli.run_cli(["rg", "--sumstats-sources", *sources, "--ldscore-dir", str(tmp_path / "ld"),
+                        "--output-dir", str(tmp_path / "out"), "--num-blocks", "10", *flags])
+    assert code == 0
+    return identity_lines(tmp_path / "out/diagnostics/rg.log")
+
+
+def test_rg_command_logs_the_snp_identifier_each_pair_used(tmp_path):
+    # A and B match the allele-aware LD scores; C is allele-unaware, so only the pairs with C are downgraded.
+    tables = [munged("A", "chr_pos_allele_aware", 11), munged("B", "chr_pos_allele_aware", 12),
+              munged("C", "chr_pos", 13)]
+
+    lines = run_rg_command(tmp_path, tables, "--allow-identity-downgrade")
+
+    # Pairs A-B, A-C and B-C run in chr_pos_allele_aware, chr_pos (downgraded) and chr_pos (downgraded).
+    assert len(lines) == 1
+    assert ("SNP identifiers used for this regression: chr_pos_allele_aware for 1 pair; "
+            "chr_pos, after an allele-awareness downgrade, for 2 pairs.") in lines[0]
+
+
+def test_rg_command_without_a_downgrade_reports_none(tmp_path):
+    tables = [munged(name, "chr_pos_allele_aware", seed) for name, seed in (("A", 14), ("B", 15))]
+
+    lines = run_rg_command(tmp_path, tables, "--allow-identity-downgrade")
+
+    assert len(lines) == 1
+    assert "SNP identifier used for this regression: chr_pos_allele_aware. The GlobalConfig" in lines[0]
+    assert "downgrade" not in lines[0]

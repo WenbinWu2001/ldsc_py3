@@ -15,6 +15,7 @@ Fitting and reporting belong to ``fitting``.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field, replace
 import logging
 from pathlib import Path
@@ -44,7 +45,7 @@ from .._ldscore.outputs import REGRESSION_LD_SCORE_COLUMN
 from .._ldscore.source import LDScoreSource
 from .._sumstats.table import SumstatsTable
 from ..config import GlobalConfig, RegressionConfig
-from ..errors import LDSCInputError, LDSCUsageError
+from ..errors import LDSCInputError
 from .outputs import LEGACY_SUMSTATS_DROP_COLUMNS
 from .results import RegressionDataset
 
@@ -1200,78 +1201,65 @@ def _trait_label(table: SumstatsTable) -> str:
     return "trait"
 
 
-def _log_effective_regression_identity(
+def _log_regression_identity(
     sumstats_tables: Sequence[SumstatsTable],
     ldscore_result: LDScoreSource | LDScoreResult,
     runner_config: GlobalConfig,
-    regression_config: RegressionConfig,
+    realized: Sequence[tuple[str, bool]],
+    *,
+    unresolved_pairs: int = 0,
 ) -> None:
-    """Log the SNP identifier mode regression will actually use, and its source.
+    """Log the SNP identifier mode each fitted dataset used, and the mode each input records.
 
-    The GlobalConfig banner reports ``snp_identifier`` as a CLI-level default.
-    Regression instead derives the effective mode from each input artifact's
-    recorded provenance and only falls back to that default when an artifact
-    omits it. This line names the resolved mode, the per-input sources, and any
-    allele-awareness downgrade so the banner default is not mistaken for the
-    mode in force. It is informational only: incompatible inputs are left for
-    the estimation step to reject with its authoritative error.
+    ``realized`` holds the ``(effective_snp_identifier,
+    identity_downgrade_applied)`` of the prepared datasets: one for ``h2`` and
+    ``partitioned-h2``, one per pair for ``rg``, whose pairs can resolve to
+    different modes. ``unresolved_pairs`` counts rg pairs that failed before
+    their mode was resolved. The GlobalConfig banner reports
+    ``snp_identifier`` as a default that applies only to an LD-score directory
+    without recorded provenance (summary statistics without it take the LD-score
+    directory's mode), so this line states whether that default was used and
+    is never mistaken for the mode in force. It runs after preparation, so it
+    reports the resolution itself, not a prediction of it.
     """
     default_mode = normalize_snp_identifier_mode(runner_config.snp_identifier)
-    used_default = False
-
-    def describe(label: str, snapshot: GlobalConfig | None) -> tuple[str, str]:
-        nonlocal used_default
-        recorded = _snapshot_identity_mode(snapshot)
-        if recorded is None:
-            used_default = True
-            return default_mode, f"{label}={default_mode} (no provenance recorded; using GlobalConfig default)"
-        return recorded, f"{label}={recorded} (from provenance)"
-
-    modes: list[str] = []
-    sources: list[str] = []
-    ld_mode, ld_source = describe("LD-score", ldscore_result.config_snapshot)
-    modes.append(ld_mode)
-    sources.append(ld_source)
+    ld_mode = _snapshot_identity_mode(ldscore_result.config_snapshot)
+    used_default = ld_mode is None
+    if used_default:
+        ld_mode = default_mode
+        sources = [f"LD-score={ld_mode} (no provenance recorded; using GlobalConfig default)"]
+    else:
+        sources = [f"LD-score={ld_mode} (from provenance)"]
     for table in sumstats_tables:
+        label = _trait_label(table)
         if _is_allele_less_legacy(table):
             # Without alleles, projection gives a legacy table the base form of the LD-score directory's mode.
-            mode = identity_base_mode(ld_mode)
-            source = f"{_trait_label(table)}={mode} (legacy projection by rsID, without alleles)"
+            sources.append(f"{label}={identity_base_mode(ld_mode)} (legacy projection by rsID, without alleles)")
         elif _has_legacy_sumstats_source(table):
             # Projection gives a legacy table the LD-score directory's mode.
-            mode, source = ld_mode, f"{_trait_label(table)}={ld_mode} (legacy projection onto the LD-score panel)"
+            sources.append(f"{label}={ld_mode} (legacy projection onto the LD-score panel)")
+        elif (recorded := _snapshot_identity_mode(table.config_snapshot)) is None:
+            sources.append(f"{label}={ld_mode} (no provenance recorded; using the LD-score directory's mode)")
         else:
-            mode, source = describe(_trait_label(table), table.config_snapshot)
-        modes.append(mode)
-        sources.append(source)
-
+            sources.append(f"{label}={recorded} (from provenance)")
     source_details = "; ".join(sources) if len(sources) <= 10 else f"{len(sources)} input artifacts; see input provenance and per-pair metadata"
     if len(sources) > 10 and LOGGER.isEnabledFor(logging.DEBUG):
         LOGGER.debug("Per-input SNP modes: %s", "; ".join(sources))
-    effective = modes[0]
-    downgrade = False
-    try:
-        for mode in modes[1:]:
-            compat = resolve_regression_identity_mode(
-                effective, mode, allow_identity_downgrade=regression_config.allow_identity_downgrade
-                or any(_is_allele_less_legacy(table) for table in sumstats_tables),
-            )
-            effective = compat.effective_mode
-            downgrade = downgrade or compat.downgrade_applied
-    except LDSCUsageError:
-        # Inputs are incompatible; the estimation step raises the authoritative
-        # error. Still surface per-input modes so the conflict is visible early.
-        LOGGER.info(
-            "Regression SNP identifier could not be resolved: the inputs disagree. "
-            "Per-input modes: %s. The GlobalConfig snp_identifier %r shown above is "
-            "applied only to inputs that have no recorded provenance.",
-            source_details,
-            default_mode,
-        )
-        return
 
-    # The GlobalConfig snp_identifier in the banner above is only a fallback. State
-    # plainly whether it was used at all, so it is never mistaken for the mode in force.
+    groups = Counter(realized)
+    if len(groups) == 1 and not unresolved_pairs:
+        (mode, downgrade), = groups
+        used = f"SNP identifier used for this regression: {mode}." + (
+            " An allele-awareness downgrade was applied to reach this shared base mode." if downgrade else "")
+    else:
+        parts = [
+            f"{mode}{', after an allele-awareness downgrade,' if downgrade else ''} for {count} pair{'s' * (count != 1)}"
+            for (mode, downgrade), count in groups.items()
+        ]
+        if unresolved_pairs:
+            parts.append(f"not resolved for {unresolved_pairs} pair{'s' * (unresolved_pairs != 1)} that failed "
+                         "before alignment")
+        used = "SNP identifiers used for this regression: " + "; ".join(parts) + "."
     if used_default:
         default_clause = (
             f"The GlobalConfig snp_identifier {default_mode!r} shown above was used only as a "
@@ -1280,20 +1268,9 @@ def _log_effective_regression_identity(
     else:
         default_clause = (
             f"The GlobalConfig snp_identifier {default_mode!r} shown above was NOT used; "
-            f"this mode comes entirely from input provenance"
+            f"{'this mode comes' if len(groups) == 1 else 'these modes come'} entirely from input provenance"
         )
-    downgrade_clause = (
-        " An allele-awareness downgrade was applied to reach this shared base mode."
-        if downgrade
-        else ""
-    )
-    LOGGER.info(
-        "SNP identifier used for this regression: %s.%s %s. Per-input modes: %s.",
-        effective,
-        downgrade_clause,
-        default_clause,
-        source_details,
-    )
+    LOGGER.info("%s %s. Per-input modes: %s.", used, default_clause, source_details)
 
 
 def _add_panel_coordinates(merged: pd.DataFrame, ldscore_result: LDScoreSource | LDScoreResult) -> np.ndarray:

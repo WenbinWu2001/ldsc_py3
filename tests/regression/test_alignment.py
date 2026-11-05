@@ -302,81 +302,64 @@ class AlignmentTest(RegressionFixtures, unittest.TestCase):
         self.assertIn("effective snp_identifier='chr_pos'", log_text)
         self.assertIn("Dropped 4 duplicate effective-key rows", log_text)
 
-    def test_log_effective_regression_identity_reports_provenance_over_default(self):
+    def _log_identity_of_prepared_h2(self, sumstats, ldscore_result, runner_config, config):
+        """Prepare an h2 dataset and log its identity, as ``ldsc h2`` does."""
+        dataset = alignment._prepare_h2_dataset(sumstats, ldscore_result, config, runner_config).dataset
+        with self.assertLogs("LDSC.regression_runner", level="INFO") as caught:
+            alignment._log_regression_identity(
+                [sumstats], ldscore_result, runner_config,
+                [(dataset.effective_snp_identifier, dataset.identity_downgrade_applied)],
+            )
+        return "\n".join(caught.output)
+
+    def _identity_inputs(self, *, ldscore_mode, sumstats_mode):
+        ldscore_result = self.make_ldscore_result_from_frame(
+            pd.DataFrame({"CHR": ["1"], "SNP": ["rs1"], "POS": [10], "regression_ld_scores": [2.0], "base": [1.0]}),
+            snp_identifier=ldscore_mode,
+        )
+        sumstats = self.make_sumstats_table_from_frame(
+            pd.DataFrame({"CHR": ["1"], "SNP": ["rs1"], "POS": [10], "A1": ["A"], "A2": ["C"],
+                          "Z": [2.0], "N": [1000.0]}),
+            snp_identifier=sumstats_mode,
+        )
+        return ldscore_result, sumstats
+
+    def test_log_regression_identity_reports_provenance_over_default(self):
         # GlobalConfig default differs from what the artifacts actually recorded;
         # the log must show the provenance-derived effective mode, not the default.
         runner_config = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38")
-        ldscore_result = self.make_ldscore_result_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1"],
-                    "SNP": ["rs1"],
-                    "POS": [10],
-                    "regression_ld_scores": [2.0],
-                    "base": [1.0],
-                }
-            ),
-            snp_identifier="chr_pos",
-        )
-        sumstats = self.make_sumstats_table_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1"],
-                    "SNP": ["rs1"],
-                    "POS": [10],
-                    "A1": ["A"],
-                    "A2": ["C"],
-                    "Z": [2.0],
-                    "N": [1000.0],
-                }
-            ),
-            snp_identifier="chr_pos",
-        )
-        with self.assertLogs("LDSC.regression_runner", level="INFO") as caught:
-            alignment._log_effective_regression_identity(
-                [sumstats], ldscore_result, runner_config, RegressionConfig()
-            )
-        log_text = "\n".join(caught.output)
-        self.assertIn("SNP identifier used for this regression: chr_pos", log_text)
+        ldscore_result, sumstats = self._identity_inputs(ldscore_mode="chr_pos", sumstats_mode="chr_pos")
+
+        log_text = self._log_identity_of_prepared_h2(sumstats, ldscore_result, runner_config, RegressionConfig())
+
+        self.assertIn("SNP identifier used for this regression: chr_pos.", log_text)
         self.assertIn("'chr_pos_allele_aware' shown above was NOT used", log_text)
         self.assertIn("LD-score=chr_pos (from provenance)", log_text)
         self.assertNotIn("downgrade", log_text.lower())
 
-    def test_log_effective_regression_identity_notes_allele_downgrade(self):
+    def test_log_regression_identity_notes_allele_downgrade(self):
         runner_config = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38")
-        ldscore_result = self.make_ldscore_result_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1"],
-                    "SNP": ["rs1"],
-                    "POS": [10],
-                    "regression_ld_scores": [2.0],
-                    "base": [1.0],
-                }
-            ),
-            snp_identifier="chr_pos",
-        )
-        sumstats = self.make_sumstats_table_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1"],
-                    "SNP": ["rs1"],
-                    "POS": [10],
-                    "A1": ["A"],
-                    "A2": ["C"],
-                    "Z": [2.0],
-                    "N": [1000.0],
-                }
-            ),
-            snp_identifier="chr_pos_allele_aware",
-        )
-        with self.assertLogs("LDSC.regression_runner", level="INFO") as caught:
-            alignment._log_effective_regression_identity(
-                [sumstats], ldscore_result, runner_config, RegressionConfig(allow_identity_downgrade=True)
-            )
-        log_text = "\n".join(caught.output)
-        self.assertIn("SNP identifier used for this regression: chr_pos", log_text)
-        self.assertIn("allele-awareness downgrade", log_text)
+        ldscore_result, sumstats = self._identity_inputs(ldscore_mode="chr_pos", sumstats_mode="chr_pos_allele_aware")
+
+        log_text = self._log_identity_of_prepared_h2(
+            sumstats, ldscore_result, runner_config, RegressionConfig(allow_identity_downgrade=True))
+
+        self.assertIn("SNP identifier used for this regression: chr_pos. An allele-awareness downgrade", log_text)
+
+    def test_log_regression_identity_names_the_fallback_each_input_without_provenance_takes(self):
+        # LD scores without provenance take the GlobalConfig default; summary
+        # statistics without provenance take the LD-score directory's mode.
+        runner_config = GlobalConfig(snp_identifier="rsid")
+        ldscore_result, sumstats = self._identity_inputs(ldscore_mode="rsid", sumstats_mode="rsid")
+        ldscore_result = replace(ldscore_result, config_snapshot=None)
+        sumstats = replace(sumstats, config_snapshot=None)
+
+        log_text = self._log_identity_of_prepared_h2(sumstats, ldscore_result, runner_config, RegressionConfig())
+
+        self.assertIn("SNP identifier used for this regression: rsid.", log_text)
+        self.assertIn("'rsid' shown above was used only as a fallback", log_text)
+        self.assertIn("LD-score=rsid (no provenance recorded; using GlobalConfig default)", log_text)
+        self.assertIn("=rsid (no provenance recorded; using the LD-score directory's mode)", log_text)
 
     def test_h2_keeps_sumstats_z_in_the_effect_allele_orientation(self):
         # h2 fits chi^2 = Z^2, so the sign of Z is never aligned to LD-score alleles.

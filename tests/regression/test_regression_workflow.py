@@ -133,6 +133,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                         "baseline_columns": ["base"],
                         "query_columns": ["query"],
                         "query_batches": [{"file": "ldscore.query.parquet", "query_columns": ["query"], "row_groups": [{"chrom": "1", "row_group_index": 0, "row_offset": 0, "n_rows": 1}]}],
+                        "baseline_row_groups": [{"chrom": "1", "row_group_index": 0, "row_offset": 0, "n_rows": 1}],
                         "counts": [
                             {
                                 "group": "baseline",
@@ -185,6 +186,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                         "baseline_columns": ["base"],
                         "query_columns": [],
                         "query_batches": [],
+                        "baseline_row_groups": [{"chrom": "1", "row_group_index": 0, "row_offset": 0, "n_rows": 1}],
                         "counts": [
                             {
                                 "group": "baseline",
@@ -499,6 +501,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "baseline_columns": ["base"],
                     "query_columns": query_columns,
                     "query_batches": [{"file": "ldscore.query.parquet", "query_columns": ["query"], "row_groups": [{"chrom": "1", "row_group_index": 0, "row_offset": 0, "n_rows": 1}]}] if include_query else [],
+                    "baseline_row_groups": [{"chrom": "1", "row_group_index": 0, "row_offset": 0, "n_rows": 1}],
                     "counts": counts,
                 }
             ),

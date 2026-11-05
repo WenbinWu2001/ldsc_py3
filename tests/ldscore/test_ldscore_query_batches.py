@@ -251,6 +251,29 @@ def test_missing_current_query_manifest_is_rejected(tmp_path):
         load_ldscore_from_dir(str(tmp_path))
 
 
+@pytest.mark.parametrize("tamper", ["rows", "offset", "dropped", "absent"])
+def test_baseline_row_groups_must_describe_the_baseline_file(tmp_path, tamper):
+    from ldsc.errors import LDSCInputError
+    from tests.runtime.test_output import make_multi_chrom_result
+
+    LDScoreDirectoryWriter().write_batches([make_multi_chrom_result()], LDScoreOutputConfig(output_dir=tmp_path))
+    path = tmp_path / "metadata.json"
+    payload = json.loads(path.read_text())
+    groups = payload["baseline_row_groups"]
+    assert [(group["chrom"], group["n_rows"]) for group in groups] == [("1", 3), ("2", 2), ("22", 1)]
+    if tamper == "rows":
+        groups[0]["n_rows"] = 4
+    elif tamper == "offset":
+        groups[1]["row_offset"] = 0
+    elif tamper == "dropped":
+        groups.pop()
+    else:
+        payload.pop("baseline_row_groups")
+    path.write_text(json.dumps(payload))
+    with pytest.raises(LDSCInputError, match="baseline file ldscore.baseline.parquet has inconsistent row-group metadata"):
+        load_ldscore_from_dir(str(tmp_path))
+
+
 def test_exported_reference_metadata_is_published_with_the_directory(tmp_path):
     """--export-ref-metadata files are listed outputs, kept by a rerun and removed by a run without export."""
     from pathlib import Path

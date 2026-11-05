@@ -488,6 +488,7 @@ def test_h2_command_runs_allele_less_legacy_sumstats_and_records_the_downgrade(t
         "schema_version": 1, "artifact_type": "ldscore", "files": {"baseline": "ldscore.baseline.parquet"},
         "snp_identifier": "rsid_allele_aware", "genome_build": "hg38", "chromosomes": ["1"],
         "baseline_columns": ["base"], "query_columns": [], "query_batches": [],
+        "baseline_row_groups": [{"chrom": "1", "row_group_index": 0, "row_offset": 0, "n_rows": n_snps}],
         "counts": [{"group": "baseline", "column": "base", "all_reference_snp_count": 100.0,
                     "common_reference_snp_count": 80.0}],
     }), encoding="utf-8")
@@ -522,6 +523,7 @@ def test_h2_command_records_legacy_projection_drops_in_its_audit(tmp_path: Path)
         "schema_version": 1, "artifact_type": "ldscore", "files": {"baseline": "ldscore.baseline.parquet"},
         "snp_identifier": "rsid", "genome_build": "hg38", "chromosomes": ["1"], "baseline_columns": ["base"],
         "query_columns": [], "query_batches": [],
+        "baseline_row_groups": [{"chrom": "1", "row_group_index": 0, "row_offset": 0, "n_rows": n_snps}],
         "counts": [{"group": "baseline", "column": "base", "all_reference_snp_count": 100.0,
                     "common_reference_snp_count": 80.0}],
     }), encoding="utf-8")

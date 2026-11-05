@@ -278,7 +278,7 @@ Embedding the matrix in `metadata.json` was rejected because it would reach tens
 | `n_baseline_rows` | Number of rows in the baseline parquet table. | Reporting. |
 | `n_query_rows` | Genome-wide SNP row count shared by every query batch file, or zero without queries. | Reporting. |
 | `row_group_layout` | Row-group strategy. | Reporting/technical provenance. |
-| `baseline_row_groups` | Row-group metadata for `ldscore.baseline.parquet`. | Reporting/technical provenance. |
+| `baseline_row_groups` | Row-group metadata for `ldscore.baseline.parquet`, one entry per chromosome with chromosome/index/offset/row count. | Required; loading checks it against the file's row groups, as for each `query_batches` entry. |
 | `query_row_groups` | Row-group metadata for a single `ldscore.query.parquet`, or `null` for multiple/no query batches. | Reporting/technical provenance. |
 | `query_batches` | Ordered entries containing `file`, ordered `query_columns`, and `row_groups` with chromosome/index/offset/row count. | Required canonical query discovery and selected reads; older directories must be regenerated. |
 | `gene_list_resolution_policy` | `strict` when `--allow-unresolved-genes` is omitted; `resolved-only` when supplied. The metadata field and Python policy strings are unchanged by the CLI rename. | Scientific provenance; ignored by regression. |

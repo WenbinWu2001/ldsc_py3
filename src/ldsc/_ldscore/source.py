@@ -68,25 +68,12 @@ def load_query_manifest(root, metadata, baseline_columns, baseline_schema):
             )
         paths.add(path)
         schema = pq.read_schema(path).names
-        parquet_metadata = pq.read_metadata(path)
-        offset = 0
-        if len(entry["row_groups"]) != parquet_metadata.num_row_groups:
-            raise LDSCInputError(
-                f"LD-score query batch {entry['file']} has inconsistent row-group metadata."
-                " Restore the complete LD-score directory with metadata and query files from the same run, or "
-                "regenerate it with ldsc ldscore. Do not mix query batches from different runs."
-            )
-        for group_index, group in enumerate(entry["row_groups"]):
-            n_rows = parquet_metadata.row_group(group_index).num_rows
-            if (not isinstance(group, dict) or group.get("row_group_index") != group_index
-                    or group.get("row_offset") != offset or group.get("n_rows") != n_rows
-                    or not isinstance(group.get("chrom"), str)):
-                raise LDSCInputError(
-                    f"LD-score query batch {entry['file']} has inconsistent row-group metadata."
-                    " Restore the complete LD-score directory with metadata and query files from the same run, "
-                    "or regenerate it with ldsc ldscore. Do not mix query batches from different runs."
-                )
-            offset += n_rows
+        _validate_row_groups(
+            path, entry["row_groups"],
+            f"LD-score query batch {entry['file']} has inconsistent row-group metadata."
+            " Restore the complete LD-score directory with metadata and query files from the same run, or "
+            "regenerate it with ldsc ldscore. Do not mix query batches from different runs.",
+        )
         validate_ldscore_schemas(baseline_columns, entry["query_columns"], baseline_schema, schema)
         columns.extend(entry["query_columns"])
         batches.append({**entry, "path": path, "schema": schema})
@@ -96,6 +83,25 @@ def load_query_manifest(root, metadata, baseline_columns, baseline_schema):
     validate_ldscore_schemas(baseline_columns, columns, baseline_schema,
                              ["CHR", "SNP", "POS", *columns] if batches else None)
     return tuple(batches)
+
+
+def _validate_row_groups(path, row_groups, message: str) -> None:
+    """Raise ``LDSCInputError(message)`` unless ``row_groups`` describes ``path``'s row groups, in order.
+
+    Each record needs its position, its row offset in the file, its row count
+    and a chromosome label; one record per chromosome row group.
+    """
+    parquet_metadata = pq.read_metadata(path)
+    if not isinstance(row_groups, list) or len(row_groups) != parquet_metadata.num_row_groups:
+        raise LDSCInputError(message)
+    offset = 0
+    for group_index, group in enumerate(row_groups):
+        n_rows = parquet_metadata.row_group(group_index).num_rows
+        if (not isinstance(group, dict) or group.get("row_group_index") != group_index
+                or group.get("row_offset") != offset or group.get("n_rows") != n_rows
+                or not isinstance(group.get("chrom"), str)):
+            raise LDSCInputError(message)
+        offset += n_rows
 
 
 def validate_ldscore_schemas(baseline_columns, query_columns, baseline_schema, query_schema):
@@ -361,8 +367,9 @@ def load_ldscore_from_dir(
     Raises
     ------
     LDSCInputError
-        The directory or root metadata is missing, or the manifest, identity,
-        count, or overlap contract is invalid.
+        The directory or root metadata is missing, the recorded baseline or
+        query row groups disagree with the Parquet files, or the manifest,
+        identity, count, or overlap contract is invalid.
     LDSCInternalError
         A declared baseline/query schema lacks required columns.
     ConfigMismatchError
@@ -398,6 +405,11 @@ def load_ldscore_from_dir(
             "Most likely the LD-score directory was written by an older LDSC3 version or edited by hand. "
             f"Regenerate it with the current `ldsc ldscore`. Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
         )
+    _validate_row_groups(
+        root / baseline_rel, metadata.get("baseline_row_groups"),
+        f"LD-score baseline file {baseline_rel} has inconsistent row-group metadata. Restore the complete "
+        "LD-score directory with metadata and data files from the same run, or regenerate it with ldsc ldscore.",
+    )
     baseline_table = pd.read_parquet(root / baseline_rel)
     baseline_columns = [str(column) for column in metadata.get("baseline_columns", [])]
     query_columns = [str(column) for column in metadata.get("query_columns", [])]

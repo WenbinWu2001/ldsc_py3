@@ -13,7 +13,7 @@ import pandas as pd
 from ldsc._core.snp_identity import IDENTITY_DROP_COLUMNS
 from ldsc._genome.liftover import LiftOverMappingResult
 from ldsc._sumstats.liftover import SumstatsLiftoverRequest, apply_sumstats_liftover, load_hm3_map_file
-from ldsc.errors import LDSCInputError, LDSCUsageError
+from ldsc.errors import LDSCInputError, LDSCInternalError
 
 
 class SumstatsLiftoverTest(unittest.TestCase):
@@ -96,7 +96,6 @@ class SumstatsLiftoverTest(unittest.TestCase):
                 frame,
                 request,
                 source_build="hg19",
-                snp_identifier="chr_pos",
                 hm3_map=load_hm3_map_file(path),
             )
 
@@ -125,7 +124,6 @@ class SumstatsLiftoverTest(unittest.TestCase):
                 frame,
                 request,
                 source_build="hg38",
-                snp_identifier="chr_pos",
                 hm3_map=load_hm3_map_file(path),
             )
 
@@ -158,7 +156,6 @@ class SumstatsLiftoverTest(unittest.TestCase):
                 frame,
                 request,
                 source_build="hg19",
-                snp_identifier="chr_pos",
             )
 
         self.assertEqual(lifted["SNP"].tolist(), ["rs1", "rs3"])
@@ -200,7 +197,6 @@ class SumstatsLiftoverTest(unittest.TestCase):
                     frame,
                     request,
                     source_build="hg19",
-                    snp_identifier="chr_pos",
                 )
 
         self.assertEqual(lifted["SNP"].tolist(), ["rs3"])
@@ -235,7 +231,6 @@ class SumstatsLiftoverTest(unittest.TestCase):
                 frame,
                 request,
                 source_build="hg19",
-                snp_identifier="chr_pos",
             )
 
         self.assertEqual(lifted["SNP"].tolist(), ["rs3"])
@@ -271,7 +266,6 @@ class SumstatsLiftoverTest(unittest.TestCase):
                 frame,
                 request,
                 source_build="hg19",
-                snp_identifier="chr_pos_allele_aware",
             )
 
         self.assertEqual(lifted["SNP"].tolist(), ["kept"])
@@ -305,7 +299,6 @@ class SumstatsLiftoverTest(unittest.TestCase):
                     frame,
                     request,
                     source_build="hg19",
-                    snp_identifier="chr_pos",
                     hm3_map=load_hm3_map_file(path),
                 )
 
@@ -362,7 +355,6 @@ class SumstatsLiftoverTest(unittest.TestCase):
                 frame,
                 request,
                 source_build="hg19",
-                snp_identifier="chr_pos",
             )
 
         self.assertEqual(lifted["SNP"].tolist(), ["kept"])
@@ -391,7 +383,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
             request = SumstatsLiftoverRequest(target_build="hg38", use_hm3_quick_liftover=True, hm3_map_file=path)
             missing = pd.DataFrame({"CHR": ["1"], "POS": [pd.NA], "SNP": ["rs1"], "Z": [1.0], "N": [100.0]})
             with self.assertRaises(LDSCInputError) as missing_ctx:
-                apply_sumstats_liftover(missing, request, source_build="hg19", snp_identifier="chr_pos",
+                apply_sumstats_liftover(missing, request, source_build="hg19",
                                         hm3_map=load_hm3_map_file(path))
             missing_message = str(missing_ctx.exception)
             self.assertIn("Summary-statistics liftover from hg19 to hg38 using hm3_curated dropped all rows", missing_message)
@@ -404,7 +396,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
 
             unmapped = pd.DataFrame({"CHR": ["1"], "POS": [999], "SNP": ["rs2"], "Z": [1.0], "N": [100.0]})
             with self.assertRaisesRegex(LDSCInputError, "dropped all rows"):
-                apply_sumstats_liftover(unmapped, request, source_build="hg19", snp_identifier="chr_pos",
+                apply_sumstats_liftover(unmapped, request, source_build="hg19",
                                         hm3_map=load_hm3_map_file(path))
 
             duplicate_source = pd.DataFrame(
@@ -417,7 +409,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
                 }
             )
             with self.assertRaisesRegex(LDSCInputError, "dropped all rows"):
-                apply_sumstats_liftover(duplicate_source, request, source_build="hg19", snp_identifier="chr_pos",
+                apply_sumstats_liftover(duplicate_source, request, source_build="hg19",
                                         hm3_map=load_hm3_map_file(path))
 
     def test_noop_liftover_metadata_schema(self):
@@ -428,7 +420,6 @@ class SumstatsLiftoverTest(unittest.TestCase):
             frame,
             request,
             source_build="hg38",
-            snp_identifier="chr_pos",
         )
 
         pd.testing.assert_frame_equal(lifted, frame)
@@ -455,7 +446,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
         self.assertEqual(len(drop_frame), 0)
         self.assertEqual({column: str(dtype) for column, dtype in drop_frame.dtypes.items()}, self.SIDEcar_DTYPES)
 
-    def test_noop_liftover_accepts_coordinate_family_mode(self):
+    def test_noop_liftover_for_matching_builds(self):
         frame = pd.DataFrame({"CHR": ["1"], "POS": [100], "SNP": ["rs1"], "Z": [1.0], "N": [100.0]})
         request = SumstatsLiftoverRequest(target_build="hg38")
 
@@ -463,24 +454,21 @@ class SumstatsLiftoverTest(unittest.TestCase):
             frame,
             request,
             source_build="hg38",
-            snp_identifier="chr_pos_allele_aware",
         )
 
         pd.testing.assert_frame_equal(lifted, frame)
         self.assertFalse(report["applied"])
         self.assertEqual(len(drop_frame), 0)
 
-    def test_liftover_rejects_rsid_family_mode(self):
+    def test_liftover_rejects_a_request_the_munging_plan_never_builds(self):
+        # The munging plan stops on different builds without a method before the kernel runs; a request built
+        # without the plan is an internal error, not a silent no-op.
         frame = pd.DataFrame({"CHR": ["1"], "POS": [100], "SNP": ["rs1"], "Z": [1.0], "N": [100.0]})
-        request = SumstatsLiftoverRequest(target_build="hg38")
-
-        with self.assertRaisesRegex(LDSCUsageError, "chr_pos-family"):
-            apply_sumstats_liftover(
-                frame,
-                request,
-                source_build="hg38",
-                snp_identifier="rsid_allele_aware",
-            )
+        for request, source in ((SumstatsLiftoverRequest(target_build="hg38"), "hg19"),
+                                (SumstatsLiftoverRequest(target_build="hg19", liftover_chain_file="chain.over"), "hg19")):
+            with self.subTest(target=request.target_build, method=request.method):
+                with self.assertRaisesRegex(LDSCInternalError, "without the munging plan"):
+                    apply_sumstats_liftover(frame, request, source_build=source)
 
 
 if __name__ == "__main__":

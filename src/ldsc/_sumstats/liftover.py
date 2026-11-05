@@ -12,7 +12,7 @@ are dropped in a fixed order (missing coordinates, source duplicate
 ``CHR``/``POS`` groups, unmapped and cross-chromosome positions, target
 duplicate groups); every dropped row enters the munging drop audit with its
 reason, and a liftover that drops every row stops the run. The munging
-workflow chooses the method; the chain translation, duplicate-coordinate
+plan chooses the method; the chain translation, duplicate-coordinate
 detection and readable drop reports are shared with reference-panel building
 in ``ldsc._genome.liftover``.
 """
@@ -23,19 +23,15 @@ from dataclasses import dataclass
 import logging
 from os import PathLike
 from typing import Any, Sequence
-import warnings
 
 import numpy as np
 import pandas as pd
 
-from .._core.columns import normalize_genome_build
 from .._core.coordinates import complete_coordinate_mask, normalize_chr_pos_frame
 from .._core.snp_identity import (
     coerce_identity_drop_frame,
     concat_identity_drop_frames,
     empty_identity_drop_frame,
-    identity_mode_family,
-    normalize_snp_identifier_mode,
 )
 from .._genome.hm3 import _load_hm3_curated_map_from_path
 from .._genome.liftover import (
@@ -45,7 +41,7 @@ from .._genome.liftover import (
     log_liftover_drop_report,
     mapping_reason_masks,
 )
-from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
+from ..errors import LDSCInputError, LDSCInternalError
 
 LOGGER = logging.getLogger("LDSC.sumstats_liftover")
 
@@ -57,7 +53,15 @@ _SUMSTATS_LIFTOVER_TROUBLESHOOTING = (
 
 @dataclass(frozen=True)
 class SumstatsLiftoverRequest:
-    """Resolved liftover request passed from the munger workflow into the kernel.
+    """Liftover request resolved by the munging plan and executed by the kernel.
+
+    ``ldsc._sumstats.munge_input.liftover_request`` builds it from a
+    ``MungeConfig``, which has already normalized and checked the output
+    build, so the request holds no option checks of its own. ``target_build``
+    is the output build (``None`` in rsID-family modes). A method is set only
+    when the resolved source build and the target differ: HM3 quick liftover
+    under the packaged HM3 restriction, otherwise the chain file, whose path
+    the munging plan resolves.
 
     ``hm3_map_file`` names the HM3 map file that HM3 quick liftover reads; it
     is provenance for the liftover report, because the positions come from the
@@ -67,49 +71,9 @@ class SumstatsLiftoverRequest:
     """
 
     target_build: str | None = None
-    liftover_chain_file: str | PathLike[str] | None = None
+    liftover_chain_file: str | None = None
     use_hm3_quick_liftover: bool = False
-    hm3_map_file: str | PathLike[str] | None = None
-
-    def __post_init__(self) -> None:
-        """Normalize build and path fields, then validate method-level shape."""
-        try:
-            target_build = normalize_genome_build(self.target_build)
-        except LDSCConfigError as exc:
-            raise LDSCConfigError(
-                f"Could not configure summary-statistics liftover: output_genome_build={self.target_build!r} is invalid. "
-                "Most likely the target build is misspelled or unsupported. "
-                "Use output_genome_build='hg19' or output_genome_build='hg38'."
-            ) from exc
-        if target_build == "auto":
-            raise LDSCUsageError(
-                "Could not configure summary-statistics liftover: output_genome_build='auto' is not a valid liftover target. "
-                "Most likely genome-build inference was requested where an explicit target build is required. "
-                "Use output_genome_build='hg19' or output_genome_build='hg38'."
-            )
-        if target_build is not None and target_build not in SUPPORTED_LIFTOVER_BUILDS:
-            raise LDSCConfigError(
-                f"Could not configure summary-statistics liftover: output_genome_build={target_build!r} is unsupported. "
-                "Most likely the requested target build is outside LDSC3 liftover support. "
-                "Use output_genome_build='hg19' or output_genome_build='hg38'."
-            )
-        chain_file = None if self.liftover_chain_file is None else str(self.liftover_chain_file)
-        hm3_map_file = None if self.hm3_map_file is None else str(self.hm3_map_file)
-        object.__setattr__(self, "target_build", target_build)
-        object.__setattr__(self, "liftover_chain_file", chain_file)
-        object.__setattr__(self, "hm3_map_file", hm3_map_file)
-        if chain_file is not None and self.use_hm3_quick_liftover:
-            raise LDSCUsageError(
-                "Could not configure summary-statistics liftover: liftover_chain_file and use_hm3_quick_liftover are mutually exclusive. "
-                "Most likely two liftover methods were selected for one run. "
-                "Choose either chain-file liftover or HM3 quick liftover, not both."
-            )
-        if self.method is not None and target_build is None:
-            raise LDSCUsageError(
-                "Could not configure summary-statistics liftover: output_genome_build is required when a liftover method is specified. "
-                "Most likely a method flag was set without the target build. "
-                "Set output_genome_build='hg19' or output_genome_build='hg38'."
-            )
+    hm3_map_file: str | None = None
 
     @property
     def method(self) -> str | None:
@@ -119,11 +83,6 @@ class SumstatsLiftoverRequest:
         if self.use_hm3_quick_liftover:
             return "hm3_curated"
         return None
-
-    @property
-    def requested(self) -> bool:
-        """Return whether any target or method flag was supplied."""
-        return self.target_build is not None or self.method is not None
 
 
 def default_liftover_metadata() -> dict[str, Any]:
@@ -195,16 +154,19 @@ def load_hm3_map_file(path: str | PathLike[str], *, alleles: bool = False) -> pd
 
 def apply_sumstats_liftover(
     frame: pd.DataFrame,
-    request: SumstatsLiftoverRequest | None,
+    request: SumstatsLiftoverRequest,
     *,
     source_build: str | None,
-    snp_identifier: str,
     hm3_map: pd.DataFrame | None = None,
     logger: logging.Logger | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any], pd.DataFrame]:
     """Apply a summary-statistics liftover request and return metadata plus drops.
 
-    Liftover is meaningful only in coordinate-family modes. The munger drops
+    ``request`` comes from the munging plan, which has already stopped on
+    every option problem: a request without a method is a no-op (rsID-family
+    modes, or matching source and output builds), and a request with a method
+    lifts between hg19 and hg38. ``source_build`` is the resolved source
+    build. The munger drops
     missing coordinates, source duplicate ``CHR/POS`` groups, unmapped/cross-
     chromosome chain hits, and target duplicate ``CHR/POS`` groups only when a
     liftover request reaches the mapping stage. It updates ``CHR``/``POS`` but
@@ -217,41 +179,11 @@ def apply_sumstats_liftover(
     derives the packaged keep-list from the same frame.
     """
     logger = LOGGER if logger is None else logger
-    request = request or SumstatsLiftoverRequest()
-    mode = normalize_snp_identifier_mode(snp_identifier)
-    source = normalize_genome_build(source_build)
-    if request.requested and identity_mode_family(mode) != "chr_pos":
-        raise LDSCUsageError(
-            f"Cannot apply summary-statistics liftover with snp_identifier={mode!r}: liftover is only valid for chr_pos-family modes. "
-            "Most likely liftover was requested for rsID-only summary statistics. "
-            "Use chr_pos or chr_pos_allele_aware identifiers, or omit liftover for rsID-family inputs."
-        )
-    if not request.requested:
-        return frame, default_liftover_metadata(), empty_identity_drop_frame()
-    if source not in SUPPORTED_LIFTOVER_BUILDS:
-        raise LDSCUsageError(
-            "Cannot apply summary-statistics liftover: the source genome build is unresolved. "
-            "Most likely source genome-build inference was skipped or had insufficient coordinate evidence. "
-            "Use --source-genome-build hg19/hg38 or --source-genome-build auto with inferable coordinates."
-        )
-    if request.target_build == source:
-        if request.method is not None:
-            message = (
-                "A summary-statistics liftover method was specified, but output_genome_build "
-                "equals the resolved source genome build; the liftover method will be ignored."
-            )
-            warnings.warn(message, UserWarning, stacklevel=2)
-            logger.warning(message)
-        return frame, default_liftover_metadata(), empty_identity_drop_frame()
+    source = source_build
+    _require_resolved_request(request, source)
     if request.method is None:
-        raise LDSCUsageError(
-            f"Cannot apply summary-statistics liftover from {source} to {request.target_build}: no liftover method was specified. "
-            "Most likely the target build differs from the source build but neither a chain file nor HM3 quick liftover was selected. "
-            "Provide --liftover-chain-file for custom-list or unrestricted SNPs. "
-            "The public munge-sumstats workflow selects quick liftover automatically under packaged HM3 restriction."
-        )
+        return frame, default_liftover_metadata(), empty_identity_drop_frame()
 
-    _require_supported_pair(source, request.target_build)
     missing_mask = ~complete_coordinate_mask(frame)
     missing_drop_frame = _liftover_drop_frame(
         frame,
@@ -376,19 +308,15 @@ def apply_sumstats_liftover(
     return lifted, report, drop_frame
 
 
-def _require_supported_pair(source_build: str, target_build: str | None) -> None:
-    """Raise for unsupported build pairs before applying a method."""
-    if source_build not in SUPPORTED_LIFTOVER_BUILDS or target_build not in SUPPORTED_LIFTOVER_BUILDS:
-        raise LDSCUsageError(
-            f"Cannot apply summary-statistics liftover from {source_build!r} to {target_build!r}: only hg19 and hg38 are supported. "
-            "Most likely an unsupported source or target build was requested. "
-            "Use hg19/hg38 or a workflow-specific chain liftover path that supports the requested pair."
-        )
-    if source_build == target_build:
+def _require_resolved_request(request: SumstatsLiftoverRequest, source_build: str | None) -> None:
+    """Assert the shape the munging plan gives a request: a method exactly when hg19 and hg38 differ."""
+    lifts = {source_build, request.target_build} == SUPPORTED_LIFTOVER_BUILDS
+    if lifts != (request.method is not None):
         raise LDSCInternalError(
-            f"Cannot apply summary-statistics liftover from {source_build} to {target_build}: source and target builds are identical. "
-            "Most likely an internal caller failed to short-circuit a no-op liftover. "
-            "Return no-op liftover metadata before calling the mapping stage."
+            f"Cannot apply summary-statistics liftover from {source_build!r} to {request.target_build!r} "
+            f"with method {request.method!r}: a method must be set exactly when the builds are hg19 and hg38 and differ. "
+            "Most likely an internal caller built the request without the munging plan. "
+            "Build the request with ldsc._sumstats.munge_input.liftover_request() after resolving the source build."
         )
 
 

@@ -861,8 +861,7 @@ def munge_sumstats(request: ResolvedMungeInput) -> MungeResult:
         del dat['SIGNED_SUMSTAT']
     n_before = len(dat)
     dat, liftover_report, liftover_drop_frame = apply_sumstats_liftover(
-        dat, request.liftover_request, source_build=request.genome_build,
-        snp_identifier=request.snp_identifier, hm3_map=request.hm3_map, logger=LOGGER,
+        dat, request.liftover_request, source_build=request.genome_build, hm3_map=request.hm3_map, logger=LOGGER,
     )
     parsed.drop_counts['liftover'] = n_before - len(dat)
     cleanup = clean_identity_artifact_table(

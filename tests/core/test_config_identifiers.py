@@ -738,7 +738,6 @@ def test_open_text_reads_utf8_and_any_case_gzip_suffix(tmp_path):
 
 def _bad_config_cases():
     from ldsc.config import GlobalConfig, MungeConfig, R2MatrixBuildConfig
-    from ldsc._sumstats.liftover import SumstatsLiftoverRequest
 
     return [
         (lambda: GlobalConfig(snp_identifier="rsidd"),
@@ -751,8 +750,6 @@ def _bad_config_cases():
          "Could not construct MungeConfig: source_genome_build='hg99' is invalid."),
         (lambda: MungeConfig(source_genome_build="hg19", output_genome_build="hg99"),
          "Could not construct MungeConfig: output_genome_build='hg99' is invalid."),
-        (lambda: SumstatsLiftoverRequest(target_build="hg99"),
-         "Could not configure summary-statistics liftover: output_genome_build='hg99' is invalid."),
     ]
 
 

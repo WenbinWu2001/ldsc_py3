@@ -145,7 +145,7 @@ def test_public_calculation_uses_panel_maf_filter_for_aligned_annotations(tmp_pa
     )
     assert result.baseline_table["SNP"].tolist() == ["rs3"]
     np.testing.assert_allclose(result.baseline_table[["base", "regression_ld_scores"]], [[3.0, 1.0]])
-    assert result.count_records[0]["common_reference_snp_count"] == 3.0
+    np.testing.assert_array_equal(result.snp_count_totals["common_reference_snp_counts"], [3.0])
 
 
 def test_public_run_fails_when_the_grid_misses_a_whole_chromosome(tmp_path):

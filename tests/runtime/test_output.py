@@ -401,6 +401,32 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             self.assertIsNotNone(metadata["baseline_row_groups"])
             self.assertEqual(len(metadata["baseline_row_groups"]), 1)
 
+    def test_chromosome_above_default_row_group_cap_is_one_row_group(self):
+        # pyarrow caps a written row group at 1,048,576 rows unless told
+        # otherwise; a larger chromosome must still be one recorded group.
+        import pyarrow.parquet as pq
+
+        sizes = {"1": 1_100_000, "2": 10}
+        chrom = np.repeat(list(sizes), list(sizes.values()))
+        frame = pd.DataFrame({"CHR": chrom, "SNP": [f"rs{index}" for index in range(len(chrom))],
+                              "POS": np.concatenate([np.arange(1, size + 1) for size in sizes.values()])})
+        result = LDScoreResult(
+            baseline_table=frame.assign(regression_ld_scores=1.0, base=1.0),
+            query_table=frame.assign(query=0.5), count_records=[], baseline_columns=["base"],
+            query_columns=["query"], config_snapshot=GlobalConfig(genome_build="hg38", snp_identifier="rsid"),
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "out"
+            LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
+
+            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+            for fname, recorded in (("ldscore.baseline.parquet", metadata["baseline_row_groups"]),
+                                    ("ldscore.query.parquet", metadata["query_row_groups"])):
+                footer = pq.read_metadata(output_dir / fname)
+                physical = [footer.row_group(index).num_rows for index in range(footer.num_row_groups)]
+                self.assertEqual(physical, list(sizes.values()), fname)
+                self.assertEqual([(group["chrom"], group["n_rows"]) for group in recorded], list(sizes.items()), fname)
+
     def test_omits_query_parquet_for_baseline_only_result(self):
         result = make_split_ldscore_result(query=False)
         writer = LDScoreDirectoryWriter()

@@ -12,7 +12,6 @@ descriptors survive between batches.
 
 from __future__ import annotations
 
-from contextlib import ExitStack
 import json
 import os
 from dataclasses import dataclass, field, replace
@@ -71,6 +70,40 @@ def _cast_parquet_floats(df: pd.DataFrame) -> pd.DataFrame:
     return df.astype({c: np.float32 for c in float64_cols}, copy=False) if float64_cols else df
 
 
+class _ChromosomeRowGroups:
+    """Append one Parquet row group per chromosome and record each group's manifest entry.
+
+    ``append`` narrows float64 columns through ``_cast_parquet_floats`` and
+    writes the frame, which holds one chromosome's rows in public order, as
+    exactly one row group: pyarrow would otherwise split a table above its
+    default cap of 1,048,576 rows into several groups that ``row_groups``
+    does not describe. With ``schema`` the file opens immediately with that
+    schema; without it the file opens with the first appended frame's schema.
+    """
+
+    def __init__(self, path: Path, compression: str | None, schema: pa.Schema | None = None):
+        self.path, self.compression = path, compression
+        self.row_groups: list[dict] = []
+        self.n_rows = 0
+        self._writer = None if schema is None else pq.ParquetWriter(path, schema, compression=compression)
+
+    def append(self, frame: pd.DataFrame) -> None:
+        table = pa.Table.from_pandas(_cast_parquet_floats(frame), preserve_index=False)
+        if self._writer is None:
+            self._writer = pq.ParquetWriter(self.path, table.schema, compression=self.compression)
+        self._writer.write_table(table, row_group_size=len(frame))
+        self.row_groups.append({"chrom": str(frame.CHR.iloc[0]), "row_group_index": len(self.row_groups),
+                                "row_offset": self.n_rows, "n_rows": len(frame)})
+        self.n_rows += len(frame)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        if self._writer is not None:
+            self._writer.close()
+
+
 def _write_chromosome_aligned_parquet(
     df: pd.DataFrame, path: Path, compression: str | None
 ) -> list[dict]:
@@ -83,22 +116,10 @@ def _write_chromosome_aligned_parquet(
     schema construction.
     """
     df = _cast_parquet_floats(df)
-    schema = pa.Schema.from_pandas(df, preserve_index=False)
-    row_group_meta: list[dict] = []
-    offset = 0
-    with pq.ParquetWriter(path, schema, compression=compression) as writer:
-        for chrom, chrom_df in df.groupby("CHR", sort=False):
-            writer.write_table(pa.Table.from_pandas(chrom_df, preserve_index=False))
-            row_group_meta.append(
-                {
-                    "chrom": str(chrom),
-                    "row_group_index": len(row_group_meta),
-                    "row_offset": offset,
-                    "n_rows": len(chrom_df),
-                }
-            )
-            offset += len(chrom_df)
-    return row_group_meta
+    with _ChromosomeRowGroups(path, compression, pa.Schema.from_pandas(df, preserve_index=False)) as groups:
+        for _, chrom_df in df.groupby("CHR", sort=False):
+            groups.append(chrom_df)
+    return groups.row_groups
 
 
 def _write_query_fragments(result: StagedLDScoreBatch, baseline_table: pd.DataFrame, path: Path, compression):
@@ -112,29 +133,20 @@ def _write_query_fragments(result: StagedLDScoreBatch, baseline_table: pd.DataFr
     """
     identity = [name for name in ("CHR", "SNP", "POS", "A1", "A2") if name in baseline_table]
     columns = [*identity, *result.query_columns]
-    row_groups, offset = [], 0
-    parquet_writer = None
-    with ExitStack() as stack:
+    with _ChromosomeRowGroups(path, compression) as groups:
         for fragment in result.query_fragments:
             frame = pd.read_parquet(fragment, columns=columns, use_threads=False)
+            offset = groups.n_rows
             _require_baseline_rows(baseline_table.iloc[offset:offset + len(frame)], frame, identity, offset)
             if not frame.empty:
                 if frame.CHR.astype(str).nunique() != 1:
                     raise LDSCInternalError("A query fragment must contain exactly one chromosome.")
-                narrowed = _cast_parquet_floats(frame)
-                table = pa.Table.from_pandas(narrowed, preserve_index=False)
-                if parquet_writer is None:
-                    parquet_writer = stack.enter_context(pq.ParquetWriter(path, table.schema, compression=compression))
-                parquet_writer.write_table(table, row_group_size=len(frame))
-                row_groups.append({"chrom": str(frame.CHR.iloc[0]), "row_group_index": len(row_groups),
-                                   "row_offset": offset, "n_rows": len(frame)})
-                offset += len(frame)
-                del table, narrowed
+                groups.append(frame)
             del frame
             fragment.unlink()
-    if offset != len(baseline_table):
+    if groups.n_rows != len(baseline_table):
         raise LDSCInternalError("Query fragments do not cover every baseline SNP row.")
-    return row_groups
+    return groups.row_groups
 
 
 def _require_baseline_rows(baseline: pd.DataFrame, frame: pd.DataFrame, identity: list[str], offset: int) -> None:

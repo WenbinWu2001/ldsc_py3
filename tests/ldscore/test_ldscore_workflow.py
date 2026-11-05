@@ -594,7 +594,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(result.count_records[0]["all_reference_snp_count"], 30.0)
         self.assertEqual(result.count_records[1]["common_reference_snp_count"], 30.0)
 
-    def test_finalize_query_statuses_prunes_zero_hit_and_zero_variance_queries(self):
+    def test_finalize_batch_prunes_zero_hit_and_zero_variance_queries_from_a_materialized_result(self):
         metadata = pd.DataFrame({"CHR": ["1", "1"], "SNP": ["rs1", "rs2"], "POS": [10, 20]})
         result = LDScoreResult(
             baseline_table=metadata.assign(regression_ld_scores=[1.0, 1.5], base=[1.0, 1.0]),
@@ -608,6 +608,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             baseline_columns=["base"],
             query_columns=["q_zero", "q_constant", "q_good"],
             config_snapshot=GlobalConfig(snp_identifier="rsid"),
+            annotation_types={"base": "binary", "q_zero": "binary", "q_constant": "binary", "q_good": "quantitative"},
         )
         statuses = (
             QueryAnnotationStatus("q_zero", "zero.bed", "bed", "ok"),
@@ -616,13 +617,14 @@ class LDScoreWorkflowTest(unittest.TestCase):
             QueryAnnotationStatus("q_bad", "bad.bed", "bed", "skipped", "malformed_input"),
         )
 
-        from ldsc._annotation.query_outcomes import finalize_query_statuses
+        from ldsc._ldscore.batch_execution import finalize_batch
 
-        finalized = finalize_query_statuses(result, statuses)
+        finalized = finalize_batch(result, statuses, ())
 
         self.assertEqual(finalized.query_columns, ["q_good"])
         self.assertEqual(finalized.query_table.columns.tolist(), ["CHR", "SNP", "POS", "q_good"])
         self.assertEqual([record["column"] for record in finalized.count_records], ["base", "q_good"])
+        self.assertEqual(finalized.annotation_types, {"base": "binary", "q_good": "quantitative"})
         self.assertEqual(
             [(row.query, row.status, row.reason, row.n_annotation_snps) for row in finalized.query_statuses],
             [

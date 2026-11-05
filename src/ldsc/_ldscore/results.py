@@ -12,9 +12,9 @@ belong to the LD-score producers (``_ldscore.direct_batches``,
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Sequence
 
 import numpy as np
 import pandas as pd
@@ -30,6 +30,24 @@ if TYPE_CHECKING:
     from ..config import GlobalConfig
     from .overlap_table import LDScoreOverlap
     from .query_variation import ScoreVariation
+
+
+def _query_selection(record, retained: Sequence[str]) -> dict[str, Any]:
+    """Return the query-dependent fields of ``record`` restricted to ``retained`` queries.
+
+    Count records, overlap blocks and annotation types of dropped queries go;
+    baseline entries stay. Shared by ``LDScoreResult`` and
+    ``StagedLDScoreBatch``.
+    """
+    retained = list(retained)
+    kept = {*record.baseline_columns, *retained}
+    return dict(
+        query_columns=retained,
+        count_records=[entry for entry in record.count_records
+                       if entry["group"] != "query" or entry["column"] in retained],
+        overlap=None if record.overlap is None else record.overlap.select_queries(retained),
+        annotation_types={name: kind for name, kind in record.annotation_types.items() if name in kept},
+    )
 
 
 @dataclass(frozen=True)
@@ -178,6 +196,21 @@ class LDScoreResult:
                 snp_identifier=getattr(self.config_snapshot, "snp_identifier", "chr_pos_allele_aware"),
             )
 
+    def select_queries(self, retained: Sequence[str]) -> "LDScoreResult":
+        """Return this result restricted to the ``retained`` queries, in their order.
+
+        The query table keeps its SNP metadata and the retained columns, and
+        becomes ``None`` when no query is retained; count records, overlap and
+        annotation types follow the query columns. The baseline is unchanged.
+        """
+        query_table = None
+        if retained:
+            metadata = [column for column in self.query_table.columns if column not in self.query_columns]
+            query_table = self.query_table.loc[:, [*metadata, *retained]].copy()
+        selected = replace(self, query_table=query_table, **_query_selection(self, retained))
+        selected.validate()
+        return selected
+
     def read_queries(self, columns):
         """Select named queries from this materialized result without file I/O.
 
@@ -262,3 +295,11 @@ class StagedLDScoreBatch:
     ld_window: dict | None = None
     ld_window_snp_counts: pd.DataFrame | None = None
     reference_snp_funnel: pd.DataFrame | None = None
+
+    def select_queries(self, retained: Sequence[str]) -> "StagedLDScoreBatch":
+        """Return this batch restricted to the ``retained`` queries, in their order.
+
+        Fragments keep every computed query; the writer reads only the
+        retained ``query_columns``.
+        """
+        return replace(self, **_query_selection(self, retained))

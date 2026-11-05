@@ -20,11 +20,11 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, ContextManager, Iterator, Protocol, Sequence
 
-from .._annotation.query_outcomes import finalize_query_measurements, finalize_query_statuses
+from .._annotation.query_outcomes import finalize_query_measurements
 from .._runtime.parallelism import run_chromosome_tasks
 from .._runtime.progress import PhaseProgress
 from .diagnostics import report_chromosome_failure
-from .results import StagedLDScoreBatch
+from .results import LDScoreResult, StagedLDScoreBatch
 from .query_variation import ScoreVariation, combine_variation
 
 
@@ -114,28 +114,24 @@ def run_query_batches(producer: LDScoreProducer, query_columns: Sequence[str], s
             progress.completed = len(columns)
 
 
-def finalize_batch(staged, statuses: tuple, variation: Sequence[ScoreVariation]):
+def finalize_batch(staged: StagedLDScoreBatch | LDScoreResult, statuses: tuple,
+                   variation: Sequence[ScoreVariation]) -> StagedLDScoreBatch | LDScoreResult:
     """Apply final query statuses from genome-wide counts and score variation.
 
-    Queries with no annotation SNPs or constant LD scores are dropped from the
-    batch's columns, count records, overlap, and annotation types. A batch
-    without query statuses (prebuilt query annotations) is returned unchanged.
-    A materialized ``LDScoreResult``, from the no-output direct path, is
-    finalized from its own query table and needs no ``variation``.
+    Queries with no annotation SNPs or constant LD scores are dropped through
+    the record's ``select_queries``. A batch without query statuses (prebuilt
+    query annotations) is returned unchanged. A materialized ``LDScoreResult``,
+    from the no-output direct path, is checked on its own query table and
+    needs no ``variation``.
     """
     if not statuses:
         return staged
-    if not isinstance(staged, StagedLDScoreBatch):
-        return finalize_query_statuses(staged, statuses)
-    varying = dict(zip(staged.query_columns, combine_variation(variation, len(staged.query_columns)), strict=True))
+    if isinstance(staged, StagedLDScoreBatch):
+        flags = combine_variation(variation, len(staged.query_columns))
+    else:
+        flags = [staged.query_table[name].nunique(dropna=False) > 1 for name in staged.query_columns]
+    varying = dict(zip(staged.query_columns, flags, strict=True))
     counts = {record["column"]: float(record["all_reference_snp_count"])
               for record in staged.count_records if record["group"] == "query"}
     finalized, retained = finalize_query_measurements(statuses, counts, varying)
-    kept = {*staged.baseline_columns, *retained}
-    return replace(
-        staged, query_columns=retained, query_statuses=finalized,
-        count_records=[record for record in staged.count_records
-                       if record["group"] != "query" or record["column"] in retained],
-        overlap=None if staged.overlap is None else staged.overlap.select_queries(retained),
-        annotation_types={name: kind for name, kind in staged.annotation_types.items() if name in kept},
-    )
+    return replace(staged.select_queries(retained), query_statuses=finalized)

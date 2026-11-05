@@ -1,8 +1,9 @@
-"""Shared gene-query coverage, viability, and aligned result finalization.
+"""Shared gene-query coverage, viability, and query-status finalization.
 
 Resolution selects canonical intervals; backend adapters measure SNP support.
 This module applies the same query/control policy to both direct and indexed
-measurements, and prunes scientific columns with their counts and provenance.
+measurements and decides each query's final status from its counts and score
+variation; the LD-score result records drop the skipped queries themselves.
 It does not load reference artifacts or implement numerical LD-score kernels.
 """
 
@@ -179,52 +180,6 @@ def finalize_query_measurements(statuses, count_by_column, varying):
         finalized.append(status.updated(n_annotation_snps=count))
         retained_queries.append(status.query)
     return tuple(finalized), retained_queries
-
-
-def finalize_query_statuses(
-    result: Any,
-    statuses: Sequence[QueryAnnotationStatus],
-) -> Any:
-    """Attach final counts and prune zero-hit or constant query LD scores."""
-    if not statuses:
-        return result
-    count_by_column = {
-        str(record["column"]): float(record["all_reference_snp_count"])
-        for record in result.count_records
-        if record.get("group") == "query"
-    }
-    varying = {} if result.query_table is None else {
-        status.query: (count_by_column[status.query] > 0 and
-                       pd.to_numeric(result.query_table[status.query], errors="coerce").nunique(dropna=False) > 1)
-        for status in statuses if status.status in {"ok", "warning"} and status.query in count_by_column
-    }
-    finalized, retained_queries = finalize_query_measurements(statuses, count_by_column, varying)
-
-    original_queries = list(result.query_columns)
-    query_table = None
-    if retained_queries:
-        metadata_columns = [column for column in result.query_table.columns if column not in original_queries]
-        query_table = result.query_table.loc[:, [*metadata_columns, *retained_queries]].copy()
-    count_records = [
-        record
-        for record in result.count_records
-        if record.get("group") != "query" or record.get("column") in retained_queries
-    ]
-    overlap = result.overlap
-    if overlap is not None:
-        overlap = overlap.select_queries(retained_queries)
-    finalized_result = replace(
-        result,
-        query_table=query_table,
-        query_columns=retained_queries,
-        count_records=count_records,
-        overlap=overlap,
-        query_statuses=tuple(finalized),
-        annotation_types={name: kind for name, kind in result.annotation_types.items()
-                          if name in [*result.baseline_columns, *retained_queries]},
-    )
-    finalized_result.validate()
-    return finalized_result
 
 
 def log_gene_catalog_issues(issues: pd.DataFrame) -> None:

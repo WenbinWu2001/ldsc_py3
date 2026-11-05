@@ -1960,7 +1960,20 @@ def run_ldscore(**kwargs) -> "LDScoreSource":
         ``control_gene_list_file`` or ``gene_list_resolution_policy``
         without gene lists is rejected.
     LDSCConfigError
-        Before anything is written, when a value is outside its valid range.
+        Before anything is written, when a value is outside its valid range,
+        except ``query_batch_size`` in indexed mode.
+    ValueError
+        Before anything is written, in indexed mode, when ``query_batch_size``
+        is not a positive integer.
+    LDSCInputError
+        Before anything is written, in indexed mode, when a direct-run option
+        such as ``maf_min`` is passed (the index supplies it) or
+        ``query_annot_gene_list_sources`` is missing. After the output
+        preflight, when an input is missing, unreadable or inconsistent with
+        the others.
+    FileExistsError
+        Before anything is written, when owned outputs exist and ``overwrite``
+        is not ``True``.
     """
     from .._runtime.workflow_kwargs import GLOBAL_CONFIG_RUNTIME_OPTIONS, namespace_from_kwargs
 

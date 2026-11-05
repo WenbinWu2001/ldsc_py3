@@ -399,7 +399,7 @@ def run_indexed_ldscore(
     workers: int = 1,
     output_dir: str | Path,
     overwrite: bool = False,
-    main_log: str | Path | None = None,
+    main_log_open: bool = False,
 ):
     """Assemble exact gene-list LD scores from one explicit index directory.
 
@@ -445,10 +445,10 @@ def run_indexed_ldscore(
         User and environment tokens are expanded for both scratch and results.
     overwrite : bool, optional
         Replace workflow-owned output artifacts. Default is ``False``.
-    main_log : path-like or None, optional
-        The calling command's open ``diagnostics/ldscore.log``, whose output
-        preflight already ran. Default ``None``: this function preflights its
-        outputs and opens that log while chromosomes are computed.
+    main_log_open : bool, optional
+        ``True`` when the calling command already preflighted the outputs and
+        opened ``diagnostics/ldscore.log``. Default ``False``: this function
+        opens that log itself while chromosomes are computed.
 
     Returns
     -------
@@ -500,14 +500,14 @@ def run_indexed_ldscore(
             control_gene_list_file=control_gene_list_file,
             gene_list_resolution_policy=gene_list_resolution_policy,
             query_batch_size=query_batch_size, workers=workers, output_dir=output_dir,
-            overwrite=overwrite, workspace=workspace, main_log=main_log,
+            overwrite=overwrite, workspace=workspace, main_log_open=main_log_open,
         )
 
 
 def _run_indexed_ldscore_in_workspace(
     index_dir, *, query_gene_list_sources, control_gene_list_file,
     gene_list_resolution_policy, query_batch_size, workers, output_dir, overwrite,
-    workspace, main_log=None,
+    workspace, main_log_open=False,
 ):
     """Own staged gene selections until the canonical result has been written."""
     try:
@@ -575,7 +575,8 @@ def _run_indexed_ldscore_in_workspace(
     from .batches import indexed_results
 
     with ldscore_logs(output_dir, index.chromosomes, overwrite=overwrite,
-                      log_level=logging.getLevelName(LOGGER.getEffectiveLevel()), main_log=main_log) as log_paths:
+                      log_level=logging.getLevelName(LOGGER.getEffectiveLevel()),
+                      main_log_open=main_log_open) as log_paths:
         results = indexed_results(index, batch, usable, control_resolution, query_batch_size,
                                   workspace.path, workers, statuses, scope, log_paths)
         result = LDScoreDirectoryWriter().write_batches(

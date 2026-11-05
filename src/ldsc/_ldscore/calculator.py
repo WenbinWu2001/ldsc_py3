@@ -357,10 +357,10 @@ class _RunContext:
         The run's SNP identity, genome build and log level.
     ref_panel : RefPanel
         The reference-panel adapter, built with ``global_config``.
-    log_path : Path or None
-        The open workflow log ``diagnostics/ldscore.log``, whose output
-        preflight already ran; ``None`` when the calculation preflights its
-        outputs and opens the log itself.
+    main_log_open : bool
+        The outputs were preflighted and the workflow log
+        ``diagnostics/ldscore.log`` is open; otherwise the calculation does
+        both itself.
     build_resolved : bool
         The genome build in ``global_config`` and ``ref_panel`` was resolved
         against every input.
@@ -370,7 +370,7 @@ class _RunContext:
 
     global_config: GlobalConfig
     ref_panel: Any
-    log_path: Path | None = None
+    main_log_open: bool = False
     build_resolved: bool = False
     reference_checked: bool = False
 
@@ -514,7 +514,7 @@ class LDScoreCalculator:
             output_dir = None if output_config is None else output_config.output_dir
             log_paths = stack.enter_context(ldscore_logs(
                 output_dir, chromosomes, overwrite=bool(output_config and output_config.overwrite),
-                log_level=global_config.log_level, main_log=context.log_path))
+                log_level=global_config.log_level, main_log_open=context.main_log_open))
             worker_count = resolve_worker_count(ldscore_config.workers, len(chromosomes))
             export_root = (stack.enter_context(TemporaryDirectory(prefix=".ldsc-ref-", dir=output_dir))
                            if ldscore_config.export_ref_metadata else None)
@@ -1622,7 +1622,7 @@ def _run_direct_ldscore(configs: _DirectConfigs) -> "LDScoreSource":
             if statuses and not annotation_bundle.query_columns:
                 fail_unusable_queries(_bundle_diagnostics(annotation_bundle),
                                       all_query_annotations_skipped_message(statuses), output_config)
-            context = _RunContext(global_config, ref_panel, log_path=log_path, build_resolved=True,
+            context = _RunContext(global_config, ref_panel, main_log_open=True, build_resolved=True,
                                   reference_checked=True)
             result = LDScoreCalculator()._run(annotation_bundle, ldscore_config, output_config=output_config,
                 regression_snps=regression_snps, regression_regions=regression_regions, context=context,
@@ -1745,7 +1745,7 @@ def _run_explicit_indexed_ldscore(configs: _IndexedConfigs) -> "LDScoreSource":
             workers=configs.workers,
             output_dir=str(output_dir),
             overwrite=configs.overwrite,
-            main_log=log_path,
+            main_log_open=True,
         )
         if configs.emit_console_notices:
             emit_gene_gate_b_notice(

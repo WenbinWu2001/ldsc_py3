@@ -1912,7 +1912,7 @@ def test_explicit_indexed_mode_dispatches_without_live_reference(monkeypatch, tm
         "workers": 1,
         "output_dir": str(tmp_path / "out"),
         "overwrite": True,
-        "main_log": tmp_path / "out/diagnostics/ldscore.log",
+        "main_log_open": True,
     }
 
 

@@ -25,18 +25,18 @@ LOGGER = logging.getLogger("LDSC.ldscore")
 
 
 @contextmanager
-def ldscore_logs(output_dir, chromosomes, *, overwrite=False, log_level="INFO", main_log=None):
+def ldscore_logs(output_dir, chromosomes, *, overwrite=False, log_level="INFO", main_log_open=False):
     """Preflight/reset owned logs once per run; chromosome tasks append later.
 
-    ``main_log`` is the calling command's open ``diagnostics/ldscore.log``,
-    whose output preflight already ran. Without it, this preflights the
-    owned outputs and opens that log for the duration of the block.
+    ``main_log_open=True`` says the calling command already preflighted the
+    owned outputs and opened ``diagnostics/ldscore.log``. Otherwise this does
+    both, and the log stays open for the duration of the block.
     """
     if output_dir is None:
         yield {}
         return
     root = Path(output_dir)
-    if main_log is None:
+    if not main_log_open:
         LDScoreDirectoryWriter.artifact_family(root, include_logs=True).preflight(overwrite=overwrite)
     directory = root / CHROMOSOME_LOG_DIR
     directory.mkdir(parents=True, exist_ok=True)
@@ -46,8 +46,8 @@ def ldscore_logs(output_dir, chromosomes, *, overwrite=False, log_level="INFO", 
     paths = {chrom: directory / f"chr{chrom}.log" for chrom in chromosomes}
     for path in paths.values():
         path.touch(exist_ok=False)
-    with (nullcontext() if main_log is not None else workflow_logging("ldscore", root / LDSCORE_LOG,
-                                                                      log_level=log_level)):
+    with (nullcontext() if main_log_open else workflow_logging("ldscore", root / LDSCORE_LOG,
+                                                               log_level=log_level)):
         for chrom, path in paths.items():
             LOGGER.info("Chromosome %s diagnostic log: %s", chrom, path)
         yield paths

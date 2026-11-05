@@ -428,7 +428,8 @@ class _DirectProducer:
         self.chromosomes = list(annotation_bundle.chromosomes)
         # Tasks use the panel rebuilt once with the run's configuration, which
         # carries the resolved build; its PLINK chromosome prefixes are
-        # resolved here rather than in every task.
+        # resolved here, and its SNP restriction and keep list at the first
+        # submission, rather than in every task.
         self.task_panel = _ref_panel_from_config(
             ref_panel.spec, global_config,
             chromosome_prefixes=ref_panel._resolved_prefixes() if isinstance(ref_panel, PlinkRefPanel) else None)
@@ -462,6 +463,7 @@ class _DirectProducer:
         batches compute their query scores and statistics alone.
         """
         first = batch.ordinal == 0
+        self.task_panel._resolve_run_inputs()  # read once in this process; each task's copy carries them
         return pool.submit(_compute_one_chromosome, chrom, _slice_annotation_bundle(batch.bundle, chrom),
                            self.task_panel, self.ldscore_config, self.global_config,
                            include_baseline=first or batch.fragment_dir is None, fragment_dir=batch.fragment_dir,

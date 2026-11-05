@@ -154,6 +154,10 @@ refused unless `--overwrite` or `R2MatrixBuildConfig(overwrite=True)` is
 supplied; unrelated files in the output directory are left untouched. With
 overwrite enabled, stale owned artifacts inside the current package that were
 not produced by the successful run are removed.
+Each chromosome's SNPs and kept individuals come from
+`_refpanel.plink_source.select_plink_chromosome()`, the selection stage that
+`ldscore --plink-prefix` and gene-index builds also use; liftover and
+duplicate-position filtering then run on the rows it returns.
 Reference-panel liftover is coordinate behavior: chain-file liftover is valid
 only when the active SNP identifier mode is in the `chr_pos` family; there is
 no HM3 quick liftover for reference panels.
@@ -226,7 +230,7 @@ See [allele orientation](../reference/formats/column-schema.md#allele-orientatio
 ### Modules used
 
 - Preprocessing: `ldsc.config`, `ldsc._runtime.paths`
-- Workflow: `ldsc._refpanel.builder`
+- Workflow: `ldsc._refpanel.builder`, with PLINK chromosome selection in `ldsc._refpanel.plink_source`
 - Kernel: `ldsc._refpanel.build_kernel`, `ldsc._ldscore.compute`, `ldsc._core.plink_files`
 - Postprocessing: parquet and TSV writers in the kernel
 

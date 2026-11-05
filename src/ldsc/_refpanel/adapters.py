@@ -23,10 +23,10 @@ from ..config import GlobalConfig, LDScoreConfig, RefPanelConfig, validate_confi
 from ..errors import EmptyReferenceSNPs, LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from .._genome.build_inference import resolve_genome_build, validate_auto_genome_build_mode
 from .._runtime.paths import inspect_plink_inputs, split_cli_path_tokens
-from .._core import plink_files as legacy_parse
 from .._core.identifiers import identifier_keys, validate_retained_identifier_uniqueness
 from .funnel import ANNOTATION_SNP_GRID, REFERENCE_PANEL, ReferenceSNPFunnel
 from .plink import PlinkBEDFile
+from .plink_source import PlinkChromosomeSource, read_keep_individuals, select_plink_chromosome
 from .prepared import ChromosomeAnnotations, PreparedChromosome
 from .r2_format import (
     R2_MATRIX_TROUBLESHOOTING,
@@ -49,7 +49,7 @@ from .._core.identifiers import (
     validate_unique_snp_ids,
 )
 from .._core.snp_identity import (
-    clean_identity_artifact_table,
+    RestrictionIdentityKeys,
     identity_base_mode,
     identity_mode_family,
     is_allele_aware_mode,
@@ -107,6 +107,29 @@ class RefPanel(ABC):
             )
         self.global_config = global_config
         self.spec = spec
+        self._restriction_keys: RestrictionIdentityKeys | None = None
+
+    def _resolve_run_inputs(self) -> None:
+        """Read the run-level selection inputs now, once for this panel.
+
+        Every later chromosome reuses them, and a copy of the panel sent to a
+        worker process carries them, so workers do not read them again. The
+        base panel reads ``ref_panel_snps_file``.
+        """
+        self._restriction()
+
+    def _restriction(self) -> RestrictionIdentityKeys | None:
+        """Return the parsed ``ref_panel_snps_file`` keys, read on first use; ``None`` without one."""
+        if self.spec.ref_panel_snps_file is None:
+            return None
+        if self._restriction_keys is None:
+            self._restriction_keys = read_snp_restriction_keys(
+                self.spec.ref_panel_snps_file,
+                self.global_config.snp_identifier,
+                genome_build=self.global_config.genome_build,
+                logger=LOGGER,
+            )
+        return self._restriction_keys
 
     @abstractmethod
     def available_chromosomes(self) -> list[str]:
@@ -188,20 +211,14 @@ class RefPanel(ABC):
     def _apply_keep_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
         """Filter metadata rows to ``RefPanelConfig.ref_panel_snps_file`` when set.
 
-        The restriction matches as in ``build-r2-matrix``: a row whose alleles
+        The restriction matches as in PLINK selection: a row whose alleles
         cannot form an allele-aware identity is kept when its base key is
         restricted, so identity cleanup, which runs afterwards, drops and
         reports it.
         """
-        restrict_path = self.spec.ref_panel_snps_file
-        if restrict_path is None or len(metadata) == 0:
+        restriction = self._restriction()
+        if restriction is None or len(metadata) == 0:
             return metadata
-        restriction = read_snp_restriction_keys(
-            restrict_path,
-            self.global_config.snp_identifier,
-            genome_build=self.global_config.genome_build,
-            logger=LOGGER,
-        )
         keep = build_restriction_mask(metadata, restriction, self.global_config.snp_identifier)
         return metadata.loc[keep].reset_index(drop=True)
 
@@ -227,6 +244,18 @@ class PlinkRefPanel(RefPanel):
         """Store panel configuration and optional validated chromosome routing."""
         super().__init__(global_config, spec)
         self._chromosome_prefixes = None if chromosome_prefixes is None else dict(chromosome_prefixes)
+        self._keep_individuals = None
+
+    def _resolve_run_inputs(self) -> None:
+        """Read ``ref_panel_snps_file`` and ``keep_indivs_file`` now, once for this panel."""
+        super()._resolve_run_inputs()
+        self._kept_individuals()
+
+    def _kept_individuals(self):
+        """Return the parsed ``keep_indivs_file`` IDs, read on first use; ``None`` without one."""
+        if self._keep_individuals is None:
+            self._keep_individuals = read_keep_individuals(self.spec.keep_indivs_file)
+        return self._keep_individuals
 
     def available_chromosomes(self) -> list[str]:
         """List normalized chromosomes present in the resolved PLINK inputs."""
@@ -240,71 +269,48 @@ class PlinkRefPanel(RefPanel):
             self._chromosome_prefixes = plink.chromosome_prefixes
         return self._chromosome_prefixes
 
-    def _load_source(self, chrom: str):
-        """Resolve physical BED rows and apply the panel SNP restriction and identity cleanup once.
+    def _load_source(self, chrom: str) -> tuple[PlinkChromosomeSource, ReferenceSNPFunnel]:
+        """Select one chromosome's PLINK rows and start its reference-SNP funnel.
 
-        ``ref_panel_snps_file`` applies first and identity cleanup runs on the
-        restricted rows, the order ``build-r2-matrix`` uses. Returns the
-        prefix, BIM, FAM, restricted metadata, identity drops and the
-        chromosome's reference-SNP funnel so far. When cleanup removes every
-        row the restriction kept, ``EmptyReferenceSNPs`` skips the chromosome
-        as the restriction alone would; when it removes every row of an
-        unrestricted chromosome, ``LDSCInputError`` stops the run.
+        ``select_plink_chromosome`` applies ``ref_panel_snps_file`` first and
+        runs identity cleanup on the restricted rows, as for ``build-r2-matrix``.
+        When cleanup removes every row the restriction kept,
+        ``EmptyReferenceSNPs`` skips the chromosome as the restriction alone
+        would; when it removes every row of an unrestricted chromosome,
+        ``LDSCInputError`` stops the run.
         """
-        prefix = self._bim_prefixes(chrom)[0]
-        bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
-        fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
-        metadata = bim.df.rename(columns={"BP": "POS"})  # a copy of the BIM table
-        metadata["_raw_index"] = np.arange(len(metadata))
-        metadata["CHR"] = metadata["CHR"].map({label: normalize_chromosome(label)
-                                               for label in pd.unique(metadata["CHR"])})
-        metadata["SNP"] = metadata["SNP"].astype(str)
-        metadata["POS"] = pd.to_numeric(metadata["POS"], errors="raise").astype(np.int64)
-        metadata["CM"] = pd.to_numeric(metadata["CM"], errors="coerce")
-        metadata[["A1", "A2"]] = metadata[["A1", "A2"]].astype(str)
-        metadata = metadata.take(np.flatnonzero((metadata["CHR"] == normalize_chromosome(chrom)).to_numpy()))
-        metadata.index = pd.RangeIndex(len(metadata))
-        if metadata.empty:
-            raise LDSCInputError(f"Reference-panel loading found no PLINK metadata rows for chromosome {chrom}.")
-        funnel = ReferenceSNPFunnel(normalize_chromosome(chrom), "plink")
-        funnel.record(REFERENCE_PANEL, "panel_rows", len(metadata))
-        if self.spec.ref_panel_snps_file is not None:
-            before = len(metadata)
-            metadata = self._apply_keep_restriction(metadata)
-            funnel.record(REFERENCE_PANEL, "ref_panel_snps_file", before - len(metadata))
-        # Cleanup sees only the restricted rows: a position is multi-allelic only when
-        # the restriction keeps more than one of its allele pairs. Allele-aware modes
-        # also drop rows whose alleles are missing, non-ACGT or identical; base modes
-        # drop duplicates.
-        cleanup = clean_identity_artifact_table(
-            metadata, self.global_config.snp_identifier,
-            context=f"PLINK reference-panel metadata chromosome {chrom}",
-            stage="plink_reference_identity_cleanup", logger=LOGGER,
+        source = select_plink_chromosome(
+            self._bim_prefixes(chrom)[0], chrom, self.global_config.snp_identifier,
+            restriction=self._restriction(), keep_individuals=self._kept_individuals(),
+            stage="plink_reference_identity_cleanup",
         )
-        funnel.record(REFERENCE_PANEL, "identity_cleanup", len(metadata) - len(cleanup.cleaned))
-        if len(metadata) and cleanup.cleaned.empty:
+        funnel = ReferenceSNPFunnel(normalize_chromosome(chrom), "plink")
+        funnel.record(REFERENCE_PANEL, "panel_rows", source.panel_rows)
+        if source.restriction_removed is not None:
+            funnel.record(REFERENCE_PANEL, "ref_panel_snps_file", source.restriction_removed)
+        funnel.record(REFERENCE_PANEL, "identity_cleanup", source.identity_cleanup_removed)
+        removed = source.restricted_rows
+        if removed and source.metadata.empty:
             # Neither outcome writes diagnostics/dropped_snps/, so the message names the drops.
             reasons = ", ".join(f"{reason}={count:,}"
-                                for reason, count in cleanup.dropped["reason"].value_counts().sort_index().items())
-            if self.spec.ref_panel_snps_file is not None:
+                                for reason, count in source.identity_drops["reason"].value_counts().sort_index().items())
+            if source.restriction_removed is not None:
                 # Skipped like a chromosome the restriction alone empties.
                 error = EmptyReferenceSNPs(
                     f"Reference-panel loading retained no PLINK rows on chromosome {chrom}: SNP identity cleanup "
-                    f"removed all {len(metadata):,} rows that --ref-panel-snps-file kept ({reasons})."
+                    f"removed all {removed:,} rows that --ref-panel-snps-file kept ({reasons})."
                 )
                 error.reference_snp_funnel = funnel.frame()
                 raise error
             raise LDSCInputError(
                 f"Reference-panel loading retained no PLINK rows on chromosome {chrom} after SNP identity cleanup "
-                f"removed all {len(metadata):,} of them ({reasons}). Under SNP identifier mode "
+                f"removed all {removed:,} of them ({reasons}). Under SNP identifier mode "
                 f"'{self.global_config.snp_identifier}' each panel row needs a unique SNP identity, and in "
                 "allele-aware modes one A/C/G/T allele pair per position. Remove the duplicate and non-SNP rows "
                 "from this chromosome's panel (`plink2 --snps-only just-acgt` removes non-SNP rows), or use the "
                 f"SNP identifier mode the panel was prepared for. Other causes & fixes: {_PLINK_IDENTITY_DOC}"
             )
-        metadata, drops = cleanup.cleaned, cleanup.dropped
-        metadata = self._validate_metadata(metadata, chrom)
-        return prefix, bim, fam, metadata, drops, funnel
+        return replace(source, metadata=self._validate_metadata(source.metadata, chrom)), funnel
 
     def _load_genotypes(self, chrom, source, annotations=None, *, keep_indivs=None, maf_min=None):
         """Open one BED and align its retained rows to annotations without another read.
@@ -313,7 +319,8 @@ class PlinkRefPanel(RefPanel):
         individuals as ``A1``, as ``build-r2-matrix`` does, so ``MAF`` is the
         frequency of ``A1``; at exactly 0.5 the ``.bim`` order is kept.
         """
-        prefix, bim, fam, reference, drops, funnel = source
+        source, funnel = source
+        reference = source.metadata
         if annotations is None:
             annotations = ChromosomeAnnotations(
                 reference.drop(columns="_raw_index"), pd.DataFrame(index=reference.index), [], [],
@@ -324,11 +331,11 @@ class PlinkRefPanel(RefPanel):
         keys = identifier_keys(aligned.metadata, mode)
         physical_rows = pd.Series(reference["_raw_index"].to_numpy(), index=raw_keys).loc[keys].tolist()
         if keep_indivs is None:
-            keep_indivs = resolve_keep_individuals(self.spec.keep_indivs_file, fam)
+            keep_indivs = source.keep_indivs
         maf_min = self.spec.maf_min if maf_min is None else maf_min
         try:
             geno = PlinkBEDFile(
-                prefix + ".bed", len(fam.IDList), bim, keep_snps=physical_rows,
+                source.prefix + ".bed", len(source.fam.IDList), source.bim, keep_snps=physical_rows,
                 keep_indivs=keep_indivs, mafMin=maf_min,
             )
         except EmptyReferenceSNPs as exc:
@@ -337,12 +344,12 @@ class PlinkRefPanel(RefPanel):
             raise
         _record_genotype_qc(funnel, geno.genotype_qc_removed, geno.maf_removed, maf_min)
         try:
-            metadata = build_plink_metadata_frame(bim=bim, kept_snps=geno.kept_snps, maf_values=geno.maf,
+            metadata = build_plink_metadata_frame(bim=source.bim, kept_snps=geno.kept_snps, maf_values=geno.maf,
                                                   freq_values=geno.freq)
             retained_keys = identifier_keys(metadata, mode)
             indices = pd.Series(np.arange(len(keys)), index=keys).loc[retained_keys].to_numpy(dtype=np.int64)
             values = MappedAnnotations(aligned.annotations, indices, aligned.annotations.columns)
-            return geno, metadata, values, drops, len(aligned.metadata)
+            return geno, metadata, values, source.identity_drops, len(aligned.metadata)
         except BaseException:
             geno.close()
             raise
@@ -357,8 +364,8 @@ class PlinkRefPanel(RefPanel):
         """
         chrom = normalize_chromosome(chrom)
         source = self._load_source(chrom)
-        if source[3].empty:
-            raise _panel_filter_emptied(chrom, source[5])
+        if source[0].metadata.empty:
+            raise _panel_filter_emptied(chrom, source[1])
         geno, metadata, _, _, _ = self._load_genotypes(chrom, source)
         geno.close()
         return metadata
@@ -370,18 +377,18 @@ class PlinkRefPanel(RefPanel):
         sample-index overrides, and MAF overrides. The caller must close the
         returned reader.
         """
-        source = self._load_source(chrom)
+        source, funnel = self._load_source(chrom)
         if keep_snps is not None:
-            prefix, bim, fam, metadata, drops, funnel = source
-            keys = identifier_keys(metadata, self.global_config.snp_identifier)
-            source = prefix, bim, fam, metadata.loc[keys.isin(keep_snps)].reset_index(drop=True), drops, funnel
+            keys = identifier_keys(source.metadata, self.global_config.snp_identifier)
+            source = replace(source, metadata=source.metadata.loc[keys.isin(keep_snps)].reset_index(drop=True))
+        source = source, funnel
         return self._load_genotypes(chrom, source, keep_indivs=keep_indivs, maf_min=maf_min)[0]
 
     def prepare_chromosome(self, chrom, annotations, config, *, genetic_map=None):
         """Prepare one genotype-filtered chromosome with aligned annotations and LD windows."""
         source = self._load_source(chrom)
         geno, metadata, values, drops, input_rows = self._load_genotypes(chrom, source, annotations)
-        funnel = source[-1].frame()
+        funnel = source[1].frame()
         try:
             if config.ld_wind_cm is not None:
                 if genetic_map is None:
@@ -737,17 +744,3 @@ _LDSCORE_INTERSECTION_DOC = (
     "docs/user-guide/troubleshooting.md#ldscore-no-reference-snps-remain-on-the-annotation-snp-grid"
 )
 _PLINK_IDENTITY_DOC = "docs/user-guide/troubleshooting.md#ldscore-a-plink-chromosome-has-no-usable-snp-identity"
-
-
-def resolve_keep_individuals(keep_path: str | None, fam) -> list[int] | None:
-    """Return FAM row indices retained by ``keep_path`` using IID matching."""
-    if not keep_path:
-        return None
-    keep_indivs = fam.loj(legacy_parse.FilterFile(keep_path).IDList)
-    if len(keep_indivs) == 0:
-        raise LDSCInputError(
-            f"ldscore retained no PLINK individuals after applying keep file '{keep_path}'. "
-            "Most likely the keep-list IDs do not match the `.fam` file. Check IID/FID "
-            "columns in the keep file and pass a keep list from the same PLINK sample set."
-        )
-    return keep_indivs.tolist()

@@ -866,31 +866,31 @@ class R2MatrixBuildConfigFromArgsTest(unittest.TestCase):
 class DuplicatePositionDropAllTest(unittest.TestCase):
     """Unit tests for _resolve_unique_snp_set()."""
 
-    def _make_chrom_df(self, snp_ids, bps):
-        """Build a minimal .bim-style DataFrame indexed by PLINK row indices."""
+    def _make_rows(self, snp_ids, positions):
+        """Build selected SNP rows indexed by physical PLINK row."""
         return pd.DataFrame(
-            {"SNP": snp_ids, "BP": bps},
+            {"SNP": snp_ids, "POS": positions},
             index=list(range(len(snp_ids))),
         )
 
     def test_no_duplicates_returns_keep_snps_unchanged(self):
-        chrom_df = self._make_chrom_df(["rs1", "rs2", "rs3"], [100, 200, 300])
+        rows = self._make_rows(["rs1", "rs2", "rs3"], [100, 200, 300])
         keep = np.array([0, 1, 2])
         hg19 = {0: 100, 1: 200, 2: 300}
         hg38 = {0: 1000, 1: 2000, 2: 3000}
 
-        cleaned, dropped = r2_matrix_builder._resolve_unique_snp_set("1", chrom_df, keep, hg19, hg38)
+        cleaned, dropped = r2_matrix_builder._resolve_unique_snp_set("1", rows, keep, hg19, hg38)
 
         np.testing.assert_array_equal(cleaned, keep)
         self.assertTrue(dropped.empty)
 
     def test_target_collision_drop_all_removes_cluster_from_all_builds(self):
-        chrom_df = self._make_chrom_df(["rs1", "rs2", "rs3"], [100, 200, 300])
+        rows = self._make_rows(["rs1", "rs2", "rs3"], [100, 200, 300])
         keep = np.array([0, 1, 2])
         hg19 = {0: 100, 1: 200, 2: 300}
         hg38 = {0: 5000, 1: 5000, 2: 6000}
 
-        cleaned, dropped = r2_matrix_builder._resolve_unique_snp_set("1", chrom_df, keep, hg19, hg38)
+        cleaned, dropped = r2_matrix_builder._resolve_unique_snp_set("1", rows, keep, hg19, hg38)
 
         np.testing.assert_array_equal(cleaned, np.array([2]))
         self.assertEqual(len(dropped), 2)
@@ -899,43 +899,43 @@ class DuplicatePositionDropAllTest(unittest.TestCase):
         self.assertFalse(dropped["target_pos"].isna().any())
 
     def test_target_collision_in_hg19_only_drops_both_snps(self):
-        chrom_df = self._make_chrom_df(["rs1", "rs2", "rs3"], [100, 200, 300])
+        rows = self._make_rows(["rs1", "rs2", "rs3"], [100, 200, 300])
         keep = np.array([0, 1, 2])
         hg19 = {0: 5000, 1: 5000, 2: 6000}
         hg38 = {}
 
-        cleaned, dropped = r2_matrix_builder._resolve_unique_snp_set("1", chrom_df, keep, hg19, hg38)
+        cleaned, dropped = r2_matrix_builder._resolve_unique_snp_set("1", rows, keep, hg19, hg38)
 
         np.testing.assert_array_equal(cleaned, np.array([2]))
         self.assertEqual(len(dropped), 2)
         self.assertTrue((dropped["reason"] == "target_collision").all())
 
     def test_collision_in_both_builds_deduplicates_provenance_rows(self):
-        chrom_df = self._make_chrom_df(["rs1", "rs2", "rs3"], [100, 200, 300])
+        rows = self._make_rows(["rs1", "rs2", "rs3"], [100, 200, 300])
         keep = np.array([0, 1, 2])
         hg19 = {0: 5000, 1: 5000, 2: 6000}
         hg38 = {0: 7000, 1: 7000, 2: 8000}
 
-        cleaned, dropped = r2_matrix_builder._resolve_unique_snp_set("1", chrom_df, keep, hg19, hg38)
+        cleaned, dropped = r2_matrix_builder._resolve_unique_snp_set("1", rows, keep, hg19, hg38)
 
         np.testing.assert_array_equal(cleaned, np.array([2]))
         self.assertEqual(len(dropped), 2)
         self.assertSetEqual(set(dropped["SNP"]), {"rs1", "rs2"})
 
     def test_all_snps_dropped_returns_empty_keep(self):
-        chrom_df = self._make_chrom_df(["rs1", "rs2"], [100, 100])
+        rows = self._make_rows(["rs1", "rs2"], [100, 100])
         keep = np.array([0, 1])
 
-        cleaned, dropped = r2_matrix_builder._resolve_unique_snp_set("1", chrom_df, keep, {0: 100, 1: 100}, {})
+        cleaned, dropped = r2_matrix_builder._resolve_unique_snp_set("1", rows, keep, {0: 100, 1: 100}, {})
 
         self.assertEqual(len(cleaned), 0)
         self.assertEqual(len(dropped), 2)
 
     def test_provenance_columns_are_correct(self):
-        chrom_df = self._make_chrom_df(["rs1", "rs2", "rs3"], [100, 100, 300])
+        rows = self._make_rows(["rs1", "rs2", "rs3"], [100, 100, 300])
         keep = np.array([0, 1, 2])
 
-        _, dropped = r2_matrix_builder._resolve_unique_snp_set("1", chrom_df, keep, {0: 100, 1: 100, 2: 300}, {})
+        _, dropped = r2_matrix_builder._resolve_unique_snp_set("1", rows, keep, {0: 100, 1: 100, 2: 300}, {})
 
         self.assertListEqual(list(dropped.columns), IDENTITY_DROP_COLUMNS)
         self.assertEqual(dropped["CHR"].iloc[0], "1")
@@ -1032,9 +1032,9 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
                 global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
             )
 
-            def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
+            def fake_resolve(*, rows, keep_snps, **_kwargs):
                 keep = np.asarray(keep_snps, dtype=int)
-                hg19 = {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep}
+                hg19 = {int(idx): int(rows.loc[idx, "POS"]) for idx in keep}
                 return keep, hg19, {}, empty_identity_drop_frame()
 
             with mock.patch.object(
@@ -1093,9 +1093,9 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
                 )
             )
 
-            def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
+            def fake_resolve(*, rows, keep_snps, **_kwargs):
                 keep = np.asarray(keep_snps, dtype=int)
-                hg19 = {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep}
+                hg19 = {int(idx): int(rows.loc[idx, "POS"]) for idx in keep}
                 return keep, hg19, {}, empty_identity_drop_frame()
 
             with mock.patch.object(
@@ -1137,7 +1137,7 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
             genetic_map_hg38=None,
             liftover_chain_paths={("hg19", "hg38"): "chain.over"},
         )
-        chrom_df = pd.DataFrame({"SNP": ["rs1", "rs2", "rs3"], "BP": [100, 200, 300]}, index=[0, 1, 2])
+        rows = pd.DataFrame({"SNP": ["rs1", "rs2", "rs3"], "POS": [100, 200, 300]}, index=[0, 1, 2])
         mapping = LiftOverMappingResult(
             translated_positions=np.asarray([1300], dtype=np.int64),
             keep_mask=np.asarray([False, False, True], dtype=bool),
@@ -1152,7 +1152,7 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
                 build_state=build_state,
                 chrom="1",
                 source_build="hg19",
-                chrom_df=chrom_df,
+                rows=rows,
                 keep_snps=np.array([0, 1, 2], dtype=int),
             )
 
@@ -1274,9 +1274,9 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
                 global_config=GlobalConfig(snp_identifier="rsid", genome_build="hg38")
             )
 
-            def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
+            def fake_resolve(*, rows, keep_snps, **_kwargs):
                 keep = np.asarray(keep_snps, dtype=int)
-                hg19 = {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep}
+                hg19 = {int(idx): int(rows.loc[idx, "POS"]) for idx in keep}
                 return keep, hg19, {}, empty_identity_drop_frame()
 
             with mock.patch.object(
@@ -1475,9 +1475,9 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
             global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
         )
 
-        def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
+        def fake_resolve(*, rows, keep_snps, **_kwargs):
             keep = np.asarray(keep_snps, dtype=int)
-            hg19 = {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep}
+            hg19 = {int(idx): int(rows.loc[idx, "POS"]) for idx in keep}
             return keep, hg19, {}, empty_identity_drop_frame()
 
         with mock.patch.object(
@@ -1942,14 +1942,14 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
             genetic_map_hg38=None,
             liftover_chain_paths={("hg19", "hg38"): None, ("hg38", "hg19"): "chains/hg38ToHg19.over.chain"},
         )
-        chrom_df = pd.DataFrame({"BP": [100]}, index=[4])
+        rows = pd.DataFrame({"POS": [100]}, index=[4])
 
         with mock.patch.object(r2_matrix_builder, "LiftOverTranslator") as patched:
             retained, hg19_lookup, hg38_lookup, drop_frame = builder._resolve_mappable_snp_positions(
                 build_state=build_state,
                 chrom="1",
                 source_build="hg19",
-                chrom_df=chrom_df,
+                rows=rows,
                 keep_snps=np.array([4], dtype=int),
             )
 
@@ -1966,13 +1966,13 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
             genetic_map_hg38=pd.DataFrame({"CHR": ["1"], "POS": [110], "CM": [0.0]}),
             liftover_chain_paths={("hg19", "hg38"): "chains/hg19ToHg38.over.chain", ("hg38", "hg19"): None},
         )
-        chrom_df = pd.DataFrame({"BP": [110]}, index=[7])
+        rows = pd.DataFrame({"POS": [110]}, index=[7])
 
         retained, hg19_lookup, hg38_lookup, drop_frame = builder._resolve_mappable_snp_positions(
             build_state=build_state,
             chrom="1",
             source_build="hg38",
-            chrom_df=chrom_df,
+            rows=rows,
             keep_snps=np.array([7], dtype=int),
         )
 
@@ -2363,11 +2363,11 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
                 global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware")
             )
 
-            def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
+            def fake_resolve(*, rows, keep_snps, **_kwargs):
                 keep = np.asarray(keep_snps, dtype=int)
                 return (
                     keep,
-                    {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep},
+                    {int(idx): int(rows.loc[idx, "POS"]) for idx in keep},
                     {},
                     empty_identity_drop_frame(),
                 )

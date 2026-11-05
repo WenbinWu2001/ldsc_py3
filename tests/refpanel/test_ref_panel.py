@@ -134,6 +134,34 @@ class PlinkRefPanelTest(unittest.TestCase):
             self.assertEqual(metadata["A1"].tolist(), ["G"])
             self.assertEqual(metadata["A2"].tolist(), ["A"])
 
+    def test_plink_panel_reads_restriction_and_keep_list_once_for_every_chromosome_call(self):
+        import pickle
+        from unittest import mock
+        from ldsc._core import plink_files
+        from ldsc._refpanel import adapters
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            restrict_path = Path(tmpdir) / "restrict.tsv"
+            restrict_path.write_text("SNP\n" + "\n".join(PLINK_SNPS) + "\n", encoding="utf-8")
+            keep_path = Path(tmpdir) / "keep.txt"
+            fam = pd.read_csv(str(PLINK_PREFIX) + ".fam", sep=r"\s+", header=None)
+            keep_path.write_text("\n".join(fam[1].astype(str).head(100)) + "\n", encoding="utf-8")
+            panel = PlinkRefPanel(
+                GlobalConfig(snp_identifier="rsid"),
+                RefPanelConfig(backend="plink", plink_prefix=str(PLINK_PREFIX),
+                               ref_panel_snps_file=str(restrict_path), keep_indivs_file=str(keep_path)),
+            )
+            with mock.patch.object(adapters, "read_snp_restriction_keys", wraps=adapters.read_snp_restriction_keys) as keys, \
+                    mock.patch.object(plink_files, "FilterFile", wraps=plink_files.FilterFile) as keep:
+                panel._resolve_run_inputs()
+                # A copy sent to a worker carries the parsed inputs.
+                copies = [pickle.loads(pickle.dumps(panel)) for _ in range(2)]
+                frames = [copy.load_metadata("22") for copy in copies] + [panel.load_metadata("22")]
+
+            self.assertEqual((keys.call_count, keep.call_count), (1, 1))
+            for metadata in frames:
+                self.assertEqual(sorted(metadata["SNP"]), sorted(PLINK_SNPS))
+
     def test_duplicate_rsid_raises(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             prefix = Path(tmpdir) / "dup"

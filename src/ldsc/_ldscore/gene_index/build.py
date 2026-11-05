@@ -46,8 +46,9 @@ from .. import compute as kernel_ldscore
 from ..diagnostics import chromosome_log, emit_reference_snp_funnel_notice, log_reference_snp_funnel_warning
 from ..outputs import CHROMOSOME_LOG_DIR, snp_universe_policy_record
 from ..._annotation.semantics import combine_annotation_types
-from ..._refpanel.adapters import PlinkRefPanel, resolve_keep_individuals
+from ..._refpanel.adapters import PlinkRefPanel
 from ..._refpanel.funnel import concat_funnels, funnel_from_records, funnel_records, with_grid_rows
+from ..._refpanel.plink_source import keep_individual_indices, read_keep_individuals
 from ..._refpanel.prepared import ChromosomeAnnotations
 from ..._refpanel.windows import WholeChromosomeWindowError
 from .atoms import (
@@ -1424,7 +1425,7 @@ def _builder_index_identity(
         )
     assert first_prefix is not None
     fam = PlinkFAMFile(str(first_prefix) + ".fam")
-    keep_indices = resolve_keep_individuals(config.keep_indivs_file, fam)
+    keep_indices = keep_individual_indices(read_keep_individuals(config.keep_indivs_file), fam)
     selected_indices = list(range(len(fam.IDList))) if keep_indices is None else list(keep_indices)
     selected_ids = _selected_individual_ids(fam, selected_indices)
     selected_digest = hashlib.sha256(

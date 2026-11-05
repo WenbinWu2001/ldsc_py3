@@ -48,7 +48,6 @@ from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_P
 from .._runtime.workflow_logging import FAILURE_MARKER, LOG_LEVEL_HELP
 from .._core.snp_identity import (
     RestrictionIdentityKeys,
-    clean_identity_artifact_table,
     coerce_identity_drop_frame,
     concat_identity_drop_frames,
     emit_dropped_snps_notice,
@@ -60,7 +59,6 @@ from .._core.snp_identity import (
 from ..config import (
     DEFAULT_SNP_BATCH_SIZE, GlobalConfig, R2MatrixBuildConfig, get_global_config, print_global_config_banner,
 )
-from .._core.coordinates import normalize_chr_pos_frame
 from .._runtime.progress import report_phase, PhaseProgress
 from .._runtime.paths import ensure_output_directory, preflight_output_artifact_family, remove_output_artifacts, resolve_file_group, inspect_plink_inputs, resolve_scalar_path
 from .._runtime.workflow_logging import (
@@ -70,10 +68,10 @@ from .._runtime.workflow_logging import (
     workflow_logging,
 )
 from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
-from .._core import plink_files as legacy_parse
 from .._core import identifiers as kernel_identifiers
 from .._core.chromosomes import chrom_sort_key
 from .plink import PlinkBEDFile
+from .plink_source import KeepIndividuals, read_keep_individuals, select_plink_chromosome
 from . import build_kernel as kernel_builder
 from .r2_format import (
     R2_MATRIX_FILE_GLOBS,
@@ -134,6 +132,7 @@ class _BuildState:
     genetic_map_hg38: Any | None
     liftover_chain_paths: dict[tuple[str, str], str | None] = field(default_factory=dict)
     restriction_keys: RestrictionIdentityKeys | None = None
+    keep_individuals: KeepIndividuals | None = None
     translator_cache: dict[tuple[str, str], LiftOverTranslator] = field(default_factory=dict)
 
 
@@ -149,12 +148,14 @@ _EMPTIED_AUTOSOME_REPAIR = (
 class _ChromosomeSelection:
     """One chromosome's SNPs after the BIM-level selection stages.
 
-    ``empty_stage`` names the stage that removed every SNP, or is ``None``
-    when SNPs remain for genotype reading.
+    ``keep_indivs`` holds the retained ``.fam`` rows (``None`` keeps every
+    individual). ``empty_stage`` names the stage that removed every SNP, or
+    is ``None`` when SNPs remain for genotype reading.
     """
     bim: Any
     fam: Any
     keep_snps: Any
+    keep_indivs: list[int] | None
     sidecar_path: Path
     n_bim_snps: int
     hg19_lookup: dict | None = None
@@ -676,6 +677,8 @@ class R2MatrixBuilder:
                 ("hg38", "hg19"): config.liftover_chain_hg38_to_hg19_file,
             },
             restriction_keys=restriction_keys,
+            keep_individuals=None if config.keep_indivs_file is None else read_keep_individuals(
+                resolve_scalar_path(config.keep_indivs_file, label="individual keep file")),
         )
 
 
@@ -716,94 +719,46 @@ class R2MatrixBuilder:
     ) -> _ChromosomeSelection:
         """Apply the BIM-level SNP selection stages to one chromosome.
 
-        Stages are SNP restriction, identity cleanup, and liftover plus
-        duplicate-position filtering; none reads genotypes. The dropped-SNP
-        sidecar is always written. Reason rows cover source identity cleanup
-        and liftover-stage drops; restriction-file drops are outside that
-        audit vocabulary.
+        ``select_plink_chromosome`` applies the SNP restriction and identity
+        cleanup, as for ``ldscore --plink-prefix``; liftover plus
+        duplicate-position filtering follow on the rows it returns. No stage
+        reads genotypes. The dropped-SNP table is always written. Reason
+        rows cover source identity cleanup and liftover-stage drops;
+        restriction-file drops are outside that audit vocabulary.
         """
         sidecar_path = Path(config.output_dir) / "diagnostics" / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz"
-        try:
-            bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
-        except ValueError as exc:
-            if "Usecols do not match columns" in str(exc):
-                raise LDSCInputError(
-                    f"build-r2-matrix could not read PLINK BIM file '{prefix}.bim': "
-                    "A1 and A2 allele columns are required. Most likely the BIM file "
-                    "has fewer than six standard PLINK columns. Provide a complete "
-                    ".bim file with CHR/SNP/CM/BP/A1/A2 columns."
-                ) from exc
-            raise
-        fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
-        panel_df, _report = normalize_chr_pos_frame(
-            bim.df,
-            context=f"{prefix}.bim",
-            chr_col="CHR",
-            pos_col="BP",
-            coordinate_policy="drop",
-            logger=LOGGER,
+        source = select_plink_chromosome(
+            prefix, chrom, self.global_config.snp_identifier,
+            restriction=build_state.restriction_keys, keep_individuals=build_state.keep_individuals,
+            stage="ref_panel_source_identity_cleanup",
         )
-        chrom_df = panel_df.loc[panel_df["CHR"] == chrom].copy()
-        if len(chrom_df) == 0:
-            raise LDSCInputError(
-                f"build-r2-matrix found no SNPs for chromosome {chrom} in PLINK prefix "
-                f"'{prefix}'. Most likely the `.bim` file does not contain that chromosome "
-                "after chromosome normalization. Pass the correct chromosome-specific PLINK "
-                "prefix or rebuild the PLINK panel with matching chromosome labels."
-            )
-
-        metadata_columns = ["CHR", "SNP", "BP", "A1", "A2"]
-        chrom_metadata = chrom_df.loc[:, metadata_columns].copy().rename(columns={"BP": "POS"})
-        chrom_metadata["POS"] = chrom_metadata["POS"].astype(int)
-        chrom_metadata["_plink_row_index"] = chrom_metadata.index.astype(int)
-        keep_snps = chrom_df.index.to_numpy(dtype=int)
-        if build_state.restriction_keys is not None:
-            keep_mask = kernel_builder.build_restriction_mask(
-                chrom_metadata.reset_index(drop=True),
-                build_state.restriction_keys,
-                self.global_config.snp_identifier,
-            )
-            # Use _plink_row_index, not chrom_metadata.index: region exclusion may have
-            # compacted the frame, so the positional index no longer maps to PLINK rows;
-            # the column preserves the original indices keep_mask selects against.
-            keep_snps = chrom_metadata["_plink_row_index"].to_numpy(dtype=int)[keep_mask]
-            if len(keep_snps) == 0:
-                _write_dropped_sidecar(empty_identity_drop_frame(), sidecar_path, chrom)
-                return _ChromosomeSelection(bim, fam, keep_snps, sidecar_path, len(chrom_df),
-                                            empty_stage="SNP restriction")
+        selection = _ChromosomeSelection(source.bim, source.fam, np.empty(0, dtype=int), source.keep_indivs,
+                                         sidecar_path, source.panel_rows)
+        if source.restricted_rows == 0:
+            _write_dropped_sidecar(empty_identity_drop_frame(), sidecar_path, chrom)
+            return dataclass_replace(selection, empty_stage="SNP restriction")
 
         dropped_frames: list[pd.DataFrame] = []
-        identity_input = chrom_metadata.loc[keep_snps].copy()
-        identity_result = clean_identity_artifact_table(
-            identity_input,
-            self.global_config.snp_identifier,
-            context=f"R2 matrix chromosome {chrom}",
-            stage="ref_panel_source_identity_cleanup",
-            logger=LOGGER,
-        )
-        if not identity_result.dropped.empty:
-            dropped_frames.append(identity_result.dropped)
+        if not source.identity_drops.empty:
+            dropped_frames.append(source.identity_drops)
             dropped_examples = (
-                identity_result.dropped.loc[:, ["SNP", "reason", "base_key", "identity_key", "allele_set"]]
+                source.identity_drops.loc[:, ["SNP", "reason", "base_key", "identity_key", "allele_set"]]
                 .head(10)
                 .to_dict(orient="records")
             )
-            message = (
-                f"R2 matrix identity cleanup drops on chromosome {chrom}: {dropped_examples}"
-            )
-            LOGGER.debug(message)
-        keep_snps = identity_result.cleaned["_plink_row_index"].to_numpy(dtype=int)
+            LOGGER.debug(f"R2 matrix identity cleanup drops on chromosome {chrom}: {dropped_examples}")
+        # The selected rows by physical BIM row, which liftover and duplicate filtering index.
+        rows = source.metadata.set_index("_raw_index").loc[:, ["SNP", "POS"]]
+        keep_snps = rows.index.to_numpy(dtype=int)
         if len(keep_snps) == 0:
-            dropped_df = concat_identity_drop_frames(dropped_frames)
-            _write_dropped_sidecar(dropped_df, sidecar_path, chrom)
-            return _ChromosomeSelection(bim, fam, keep_snps, sidecar_path, len(chrom_df),
-                                        empty_stage="identity cleanup")
+            _write_dropped_sidecar(concat_identity_drop_frames(dropped_frames), sidecar_path, chrom)
+            return dataclass_replace(selection, empty_stage="identity cleanup")
 
         keep_snps, hg19_lookup, hg38_lookup, liftover_drop_frame = self._resolve_mappable_snp_positions(
             build_state=build_state,
             chrom=chrom,
             source_build=config.source_genome_build,
-            chrom_df=chrom_df,
+            rows=rows,
             keep_snps=keep_snps,
             sidecar_path=sidecar_path,
         )
@@ -813,7 +768,7 @@ class R2MatrixBuilder:
             before_liftover_collision_count = len(keep_snps)
             keep_snps, liftover_collision_df = _resolve_unique_snp_set(
                 chrom=chrom,
-                chrom_df=chrom_df,
+                rows=rows,
                 keep_snps=keep_snps,
                 hg19_lookup=hg19_lookup,
                 hg38_lookup=hg38_lookup,
@@ -828,10 +783,9 @@ class R2MatrixBuilder:
                     "because they collided in at least one emitted build.",
                     synchronized_drop_count,
                 )
-        dropped_df = concat_identity_drop_frames(dropped_frames)
-        _write_dropped_sidecar(dropped_df, sidecar_path, chrom)
-        return _ChromosomeSelection(
-            bim, fam, keep_snps, sidecar_path, len(chrom_df), hg19_lookup, hg38_lookup,
+        _write_dropped_sidecar(concat_identity_drop_frames(dropped_frames), sidecar_path, chrom)
+        return dataclass_replace(
+            selection, keep_snps=keep_snps, hg19_lookup=hg19_lookup, hg38_lookup=hg38_lookup,
             empty_stage=None if len(keep_snps) else "liftover and duplicate-position filtering",
         )
 
@@ -854,12 +808,7 @@ class R2MatrixBuilder:
         selection = self._select_chromosome_snps(prefix, chrom, config, build_state)
         bim, fam, keep_snps = selection.bim, selection.fam, selection.keep_snps
         hg19_lookup, hg38_lookup = selection.hg19_lookup, selection.hg38_lookup
-        sidecar_path = selection.sidecar_path
-
-        keep_indivs = None
-        if config.keep_indivs_file is not None:
-            keep_path = resolve_scalar_path(config.keep_indivs_file, label="individual keep file")
-            keep_indivs = fam.loj(legacy_parse.FilterFile(keep_path).IDList)
+        sidecar_path, keep_indivs = selection.sidecar_path, selection.keep_indivs
 
         output_paths: dict[str, str] = {}
         retained_count: int | None = None
@@ -878,7 +827,7 @@ class R2MatrixBuilder:
                 len(fam.IDList),
                 bim,
                 keep_snps=list(build_keep_snps),
-                keep_indivs=None if keep_indivs is None else list(keep_indivs),
+                keep_indivs=keep_indivs,
                 mafMin=config.maf_min,
                 streaming=build_state.restriction_keys is None,
             )
@@ -1005,19 +954,20 @@ class R2MatrixBuilder:
         build_state: _BuildState,
         chrom: str,
         source_build: str,
-        chrom_df,
+        rows: pd.DataFrame,
         keep_snps,
         sidecar_path: Path | None = None,
     ) -> tuple[Any, dict[int, int], dict[int, int], pd.DataFrame]:
         """Resolve retained SNP positions and liftover-stage dropped-SNP rows.
 
-        Returns retained PLINK row indices, source/target build position
-        lookups, and a unified nullable sidecar frame for unmapped or
-        cross-chromosome chain liftover drops. Source-only builds return an
-        empty sidecar frame with the same schema.
+        ``rows`` holds ``SNP`` and source ``POS`` by physical BIM row. Returns
+        retained PLINK row indices, source/target build position lookups, and
+        a unified nullable sidecar frame for unmapped or cross-chromosome
+        chain liftover drops. Source-only builds return an empty sidecar frame
+        with the same schema.
         """
         keep_snps = list(keep_snps)
-        candidate_positions = chrom_df.loc[keep_snps, "BP"].to_numpy(dtype=int)
+        candidate_positions = rows.loc[keep_snps, "POS"].to_numpy(dtype=int)
         if source_build == "hg19":
             if build_state.liftover_chain_paths.get(("hg19", "hg38")) is None:
                 retained_snps = np.asarray(keep_snps, dtype=int)
@@ -1061,7 +1011,7 @@ class R2MatrixBuilder:
             drop_frame = pd.DataFrame(
                 {
                     "CHR": [chrom] * len(keep_snps),
-                    "SNP": chrom_df.loc[keep_snps, "SNP"].astype(str).tolist(),
+                    "SNP": rows.loc[keep_snps, "SNP"].astype(str).tolist(),
                     "source_POS": candidate_positions,
                 },
                 index=keep_snps,
@@ -1275,7 +1225,7 @@ def _sort_retained_snps_by_build_position(
 
 def _resolve_unique_snp_set(
     chrom: str,
-    chrom_df: pd.DataFrame,
+    rows: pd.DataFrame,
     keep_snps: np.ndarray,
     hg19_lookup: dict[int, int],
     hg38_lookup: dict[int, int],
@@ -1283,7 +1233,8 @@ def _resolve_unique_snp_set(
 ) -> tuple[np.ndarray, pd.DataFrame]:
     """Drop SNPs whose emitted positions collide in a chr_pos R2 matrix build.
 
-    Source positions are already unique: identity cleanup drops every
+    ``rows`` holds ``SNP`` and source ``POS`` by physical BIM row. Source
+    positions are already unique: identity cleanup drops every
     same-position group in chr_pos-family modes (``duplicate_identity`` or
     ``multi_allelic_base_key``). Target collisions are checked after the
     liftover position lookups are available, resolved with drop-all in every
@@ -1300,8 +1251,8 @@ def _resolve_unique_snp_set(
         target_frame = pd.DataFrame(
             {
                 "CHR": [chrom] * len(retained),
-                "SNP": chrom_df.loc[retained, "SNP"].astype(str).tolist(),
-                "source_pos": [int(chrom_df.loc[idx, "BP"]) for idx in retained],
+                "SNP": rows.loc[retained, "SNP"].astype(str).tolist(),
+                "source_pos": [int(rows.loc[idx, "POS"]) for idx in retained],
                 "target_pos": target_pos,
             },
             index=retained,
@@ -1328,8 +1279,8 @@ def _resolve_unique_snp_set(
                 prov_rows.append(
                     {
                         "CHR": chrom,
-                        "SNP": chrom_df.loc[idx, "SNP"],
-                        "source_pos": int(chrom_df.loc[idx, "BP"]),
+                        "SNP": rows.loc[idx, "SNP"],
+                        "source_pos": int(rows.loc[idx, "POS"]),
                         "target_pos": int(target_pos[i]),
                         "reason": "target_collision",
                     }

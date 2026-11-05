@@ -45,9 +45,6 @@ from .._runtime.artifacts import atomic_write_json
 from .._runtime.serial_calculation import serial_calculation
 from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP, output_directory_argument
 from .._runtime.workflow_logging import FAILURE_MARKER, LOG_LEVEL_HELP
-from .._core.columns import (
-    normalize_genome_build,
-)
 from .._core.snp_identity import (
     IDENTITY_DROP_COLUMNS,
     RestrictionIdentityKeys,
@@ -1559,16 +1556,9 @@ def config_from_args(args: argparse.Namespace) -> R2MatrixBuildConfig:
     The PLINK source build remains local to this workflow and is inferred from
     ``.bim`` coordinates during the build when set to ``"auto"``.
     """
-    source_genome_build = normalize_genome_build(args.source_genome_build)
-    if source_genome_build not in {"auto", "hg19", "hg38"}:
-        raise LDSCConfigError(
-            f"build-r2-matrix received invalid `--source-genome-build={args.source_genome_build}`. "
-            "Most likely the source build was misspelled or is unsupported. Pass "
-            "`--source-genome-build auto`, `hg19`, or `hg38`."
-        )
     return R2MatrixBuildConfig(
         plink_prefix=args.plink_prefix,
-        source_genome_build=source_genome_build,
+        source_genome_build=args.source_genome_build,
         genetic_map_hg19_sources=args.genetic_map_hg19_sources,
         genetic_map_hg38_sources=args.genetic_map_hg38_sources,
         liftover_chain_hg19_to_hg38_file=args.liftover_chain_hg19_to_hg38_file,

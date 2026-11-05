@@ -1,6 +1,6 @@
 # Python API reference
 
-Last updated on: 2026-11-03
+Last updated on: 2026-11-04
 
 The supported Python interface is the set of names exported by the `ldsc` package (`ldsc.__all__`, 84 names on 2026-11-03).
 Modules whose names start with an underscore, including the domain packages such as `ldsc._ldscore`, are private even when a name defined there is re-exported.
@@ -143,7 +143,7 @@ Field names of each configuration dataclass; types and defaults are in each clas
 | `H2OutputConfig` | `output_dir`, `overwrite` |
 | `LDScoreConfig` | `ld_wind_snps`, `ld_wind_kb`, `ld_wind_cm`, `regr_snps_file`, `snp_batch_size`, `query_batch_size`, `common_maf_min`, `whole_chromosome_ok`, `export_ref_metadata`, `workers` |
 | `LDScoreOutputConfig` | `output_dir`, `overwrite`, `parquet_compression` |
-| `MungeConfig` | `output_dir`, `raw_sumstats_file`, `compression`, `output_format`, `trait_name`, `column_hints`, `N`, `N_cas`, `N_con`, `info_min`, `maf_min`, `N_min`, `nstudy_min`, `chunk_size`, `sumstats_snps_file`, `no_snp_restriction`, `source_genome_build`, `output_genome_build`, `liftover_chain_file`, `signed_sumstats_spec`, `ignore_columns`, `info_list_columns`, `sumstats_format`, `a1_inc`, `overwrite` |
+| `MungeConfig` | `output_dir`, `raw_sumstats_file`, `output_format`, `trait_name`, `column_hints`, `N`, `N_cas`, `N_con`, `info_min`, `maf_min`, `N_min`, `nstudy_min`, `chunk_size`, `sumstats_snps_file`, `no_snp_restriction`, `source_genome_build`, `output_genome_build`, `liftover_chain_file`, `signed_sumstats_spec`, `ignore_columns`, `info_list_columns`, `sumstats_format`, `a1_inc`, `overwrite` |
 | `PartitionedH2OutputConfig` | `output_dir`, `overwrite`, `write_per_query_results` |
 | `QuantileH2OutputConfig` | `output_dir`, `overwrite` |
 | `RefPanelConfig` | `backend`, `plink_prefix`, `r2_matrix_dir`, `chromosomes`, `maf_min`, `keep_indivs_file`, `ref_panel_snps_file`, `genetic_map_hg19_sources`, `genetic_map_hg38_sources` |

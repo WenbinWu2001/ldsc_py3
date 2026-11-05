@@ -33,7 +33,6 @@ from .._core.snp_identity import identity_base_mode, identity_mode_family, is_al
 from .munge_kernel import MungeQC, ResolvedMungeInput, mean_info_list_value, prepare_sumstats_restriction
 
 LOGGER = logging.getLogger('LDSC.sumstats_munger')
-_BUILD_INFERENCE_CHUNKSIZE = 5_000
 
 
 COLUMN_HINT_TARGETS = {
@@ -773,7 +772,7 @@ def prepare_munge_input(
     source_path, config, mode = schema.source_path, schema.config, global_config.snp_identifier
     _, compression = get_compression(source_path)
     metadata_skiprows = count_leading_sumstats_comment_lines(source_path)
-    coordinate_metadata = resolve_source_coordinates(source_path, schema.column_map, global_config, compression, metadata_skiprows, restriction_path=restriction_path)
+    coordinate_metadata = resolve_source_coordinates(source_path, schema.column_map, global_config, restriction_path=restriction_path)
     restriction = prepare_sumstats_restriction(restriction_path, mode, coordinate_metadata['genome_build'])
     info_lists = {clean_header(column) for column in config.info_list_columns}
     return ResolvedMungeInput(
@@ -828,7 +827,7 @@ def all_missing_columns(schema: RawSchema) -> list[str]:
     return [column for column in schema.headers if column in empty]
 
 
-def resolve_source_coordinates(source_path, cname_translation, global_config, compression, metadata_skiprows, *, restriction_path=None):
+def resolve_source_coordinates(source_path, cname_translation, global_config, *, restriction_path=None):
     """Resolve source build and basis jointly with coordinate restriction evidence.
 
     Concrete source builds must agree with declarations and imply one-based coordinates.
@@ -851,8 +850,12 @@ def resolve_source_coordinates(source_path, cname_translation, global_config, co
         check.table('--raw-sumstats-file', source_path,
                     coordinate_columns=(chromosome_columns[0], position_columns[0]))
     else:
-        check.frames('--raw-sumstats-file', source_path, _coordinate_frames(
-            source_path, cname_translation, compression=compression, metadata_skiprows=metadata_skiprows))
+        check.unresolved(
+            '--raw-sumstats-file', source_path,
+            f"munge-sumstats could not infer genome_build='auto' for '{source_path}' "
+            "because no CHR/POS column pair was mapped. Most likely the coordinate columns use unrecognized names. "
+            "Map the existing coordinates with --chr/--pos or supply an input with both columns. "
+            "Declaring --source-genome-build does not supply missing chromosome/position values.")
     check.paths('--sumstats-snps-file', restriction_path, restriction_mode=mode)
     source_inferences = [value for source, value in check.inferences if source == str(source_path)]
     bases = {value.coordinate_basis for value in source_inferences}
@@ -872,30 +875,3 @@ def resolve_source_coordinates(source_path, cname_translation, global_config, co
     if inference.coordinate_basis == '0-based':
         LOGGER.warning('Converting inferred zero-based source positions to one-based coordinates.')
     return metadata
-
-
-def _coordinate_frames(source_path, cname_translation, *, compression, metadata_skiprows):
-    """Stream mapped source coordinates without applying QC or restrictions."""
-    raw_chr = [raw for raw, target in cname_translation.items() if target == 'CHR']
-    raw_pos = [raw for raw, target in cname_translation.items() if target == 'POS']
-    if not raw_chr or not raw_pos:
-        raise LDSCInputError(
-            f"munge-sumstats could not infer genome_build='auto' for '{source_path}' "
-            "because no CHR/POS column pair was mapped. Most likely the coordinate columns use unrecognized names. "
-            "Map the existing coordinates with --chr/--pos or supply an input with both columns. "
-            "Declaring --source-genome-build does not supply missing chromosome/position values."
-        )
-    raw_columns = [raw_chr[0], raw_pos[0]]
-    reader = pd.read_csv(
-        source_path,
-        sep=r'\s+',
-        header=0,
-        compression=compression,
-        usecols=raw_columns,
-        na_values=['.', 'NA'],
-        skiprows=metadata_skiprows,
-        chunksize=_BUILD_INFERENCE_CHUNKSIZE,
-    )
-    with reader:
-        frames = (chunk.rename(columns={raw_chr[0]: 'CHR', raw_pos[0]: 'POS'}) for chunk in reader)
-        yield from frames

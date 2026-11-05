@@ -117,10 +117,10 @@ def test_munge_checks_small_coordinate_keep_list(tmp_path, requested, fails):
     config = GlobalConfig(snp_identifier='chr_pos', genome_build=requested)
     if fails:
         with pytest.raises(LDSCInputError, match='--source-genome-build hg19') as caught:
-            resolve_source_coordinates(source, {'CHR': 'CHR', 'POS': 'POS'}, config, None, 0, restriction_path=keep)
+            resolve_source_coordinates(source, {'CHR': 'CHR', 'POS': 'POS'}, config, restriction_path=keep)
         assert 'keep.tsv' in str(caught.value) and 'raw.tsv' in str(caught.value)
     else:
-        result = resolve_source_coordinates(source, {'CHR': 'CHR', 'POS': 'POS'}, config, None, 0, restriction_path=keep)
+        result = resolve_source_coordinates(source, {'CHR': 'CHR', 'POS': 'POS'}, config, restriction_path=keep)
         assert result['genome_build'] == 'hg19'
 
 
@@ -136,7 +136,7 @@ def test_munge_explicit_build_does_not_read_text_coordinate_rows(tmp_path, monke
 
     monkeypatch.setattr(build_policy, '_table_frames', unexpected_read)
     result = resolve_source_coordinates(source, {'CHR': 'CHR', 'POS': 'POS'},
-        GlobalConfig(snp_identifier='chr_pos', genome_build='hg19'), None, 0)
+        GlobalConfig(snp_identifier='chr_pos', genome_build='hg19'))
     assert result['genome_build'] == 'hg19'
     assert result['genome_build_inferred'] is False
 
@@ -147,7 +147,7 @@ def test_munge_trusts_the_selected_build_specific_source_column(tmp_path):
     source = tmp_path / 'raw.tsv'
     coordinates(1, 'hg38', 2).rename(columns={'POS': 'hg19_POS'}).to_csv(source, sep='\t', index=False)
     result = resolve_source_coordinates(source, {'CHR': 'CHR', 'hg19_POS': 'POS'},
-        GlobalConfig(snp_identifier='chr_pos', genome_build='auto'), None, 0)
+        GlobalConfig(snp_identifier='chr_pos', genome_build='auto'))
     assert result['genome_build'] == 'hg19'
     assert result['genome_build_inferred'] is False
 
@@ -372,7 +372,7 @@ def test_munge_preserves_bzip2_build_validation(tmp_path, declared, fails):
         stream.write(f'CHR\tPOS\tgenome_build\n1\t123\t{declared}\n')
     config = GlobalConfig(snp_identifier='chr_pos', genome_build='hg19')
     def resolve():
-        return resolve_source_coordinates(str(path), {'CHR': 'CHR', 'POS': 'POS'}, config, 'bz2', 0)
+        return resolve_source_coordinates(str(path), {'CHR': 'CHR', 'POS': 'POS'}, config)
     if fails:
         with pytest.raises(LDSCInputError, match='Conflicting genome-build evidence') as caught:
             resolve()
@@ -431,7 +431,7 @@ def test_munge_explicit_source_build_checks_selected_column_and_metadata(tmp_pat
     source.write_text('CHR\thg38_POS\n1\t123\n')
     with pytest.raises(LDSCInputError, match='raw.tsv'):
         resolve_source_coordinates(source, {'CHR': 'CHR', 'hg38_POS': 'POS'},
-                                    GlobalConfig(snp_identifier='chr_pos', genome_build='hg19'), None, 0)
+                                    GlobalConfig(snp_identifier='chr_pos', genome_build='hg19'))
 
 
 def test_panel_explicit_source_build_checks_keep_list_declaration(tmp_path):

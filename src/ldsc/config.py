@@ -1061,7 +1061,6 @@ class MungeConfig:
     """
     output_dir: str | PathLike[str] | None = None
     raw_sumstats_file: str | PathLike[str] | None = None
-    compression: str = "auto"
     output_format: str = "parquet"
     trait_name: str | None = None
     column_hints: dict[str, str] = field(default_factory=dict)

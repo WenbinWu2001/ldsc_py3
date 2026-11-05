@@ -93,10 +93,9 @@ from .._core.snp_identity import (
     validate_identity_artifact_metadata,
     normalize_snp_identifier_mode,
 )
-from .._genome.liftover import SumstatsLiftoverRequest, default_liftover_metadata
+from .._genome.liftover import SumstatsLiftoverRequest
 from . import munge_kernel as kernel_munge
 from . import munge_input
-from .munge_input import get_compression
 
 
 LOGGER = logging.getLogger("LDSC.sumstats_munger")
@@ -1442,10 +1441,8 @@ def _apply_build_inference_report(
     if output_build in {"hg19", "hg38"}:
         _append_suggested_option(suggested, "--output-genome-build", output_build)
     try:
-        _, compression = get_compression(schema.source_path)
         metadata = munge_input.resolve_source_coordinates(
-            schema.source_path, schema.column_map, replace(global_config, genome_build=source_hint), compression,
-            munge_input.count_leading_sumstats_comment_lines(schema.source_path),
+            schema.source_path, schema.column_map, replace(global_config, genome_build=source_hint),
             restriction_path=_sumstats_snps_file_from_config(munge_config))
         resolved_source = metadata['genome_build']
     except LDSCUserError as exc:
@@ -2033,13 +2030,7 @@ def _log_sumstats_provenance(
 ) -> None:
     """Log detailed provenance that is intentionally excluded from the parquet footer."""
     coordinate_provenance = dict(coordinate_metadata)
-    liftover = coordinate_provenance.pop(
-        "liftover",
-        default_liftover_metadata(
-            source_build=coordinate_provenance.get("genome_build"),
-            snp_identifier=coordinate_provenance.get("snp_identifier", "chr_pos_allele_aware"),
-        ),
-    )
+    liftover = coordinate_provenance.pop("liftover")
     LOGGER.info(
         f"Summary-statistics output bookkeeping: output_format={output_format}; "
         f"output_files={_format_log_mapping(dict(output_files))}; "
@@ -2049,13 +2040,12 @@ def _log_sumstats_provenance(
     LOGGER.info(
         f"Summary-statistics coordinate provenance: {_format_log_mapping(coordinate_provenance)}"
     )
-    if isinstance(liftover, dict):
-        LOGGER.info(f"Summary-statistics liftover report: {_format_log_mapping(liftover)}")
-        if liftover.get("method") == "hm3_curated":
-            LOGGER.info(
-                f"Summary-statistics HM3 liftover provenance: method={liftover.get('method')}; "
-                f"hm3_map_file={liftover.get('hm3_map_file')}"
-            )
+    LOGGER.info(f"Summary-statistics liftover report: {_format_log_mapping(liftover)}")
+    if liftover.get("method") == "hm3_curated":
+        LOGGER.info(
+            f"Summary-statistics HM3 liftover provenance: method={liftover.get('method')}; "
+            f"hm3_map_file={liftover.get('hm3_map_file')}"
+        )
 
 
 def _format_log_mapping(values: dict[str, Any]) -> str:

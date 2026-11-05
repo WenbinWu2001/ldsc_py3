@@ -1294,8 +1294,8 @@ class _DirectConfigs:
     ``global_config`` holds the requested genome build, which the run resolves
     against its inputs (``_resolve_build``): ``"auto"`` or a concrete build in
     coordinate-family modes. ``genome_build`` is ``--genome-build`` as given,
-    normalized, or ``None``. rsID-family identity records no build, but
-    gene-list projection still needs one.
+    normalized, or ``None``. rsID-family identity records no build, but gene-list
+    projection and region-exclusion presets still use one.
     """
 
     global_config: GlobalConfig
@@ -1513,8 +1513,10 @@ def _requested_global_config(snp_identifier: str, genome_build: str | None, *, h
     """Return the run's ``GlobalConfig`` with the requested genome build, before it is resolved.
 
     Coordinate-family modes need a build; a gene-list run without one infers
-    it (``auto``). rsID-family identity records no build in gene-list runs,
-    where ``--genome-build`` selects only the gene projection build.
+    it (``auto``). rsID-family identity records no build: there
+    ``--genome-build`` selects only coordinates, the gene projection build
+    and the region-exclusion presets. ``GlobalConfig`` rejects ``auto`` in an
+    rsID-family run without gene lists, which has nothing to infer it from.
     """
     if identity_mode_family(snp_identifier) == "chr_pos":
         if genome_build is None and not has_gene_lists:
@@ -1525,8 +1527,8 @@ def _requested_global_config(snp_identifier: str, genome_build: str | None, *, h
                 "`--genome-build hg38`."
             )
         return GlobalConfig(snp_identifier=snp_identifier, genome_build=genome_build or "auto", log_level=log_level)
-    return GlobalConfig(snp_identifier=snp_identifier, genome_build=None if has_gene_lists else genome_build,
-                        log_level=log_level)
+    requested = genome_build if genome_build == "auto" and not has_gene_lists else None
+    return GlobalConfig(snp_identifier=snp_identifier, genome_build=requested, log_level=log_level)
 
 
 def _run_direct_ldscore(configs: _DirectConfigs) -> "LDScoreSource":
@@ -1586,8 +1588,8 @@ def _run_direct_ldscore(configs: _DirectConfigs) -> "LDScoreSource":
                         label="packaged HM3 regression SNP map" if ldscore_config.regr_snps_file is None
                         else "regression SNP list"))
                 regression_regions = gate.check("regression regions", configs.regr_snps_exclude_regions,
-                    lambda: _regression_region_intervals(
-                        configs.regr_snps_exclude_regions, _regression_region_build(global_config, gene_catalog_build)))
+                    lambda: _regression_region_intervals(configs.regr_snps_exclude_regions, _regression_region_build(
+                        global_config, gene_catalog_build, configs.genome_build)))
                 gate.finish()
             chromosome_prefixes = reference_inputs.scope.get("reference_prefixes_by_chrom")
             scope, skipped_funnels = {}, []
@@ -2039,13 +2041,15 @@ def _regr_snps_file_from_config(config: LDScoreConfig) -> str:
     return config.regr_snps_file or packaged_hm3_curated_map_path()
 
 
-def _regression_region_build(global_config: GlobalConfig, gene_catalog_build: str | None) -> str | None:
+def _regression_region_build(global_config: GlobalConfig, gene_catalog_build: str | None,
+                             genome_build: str | None) -> str | None:
     """Return the genome build that selects region-exclusion preset BEDs, or ``None`` without one.
 
     Coordinate-family runs use their resolved build. rsID-family identity
-    carries no build, so gene-list runs use their projection build.
+    carries no build, so gene-list runs use their projection build and other
+    runs a concrete ``genome_build``, the ``--genome-build`` given.
     """
-    for build in (global_config.genome_build, gene_catalog_build):
+    for build in (global_config.genome_build, gene_catalog_build, genome_build):
         if build in {"hg19", "hg38"}:
             return build
     return None

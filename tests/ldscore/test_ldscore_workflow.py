@@ -828,7 +828,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
             global_config, gene_catalog_build = _resolve_build(configs)
 
         intervals = _regression_region_intervals(
-            configs.regr_snps_exclude_regions, _regression_region_build(global_config, gene_catalog_build))
+            configs.regr_snps_exclude_regions,
+            _regression_region_build(global_config, gene_catalog_build, configs.genome_build))
 
         self.assertEqual(
             intervals.source_labels,
@@ -1763,12 +1764,16 @@ class LDScoreWorkflowTest(unittest.TestCase):
             with self.assertRaisesRegex(LDSCInputError, "Genome-build consistency check failed"):
                 _resolve_build(configs)
 
-    def test_rsid_concrete_genome_build_warns_and_nulls(self):
-        with self.assertWarnsRegex(UserWarning, "ignored"):
+    def test_rsid_concrete_genome_build_selects_coordinates_without_entering_identity(self):
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
             configs = direct_configs("--plink-prefix", "panel", "--snp-identifier", "rsid", "--genome-build", "hg38")
         global_config, _ = _resolve_build(configs)
 
         self.assertIsNone(global_config.genome_build)
+        self.assertEqual(configs.genome_build, "hg38")
 
     def test_chr_pos_auto_rejects_annotation_r2_build_mismatch(self):
         from ldsc._genome.build_inference import load_packaged_reference_table
@@ -2177,19 +2182,61 @@ def test_ldscore_parser_regr_snp_region_flag_default_and_choices():
 
 def test_ldscore_region_build_uses_genome_build_and_requires_it_for_rsid():
     # chr_pos: build is taken from the panel build ldscore operates in.
-    build = _regression_region_build(GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19"), None)
+    build = _regression_region_build(GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19"), None,
+                                     "hg19")
     assert build == "hg19"
     assert _regression_region_intervals("mhc-and-centromeres", build).source_labels == (
         "preset:mhc[hg19]", "preset:centromeres[hg19]")
     # rsid: no genome build is available, so presets require an explicit build.
-    assert _regression_region_build(GlobalConfig(snp_identifier="rsid"), None) is None
+    assert _regression_region_build(GlobalConfig(snp_identifier="rsid"), None, None) is None
     with pytest.raises(LDSCUsageError, match="genome-build"):
         _regression_region_intervals("mhc", None)
+    # The sole build declaration is used even in rsid mode.
+    assert _regression_region_build(GlobalConfig(snp_identifier="rsid"), None, "hg38") == "hg38"
     # Gene-list projection supplies coordinate evidence even though rsID
     # identity metadata deliberately remains build-independent.
-    assert _regression_region_build(GlobalConfig(snp_identifier="rsid"), "hg19") == "hg19"
+    assert _regression_region_build(GlobalConfig(snp_identifier="rsid"), "hg19", None) == "hg19"
     # No presets => no build needed.
     assert _regression_region_intervals("none", None) is None
+
+
+def _packaged_region_rows(build):
+    """Read the packaged MHC and centromere preset BEDs of ``build`` without package code."""
+    root = Path(__file__).resolve().parents[2] / "src/ldsc/data/regions"
+    rows = []
+    for name in ("mhc", "centromeres"):
+        for line in (root / f"{name}.{build}.bed").read_text().splitlines():
+            if line and not line.startswith("#"):
+                chrom, start, end = line.split("\t")[:3]
+                rows.append((chrom, int(start), int(end)))
+    return rows
+
+
+@pytest.mark.parametrize("snp_identifier", ["rsid", "rsid_allele_aware"])
+def test_rsid_run_selects_region_presets_with_its_genome_build(tmp_path, snp_identifier):
+    # rsID identity records no build, but --genome-build still selects the preset coordinates.
+    from ldsc import cli
+
+    plink = Path(__file__).resolve().parents[1] / "fixtures/minimal_external_resources/plink/hm3_chr22_subset"
+    bim = pd.read_csv(plink.with_suffix(".bim"), sep="\t", header=None, names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+    regression = tmp_path / "regression.tsv"
+    bim[["SNP"]].to_csv(regression, sep="\t", index=False)
+    rows = _packaged_region_rows("hg19")
+    in_hg19_regions = sum(any(str(chrom) == region_chrom and start < pos <= end
+                              for region_chrom, start, end in rows)
+                          for chrom, pos in zip(bim.CHR, bim.POS))
+    assert 0 < in_hg19_regions < len(bim)
+
+    result = cli.main(["ldscore", "--snp-identifier", snp_identifier, "--genome-build", "hg19",
+                       "--plink-prefix", str(plink), "--ld-wind-snps", "5", "--regr-snps-file", str(regression),
+                       "--output-dir", str(tmp_path / "out")])
+
+    policy = json.loads((tmp_path / "out/metadata.json").read_text())["snp_universe_policy"]
+    regression_rows = policy["regression_rows_and_weights"]
+    assert regression_rows["region_exclusion_sources"] == ["preset:mhc[hg19]", "preset:centromeres[hg19]"]
+    assert regression_rows["region_excluded_snp_count"] == in_hg19_regions
+    assert len(result.baseline_table) == len(bim) - in_hg19_regions
+    assert result.config_snapshot.genome_build is None
 
 
 def test_regression_region_mask_leaves_reference_counts_and_ld_contributors_intact():

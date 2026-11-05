@@ -42,18 +42,12 @@ from dataclasses import dataclass, field, replace
 import logging
 from os import PathLike
 from pathlib import Path
-import re
 import shlex
 from typing import Any
 
 import pandas as pd
 
 from .._runtime.cli_help import CLIHelpFormatter, SCALAR_PATH_HELP, output_directory_argument
-from .._core.chromosomes import chrom_sort_key, normalize_chromosome_series
-from .._core.coordinates import (
-    coordinate_missing_mask,
-    positive_int_position_series,
-)
 from .._core.columns import normalize_genome_build
 from ..config import GlobalConfig, MungeConfig, get_global_config
 from ..errors import (
@@ -64,8 +58,6 @@ from ..errors import (
 from .._genome.hm3 import packaged_hm3_curated_map_path
 from .._runtime.paths import (
     ensure_output_directory,
-    preflight_output_artifact_family,
-    remove_output_artifacts,
     resolve_scalar_path,
 )
 from .._runtime.workflow_logging import (
@@ -86,15 +78,19 @@ from .._core.snp_identity import (
 from .._genome.liftover import SumstatsLiftoverRequest
 from . import munge_kernel as kernel_munge
 from . import munge_input
+from .outputs import (
+    INPUT_ISSUES_FILE,
+    SUMSTATS_OUTPUT_FORMATS,
+    SUMSTATS_PARQUET_COMPRESSION,
+    SumstatsDirectoryWriter,
+)
 from .table import SumstatsTable, encode_sumstats_footer
 from .._runtime.preflight import inspect_declared_inputs
 
 
 LOGGER = logging.getLogger("LDSC.sumstats_munger")
 
-_SUMSTATS_OUTPUT_FORMATS = {"parquet", "tsv.gz", "both"}
 _RAW_SUMSTATS_FORMATS = {"auto", "plain", "daner-old", "daner-new"}
-_SUMSTATS_PARQUET_COMPRESSION = "snappy"
 
 
 @dataclass(frozen=True)
@@ -260,31 +256,20 @@ class SumstatsMunger:
         liftover_request = _liftover_request_from_config(munge_config, config_snapshot.genome_build)
         _validate_liftover_request_before_io(config_snapshot, liftover_request)
         output_dir = ensure_output_directory(munge_config.output_dir, label="output directory")
-        diagnostics_dir = output_dir / "diagnostics"
-        output_files = _sumstats_output_files(output_dir, munge_config.output_format, raw_sumstats_config.trait_name)
-        log_path = str(diagnostics_dir / "sumstats.log")
-        dropped_snps_path = diagnostics_dir / "dropped_snps" / "dropped.tsv.gz"
-        input_issues_path = diagnostics_dir / "input_issues.tsv"
+        writer = SumstatsDirectoryWriter()
+        family = writer.artifact_family(
+            output_dir, trait_name=raw_sumstats_config.trait_name, output_format=munge_config.output_format, run=True,
+        )
+        output_files = {name: str(family.paths[name]) for name in ("parquet", "tsv.gz") if name in family.paths}
+        log_path = str(family.paths["log"])
+        dropped_snps_path = family.paths["dropped_snps"]
+        input_issues_path = output_dir / INPUT_ISSUES_FILE
         sumstats_snps_path = _sumstats_snps_file_from_config(munge_config)
         sumstats_snps_label = "none" if sumstats_snps_path is None else str(sumstats_snps_path)
-        produced_paths = [*output_files.values(), log_path, dropped_snps_path]
-        owned_paths = [
-            *_sumstats_output_files(output_dir, "both", raw_sumstats_config.trait_name).values(),
-            log_path,
-            dropped_snps_path,
-            input_issues_path,
-        ]
-        # See _runtime.paths.preflight_output_artifact_family for the
-        # owned_paths/produced_paths split. The dropped-SNP sidecar is in both
-        # lists because it is always written, including clean header-only runs;
-        # the input-issue table is owned only, since a passing check removes it.
-        stale_paths = preflight_output_artifact_family(
-            produced_paths,
-            owned_paths,
-            overwrite=munge_config.overwrite,
-            label="munged output artifact",
-        )
-        diagnostics_dir.mkdir(parents=True, exist_ok=True)
+        # The writer checks the family again when it publishes, then removes
+        # stale owned siblings.
+        family.preflight(overwrite=munge_config.overwrite)
+        family.paths["log"].parent.mkdir(parents=True, exist_ok=True)
         with workflow_logging("munge-sumstats", log_path, log_level=config_snapshot.log_level):
             inspect_declared_inputs(files=[('raw summary statistics', raw_sumstats_config.raw_sumstats_file),
                 ('SNP restriction', sumstats_snps_path), ('liftover chain', liftover_request.liftover_chain_file)],
@@ -345,28 +330,31 @@ class SumstatsMunger:
             )
             table_config_snapshot = _effective_sumstats_config(config_snapshot, coordinate_metadata)
             qc_thresholds = {"info_min": request.qc.info_min, "maf_min": request.qc.maf_min}
-            primary_sumstats_file, parquet_row_groups = _write_sumstats_outputs(
+            # Always write the audit sidecar so consumers can distinguish a
+            # clean run from a missing or stale dropped-SNP artifact.
+            written = writer.write(
                 data,
-                output_files=output_files,
+                output_dir,
+                trait_name=raw_sumstats_config.trait_name,
                 output_format=munge_config.output_format,
                 footer_metadata=encode_sumstats_footer(
                     table_config_snapshot, raw_sumstats_config.trait_name, qc_thresholds,
                 ),
+                dropped_snps=drop_frame,
+                overwrite=munge_config.overwrite,
+                preflighted=True,
             )
             _log_sumstats_provenance(
                 coordinate_metadata=coordinate_metadata,
                 output_format=munge_config.output_format,
                 output_files=output_files,
                 parquet_compression=(
-                    _SUMSTATS_PARQUET_COMPRESSION
+                    SUMSTATS_PARQUET_COMPRESSION
                     if "parquet" in output_files
                     else None
                 ),
-                parquet_row_groups=parquet_row_groups,
+                parquet_row_groups=written.parquet_row_groups,
             )
-            # Always write the audit sidecar so consumers can distinguish a
-            # clean run from a missing or stale dropped-SNP artifact.
-            _write_sumstats_dropped_snps_sidecar(drop_frame, dropped_snps_path)
             _log_sumstats_dropped_snps_summary(drop_frame, dropped_snps_path)
             if not (isinstance(data.index, pd.RangeIndex) and data.index.start == 0 and data.index.step == 1):
                 data = data.reset_index(drop=True)
@@ -405,9 +393,8 @@ class SumstatsMunger:
             log_outputs(**run_output_paths)
             LOGGER.info(
                 f"Munged {self._last_summary.n_input_rows} input rows to {self._last_summary.n_retained_rows} retained rows; "
-                f"wrote '{primary_sumstats_file}'."
+                f"wrote '{written.primary}'."
             )
-            remove_output_artifacts(stale_paths)
         return table
 
     def write_output(
@@ -468,26 +455,16 @@ class SumstatsMunger:
                 "from a legacy artifact. Re-run munge-sumstats from the raw GWAS file or attach a "
                 "GlobalConfig snapshot before writing."
             )
-        output_format = _normalize_output_format(output_format)
-        output_root = ensure_output_directory(output_dir, label="output directory")
-        output_files = _sumstats_output_files(output_root, output_format, sumstats.trait_name)
-        produced_paths = list(output_files.values())
-        stale_paths = preflight_output_artifact_family(
-            produced_paths,
-            list(_sumstats_output_files(output_root, "both", sumstats.trait_name).values()),
-            overwrite=overwrite,
-            label="munged output artifact",
-        )
-        primary_sumstats_file, _parquet_row_groups = _write_sumstats_outputs(
+        return SumstatsDirectoryWriter().write(
             sumstats.data,
-            output_files=output_files,
+            output_dir,
+            trait_name=sumstats.trait_name,
             output_format=output_format,
             footer_metadata=encode_sumstats_footer(
                 sumstats.config_snapshot, sumstats.trait_name, sumstats.provenance.get("qc_thresholds"),
             ),
-        )
-        remove_output_artifacts(stale_paths)
-        return primary_sumstats_file
+            overwrite=overwrite,
+        ).primary
 
     def build_run_summary(self) -> MungeRunSummary:
         """Return the summary captured from the most recent call to :meth:`run`."""
@@ -950,7 +927,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     output.add_argument(
-        '--output-format', choices=sorted(_SUMSTATS_OUTPUT_FORMATS), default='parquet',
+        '--output-format', choices=sorted(SUMSTATS_OUTPUT_FORMATS), default='parquet',
         help=(
             'Write <trait>.parquet, <trait>.sumstats.gz, or both; without --trait-name, use '
             'sumstats.parquet or sumstats.gz. Default: parquet; output choice does not '
@@ -1384,176 +1361,6 @@ def _format_shell_command(command: list[str], *, base_indent: str = "  ", option
     return "\n".join(lines)
 
 
-def _normalize_output_format(output_format: str) -> str:
-    """Return a validated munged summary-statistics output-format token."""
-    if output_format not in _SUMSTATS_OUTPUT_FORMATS:
-        raise LDSCUsageError(
-            f"munge-sumstats does not support output_format={output_format!r}. "
-            "Most likely the output format was misspelled. Use one of 'parquet', 'tsv.gz', or 'both'."
-        )
-    return output_format
-
-
-def _sumstats_output_files(
-    output_dir: Path, output_format: str, trait_name: str | None = None
-) -> dict[str, str]:
-    """Resolve trait-named artifacts without allowing labels to create paths."""
-    output_format = _normalize_output_format(output_format)
-    stem = "sumstats" if trait_name is None else re.sub(r"[^\w.-]+", "_", trait_name).strip("._-") or "trait"
-    paths: dict[str, str] = {}
-    if output_format in {"parquet", "both"}:
-        paths["parquet"] = str(output_dir / f"{stem}.parquet")
-    if output_format in {"tsv.gz", "both"}:
-        name = "sumstats.gz" if trait_name is None else f"{stem}.sumstats.gz"
-        paths["tsv.gz"] = str(output_dir / name)
-    return paths
-
-
-def _prepare_curated_sumstats_frame(data: pd.DataFrame) -> pd.DataFrame:
-    """Return a copy with fixed summary-statistics output columns and coordinate placeholders."""
-    columns = [col for col in ("SNP", "CHR", "POS", "A1", "A2", "Z", "N", "FRQ")
-               if col in data.columns or col in ("CHR", "POS")]
-    frame = data.loc[:, [col for col in columns if col in data.columns]]
-    for col in ("CHR", "POS"):
-        if col not in frame.columns:
-            frame.insert(columns.index(col), col, pd.NA)
-    return frame
-
-
-def _prepare_sumstats_parquet_frame(data: pd.DataFrame) -> pd.DataFrame:
-    """Return a precision-preserving frame sorted for chromosome row groups.
-
-    Complete-coordinate rows are normalized and ordered by chromosome sort key,
-    ``POS``, and original row order. Rows without a complete ``CHR``/``POS``
-    pair are kept, preserve original relative order, and sort after all
-    complete-coordinate rows so the writer can place them in one final
-    missing-coordinate row group.
-    """
-    frame = _prepare_curated_sumstats_frame(data)
-    chr_missing = coordinate_missing_mask(frame["CHR"])
-    pos_missing = coordinate_missing_mask(frame["POS"])
-    pos_numeric = pd.to_numeric(frame["POS"], errors="coerce")
-    invalid_pos = (~pos_missing) & pos_numeric.isna()
-    if invalid_pos.any():
-        bad_value = frame.loc[invalid_pos, "POS"].iloc[0]
-        raise LDSCInputError(
-            f"munge-sumstats could not write Parquet output because POS contains a non-numeric value {bad_value!r}. "
-            "Most likely a coordinate column was mapped incorrectly. Pass the correct --pos column or fix the POS values."
-        )
-
-    complete = ~(chr_missing | pos_missing)
-    if complete.any():
-        complete_pos = positive_int_position_series(
-            frame.loc[complete, "POS"],
-            context="summary-statistics Parquet output",
-            label="POS",
-        )
-        if frame["CHR"].dtype.kind in "biuf":
-            # Normalized labels are strings: convert a numeric column to object
-            # first, as assignment would, instead of relying on implicit upcasting.
-            frame["CHR"] = frame["CHR"].astype(object)
-        frame.loc[complete, "CHR"] = normalize_chromosome_series(
-            frame.loc[complete, "CHR"],
-            context="summary-statistics Parquet output",
-        ).astype(object)
-        frame.loc[complete, "POS"] = complete_pos.astype("int64")
-
-    # Sort a frame of the keys alone, then take the rows once.
-    keys = pd.DataFrame({"missing": ~complete, "pos": pos_numeric.where(complete, pd.NA)})
-    keys["rank"] = 10_000
-    if complete.any():
-        unique_chroms = pd.unique(frame.loc[complete, "CHR"])
-        rank_map = {chrom: chrom_sort_key(chrom)[1] for chrom in unique_chroms}
-        keys.loc[complete, "rank"] = frame.loc[complete, "CHR"].map(rank_map).astype("int64")
-    keys["order"] = range(len(frame))
-    keys.index = pd.RangeIndex(len(keys))
-    order = keys.sort_values(by=["missing", "rank", "pos", "order"], kind="mergesort").index.to_numpy()
-    frame = frame.take(order)
-    frame.index = pd.RangeIndex(len(frame))
-    return frame
-
-
-def _write_sumstats_tsv_gz(data: pd.DataFrame, path: str) -> None:
-    """Write gzip TSV with explicit missing fields and unrounded frequency."""
-    frame = _prepare_curated_sumstats_frame(data)
-    if "FRQ" in frame:
-        frame["FRQ"] = frame["FRQ"].astype("string")
-    frame.to_csv(path, sep="\t", index=False, float_format="%.3f", compression="gzip", na_rep="NA")
-
-
-def _write_sumstats_parquet(
-    data: pd.DataFrame, path: str, footer_metadata: dict[bytes, bytes] | None = None
-) -> list[dict[str, Any]]:
-    """Write snappy-compressed Parquet and return row-group metadata.
-
-    The Parquet payload keeps the munger's numeric precision. One row group is
-    emitted per normalized chromosome among complete-coordinate rows. If rows
-    without complete coordinates exist, they are emitted as the last row group
-    with ``chrom`` recorded as ``None``. When ``footer_metadata`` is supplied,
-    its ``ldsc:*`` identity keys are merged into the Parquet schema footer so the
-    file is self-describing downstream.
-    """
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
-    frame = _prepare_sumstats_parquet_frame(data)
-    schema = pa.Schema.from_pandas(frame, preserve_index=False)
-    if footer_metadata:
-        schema = schema.with_metadata({**(schema.metadata or {}), **footer_metadata})
-    row_groups: list[dict[str, Any]] = []
-    offset = 0
-    with pq.ParquetWriter(path, schema, compression=_SUMSTATS_PARQUET_COMPRESSION) as writer:
-        if frame.empty:
-            writer.write_table(pa.Table.from_pandas(frame, schema=schema, preserve_index=False))
-            return row_groups
-        complete = ~(coordinate_missing_mask(frame["CHR"]) | coordinate_missing_mask(frame["POS"]))
-        for chrom, chrom_df in frame.loc[complete].groupby("CHR", sort=False):
-            writer.write_table(pa.Table.from_pandas(chrom_df, schema=schema, preserve_index=False))
-            row_groups.append(
-                {
-                    "chrom": str(chrom),
-                    "row_group_index": len(row_groups),
-                    "row_offset": offset,
-                    "n_rows": len(chrom_df),
-                }
-            )
-            offset += len(chrom_df)
-        missing_df = frame.loc[~complete]
-        if not missing_df.empty:
-            writer.write_table(pa.Table.from_pandas(missing_df, schema=schema, preserve_index=False))
-            row_groups.append(
-                {
-                    "chrom": None,
-                    "row_group_index": len(row_groups),
-                    "row_offset": offset,
-                    "n_rows": len(missing_df),
-                }
-            )
-    return row_groups
-
-
-def _write_sumstats_outputs(
-    data: pd.DataFrame,
-    *,
-    output_files: dict[str, str],
-    output_format: str,
-    footer_metadata: dict[bytes, bytes] | None = None,
-) -> tuple[str, list[dict[str, Any]]]:
-    """Write selected artifacts and return the primary path plus Parquet row groups.
-
-    The ``.sumstats.gz`` TSV artifact carries no embedded metadata; only the
-    Parquet artifact receives the self-describing ``footer_metadata``.
-    """
-    output_format = _normalize_output_format(output_format)
-    parquet_row_groups: list[dict[str, Any]] = []
-    if "tsv.gz" in output_files:
-        _write_sumstats_tsv_gz(data, output_files["tsv.gz"])
-    if "parquet" in output_files:
-        parquet_row_groups = _write_sumstats_parquet(data, output_files["parquet"], footer_metadata)
-    primary = output_files["parquet"] if output_format in {"parquet", "both"} else output_files["tsv.gz"]
-    return primary, parquet_row_groups
-
-
 def _empty_sumstats_dropped_snps_frame() -> pd.DataFrame:
     """Return the canonical empty summary-statistics dropped-SNP sidecar frame."""
     return pd.DataFrame(
@@ -1593,12 +1400,6 @@ def _coerce_sumstats_dropped_snps_frame(
     output["allele_set"] = output["allele_set"].astype("string")
     output["stage"] = output["stage"].astype("string")
     return output.reset_index(drop=True)
-
-
-def _write_sumstats_dropped_snps_sidecar(drop_frame: pd.DataFrame, path: Path) -> None:
-    """Write the always-owned dropped-SNP audit sidecar, even when header-only."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    drop_frame.to_csv(path, sep="\t", index=False, compression="gzip", na_rep="")
 
 
 def _log_sumstats_dropped_snps_summary(drop_frame: pd.DataFrame, path: Path) -> None:

@@ -17,6 +17,7 @@ from pandas.testing import assert_series_equal
 import ldsc
 from ldsc.config import GlobalConfig, MungeConfig
 from ldsc._sumstats import munger as sumstats_workflow
+from ldsc._sumstats import outputs as sumstats_outputs
 from ldsc._sumstats import table as sumstats_table
 from ldsc._sumstats import munge_kernel as kernel_munge
 from ldsc._sumstats import munge_input
@@ -65,9 +66,7 @@ class SumstatsMungerTest(unittest.TestCase):
         footer = sumstats_table.encode_sumstats_footer(
             GlobalConfig(snp_identifier=snp_identifier, genome_build=genome_build), trait_name
         )
-        sumstats_workflow._write_sumstats_outputs(
-            frame, output_files={"parquet": str(path)}, output_format="parquet", footer_metadata=footer
-        )
+        sumstats_outputs.write_sumstats_parquet(frame, str(path), footer)
 
     def test_build_parser_defaults_chunksize_to_one_million_rows(self):
         parser = sumstats_workflow.build_parser()
@@ -972,7 +971,7 @@ class SumstatsMungerTest(unittest.TestCase):
                               "A1": "A", "A2": "C", "Z": [1.0, 2.0, 3.0, 4.0], "N": 100.0})
         with warnings.catch_warnings():
             warnings.simplefilter("error", FutureWarning)
-            prepared = sumstats_workflow._prepare_sumstats_parquet_frame(frame)
+            prepared = sumstats_outputs._prepare_sumstats_parquet_frame(frame)
         self.assertEqual(prepared["CHR"].tolist(), ["1", "1", "2", "X"])
         self.assertEqual(prepared["CHR"].dtype, object)
         self.assertEqual(prepared["POS"].tolist(), [3, 9, 5, 7])
@@ -2888,9 +2887,7 @@ class SumstatsParquetFooterTest(unittest.TestCase):
         footer = sumstats_table.encode_sumstats_footer(snapshot, trait_name="height")
         with tempfile.TemporaryDirectory() as tmp:
             out = str(Path(tmp) / "sumstats.parquet")
-            sumstats_workflow._write_sumstats_outputs(
-                self._frame(), output_files={"parquet": out}, output_format="parquet", footer_metadata=footer
-            )
+            sumstats_outputs.write_sumstats_parquet(self._frame(), out, footer)
             raw = pq.read_schema(out).metadata
         self.assertEqual(raw[b"ldsc:artifact_type"], b"sumstats")
         self.assertEqual(raw[b"ldsc:snp_identifier"], b"chr_pos_allele_aware")
@@ -2905,9 +2902,7 @@ class SumstatsParquetFooterTest(unittest.TestCase):
             del footer[missing]
             with self.subTest(missing=missing), tempfile.TemporaryDirectory() as tmp:
                 out = str(Path(tmp) / "sumstats.parquet")
-                sumstats_workflow._write_sumstats_outputs(
-                    self._frame(), output_files={"parquet": out}, output_format="parquet", footer_metadata=footer
-                )
+                sumstats_outputs.write_sumstats_parquet(self._frame(), out, footer)
                 with self.assertRaisesRegex(ldsc.LDSCInputError, missing.decode() + ".*Re-run munge-sumstats"):
                     sumstats_table.load_sumstats(out)
 
@@ -2933,9 +2928,7 @@ class SumstatsParquetFooterTest(unittest.TestCase):
                     footer[key] = value
             with self.subTest(label), tempfile.TemporaryDirectory() as tmp:
                 out = str(Path(tmp) / "sumstats.parquet")
-                sumstats_workflow._write_sumstats_outputs(
-                    self._frame(), output_files={"parquet": out}, output_format="parquet", footer_metadata=footer
-                )
+                sumstats_outputs.write_sumstats_parquet(self._frame(), out, footer)
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     with self.assertRaisesRegex(ldsc.LDSCInputError, re.escape(message) + ".*Re-run munge-sumstats"):

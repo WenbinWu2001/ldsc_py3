@@ -91,6 +91,7 @@ from .._annotation.query_outcomes import (
 )
 from .._genome.build_policy import GenomeBuildCheck
 from .._annotation.gene_lists import GeneCatalog
+from .._annotation.interval_projection import ChromosomeProjector
 from .._annotation.gene_query_storage import resolve_gene_lists_staged, persistent_gene_diagnostics
 from .._annotation.preflight import (
     annotation_columns,
@@ -951,6 +952,11 @@ def _validate_gene_list_mode_args(args: argparse.Namespace, explicit_options) ->
 def _apply_direct_gene_gate_b(annotation_bundle, ref_panel, ldscore_config):
     """Measure interval support on the prepared reference SNPs.
 
+    Each gene interval counts the retained reference SNPs it covers with
+    ``ChromosomeProjector.counts``, the padding rule of annotation projection.
+    The chromosomes are prepared one at a time in the calling process, before
+    any LD score is computed.
+
     Return the updated bundle, the Gate B error message or ``None``, and the
     chromosomes whose reference preparation failed as an input-issue table or
     ``None``.
@@ -968,10 +974,6 @@ def _apply_direct_gene_gate_b(annotation_bundle, ref_panel, ldscore_config):
     )
     interval_frame = pd.concat([interval_frame, interval_coordinates], axis=1)
     interval_frame["catalog_index"] = interval_frame["catalog_index"].astype(int)
-    interval_frame["start0"] = (
-        interval_frame["start0"].astype(np.int64) - padding_bp
-    ).clip(lower=0)
-    interval_frame["end"] = interval_frame["end"].astype(np.int64) + padding_bp
     support = pd.Series(pd.NA, index=interval_frame["catalog_index"], dtype="Int64")
     errors = []
     input_issues = []
@@ -980,22 +982,20 @@ def _apply_direct_gene_gate_b(annotation_bundle, ref_panel, ldscore_config):
         genes = interval_frame[interval_frame["chrom"].astype(str).eq(str(chrom))]
         chrom_bundle = _slice_annotation_bundle(annotation_bundle, chrom)
         chrom_annotations = _chromosome_annotations(chrom_bundle,chrom)
+        starts, ends = genes["start0"].to_numpy(dtype=np.int64), genes["end"].to_numpy(dtype=np.int64)
         try:
             with ref_panel.prepare_chromosome(chrom, chrom_annotations, ldscore_config) as prepared:
-                positions0 = np.sort(prepared.metadata["POS"].to_numpy(dtype=np.int64) - 1)
+                counts = ChromosomeProjector(prepared.metadata).counts(starts, ends, padding_bp=padding_bp)
         except EmptyReferenceSNPs as exc:
             funnel = getattr(exc, "reference_snp_funnel", None)
             if funnel is not None and annotation_snp_grid_emptied(funnel):
                 grid_emptied.append(funnel)
-            positions0 = np.array([], dtype=np.int64)
+            counts = np.zeros(len(genes), dtype=np.int64)
         except (OSError, EOFError, ValueError, LDSCUserError) as exc:
             errors.append(f"Chromosome {chrom} reference preparation failed: {exc}")
             input_issues.append({"input_role": "reference", "source": f"chromosome {chrom}", "chrom": str(chrom), "reason": "invalid_required_input",
                                  "details": str(exc), "repair": "Repair reference inputs and runtime filters before retrying."})
             continue
-        counts = np.searchsorted(positions0, genes["end"].to_numpy(dtype=np.int64), side="left") - np.searchsorted(
-            positions0, genes["start0"].to_numpy(dtype=np.int64), side="left"
-        )
         support.loc[genes["catalog_index"].astype(int).to_numpy()] = counts
     if grid_emptied:
         errors.append(_grid_emptied_message(grid_emptied))

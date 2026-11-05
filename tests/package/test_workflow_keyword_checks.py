@@ -105,7 +105,7 @@ def test_keyword_and_command_line_routes_record_the_same_explicit_options():
 
 # Every command with a keyword wrapper, as `ldsc` parses it; the workflow is replaced by a recorder.
 _COMMAND_LINES = [
-    ("ldsc._ldscore.calculator", "run_ldscore_from_args", ["ldscore", "--plink-prefix", "panel", "--output-dir", "out"]),
+    ("ldsc._ldscore.workflow", "run_ldscore_from_args", ["ldscore", "--plink-prefix", "panel", "--output-dir", "out"]),
     ("ldsc._refpanel.builder", "run_build_r2_matrix_from_args",
      ["build-r2-matrix", "--plink-prefix", "panel", "--ld-wind-kb=1", "--output-dir", "out"]),
     ("ldsc._regression.runner", "run_h2_from_args",

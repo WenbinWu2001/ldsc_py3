@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from ldsc._ldscore.gene_index import build as gene_ldscore_index
-from ldsc._ldscore import calculator as ldscore_calculator
+from ldsc._ldscore import workflow as ldscore_workflow
 from ldsc._runtime.workflow_kwargs import parse_command_line
 from ldsc._ldscore.gene_index.scoring import load_gene_ldscore_index
 from tests.gene_index_helpers import narrow_index_chromosomes
@@ -72,7 +72,7 @@ def test_gene_index_and_ldscore_share_plink_resolution_and_scores(tmp_path, form
     # Direct @ declares all 22 chromosomes; use the equivalent glob for
     # this deliberately partial numerical fixture.
     direct_token = token if form != "at" else str(tmp_path / "1000G.EUR.QC.*")
-    args = parse_command_line(ldscore_calculator.build_parser(), [
+    args = parse_command_line(ldscore_workflow.build_parser(), [
         "--baseline-annot-sources", str(tmp_path / "baseline.annot"), "--plink-prefix", direct_token,
         "--query-annot-sources", str(tmp_path / "query.annot"),
         "--snp-identifier", "chr_pos", "--genome-build", "hg19", "--ld-wind-cm", ".05", "--snp-batch-size", "1",
@@ -82,7 +82,7 @@ def test_gene_index_and_ldscore_share_plink_resolution_and_scores(tmp_path, form
     marker = tmp_path / "ldscore/RUN_FAILED.txt"
     marker.parent.mkdir()
     marker.write_text("earlier failed overwrite")
-    result = ldscore_calculator.run_ldscore_from_args(args)
+    result = ldscore_workflow.run_ldscore_from_args(args)
     assert not marker.exists()
     np.testing.assert_allclose(result.baseline_table["base"], 1, atol=1e-7)
     assert len(result.baseline_table) == 8

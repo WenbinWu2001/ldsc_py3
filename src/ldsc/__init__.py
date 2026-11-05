@@ -72,7 +72,7 @@ from ._genome.build_inference import (
     resolve_chr_pos_table,
 )
 from ._genome.hm3 import load_hm3_curated_map
-from ._ldscore.calculator import LDScoreCalculator, run_ldscore
+from ._ldscore.calculator import LDScoreCalculator
 from ._ldscore.gene_index.build import build_gene_ldscore_index
 from ._ldscore.gene_index.scoring import load_gene_ldscore_index
 from ._regression.outputs import (
@@ -87,6 +87,7 @@ from ._regression.outputs import (
 )
 from ._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from ._ldscore.results import ChromLDScoreResult, LDScoreResult
+from ._ldscore.workflow import run_ldscore
 from ._refpanel.builder import R2MatrixBuildResult, R2MatrixBuilder, run_build_r2_matrix
 from ._refpanel.adapters import R2MatrixRefPanel, PlinkRefPanel, RefPanel, RefPanelLoader
 from ._refpanel.query import R2Matrix, query_r2_matrix, unbiased_r2_to_pearson_r

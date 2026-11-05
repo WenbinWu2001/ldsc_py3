@@ -71,7 +71,7 @@ _COMMANDS = {
         "._genome.build_inspection", "add_inspection_arguments", "run_inspection_from_args", read_only=True,
     ),
     "annotate": _Command("Find SNPs covered by BED intervals or gene boundaries.", "._annotation.builder"),
-    "ldscore": _Command("Compute LD scores.", "._ldscore.calculator"),
+    "ldscore": _Command("Compute LD scores.", "._ldscore.workflow"),
     "build-r2-matrix": _Command("Build pairwise R2 matrices from PLINK genotypes.", "._refpanel.builder"),
     "build-gene-ldscore-index": _Command("Build a reusable gene LD-score index.", "._ldscore.gene_index.build"),
     "convert-legacy-ldscores": _Command(

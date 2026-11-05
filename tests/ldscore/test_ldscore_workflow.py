@@ -32,8 +32,9 @@ from ldsc import (
     PlinkRefPanel,
     RefPanelConfig,
 )
-from ldsc._ldscore import calculator as ldscore_workflow
-from ldsc._ldscore.calculator import (
+from ldsc._ldscore.calculator import _format_ldscore_start_message
+from ldsc._ldscore import workflow as ldscore_workflow
+from ldsc._ldscore.workflow import (
     build_parser,
     _configs_from_args,
     _regression_region_build,
@@ -197,7 +198,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             source_summary={"baseline": "synthetic all-ones base annotation from retained reference-panel metadata"},
         )
 
-        message = ldscore_workflow._format_ldscore_start_message(bundle, 22)
+        message = _format_ldscore_start_message(bundle, 22)
 
         self.assertEqual(
             message,
@@ -211,7 +212,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             source_summary={"baseline": "baseline.@.annot.gz"},
         )
 
-        message = ldscore_workflow._format_ldscore_start_message(bundle, 22)
+        message = _format_ldscore_start_message(bundle, 22)
 
         self.assertEqual(
             message,

@@ -101,7 +101,7 @@ def _write_index_panel(
 def _run_minimal_ldscore(build_dir: Path, out_dir: Path, workers: int) -> Path:
     """Run a synthetic-base LD-score job over the index panel; return out_dir."""
     from ldsc.config import GlobalConfig, set_global_config
-    from ldsc._ldscore.calculator import run_ldscore
+    from ldsc._ldscore.workflow import run_ldscore
 
     regression_snps = build_dir / "regression_snps.tsv"
     pd.concat(
@@ -290,7 +290,7 @@ def test_parallel_output_matches_sequential(run_minimal_ldscore):
 
 def test_partitioned_parallel_preserves_scores_counts_overlap_and_classification(two_chrom_panel, tmp_path):
     from ldsc.config import GlobalConfig, set_global_config
-    from ldsc._ldscore.calculator import run_ldscore
+    from ldsc._ldscore.workflow import run_ldscore
     from ldsc import load_ldscore_from_dir
 
     metadata = pd.concat([panel for panel, _ in _PANEL_CHROMS.values()], ignore_index=True)
@@ -382,7 +382,7 @@ def _run_with_one_empty_chrom(build_dir: Path, out_dir: Path, workers: int) -> P
 
     from ldsc._refpanel.adapters import RefPanelLoader
     from ldsc.config import GlobalConfig, LDScoreConfig, RefPanelConfig
-    from ldsc._ldscore.calculator import LDScoreCalculator
+    from ldsc._ldscore.workflow import LDScoreCalculator
     from ldsc._ldscore.outputs import LDScoreOutputConfig
 
     metadata = pd.DataFrame(
@@ -436,7 +436,7 @@ def test_skip_path_matches_under_pool(two_chrom_panel, tmp_path):
 
 
 def _cli_ldscore_config(*argv):
-    from ldsc._ldscore.calculator import _configs_from_args, build_parser
+    from ldsc._ldscore.workflow import _configs_from_args, build_parser
     from ldsc._runtime.workflow_kwargs import parse_command_line
 
     args = parse_command_line(build_parser(), ["--output-dir", "x", "--plink-prefix", "panel", "--genome-build", "hg19",

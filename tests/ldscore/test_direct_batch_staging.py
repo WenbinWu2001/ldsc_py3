@@ -126,7 +126,7 @@ def test_direct_final_batch_failure_removes_private_outputs(tmp_path, monkeypatc
 
 
 def test_real_plink_gene_batches_preserve_all_metadata_and_diagnostics(tmp_path, monkeypatch, inputs):
-    from ldsc._ldscore.calculator import run_ldscore_from_args
+    from ldsc._ldscore.workflow import run_ldscore_from_args
 
     _, annotation_path, _, _ = inputs
     annotations = pd.read_csv(annotation_path, sep="\t")

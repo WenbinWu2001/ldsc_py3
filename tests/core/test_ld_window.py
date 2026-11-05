@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from ldsc._ldscore.calculator import build_parser, run_ldscore_from_args
+from ldsc._ldscore.workflow import build_parser, run_ldscore_from_args
 from ldsc._runtime.workflow_kwargs import parse_command_line
 from ldsc._refpanel.builder import build_parser as r2_build_parser
 from ldsc.config import GeneLDScoreIndexBuildConfig, LDScoreConfig, LDWindow, R2MatrixBuildConfig

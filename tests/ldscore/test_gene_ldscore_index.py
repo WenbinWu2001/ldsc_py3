@@ -22,7 +22,7 @@ from scipy import sparse
 
 from ldsc import cli
 from ldsc._ldscore.gene_index import build as gene_ldscore_index
-from ldsc._ldscore import calculator as ldscore_calculator
+from ldsc._ldscore import workflow as ldscore_workflow
 from ldsc._ldscore import direct_batches
 from ldsc._ldscore.gene_index.artifact import _canonical_frame_sha256, _catalog_identity_records
 from ldsc.config import GeneLDScoreIndexBuildConfig, GlobalConfig, LDScoreConfig, reset_global_config, set_global_config
@@ -1890,7 +1890,7 @@ def test_explicit_indexed_mode_dispatches_without_live_reference(monkeypatch, tm
         captured.update(kwargs)
         return sentinel
 
-    monkeypatch.setattr(ldscore_calculator, "run_indexed_ldscore", fake_run)
+    monkeypatch.setattr(ldscore_workflow, "run_indexed_ldscore", fake_run)
 
     result = cli.main(
         [
@@ -2012,7 +2012,7 @@ def test_explicit_indexed_mode_rejects_ignored_boolean_live_option(tmp_path):
 
 def test_python_indexed_mode_rejects_explicit_identity_even_when_equal_to_ordinary_default(tmp_path):
     with pytest.raises(LDSCUsageError, match="snp_identifier"):
-        ldscore_calculator.run_ldscore(
+        ldscore_workflow.run_ldscore(
             output_dir=tmp_path / "out",
             gene_ldscore_index_dir=tmp_path / "index",
             query_annot_gene_list_sources=(tmp_path / "genes.txt",),
@@ -2038,7 +2038,7 @@ def test_python_indexed_mode_inherits_index_identity_over_registered_global_conf
 
     set_global_config(registered)
     try:
-        result = ldscore_calculator.run_ldscore(
+        result = ldscore_workflow.run_ldscore(
             output_dir=tmp_path / "out",
             gene_ldscore_index_dir=index_dir,
             query_annot_gene_list_sources=str(genes),

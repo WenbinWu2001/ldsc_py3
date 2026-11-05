@@ -275,7 +275,7 @@ def test_index_rows_give_the_minor_allele_as_a1(tmp_path, monkeypatch):
 
 
 def test_index_records_the_reference_snp_funnel_and_indexed_scoring_reports_it(tmp_path, capsys):
-    from ldsc._ldscore.calculator import main as ldscore_main
+    from ldsc._ldscore.workflow import main as ldscore_main
     from ldsc._refpanel.funnel import read_reference_snp_funnel
 
     # Every chromosome's panel has 8 SNPs; the baseline grid leaves out the first one.

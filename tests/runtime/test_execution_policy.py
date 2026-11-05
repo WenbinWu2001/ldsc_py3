@@ -68,7 +68,6 @@ def test_direct_chromosome_logs_append_across_batches_and_reset_on_overwrite(tmp
     from dataclasses import replace
     from ldsc import AnnotationBundle, LDScoreCalculator
     from ldsc._ldscore.outputs import LDScoreOutputConfig
-    from ldsc._ldscore import calculator as direct
     from tests.ldscore.test_ldscore_query_batches import prepared_case
     pools = []
     from ldsc._runtime import parallelism
@@ -118,7 +117,7 @@ def _fail_second_chromosome(*args, **kwargs):
 
 
 def test_direct_failure_keeps_logs_but_removes_staged_reference_metadata(tmp_path, monkeypatch):
-    from ldsc._ldscore import calculator as direct, direct_batches
+    from ldsc._ldscore import workflow as direct, direct_batches
     from tests.ldscore.test_plink_workflow_resolution import write_inputs
     write_inputs(tmp_path)
     monkeypatch.setattr(direct_batches, "_compute_one_chromosome", _fail_second_chromosome)

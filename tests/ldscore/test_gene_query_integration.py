@@ -10,7 +10,7 @@ import pytest
 
 from ldsc._ldscore.gene_index import build as index_workflow
 from ldsc._ldscore.gene_index.scoring import run_indexed_ldscore
-from ldsc._ldscore.calculator import build_parser, run_ldscore_from_args
+from ldsc._ldscore.workflow import build_parser, run_ldscore_from_args
 from ldsc._runtime.workflow_kwargs import parse_command_line
 from ldsc.errors import LDSCInputError
 from tests.gene_index_helpers import narrow_index_chromosomes

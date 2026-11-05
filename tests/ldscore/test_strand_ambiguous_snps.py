@@ -14,7 +14,7 @@ import pandas as pd
 import pytest
 
 from ldsc import GlobalConfig, reset_global_config, set_global_config
-from ldsc._ldscore import calculator
+from ldsc._ldscore import workflow
 from ldsc._refpanel import builder
 from ldsc._refpanel.r2_format import R2_QUANT_SCALE
 
@@ -40,7 +40,7 @@ def write_relabelled_panel(directory: Path) -> Path:
 def plink_ldscores(tmp_path: Path, prefix: Path, mode: str) -> pd.DataFrame:
     set_global_config(GlobalConfig(snp_identifier=mode, genome_build="hg38"))
     try:
-        source = calculator.run_ldscore(
+        source = workflow.run_ldscore(
             output_dir=str(tmp_path / f"ldscore_{mode}"), plink_prefix=str(prefix), ld_wind_kb=1000,
             regr_snps_file=str(prefix.parent / "regression_snps.tsv"), regr_snps_exclude_regions="none",
         )
@@ -72,7 +72,7 @@ def test_r2_matrix_keeps_a_t_and_c_g_snps_and_matches_plink_ldscores(tmp_path, m
                                             output_dir=str(tmp_path / "r2"), ld_wind_kb=1000)
         sidecar = pd.read_csv(built.output_paths["meta_hg38"][0], sep="\t", comment="#")
         metadata = json.loads(Path(built.output_paths["metadata"][0]).read_text())
-        source = calculator.run_ldscore(
+        source = workflow.run_ldscore(
             output_dir=str(tmp_path / "ldscore_r2"), r2_matrix_dir=str(tmp_path / "r2" / "hg38"), ld_wind_kb=1000,
             regr_snps_file=str(prefix.parent / "regression_snps.tsv"), regr_snps_exclude_regions="none",
         )

@@ -42,7 +42,7 @@ def test_invalid_indexed_query_batch_size_rejected_before_io(tmp_path, query_bat
     assert not (tmp_path / "out").exists()
 
 
-@pytest.mark.parametrize("module", ["_ldscore.calculator", "_ldscore.gene_index.build"])
+@pytest.mark.parametrize("module", ["_ldscore.workflow", "_ldscore.gene_index.build"])
 @pytest.mark.parametrize("value", ["0", "True", "False", "1.5", "1.0"])
 def test_cli_rejects_invalid_workers(module, value, capsys):
     from importlib import import_module
@@ -60,7 +60,7 @@ def test_cli_rejects_invalid_workers(module, value, capsys):
 def test_workflows_share_detected_budget_and_managed_processes(tmp_path, monkeypatch, cpus, workers, expected):
     import numpy as np
     from ldsc._ldscore.gene_index import build as builder
-    from ldsc._ldscore import calculator as direct
+    from ldsc._ldscore import workflow as direct
     from ldsc._ldscore.gene_index import scoring as _gene_index_scoring
     from ldsc._ldscore.gene_index.scoring import load_gene_ldscore_index
     from ldsc import RegressionRunner, RegressionConfig

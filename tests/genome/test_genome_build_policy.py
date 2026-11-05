@@ -8,7 +8,7 @@ import pytest
 from ldsc.config import AnnotationBuildConfig, GlobalConfig, LDScoreConfig, RefPanelConfig
 from ldsc.errors import LDSCInputError
 from ldsc._genome.build_inference import load_packaged_reference_table
-from ldsc._ldscore.calculator import _DirectConfigs, _resolve_ldscore_chr_pos_genome_build
+from ldsc._ldscore.workflow import _DirectConfigs, _resolve_ldscore_chr_pos_genome_build
 from ldsc._ldscore.outputs import LDScoreOutputConfig
 
 

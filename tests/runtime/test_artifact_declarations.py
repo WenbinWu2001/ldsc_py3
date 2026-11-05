@@ -5,7 +5,7 @@ import json
 import pandas as pd
 import pytest
 
-from ldsc._ldscore.calculator import build_parser, run_ldscore_from_args
+from ldsc._ldscore.workflow import build_parser, run_ldscore_from_args
 from ldsc._runtime.workflow_kwargs import parse_command_line
 
 

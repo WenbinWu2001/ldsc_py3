@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from ldsc._ldscore.gene_index import scoring as index_scoring, build as index_module
-from ldsc._ldscore import calculator as ldscore_calculator
+from ldsc._ldscore import workflow as ldscore_workflow
 from ldsc._ldscore.gene_index.scoring import load_gene_ldscore_index
 from ldsc.errors import LDSCInputError
 from tests.ldscore.test_plink_workflow_resolution import write_inputs, index_args
@@ -136,7 +136,7 @@ def test_direct_reports_late_reference_and_annotation_defects_before_staging(tmp
     from ldsc import GlobalConfig, set_global_config
     set_global_config(GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"))
     with pytest.raises(LDSCInputError) as failure:
-        ldscore_calculator.run_ldscore(
+        ldscore_workflow.run_ldscore(
             baseline_annot_sources=[str(tmp_path / "baseline.annot"), str(bad)],
             plink_prefix=str(tmp_path / "1000G.EUR.QC.*"),
             ld_wind_cm=.05,
@@ -266,7 +266,7 @@ def test_early_failure_preserves_science_and_output_contract(tmp_path, monkeypat
     set_global_config(GlobalConfig(snp_identifier='chr_pos', genome_build='hg19'))
     monkeypatch.setattr(_annotation_sources, '_scan', forbid_work)
     with pytest.raises(LDSCUserError if overwrite else FileExistsError) as failure:
-        ldscore_calculator.run_ldscore(baseline_annot_sources=[str(tmp_path/'missing.annot')],
+        ldscore_workflow.run_ldscore(baseline_annot_sources=[str(tmp_path/'missing.annot')],
             plink_prefix=str(tmp_path/'missing_reference'), ld_wind_kb=1,
             output_dir=output, overwrite=overwrite)
     assert artifact.read_bytes() == b'existing scientific output'
@@ -321,7 +321,7 @@ def test_direct_reuses_discovery_and_reference_validation_with_phase_records(tmp
     monkeypatch.setattr(_ldscore_preflight, 'inspect_plink_inputs', inspect)
     set_global_config(GlobalConfig(snp_identifier='chr_pos', genome_build='hg19'))
     with caplog.at_level(logging.INFO, logger='LDSC'):
-        result = ldscore_calculator.run_ldscore(
+        result = ldscore_workflow.run_ldscore(
             baseline_annot_sources=[str(tmp_path/'baseline.annot')], query_annot_sources=[str(tmp_path/'query.annot')],
             plink_prefix=str(tmp_path/'1000G.EUR.QC.*'), ld_wind_cm=.05, snp_batch_size=1,
             regr_snps_file=str(tmp_path/'regression.tsv'), regr_snps_exclude_regions='none', output_dir=tmp_path/'out')

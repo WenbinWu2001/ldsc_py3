@@ -12,7 +12,7 @@ import pytest
 import ldsc
 from ldsc import GlobalConfig, set_global_config, reset_global_config
 from ldsc.config import ConfigMismatchError, validate_config_compatibility
-from ldsc._ldscore import calculator as ldscore_calculator
+from ldsc._ldscore import workflow as ldscore_workflow
 from ldsc._ldscore.results import LDScoreResult
 from ldsc._runtime.workflow_kwargs import parse_command_line
 from ldsc._refpanel import builder as r2_matrix_builder
@@ -157,12 +157,12 @@ class GlobalConfigRegistryTest(unittest.TestCase):
     def test_cli_normalization_ignores_registered_python_global_config(self):
         set_global_config(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38", log_level="WARNING"))
 
-        args = parse_command_line(ldscore_calculator.build_parser(), [
+        args = parse_command_line(ldscore_workflow.build_parser(), [
             "--snp-identifier", "rsid", "--log-level", "DEBUG", "--output-dir", "results/example",
             "--plink-prefix", "panel", "--ld-wind-kb", "1",
         ])
 
-        global_config = ldscore_calculator._configs_from_args(args).global_config
+        global_config = ldscore_workflow._configs_from_args(args).global_config
 
         self.assertEqual(global_config.snp_identifier, "rsid")
         self.assertIsNone(global_config.genome_build)
@@ -192,7 +192,7 @@ def _log_level_only(registered):
 # body receives, plausible keywords (the body is replaced, so no input is read), and the registered
 # values the body must receive.
 _KEYWORD_WRAPPERS = {
-    "run_ldscore": (ldscore_calculator, "run_ldscore_from_args", 0, {
+    "run_ldscore": (ldscore_workflow, "run_ldscore_from_args", 0, {
         "baseline_annot_sources": "baseline.annot.gz", "plink_prefix": "panel", "ld_wind_cm": 1.0,
     }, _identity_and_log_level),
     "run_build_r2_matrix": (r2_matrix_builder, "_build", 1, {

@@ -218,7 +218,7 @@ def read_funnel(root):
 
 def test_panel_larger_than_the_grid_succeeds_and_reports_the_excluded_panel_snps(tmp_path, capsys):
     import json
-    from ldsc._ldscore.calculator import main
+    from ldsc._ldscore.workflow import main
 
     inputs = r2_workflow_inputs(tmp_path, ["rs1", "rs2"])
     result = main(workflow_argv(tmp_path, inputs))
@@ -238,7 +238,7 @@ def test_panel_larger_than_the_grid_succeeds_and_reports_the_excluded_panel_snps
 
 
 def test_grid_larger_than_the_panel_succeeds_without_a_warning(tmp_path, capsys):
-    from ldsc._ldscore.calculator import main
+    from ldsc._ldscore.workflow import main
 
     inputs = r2_workflow_inputs(tmp_path, ["rs1", "rs2", "rs3", "rs4"])
     main(workflow_argv(tmp_path, inputs))
@@ -250,7 +250,7 @@ def test_grid_larger_than_the_panel_succeeds_without_a_warning(tmp_path, capsys)
 
 
 def test_chromosome_emptied_by_the_panel_restriction_is_skipped_with_a_logged_warning(tmp_path):
-    from ldsc._ldscore.calculator import build_parser, run_ldscore_from_args
+    from ldsc._ldscore.workflow import build_parser, run_ldscore_from_args
     from ldsc._runtime.workflow_kwargs import parse_command_line
 
     inputs = r2_workflow_inputs(tmp_path, ["rs1", "rs2", "rs3"])
@@ -272,7 +272,7 @@ def test_chromosome_emptied_by_the_panel_restriction_is_skipped_with_a_logged_wa
 
 
 def test_multi_batch_run_records_each_chromosome_funnel_once(tmp_path):
-    from ldsc._ldscore.calculator import build_parser, run_ldscore_from_args
+    from ldsc._ldscore.workflow import build_parser, run_ldscore_from_args
     from ldsc._runtime.workflow_kwargs import parse_command_line
 
     inputs = r2_workflow_inputs(tmp_path, ["rs1", "rs2"])
@@ -301,7 +301,7 @@ def test_in_memory_result_carries_the_funnel(tmp_path):
 
 
 def test_gene_list_run_fails_in_gate_b_when_the_grid_misses_a_whole_chromosome(tmp_path):
-    from ldsc._ldscore.calculator import build_parser, run_ldscore_from_args
+    from ldsc._ldscore.workflow import build_parser, run_ldscore_from_args
     from ldsc._runtime.workflow_kwargs import parse_command_line
     from ldsc.errors import LDSCInputError
 

@@ -221,7 +221,7 @@ def test_parquet_orphan_members_are_batched(tmp_path):
 def test_parquet_gene_workflow_distinguishes_valid_zero_support(tmp_path, maf_min, expected):
     import json
     import pandas as pd
-    from ldsc._ldscore.calculator import build_parser, run_ldscore_from_args
+    from ldsc._ldscore.workflow import build_parser, run_ldscore_from_args
     from ldsc.errors import LDSCInputError
     from ldsc._runtime.workflow_kwargs import parse_command_line
 

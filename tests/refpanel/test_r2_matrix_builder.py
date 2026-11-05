@@ -26,7 +26,7 @@ from ldsc._refpanel.windows import window_coordinates
 from ldsc._core.snp_identity import IDENTITY_DROP_COLUMNS, RestrictionIdentityKeys, empty_identity_drop_frame
 from ldsc.config import GlobalConfig, LDWindow, R2MatrixBuildConfig
 from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
-from ldsc._ldscore import calculator as ldscore_calculator
+from ldsc._ldscore import workflow as ldscore_workflow
 from ldsc import reset_global_config, set_global_config
 from ldsc._refpanel import builder as r2_matrix_builder
 
@@ -2737,14 +2737,14 @@ class R2MatrixBuilderParityTest(unittest.TestCase):
 
             set_global_config(GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"))
             try:
-                direct = ldscore_calculator.run_ldscore(
+                direct = ldscore_workflow.run_ldscore(
                     output_dir=str(tmpdir / "direct"),
                     baseline_annot_sources=str(baseline),
                     plink_prefix=str(prefix),
                     ld_wind_snps=10,
                     snp_batch_size=64,
                 )
-                parquet = ldscore_calculator.run_ldscore(
+                parquet = ldscore_workflow.run_ldscore(
                     output_dir=str(tmpdir / "parquet"),
                     baseline_annot_sources=str(baseline),
                     r2_matrix_dir=str(tmpdir / "panel" / "hg38"),

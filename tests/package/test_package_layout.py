@@ -348,7 +348,7 @@ print(ldsc.__file__)
                 self.assertTrue(args.overwrite)
 
     def test_ldscore_overwrite_flag_maps_to_output_config(self):
-        from ldsc._ldscore import calculator as ldscore_calculator
+        from ldsc._ldscore import workflow as ldscore_workflow
 
         args = parse_command(
             [
@@ -367,7 +367,7 @@ print(ldsc.__file__)
             ]
         )
 
-        output_config = ldscore_calculator._configs_from_args(args).output_config
+        output_config = ldscore_workflow._configs_from_args(args).output_config
 
         self.assertEqual(output_config.output_dir, "out/ldscores")
         self.assertTrue(output_config.overwrite)

@@ -11,10 +11,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ldsc._regression import runner as workflow
+from ldsc._regression import alignment, runner as workflow
 from ldsc import cli, load_ldscore_from_dir
 from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
-from tests.regression import test_regression_workflow as fixtures
+from tests.regression_fixtures import RegressionFixtures
 from tests.regression.test_regression_fit_outcomes import h2_dataset
 from tests.worker_fixtures import LocalQueryWorkers
 from ldsc._ldscore.results import LDScoreResult
@@ -24,7 +24,7 @@ from ldsc.errors import LDSCUsageError
 
 
 def ld_directory(tmp_path):
-    result = fixtures.RegressionWorkflowTest().make_ldscore_result()
+    result = RegressionFixtures().make_ldscore_result()
     LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=tmp_path))
     return result
 
@@ -92,7 +92,7 @@ def test_unused_query_values_are_not_validated_but_missing_schema_still_fails(tm
     query.to_parquet(path, index=False)
     source = load_ldscore_from_dir(str(tmp_path))
     runner = workflow.RegressionRunner()
-    table = fixtures.RegressionWorkflowTest().make_sumstats_table()
+    table = RegressionFixtures().make_sumstats_table()
     dataset = runner.build_dataset(table, source, query_columns=["query1"])
     assert dataset.retained_ld_columns == ["base", "query1"]
     query.drop(columns="query2").to_parquet(path, index=False)
@@ -101,24 +101,25 @@ def test_unused_query_values_are_not_validated_but_missing_schema_still_fails(tm
 
 
 def test_shared_preparation_preserves_order_and_model_specific_column_filtering():
-    fixture = fixtures.RegressionWorkflowTest()
+    fixture = RegressionFixtures()
     result = fixture.make_ldscore_result()
     table = fixture.make_sumstats_table()
     table = workflow.replace(table, data=table.data.iloc[[2, 0, 1]].reset_index(drop=True))
     result.query_table["query2"] = 1.0
     runner = workflow.RegressionRunner()
-    prepared = runner._prepare_h2_inputs(workflow._prepare_trait_sumstats(table, result),
-                                         workflow._PreparedLDScores(result), runner.regression_config)
-    first = runner._dataset_from_prepared(prepared, query_columns=["query1"])
-    second = runner._dataset_from_prepared(prepared, query_columns=["query2"])
+    prepared = alignment._prepare_h2_inputs(alignment._prepare_trait_sumstats(table, result),
+                                            alignment._PreparedLDScores(result), runner.regression_config,
+                                            runner.global_config)
+    first = alignment._dataset_from_prepared(prepared, runner.regression_config, query_columns=["query1"])
+    second = alignment._dataset_from_prepared(prepared, runner.regression_config, query_columns=["query2"])
     assert first.merged.SNP.tolist() == ["rs1", "rs2", "rs3"]
     np.testing.assert_array_equal(first.merged.Z, [2., 1., .5])
     np.testing.assert_array_equal(first.merged.query1, [1., 2., 3.])
     assert first.retained_ld_columns == ["base", "query1"]
     assert second.retained_ld_columns == ["base"]
     assert second.dropped_zero_variance_ld_columns == ["query2"]
-    np.testing.assert_array_equal(first.reference_snp_count_totals[workflow.COMMON_COUNT_KEY], [8, 18])
-    np.testing.assert_array_equal(second.reference_snp_count_totals[workflow.COMMON_COUNT_KEY], [8])
+    np.testing.assert_array_equal(first.reference_snp_count_totals[alignment.COMMON_COUNT_KEY], [8, 18])
+    np.testing.assert_array_equal(second.reference_snp_count_totals[alignment.COMMON_COUNT_KEY], [8])
     assert list(prepared.dataset.merged) == list(runner.build_dataset(table, result).merged)
 
 
@@ -168,7 +169,7 @@ def test_partitioned_batch_rejects_missing_requested_common_counts_before_fittin
 ):
     table, source = _without_common_count(tmp_path, column)
     runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(num_blocks=6))
-    monkeypatch.setattr(runner, "_prepare_h2_inputs",
+    monkeypatch.setattr(workflow, "_prepare_h2_inputs",
                         lambda *args, **kwargs: pytest.fail("regression inputs were prepared before count validation"))
 
     with pytest.raises(workflow.LDSCInputError, match=r"common-SNP count(.|\n)*--count-kind all"):
@@ -206,7 +207,7 @@ def test_batch_fits_match_separate_models_and_release_details(tmp_path, monkeypa
             workflow._coefficient_delete_frame(outcome.estimator, outcome.dataset.retained_ld_columns),
         )
     del outcome, dataset
-    original_prepare, original_fit = runner._prepare_h2_inputs, workflow._fit_h2_dataset
+    original_prepare, original_fit = workflow._prepare_h2_inputs, workflow._fit_h2_dataset
     preparations, live, reads = [], [], []
     original_read = type(source).read_queries
 
@@ -224,7 +225,7 @@ def test_batch_fits_match_separate_models_and_release_details(tmp_path, monkeypa
         live.append(weakref.ref(outcome.estimator))
         return outcome
 
-    monkeypatch.setattr(runner, "_prepare_h2_inputs", prepare)
+    monkeypatch.setattr(workflow, "_prepare_h2_inputs", prepare)
     monkeypatch.setattr(workflow, "_fit_h2_dataset", fit)
     monkeypatch.setattr(type(source), "read_queries", read)
     result = runner.estimate_partitioned_h2_batch(table, source, output_dir=tmp_path / "out",
@@ -277,7 +278,7 @@ def test_regression_across_query_files_matches_single_file(tmp_path, generation_
 def cli_inputs(tmp_path):
     table, source = batch_inputs(tmp_path / "ld")
     path = tmp_path / "trait.parquet"
-    fixtures.RegressionWorkflowTest().write_footer_sumstats_parquet(path, frame=table.data, trait_name="MDD")
+    RegressionFixtures().write_footer_sumstats_parquet(path, frame=table.data, trait_name="MDD")
     return ["partitioned-h2", "--ldscore-dir", str(tmp_path / "ld"), "--sumstats-file", str(path),
             "--output-dir", str(tmp_path / "out"), "--num-blocks", "6", "--query-batch-size", "2"], source
 
@@ -285,7 +286,7 @@ def cli_inputs(tmp_path):
 def _run_h2_cli(tmp_path, *, z_scale, options):
     table, _ = batch_inputs(tmp_path / "ld")
     path = tmp_path / "trait.parquet"
-    fixtures.RegressionWorkflowTest().write_footer_sumstats_parquet(
+    RegressionFixtures().write_footer_sumstats_parquet(
         path, frame=table.data.assign(Z=table.data.Z * z_scale), trait_name="MDD")
     summary = cli.main(["h2", "--ldscore-dir", str(tmp_path / "ld"), "--sumstats-file", str(path),
                         "--output-dir", str(tmp_path / "out"), "--num-blocks", "6", *options]).summary
@@ -309,7 +310,7 @@ def two_baseline_inputs(tmp_path):
 
 def _h2_trait(tmp_path):
     path = tmp_path / "trait.parquet"
-    fixtures.RegressionWorkflowTest().write_footer_sumstats_parquet(
+    RegressionFixtures().write_footer_sumstats_parquet(
         path, frame=h2_dataset().merged[["SNP", "Z", "N"]], trait_name="MDD")
     return path
 
@@ -366,7 +367,7 @@ def test_rg_root_metadata_records_each_trait_source_and_the_ldscore_directory(tm
     paths = [tmp_path / "pgc" / "SCZ.parquet", tmp_path / "ukb" / "SCZ.parquet"]
     for path in paths:
         path.parent.mkdir()
-        fixtures.RegressionWorkflowTest().write_footer_sumstats_parquet(path, frame=frame, trait_name="SCZ")
+        RegressionFixtures().write_footer_sumstats_parquet(path, frame=frame, trait_name="SCZ")
 
     cli.main(["rg", "--ldscore-dir", str(tmp_path / "ld"), "--sumstats-sources", *map(str, paths),
               "--output-dir", str(tmp_path / "out"), "--num-blocks", "6"])

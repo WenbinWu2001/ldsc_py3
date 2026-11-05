@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ldsc._regression import runner as workflow
+from ldsc._regression import alignment, runner as workflow
 from ldsc._core import snp_identity
 from ldsc._regression import estimators as regression
 from ldsc._regression.partitioned_parallel import _stage_frame
@@ -18,19 +18,20 @@ from tests.regression.test_regression_streaming import batch_inputs
 def _check_shared_models(tmp_path, chisq_max):
     table, source = batch_inputs(tmp_path / "ld")
     runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(num_blocks=6, chisq_max=chisq_max))
-    prepared = runner._prepare_h2_inputs(workflow._prepare_trait_sumstats(table, source),
-                                         workflow._PreparedLDScores(source), runner.regression_config)
+    prepared = alignment._prepare_h2_inputs(alignment._prepare_trait_sumstats(table, source),
+                                            alignment._PreparedLDScores(source), runner.regression_config,
+                                            runner.global_config)
     snapshot = _stage_frame(prepared.dataset.merged, tmp_path / "shared")
     with snapshot.open() as shared:
         prepared = replace(prepared, dataset=replace(prepared.dataset, merged=shared))
         before = shared.copy(deep=True)
         first_fit = None
         for query in ["first", "second", "third", "first"]:
-            values = runner._read_query_batch(prepared, [query])
+            values = alignment._read_query_batch(prepared, [query])
             if query == "second":
                 values[query] = 1.0
             query_before = values.copy(deep=True)
-            dataset = workflow._dataset_from_query_values(prepared, [query], values, runner.regression_config)
+            dataset = alignment._dataset_from_query_values(prepared, [query], values, runner.regression_config)
             retained = ["base"] if query == "second" else ["base", query]
             assert dataset.retained_ld_columns == retained
             for column in snapshot.numeric:
@@ -62,10 +63,11 @@ def test_repeated_models_borrow_readonly_inputs_without_mutating_them(tmp_path, 
 def _fit_query_both_ways(tmp_path, chisq_max):
     table, source = batch_inputs(tmp_path / "ld")
     runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(num_blocks=6, chisq_max=chisq_max))
-    prepared = runner._prepare_h2_inputs(workflow._prepare_trait_sumstats(table, source),
-                                         workflow._PreparedLDScores(source), runner.regression_config)
+    prepared = alignment._prepare_h2_inputs(alignment._prepare_trait_sumstats(table, source),
+                                            alignment._PreparedLDScores(source), runner.regression_config,
+                                            runner.global_config)
     config = runner.regression_config
-    dataset = workflow._dataset_from_query_values(prepared, ["first"], runner._read_query_batch(prepared, ["first"]), config)
+    dataset = alignment._dataset_from_query_values(prepared, ["first"], alignment._read_query_batch(prepared, ["first"]), config)
     return workflow._fit_h2_dataset(dataset, config), workflow._fit_h2_dataset(dataset, config, retain_rows=False)
 
 
@@ -83,7 +85,7 @@ def test_allele_pair_flags_match_concatenated_pair_strings():
     tokens = np.array(["A", "C", "G", "T", "a", "c", "AT", ""], dtype=object)
     columns = [pd.Series(rng.choice(tokens, 2000)) for _ in range(4)]
     columns[0][::17] = None
-    compatible, flip = workflow._allele_pair_flags(columns)
+    compatible, flip = alignment._allele_pair_flags(columns)
     pairs = columns[0] + columns[1] + columns[2] + columns[3]
     expected = pairs.isin(snp_identity.MATCH_ALLELES).to_numpy(dtype=bool)
     np.testing.assert_array_equal(compatible, expected)

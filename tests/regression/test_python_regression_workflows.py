@@ -10,7 +10,7 @@ import pytest
 import ldsc
 from ldsc import cli
 from ldsc.errors import LDSCUsageError
-from tests.regression import test_regression_workflow as fixtures
+from tests.regression_fixtures import RegressionFixtures
 from tests.regression.test_regression_streaming import batch_inputs
 
 
@@ -18,7 +18,7 @@ def _inputs(tmp_path):
     """Write one LD-score directory and one munged trait; return their paths."""
     table, _ = batch_inputs(tmp_path / "ld")
     sumstats = tmp_path / "trait.parquet"
-    fixtures.RegressionWorkflowTest().write_footer_sumstats_parquet(sumstats, frame=table.data, trait_name="MDD")
+    RegressionFixtures().write_footer_sumstats_parquet(sumstats, frame=table.data, trait_name="MDD")
     return str(tmp_path / "ld"), str(sumstats)
 
 
@@ -143,7 +143,7 @@ def _rg_inputs(tmp_path):
     paths = [tmp_path / "SCZ.parquet", tmp_path / "BMI.parquet"]
     for path, z_scale in zip(paths, (1.0, 0.5)):
         frame = table.data.assign(A1="A", A2="G", Z=table.data.Z * z_scale)
-        fixtures.RegressionWorkflowTest().write_footer_sumstats_parquet(path, frame=frame, trait_name=path.stem)
+        RegressionFixtures().write_footer_sumstats_parquet(path, frame=frame, trait_name=path.stem)
     return str(tmp_path / "ld"), [str(path) for path in paths]
 
 

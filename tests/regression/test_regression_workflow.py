@@ -1,4 +1,3 @@
-from tests.annotation_fixtures import make_annotation_bundle
 import argparse
 import contextlib
 from dataclasses import replace
@@ -18,828 +17,19 @@ import pytest
 from scipy import stats
 
 
-from ldsc.config import GlobalConfig, RegressionConfig, reset_global_config, set_global_config
+from ldsc.config import GlobalConfig, RegressionConfig, set_global_config
 from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCUsageError
 from ldsc._annotation.overlap import OverlapContribution
 from ldsc._ldscore.overlap_table import LDScoreOverlap
 
-from ldsc._ldscore.results import LDScoreResult
 from ldsc import cli
 from ldsc._regression import runner as regression_runner
+from ldsc._regression.outputs import LEGACY_SUMSTATS_DROP_COLUMNS
 from ldsc._regression.runner import RegressionRunner
-from ldsc._sumstats.table import SumstatsTable
-from tests.cli_parsing import parse_command
-from tests.ldscore.test_ldscore_source import write_ldscore_dir
+from tests.regression_fixtures import RegressionFixtures, parsed_regression_args, stub_h2_kernel
 
 
-@contextlib.contextmanager
-def _stub_h2_kernel(estimator):
-    """Stub numerical estimation while exercising real selection and diagnostics."""
-    if "coef" not in vars(estimator):
-        estimator.coef = np.array([0.001])
-    if "intercept" not in vars(estimator):
-        estimator.intercept = np.array([1.0])
-    weights = regression_runner.reg.Hsq.weights
-    with mock.patch.object(regression_runner.reg, "Hsq", wraps=regression_runner.reg.Hsq, return_value=estimator) as kernel:
-        kernel.weights = weights
-        yield kernel
-
-
-def _parsed_regression_args(command, options):
-    """Parse ``options`` (option dest to value) with the ``ldsc <command>`` parser, so the others take its defaults.
-
-    ``None`` and ``False`` leave an option unset, ``True`` passes a flag, and a
-    list passes several values. ``output_dir=None`` is set after parsing, for
-    checks that a programmatic namespace without an output directory is refused.
-    """
-    argv = [command]
-    for dest, value in options.items():
-        if value is None or value is False:
-            continue
-        flag = "--" + dest.replace("_", "-")
-        argv += [flag] if value is True else [flag, *map(str, value)] if isinstance(value, list) else [flag, str(value)]
-    if options.get("output_dir") is None:
-        argv += ["--output-dir", "unused"]
-    args = parse_command(argv)
-    if options.get("output_dir") is None:
-        args.output_dir = None
-    return args
-
-
-class RegressionWorkflowTest(unittest.TestCase):
-    def setUp(self):
-        reset_global_config()
-        # This class tests model selection/formatting with mocked estimators.
-        # Real process behavior is covered in test_partitioned_query_workers.
-        from tests.worker_fixtures import calculation_body, LocalQueryWorkers
-        self.enterContext(calculation_body())
-        self.enterContext(mock.patch("ldsc._regression.partitioned_parallel._QueryWorkers", LocalQueryWorkers))
-
-    def tearDown(self):
-        reset_global_config()
-
-    def temporary_output_dir(self):
-        return Path(self.enterContext(tempfile.TemporaryDirectory()))
-
-    def write_sumstats_sidecar(
-        self,
-        path: Path,
-        *,
-        trait_name: str | None = "trait",
-        snp_identifier: str = "rsid",
-        genome_build: str | None = None,
-    ) -> None:
-        path.write_text(
-            json.dumps(
-                {
-                    "artifact_type": "sumstats",
-                    "files": {},
-                    "trait_name": trait_name,
-                    "snp_identifier": snp_identifier,
-                    "genome_build": genome_build,
-                }
-            ),
-            encoding="utf-8",
-        )
-
-    def write_footer_sumstats_parquet(
-        self,
-        path: Path,
-        *,
-        frame: pd.DataFrame | None = None,
-        trait_name: str | None = "trait",
-        snp_identifier: str = "rsid",
-        genome_build: str | None = None,
-    ) -> None:
-        """Write a self-describing sumstats parquet carrying identity footer metadata."""
-        from ldsc._sumstats.outputs import curated_sumstats_frame, write_sumstats_parquet
-        from ldsc._sumstats.table import encode_sumstats_footer
-
-        if frame is None:
-            frame = pd.DataFrame({"SNP": ["rs1"], "Z": [1.0], "N": [1000.0]})
-        footer = encode_sumstats_footer(
-            GlobalConfig(snp_identifier=snp_identifier, genome_build=genome_build), trait_name
-        )
-        write_sumstats_parquet(curated_sumstats_frame(frame), path, footer)
-
-    def make_ldscore_result(self):
-        baseline_table = pd.DataFrame(
-            {
-                "CHR": ["1", "1", "1"],
-                "SNP": ["rs1", "rs2", "rs3"],
-                "POS": [10, 20, 30],
-                "regression_ld_scores": [2.0, 2.0, 2.0],
-                "base": [1.0, 2.0, 3.0],
-            }
-        )
-        query_table = pd.DataFrame(
-            {
-                "CHR": ["1", "1", "1"],
-                "SNP": ["rs1", "rs2", "rs3"],
-                "POS": [10, 20, 30],
-                "query1": [1.0, 2.0, 3.0],
-                "query2": [0.5, 1.5, 2.5],
-            }
-        )
-        return LDScoreResult(
-            baseline_table=baseline_table,
-            query_table=query_table,
-            count_records=[
-                {
-                    "group": "baseline",
-                    "column": "base",
-                    "all_reference_snp_count": 10.0,
-                    "common_reference_snp_count": 8.0,
-                },
-                {
-                    "group": "query",
-                    "column": "query1",
-                    "all_reference_snp_count": 20.0,
-                    "common_reference_snp_count": 18.0,
-                },
-                {
-                    "group": "query",
-                    "column": "query2",
-                    "all_reference_snp_count": 30.0,
-                    "common_reference_snp_count": 28.0,
-                },
-            ],
-            baseline_columns=["base"],
-            query_columns=["query1", "query2"],
-            config_snapshot=GlobalConfig(snp_identifier="rsid"),
-            overlap=self._overlap_fixture(),
-        )
-
-    def _overlap_fixture(self):
-        # Consistent overlap: diag(O) equals each annotation's M_annot, and
-        # M_tot (total_*_reference_snps) is larger than every category count.
-        from ldsc._annotation.overlap import OverlapContribution
-        from ldsc._ldscore.overlap_table import LDScoreOverlap
-
-        return LDScoreOverlap.from_contribution(
-            OverlapContribution(
-                baseline_block_all=np.array([[10.0, 5.0, 8.0]]),   # base x [base, query1, query2]
-                baseline_block_common=np.array([[8.0, 4.0, 7.0]]),
-                query_diagonal_all=np.array([20.0, 30.0]),          # query1, query2
-                query_diagonal_common=np.array([18.0, 28.0]),
-                n_all=50, n_common=45,
-            ),
-            baseline_columns=["base"],
-            query_columns=["query1", "query2"],
-        )
-
-    def make_sumstats_table(self):
-        return SumstatsTable(
-            data=pd.DataFrame(
-                {
-                    "SNP": ["rs1", "rs2", "rs3"],
-                    "Z": [2.0, 1.0, 0.5],
-                    "N": [1000.0, 1000.0, 1000.0],
-                    "A1": ["A", "C", "G"],
-                    "A2": ["G", "T", "A"],
-                }
-            ),
-            has_alleles=True,
-            source_path="sumstats.gz",
-            trait_name="trait",
-            provenance={},
-            config_snapshot=GlobalConfig(snp_identifier="rsid"),
-        )
-
-    def make_sumstats_table_from_frame(self, frame, *, snp_identifier="rsid", trait_name="trait"):
-        return SumstatsTable(
-            data=frame,
-            has_alleles={"A1", "A2"}.issubset(frame.columns),
-            source_path=f"{trait_name}.sumstats.gz",
-            trait_name=trait_name,
-            provenance={},
-            config_snapshot=GlobalConfig(snp_identifier=snp_identifier, genome_build="hg38"),
-        )
-
-    def make_ldscore_result_from_frame(self, frame, *, snp_identifier="rsid"):
-        return LDScoreResult(
-            baseline_table=frame,
-            query_table=None,
-            count_records=[
-                {
-                    "group": "baseline",
-                    "column": "base",
-                    "all_reference_snp_count": 10.0,
-                    "common_reference_snp_count": 8.0,
-                }
-            ],
-            baseline_columns=["base"],
-            query_columns=[],
-            config_snapshot=GlobalConfig(snp_identifier=snp_identifier, genome_build="hg38"),
-        )
-
-    def make_rg_kernel_result(self, *, rg=0.25, rg_se=0.05, z=5.0, p=0.01, h2_2=0.30):
-        hsq1 = mock.Mock(
-            tot=np.array([0.20]),
-            tot_se=np.array([0.02]),
-            intercept=np.array([1.01]),
-            intercept_se=0.01,
-            mean_chisq=np.array([1.20]),
-            lambda_gc=np.array([1.05]),
-            ratio=0.05,
-            ratio_se=0.01,
-        )
-        hsq2 = mock.Mock(
-            tot=np.array([h2_2]),
-            tot_se=np.array([0.03]),
-            intercept=np.array([1.02]),
-            intercept_se=0.02,
-            mean_chisq=np.array([1.30]),
-            lambda_gc=np.array([1.06]),
-            ratio=0.06,
-            ratio_se=0.02,
-        )
-        gencov = mock.Mock(
-            tot=np.array([0.10]),
-            tot_se=np.array([0.01]),
-            intercept=np.array([0.001]),
-            intercept_se=0.0001,
-        )
-        return mock.Mock(
-            rg_ratio=rg,
-            rg_se=rg_se,
-            z=z,
-            p=p,
-            hsq1=hsq1,
-            hsq2=hsq2,
-            gencov=gencov,
-            # As the kernel sets it: True when a heritability estimate is at most 0, else None.
-            _negative_hsq=True if h2_2 <= 0 else None,
-        )
-
-    def make_annotation_bundle(self):
-        metadata = pd.DataFrame(
-            {
-                "CHR": ["1", "1", "1"],
-                "POS": [10, 20, 30],
-                "SNP": ["rs1", "rs2", "rs3"],
-                "CM": [0.1, 0.2, 0.3],
-            }
-        )
-        return make_annotation_bundle(
-            metadata=metadata,
-            baseline_annotations=pd.DataFrame({"base": [1, 1, 1]}),
-            query_annotations=pd.DataFrame({"query1": [1, 0, 0], "query2": [0, 1, 0]}),
-            baseline_columns=["base"],
-            query_columns=["query1", "query2"],
-            chromosomes=["1"],
-            source_summary={},
-        )
-
-    def write_ldscore_dir(self, root: Path, *, include_query: bool = True) -> Path:
-        return write_ldscore_dir(root, include_query=include_query)
-
-    def test_build_dataset_uses_baseline_only_for_h2_style_runs(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        dataset = runner.build_dataset(self.make_sumstats_table(), self.make_ldscore_result())
-        self.assertEqual(dataset.count_key_used_for_regression, "common_reference_snp_counts")
-        self.assertEqual(dataset.weight_column, "regression_ld_scores")
-        self.assertIn("regression_ld_scores", dataset.merged.columns)
-        self.assertEqual(dataset.retained_ld_columns, ["base"])
-        self.assertEqual(dataset.dropped_zero_variance_ld_columns, [])
-        np.testing.assert_allclose(
-            dataset.reference_snp_count_totals["common_reference_snp_counts"],
-            [8.0],
-        )
-        self.assertEqual(dataset.config_snapshot, GlobalConfig(snp_identifier="rsid"))
-
-    def test_build_dataset_baseline_only_ignores_unused_misaligned_query_table(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        result = self.make_ldscore_result()
-        bad_query = result.query_table.iloc[[1, 0, 2]].reset_index(drop=True)
-        result = replace(result, query_table=bad_query)
-
-        dataset = runner.build_dataset(self.make_sumstats_table(), result)
-
-        self.assertEqual(dataset.retained_ld_columns, ["base"])
-        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1", "rs2", "rs3"])
-
-    def test_build_dataset_orders_merged_rows_by_ld_score_genomic_order(self):
-        # Gap C: jackknife block contiguity depends on the merged row order. The
-        # LD-score artifact is genomically sorted, so merged rows must follow the
-        # LD-score order even when the sumstats rows are shuffled (e.g. an unsorted
-        # legacy .sumstats.gz). The order originates entirely from the LD-score side.
-        ld_frame = pd.DataFrame(
-            {
-                "CHR": ["1", "1", "1"],
-                "SNP": ["rs_a", "rs_b", "rs_c"],
-                "POS": [10, 20, 30],
-                "regression_ld_scores": [2.0, 2.0, 2.0],
-                "base": [1.0, 2.0, 3.0],
-            }
-        )
-        sumstats = self.make_sumstats_table_from_frame(
-            pd.DataFrame(
-                {
-                    "SNP": ["rs_c", "rs_a", "rs_b"],  # deliberately not genomic order
-                    "Z": [0.5, 2.0, 1.0],
-                    "N": [1000.0, 1000.0, 1000.0],
-                }
-            )
-        )
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        dataset = runner.build_dataset(sumstats, self.make_ldscore_result_from_frame(ld_frame))
-        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs_a", "rs_b", "rs_c"])
-
-    def test_build_dataset_can_include_one_query_annotation_for_partitioned_h2(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        dataset = runner.build_dataset(self.make_sumstats_table(), self.make_ldscore_result(), query_columns=["query2"])
-        self.assertEqual(dataset.retained_ld_columns, ["base", "query2"])
-        np.testing.assert_allclose(
-            dataset.reference_snp_count_totals["common_reference_snp_counts"],
-            [8.0, 28.0],
-        )
-
-    def test_build_dataset_allele_aware_mode_merges_by_effective_identity(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid_allele_aware"), RegressionConfig())
-        sumstats = self.make_sumstats_table_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1", "1"],
-                    "SNP": ["rs1", "rs2"],
-                    "POS": [10, 20],
-                    "A1": ["A", "A"],
-                    "A2": ["C", "C"],
-                    "Z": [2.0, 3.0],
-                    "N": [1000.0, 1000.0],
-                }
-            ),
-            snp_identifier="rsid_allele_aware",
-        )
-        ldscore_result = self.make_ldscore_result_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1", "1"],
-                    "SNP": ["rs1", "rs2"],
-                    "POS": [10, 20],
-                    "A1": ["A", "A"],
-                    "A2": ["C", "G"],
-                    "regression_ld_scores": [2.0, 2.0],
-                    "base": [1.0, 2.0],
-                }
-            ),
-            snp_identifier="rsid_allele_aware",
-        )
-
-        dataset = runner.build_dataset(sumstats, ldscore_result)
-
-        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1"])
-        self.assertEqual(dataset.effective_snp_identifier, "rsid_allele_aware")
-        self.assertFalse(dataset.identity_downgrade_applied)
-
-    def test_build_dataset_cross_family_modes_reject_even_with_identity_downgrade(self):
-        runner = RegressionRunner(
-            GlobalConfig(snp_identifier="rsid_allele_aware", genome_build="hg38"),
-            RegressionConfig(allow_identity_downgrade=True),
-        )
-        sumstats = self.make_sumstats_table_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1"],
-                    "SNP": ["rs1"],
-                    "POS": [10],
-                    "A1": ["A"],
-                    "A2": ["C"],
-                    "Z": [2.0],
-                    "N": [1000.0],
-                }
-            ),
-            snp_identifier="rsid_allele_aware",
-        )
-        ldscore_result = self.make_ldscore_result_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1"],
-                    "SNP": ["rs1"],
-                    "POS": [10],
-                    "regression_ld_scores": [2.0],
-                    "base": [1.0],
-                }
-            ),
-            snp_identifier="chr_pos",
-        )
-
-        with self.assertRaisesRegex(LDSCUsageError, "different families"):
-            runner.build_dataset(sumstats, ldscore_result)
-
-    def test_build_dataset_rejects_same_family_mode_mismatch_by_default(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos_allele_aware"), RegressionConfig())
-        sumstats = self.make_sumstats_table_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1"],
-                    "SNP": ["rs1"],
-                    "POS": [10],
-                    "A1": ["A"],
-                    "A2": ["C"],
-                    "Z": [2.0],
-                    "N": [1000.0],
-                }
-            ),
-            snp_identifier="chr_pos_allele_aware",
-        )
-        ldscore_result = self.make_ldscore_result_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1"],
-                    "SNP": ["ld1"],
-                    "POS": [10],
-                    "regression_ld_scores": [2.0],
-                    "base": [1.0],
-                }
-            ),
-            snp_identifier="chr_pos",
-        )
-
-        with self.assertRaisesRegex(LDSCUsageError, "allow-identity-downgrade"):
-            runner.build_dataset(sumstats, ldscore_result)
-
-    def test_build_dataset_allows_chr_pos_identity_downgrade_with_effective_base_mode(self):
-        runner = RegressionRunner(
-            GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
-            RegressionConfig(allow_identity_downgrade=True),
-        )
-        sumstats = self.make_sumstats_table_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1", "1"],
-                    "SNP": ["sum1", "sum2"],
-                    "POS": [10, 20],
-                    "A1": ["A", "A"],
-                    "A2": ["C", "G"],
-                    "Z": [2.0, 3.0],
-                    "N": [1000.0, 1000.0],
-                }
-            ),
-            snp_identifier="chr_pos_allele_aware",
-        )
-        ldscore_result = self.make_ldscore_result_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1", "1"],
-                    "SNP": ["ld1", "ld2"],
-                    "POS": [10, 20],
-                    "regression_ld_scores": [2.0, 2.0],
-                    "base": [1.0, 2.0],
-                }
-            ),
-            snp_identifier="chr_pos",
-        )
-
-        dataset = runner.build_dataset(sumstats, ldscore_result)
-
-        self.assertEqual(dataset.merged["SNP"].tolist(), ["sum1", "sum2"])
-        self.assertEqual(dataset.effective_snp_identifier, "chr_pos")
-        self.assertTrue(dataset.identity_downgrade_applied)
-
-    def test_build_dataset_allows_rsid_identity_downgrade_with_effective_base_mode(self):
-        runner = RegressionRunner(
-            GlobalConfig(snp_identifier="rsid_allele_aware", genome_build="hg38"),
-            RegressionConfig(allow_identity_downgrade=True),
-        )
-        sumstats = self.make_sumstats_table_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1", "1"],
-                    "SNP": ["rs1", "rs2"],
-                    "POS": [10, 20],
-                    "A1": ["A", "A"],
-                    "A2": ["C", "G"],
-                    "Z": [2.0, 3.0],
-                    "N": [1000.0, 1000.0],
-                }
-            ),
-            snp_identifier="rsid_allele_aware",
-        )
-        ldscore_result = self.make_ldscore_result_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1", "1"],
-                    "SNP": ["rs1", "rs2"],
-                    "POS": [100, 200],
-                    "regression_ld_scores": [2.0, 2.0],
-                    "base": [1.0, 2.0],
-                }
-            ),
-            snp_identifier="rsid",
-        )
-
-        dataset = runner.build_dataset(sumstats, ldscore_result)
-
-        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1", "rs2"])
-        self.assertEqual(dataset.effective_snp_identifier, "rsid")
-        self.assertTrue(dataset.identity_downgrade_applied)
-
-    def test_identity_downgrade_drops_duplicate_effective_keys_before_merge_and_logs(self):
-        runner = RegressionRunner(
-            GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
-            RegressionConfig(allow_identity_downgrade=True),
-        )
-        sumstats = self.make_sumstats_table_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1", "1", "1"],
-                    "SNP": ["dup_a", "dup_b", "keep"],
-                    "POS": [10, 10, 20],
-                    "A1": ["A", "A", "A"],
-                    "A2": ["C", "G", "C"],
-                    "Z": [9.0, 8.0, 2.0],
-                    "N": [1000.0, 1000.0, 1000.0],
-                }
-            ),
-            snp_identifier="chr_pos_allele_aware",
-        )
-        ldscore_result = self.make_ldscore_result_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1", "1", "1"],
-                    "SNP": ["keep_ld", "dup_ld_a", "dup_ld_b"],
-                    "POS": [20, 30, 30],
-                    "regression_ld_scores": [2.0, 2.0, 2.0],
-                    "base": [1.0, 3.0, 4.0],
-                }
-            ),
-            snp_identifier="chr_pos",
-        )
-
-        with self.assertLogs("LDSC.regression_runner", level="WARNING") as caught:
-            dataset = runner.build_dataset(sumstats, ldscore_result)
-
-        self.assertEqual(dataset.merged["SNP"].tolist(), ["keep"])
-        self.assertEqual(dataset.merged["base"].tolist(), [1.0])
-        log_text = "\n".join(caught.output)
-        self.assertIn("Identity downgrade enabled", log_text)
-        self.assertIn("LD-score mode chr_pos", log_text)
-        self.assertIn("summary-statistics mode chr_pos_allele_aware", log_text)
-        self.assertIn("effective snp_identifier='chr_pos'", log_text)
-        self.assertIn("Dropped 4 duplicate effective-key rows", log_text)
-
-    def test_log_effective_regression_identity_reports_provenance_over_default(self):
-        # GlobalConfig default differs from what the artifacts actually recorded;
-        # the log must show the provenance-derived effective mode, not the default.
-        runner_config = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38")
-        ldscore_result = self.make_ldscore_result_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1"],
-                    "SNP": ["rs1"],
-                    "POS": [10],
-                    "regression_ld_scores": [2.0],
-                    "base": [1.0],
-                }
-            ),
-            snp_identifier="chr_pos",
-        )
-        sumstats = self.make_sumstats_table_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1"],
-                    "SNP": ["rs1"],
-                    "POS": [10],
-                    "A1": ["A"],
-                    "A2": ["C"],
-                    "Z": [2.0],
-                    "N": [1000.0],
-                }
-            ),
-            snp_identifier="chr_pos",
-        )
-        with self.assertLogs("LDSC.regression_runner", level="INFO") as caught:
-            regression_runner._log_effective_regression_identity(
-                [sumstats], ldscore_result, runner_config, RegressionConfig()
-            )
-        log_text = "\n".join(caught.output)
-        self.assertIn("SNP identifier used for this regression: chr_pos", log_text)
-        self.assertIn("'chr_pos_allele_aware' shown above was NOT used", log_text)
-        self.assertIn("LD-score=chr_pos (from provenance)", log_text)
-        self.assertNotIn("downgrade", log_text.lower())
-
-    def test_log_effective_regression_identity_notes_allele_downgrade(self):
-        runner_config = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38")
-        ldscore_result = self.make_ldscore_result_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1"],
-                    "SNP": ["rs1"],
-                    "POS": [10],
-                    "regression_ld_scores": [2.0],
-                    "base": [1.0],
-                }
-            ),
-            snp_identifier="chr_pos",
-        )
-        sumstats = self.make_sumstats_table_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1"],
-                    "SNP": ["rs1"],
-                    "POS": [10],
-                    "A1": ["A"],
-                    "A2": ["C"],
-                    "Z": [2.0],
-                    "N": [1000.0],
-                }
-            ),
-            snp_identifier="chr_pos_allele_aware",
-        )
-        with self.assertLogs("LDSC.regression_runner", level="INFO") as caught:
-            regression_runner._log_effective_regression_identity(
-                [sumstats], ldscore_result, runner_config, RegressionConfig(allow_identity_downgrade=True)
-            )
-        log_text = "\n".join(caught.output)
-        self.assertIn("SNP identifier used for this regression: chr_pos", log_text)
-        self.assertIn("allele-awareness downgrade", log_text)
-
-    def test_h2_keeps_sumstats_z_in_the_effect_allele_orientation(self):
-        # h2 fits chi^2 = Z^2, so the sign of Z is never aligned to LD-score alleles.
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid_allele_aware"), RegressionConfig())
-        sumstats = self.make_sumstats_table_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1", "1", "1", "1"],
-                    "SNP": ["rs1", "rs2", "rs3", "rs4"],
-                    "POS": [10, 20, 30, 40],
-                    "A1": ["A", "C", "A", "C"],
-                    "A2": ["C", "A", "C", "A"],
-                    "Z": [2.0, 3.0, 4.0, 5.0],
-                    "N": [1000.0, 1000.0, 1000.0, 1000.0],
-                }
-            ),
-            snp_identifier="rsid_allele_aware",
-        )
-        ldscore_result = self.make_ldscore_result_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1", "1", "1", "1"],
-                    "SNP": ["rs1", "rs2", "rs3", "rs4"],
-                    "POS": [10, 20, 30, 40],
-                    "A1": ["A", "A", "T", "T"],
-                    "A2": ["C", "C", "G", "G"],
-                    "regression_ld_scores": [2.0, 2.0, 2.0, 2.0],
-                    "base": [1.0, 2.0, 3.0, 4.0],
-                }
-            ),
-            snp_identifier="rsid_allele_aware",
-        )
-
-        dataset = runner.build_dataset(sumstats, ldscore_result)
-
-        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1", "rs2", "rs3", "rs4"])
-        np.testing.assert_allclose(dataset.merged["Z"], [2.0, 3.0, 4.0, 5.0])
-
-    def test_build_dataset_empty_merge_error_includes_active_config(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        sumstats = replace(
-            self.make_sumstats_table(),
-            data=self.make_sumstats_table().data.assign(SNP=["missing1", "missing2", "missing3"]),
-        )
-
-        with self.assertRaisesRegex(LDSCInputError, "retained no overlapping.*Other causes"):
-            runner.build_dataset(sumstats, self.make_ldscore_result())
-
-    def test_build_dataset_with_query_rejects_misaligned_query_table(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        result = self.make_ldscore_result()
-        bad_query = result.query_table.copy()
-        bad_query.loc[1, "POS"] = 999
-        result = replace(result, query_table=bad_query)
-
-        with self.assertRaisesRegex(LDSCInputError, "query rows must match baseline rows"):
-            runner.build_dataset(self.make_sumstats_table(), result, query_columns=["query2"])
-
-    def test_missing_requested_common_counts_fail_without_all_count_substitution(self):
-        old_result = replace(
-            self.make_ldscore_result(),
-            count_records=[
-                {
-                    "group": "baseline",
-                    "column": "base",
-                    "all_reference_snp_count": 10.0,
-                    "common_reference_snp_count_maf_gt_0_05": 8.0,
-                }
-            ],
-            query_table=None,
-            query_columns=[],
-        )
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-
-        # The old metadata key is not a common-SNP count, and all-SNP counts never stand in for it.
-        with self.assertRaisesRegex(LDSCInputError, r"common-SNP count(.|\n)*--count-kind all"):
-            runner.build_dataset(self.make_sumstats_table(), old_result)
-
-        all_runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig(use_common_counts=False))
-        dataset = all_runner.build_dataset(self.make_sumstats_table(), old_result)
-        self.assertEqual(dataset.count_key_used_for_regression, "all_reference_snp_counts")
-
-    def test_build_dataset_chr_pos_mode_merges_on_coordinates_not_snp(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RegressionConfig())
-        ldscore_result = replace(
-            self.make_ldscore_result(),
-            baseline_table=self.make_ldscore_result().baseline_table.assign(SNP=["ld1", "ld2", "ld3"]),
-            query_table=self.make_ldscore_result().query_table.assign(SNP=["ld1", "ld2", "ld3"]),
-            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-        )
-        sumstats = SumstatsTable(
-            data=pd.DataFrame(
-                {
-                    "SNP": ["raw1", "raw2", "missing"],
-                    "CHR": ["1", "1", pd.NA],
-                    "POS": [10, 20, 30],
-                    "Z": [2.0, 1.0, 0.5],
-                    "N": [1000.0, 1000.0, 1000.0],
-                    "A1": ["A", "C", "G"],
-                    "A2": ["G", "T", "A"],
-                }
-            ),
-            has_alleles=True,
-            source_path="sumstats.gz",
-            trait_name="trait",
-            provenance={},
-            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-        )
-
-        with self.assertLogs("LDSC.regression_runner", level="INFO") as caught:
-            dataset = runner.build_dataset(sumstats, ldscore_result)
-
-        self.assertEqual(dataset.merged["SNP"].tolist(), ["raw1", "raw2"])
-        self.assertEqual(dataset.merged["base"].tolist(), [1.0, 2.0])
-        self.assertIn("_ldsc_chr_pos_key", dataset.merged.columns)
-        log_text = "\n".join(caught.output)
-        self.assertIn("Dropped 1 SNPs with invalid or missing CHR/POS", log_text)
-        self.assertIn("missing CHR=1", log_text)
-        self.assertIn("sumstats.gz", log_text)
-
-    def test_build_dataset_chr_pos_mode_ignores_query_snp_label_mismatch(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RegressionConfig())
-        ldscore_result = replace(
-            self.make_ldscore_result(),
-            baseline_table=self.make_ldscore_result().baseline_table.assign(SNP=["base1", "base2", "base3"]),
-            query_table=self.make_ldscore_result().query_table.assign(SNP=["query1", "query2", "query3"]),
-            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-        )
-        sumstats = SumstatsTable(
-            data=pd.DataFrame(
-                {
-                    "SNP": ["trait1", "trait2", "trait3"],
-                    "CHR": ["1", "1", "1"],
-                    "POS": [10, 20, 30],
-                    "Z": [2.0, 1.0, 0.5],
-                    "N": [1000.0, 1000.0, 1000.0],
-                    "A1": ["A", "C", "G"],
-                    "A2": ["G", "T", "A"],
-                }
-            ),
-            has_alleles=True,
-            source_path="sumstats.gz",
-            trait_name="trait",
-            provenance={},
-            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-        )
-
-        dataset = runner.build_dataset(sumstats, ldscore_result, query_columns=["query1"])
-
-        self.assertEqual(dataset.merged["SNP"].tolist(), ["trait1", "trait2", "trait3"])
-        self.assertEqual(dataset.retained_ld_columns, ["base", "query1"])
-
-    def test_build_dataset_unknown_ldscore_snapshot_defaults_query_alignment_to_chr_pos(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RegressionConfig())
-        ldscore_result = replace(
-            self.make_ldscore_result(),
-            baseline_table=self.make_ldscore_result().baseline_table.assign(SNP=["base1", "base2", "base3"]),
-            query_table=self.make_ldscore_result().query_table.assign(SNP=["query1", "query2", "query3"]),
-            config_snapshot=None,
-        )
-        sumstats = SumstatsTable(
-            data=pd.DataFrame(
-                {
-                    "SNP": ["trait1", "trait2", "trait3"],
-                    "CHR": ["1", "1", "1"],
-                    "POS": [10, 20, 30],
-                    "Z": [2.0, 1.0, 0.5],
-                    "N": [1000.0, 1000.0, 1000.0],
-                    "A1": ["A", "C", "G"],
-                    "A2": ["G", "T", "A"],
-                }
-            ),
-            has_alleles=True,
-            source_path="sumstats.gz",
-            trait_name="trait",
-            provenance={},
-            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-        )
-
-        with mock.patch('ldsc._genome.build_policy.infer_chr_pos_build',
-                        return_value=SimpleNamespace(genome_build='hg38', coordinate_basis='1-based', inspected_snp_count=500)):
-            dataset = runner.build_dataset(sumstats, ldscore_result, query_columns=["query1"])
-
-        self.assertEqual(dataset.merged["SNP"].tolist(), ["trait1", "trait2", "trait3"])
-        self.assertEqual(dataset.retained_ld_columns, ["base", "query1"])
-
+class RegressionWorkflowTest(RegressionFixtures, unittest.TestCase):
     def test_single_annotation_h2_applies_no_default_chisq_cap(self):
         # Legacy estimate_h2 leaves single-annotation h2 uncapped (relies on the
         # two-step estimator). All three SNPs must reach the kernel even though
@@ -886,20 +76,6 @@ class RegressionWorkflowTest(unittest.TestCase):
         with mock.patch.object(regression_runner.reg, "RG", return_value=mock.sentinel.rg) as patched:
             runner.estimate_rg(runner.build_rg_dataset(sumstats_1, sumstats_2, self.make_ldscore_result()))
         self.assertEqual(patched.call_args.kwargs["twostep"], 30)
-
-    def _high_chisq_sumstats(self):
-        # Z=[12,10,2] -> chi^2=[144,100,4]; N.max()=100000 -> default cap=100.
-        return self.make_sumstats_table_from_frame(
-            pd.DataFrame(
-                {
-                    "SNP": ["rs1", "rs2", "rs3"],
-                    "Z": [12.0, 10.0, 2.0],
-                    "N": [100000.0, 100000.0, 100000.0],
-                    "A1": ["A", "C", "G"],
-                    "A2": ["G", "T", "A"],
-                }
-            )
-        )
 
     def test_summarize_total_h2_reports_post_filter_count(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
@@ -981,7 +157,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             n_annot=2,
         )
         # The toy LD columns are collinear; exercise selection independently.
-        with mock.patch.object(regression_runner, "_raise_on_model_collinearity"), _stub_h2_kernel(fake_hsq):
+        with mock.patch.object(regression_runner, "_raise_on_model_collinearity"), stub_h2_kernel(fake_hsq):
             result = runner.estimate_partitioned_h2_batch(self._high_chisq_sumstats(), ldscore_result, query_columns=annotation_bundle.query_columns, output_dir=self.temporary_output_dir(), summary_sort_by='category')
         meta = json.loads(result.per_query_artifacts["query1"].metadata.read_text())
         self.assertEqual(meta["n_snps"], 2)
@@ -991,7 +167,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig(chisq_max=1.0))
         t1 = self.make_sumstats_table()
         t2 = replace(self.make_sumstats_table(), trait_name="trait2")
-        with _stub_h2_kernel(self.make_rg_kernel_result().hsq1
+        with stub_h2_kernel(self.make_rg_kernel_result().hsq1
         ), mock.patch.object(regression_runner.reg, "RG", return_value=self.make_rg_kernel_result()):
             result = runner.estimate_rg_pairs([t1, t2], self.make_ldscore_result())
         meta = result.per_pair_metadata[0]
@@ -1012,7 +188,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             prop=np.array([1.0]), prop_cov=np.array([[0.0]]), prop_se=np.array([0.0]),
             enrichment=np.array([1.0]), n_blocks=200, n_annot=1,
         )
-        with _stub_h2_kernel(fake_hsq):
+        with stub_h2_kernel(fake_hsq):
             result = runner.estimate_partitioned_h2_batch(self._high_chisq_sumstats(), ldscore_result, query_columns=replace(self.make_annotation_bundle(), query_columns=[]).query_columns, output_dir=self.temporary_output_dir(), summary_sort_by='category')
         self.assertEqual(json.loads(Path(result.output_paths["metadata"]).read_text())["n_snps"], 1)
         self.assertAlmostEqual(json.loads(Path(result.output_paths["metadata"]).read_text())["effective_chisq_max"], 4.0)
@@ -1028,7 +204,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             prop=np.array([1.0]), prop_cov=np.array([[0.0]]), prop_se=np.array([0.0]),
             enrichment=np.array([1.0]), n_blocks=200, n_annot=1,
         )
-        with _stub_h2_kernel(fake_hsq), self.assertLogs(
+        with stub_h2_kernel(fake_hsq), self.assertLogs(
             "LDSC.regression_runner", level="WARNING"
         ) as logs:
             runner.estimate_partitioned_h2_batch(self.make_sumstats_table(), ldscore_result, query_columns=replace(self.make_annotation_bundle(), query_columns=[]).query_columns, output_dir=self.temporary_output_dir(), summary_sort_by='category')
@@ -1048,120 +224,10 @@ class RegressionWorkflowTest(unittest.TestCase):
         with (
             mock.patch.object(regression_runner, "_raise_on_model_collinearity"),
             mock.patch.object(regression_runner.LOGGER, "warning") as warn,
-            _stub_h2_kernel(fake_hsq),
+            stub_h2_kernel(fake_hsq),
         ):
             runner.estimate_partitioned_h2_batch(self.make_sumstats_table(), self.make_ldscore_result(), query_columns=self.make_annotation_bundle().query_columns, output_dir=self.temporary_output_dir(), summary_sort_by='category')
         self.assertFalse(any("degenerate" in str(call).lower() for call in warn.call_args_list))
-
-    def test_build_rg_dataset_uses_final_three_way_snp_intersection(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        sumstats_1 = self.make_sumstats_table()
-        sumstats_2 = replace(
-            self.make_sumstats_table(),
-            trait_name="trait2",
-            data=self.make_sumstats_table().data.assign(
-                SNP=["rs2", "rs3", "missing"],
-                Z=[1.5, 0.25, 9.0],
-                A1=["C", "G", "A"],
-                A2=["T", "A", "C"],
-            ),
-        )
-
-        dataset = runner.build_rg_dataset(sumstats_1, sumstats_2, self.make_ldscore_result())
-
-        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs2", "rs3"])
-        np.testing.assert_allclose(dataset.merged["Z1"], [1.0, 0.5])
-        np.testing.assert_allclose(dataset.merged["Z2"], [1.5, 0.25])
-
-    def test_build_rg_dataset_harmonizes_alleles_and_flips_second_trait_z(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        sumstats_1 = replace(
-            self.make_sumstats_table(),
-            data=self.make_sumstats_table().data.assign(
-                A1=["A", "A", "A"],
-                A2=["C", "C", "C"],
-            ),
-        )
-        sumstats_2 = replace(
-            self.make_sumstats_table(),
-            trait_name="trait2",
-            data=self.make_sumstats_table().data.assign(
-                Z=[1.0, 2.0, 3.0],
-                A1=["C", "A", "A"],
-                A2=["A", "C", "T"],
-            ),
-        )
-
-        dataset = runner.build_rg_dataset(sumstats_1, sumstats_2, self.make_ldscore_result())
-
-        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1", "rs2"])
-        np.testing.assert_allclose(dataset.merged["Z2"], [-1.0, 2.0])
-
-    def test_build_rg_dataset_allele_aware_mode_harmonizes_after_identity_merge(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid_allele_aware"), RegressionConfig())
-        ldscore_result = self.make_ldscore_result_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1", "1"],
-                    "SNP": ["rs1", "rs2"],
-                    "POS": [10, 20],
-                    "A1": ["A", "A"],
-                    "A2": ["C", "G"],
-                    "regression_ld_scores": [2.0, 2.0],
-                    "base": [1.0, 2.0],
-                }
-            ),
-            snp_identifier="rsid_allele_aware",
-        )
-        sumstats_1 = self.make_sumstats_table_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1", "1"],
-                    "SNP": ["rs1", "rs2"],
-                    "POS": [10, 20],
-                    "A1": ["A", "A"],
-                    "A2": ["C", "G"],
-                    "Z": [2.0, 1.0],
-                    "N": [1000.0, 1000.0],
-                }
-            ),
-            snp_identifier="rsid_allele_aware",
-            trait_name="trait1",
-        )
-        sumstats_2 = self.make_sumstats_table_from_frame(
-            pd.DataFrame(
-                {
-                    "CHR": ["1", "1"],
-                    "SNP": ["rs1", "rs2"],
-                    "POS": [10, 20],
-                    "A1": ["C", "A"],
-                    "A2": ["A", "C"],
-                    "Z": [5.0, 9.0],
-                    "N": [900.0, 900.0],
-                }
-            ),
-            snp_identifier="rsid_allele_aware",
-            trait_name="trait2",
-        )
-
-        dataset = runner.build_rg_dataset(sumstats_1, sumstats_2, ldscore_result)
-
-        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1"])
-        np.testing.assert_allclose(dataset.merged["Z2"], [-5.0])
-        self.assertEqual(dataset.effective_snp_identifier, "rsid_allele_aware")
-        self.assertFalse(dataset.identity_downgrade_applied)
-
-    def allele_free_table(self, trait_name):
-        table = self.make_sumstats_table()
-        return replace(table, has_alleles=False, trait_name=trait_name, source_path=f"{trait_name}.parquet",
-                       data=table.data.drop(columns=["A1", "A2"]))
-
-    def test_build_rg_dataset_rejects_trait_without_alleles(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-
-        with self.assertRaisesRegex(LDSCInputError, r"A1/A2(.|\n)*trait2 \('trait2.parquet'\)"):
-            runner.build_rg_dataset(self.make_sumstats_table(), self.allele_free_table("trait2"),
-                                    self.make_ldscore_result())
 
     def test_estimate_rg_pairs_lists_every_trait_without_alleles_before_fitting(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
@@ -1170,123 +236,6 @@ class RegressionWorkflowTest(unittest.TestCase):
         with mock.patch.object(runner, "build_dataset", side_effect=AssertionError("fitting started")):
             with self.assertRaisesRegex(LDSCInputError, r"A \('A.parquet'\), C \('C.parquet'\)(.|\n)*munge-sumstats"):
                 runner.estimate_rg_pairs(traits, self.make_ldscore_result())
-
-    def test_build_dataset_warns_when_dropping_zero_variance_ld_columns(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        base_result = self.make_ldscore_result()
-        n_rows = len(base_result.baseline_table)
-        ldscore_result = replace(
-            base_result,
-            baseline_table=base_result.baseline_table.assign(flat=[1.0] * n_rows),
-            baseline_columns=["base", "flat"],
-            count_records=[
-                {
-                    "group": "baseline",
-                    "column": "base",
-                    "all_reference_snp_count": 10.0,
-                    "common_reference_snp_count": 8.0,
-                },
-                {
-                    "group": "baseline",
-                    "column": "flat",
-                    "all_reference_snp_count": 30.0,
-                    "common_reference_snp_count": 28.0,
-                },
-            ],
-        )
-        with self.assertLogs("LDSC.regression_runner", level="WARNING") as captured:
-            dataset = runner.build_dataset(self.make_sumstats_table(), ldscore_result)
-
-        self.assertEqual(dataset.dropped_zero_variance_ld_columns, ["flat"])
-        self.assertEqual(dataset.retained_ld_columns, ["base"])
-        self.assertTrue(any("Dropped 1 zero-variance" in message and "fitted-model metadata" in message for message in captured.output))
-        self.assertFalse(any("flat" in message for message in captured.output))
-
-    def test_build_rg_dataset_drops_zero_variance_ld_columns_after_final_merge(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        ldscore_result = replace(
-            self.make_ldscore_result(),
-            baseline_table=self.make_ldscore_result().baseline_table.assign(late_zero=[0.0, 1.0, 1.0]),
-            baseline_columns=["base", "late_zero"],
-            count_records=[
-                {
-                    "group": "baseline",
-                    "column": "base",
-                    "all_reference_snp_count": 10.0,
-                    "common_reference_snp_count": 8.0,
-                },
-                {
-                    "group": "baseline",
-                    "column": "late_zero",
-                    "all_reference_snp_count": 30.0,
-                    "common_reference_snp_count": 28.0,
-                },
-            ],
-        )
-        sumstats_2 = replace(
-            self.make_sumstats_table(),
-            trait_name="trait2",
-            data=self.make_sumstats_table().data.iloc[[1, 2]].reset_index(drop=True).assign(Z=[1.5, 0.25]),
-        )
-
-        dataset = runner.build_rg_dataset(self.make_sumstats_table(), sumstats_2, ldscore_result)
-
-        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs2", "rs3"])
-        self.assertEqual(dataset.retained_ld_columns, ["base"])
-        self.assertEqual(dataset.dropped_zero_variance_ld_columns, ["late_zero"])
-        np.testing.assert_allclose(
-            dataset.reference_snp_count_totals["common_reference_snp_counts"],
-            [8.0],
-        )
-
-    def test_build_rg_dataset_chr_pos_mode_merges_all_sources_on_coordinates(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RegressionConfig())
-        ldscore_result = replace(
-            self.make_ldscore_result(),
-            baseline_table=self.make_ldscore_result().baseline_table.assign(SNP=["ld1", "ld2", "ld3"]),
-            query_table=self.make_ldscore_result().query_table.assign(SNP=["ld1", "ld2", "ld3"]),
-            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-        )
-        sumstats_1 = SumstatsTable(
-            data=pd.DataFrame(
-                {
-                    "SNP": ["trait1_a", "trait1_b", "trait1_missing"],
-                    "CHR": ["1", "1", "1"],
-                    "POS": [10, 20, 999],
-                    "Z": [2.0, 1.0, 9.0],
-                    "N": [1000.0, 1000.0, 1000.0],
-                    "A1": ["A", "A", "A"],
-                    "A2": ["C", "C", "C"],
-                }
-            ),
-            has_alleles=True,
-            source_path="sumstats1.gz",
-            trait_name="trait1",
-            provenance={},
-            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-        )
-        sumstats_2 = replace(
-            sumstats_1,
-            data=pd.DataFrame(
-                {
-                    "SNP": ["trait2_a", "trait2_c"],
-                    "CHR": ["1", "1"],
-                    "POS": [10, 30],
-                    "Z": [1.0, 1.5],
-                    "N": [900.0, 900.0],
-                    "A1": ["A", "A"],
-                    "A2": ["C", "C"],
-                }
-            ),
-            trait_name="trait2",
-            source_path="sumstats2.gz",
-        )
-
-        dataset = runner.build_rg_dataset(sumstats_1, sumstats_2, ldscore_result)
-
-        self.assertEqual(dataset.merged["SNP"].tolist(), ["trait1_a"])
-        self.assertEqual(dataset.merged["_ldsc_chr_pos_key"].tolist(), ["1:10"])
-        np.testing.assert_allclose(dataset.merged["Z2"], [1.0])
 
     def test_estimate_rg_preserves_legacy_rg_array_call_contract(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
@@ -1317,7 +266,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             replace(self.make_sumstats_table(), trait_name="C", source_path="C.sumstats.gz"),
         ]
 
-        with _stub_h2_kernel(self.make_rg_kernel_result().hsq1,
+        with stub_h2_kernel(self.make_rg_kernel_result().hsq1,
         ), mock.patch.object(
             regression_runner.reg,
             "RG",
@@ -1346,7 +295,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             replace(self.make_sumstats_table(), trait_name="SCZ", source_path="ukb/v3/SCZ.parquet"),
         ]
 
-        with _stub_h2_kernel(self.make_rg_kernel_result().hsq1), mock.patch.object(
+        with stub_h2_kernel(self.make_rg_kernel_result().hsq1), mock.patch.object(
             regression_runner.reg, "RG", return_value=self.make_rg_kernel_result(rg=0.5, p=0.01)
         ):
             result = runner.estimate_rg_pairs(traits, self.make_ldscore_result())
@@ -1370,7 +319,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             replace(self.make_sumstats_table(), trait_name="C", source_path="C.sumstats.gz"),
         ]
 
-        with _stub_h2_kernel(self.make_rg_kernel_result().hsq1), mock.patch.object(
+        with stub_h2_kernel(self.make_rg_kernel_result().hsq1), mock.patch.object(
             regression_runner.reg,
             "RG",
             return_value=self.make_rg_kernel_result(),
@@ -1388,7 +337,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             replace(self.make_sumstats_table(), trait_name="C", source_path="C.sumstats.gz"),
         ]
 
-        with _stub_h2_kernel(self.make_rg_kernel_result().hsq1), mock.patch.object(
+        with stub_h2_kernel(self.make_rg_kernel_result().hsq1), mock.patch.object(
             regression_runner.reg,
             "RG",
             side_effect=[
@@ -1413,7 +362,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             replace(self.make_sumstats_table(), trait_name="C", source_path="C.sumstats.gz"),
         ]
 
-        with _stub_h2_kernel(self.make_rg_kernel_result().hsq1), mock.patch.object(
+        with stub_h2_kernel(self.make_rg_kernel_result().hsq1), mock.patch.object(
             regression_runner.reg,
             "RG",
             side_effect=[
@@ -1431,92 +380,6 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(result.rg.loc[0, "note"], regression_runner.H2_OUT_OF_BOUNDS_RG_NOTE)
         self.assertEqual(result.rg_full.loc[1, "status"], "ok")
         self.assertEqual(result.rg.loc[1, "rg"], 1.5)
-
-    def test_build_dataset_raises_on_mismatched_sumstats_and_ldscore_snapshots(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RegressionConfig())
-        sumstats = replace(
-            self.make_sumstats_table(),
-            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-        )
-        ldscore_result = replace(
-            self.make_ldscore_result(),
-            config_snapshot=GlobalConfig(genome_build="hg19", snp_identifier="chr_pos"),
-        )
-
-        with self.assertRaisesRegex(LDSCInputError, "Conflicting genome-build evidence"):
-            runner.build_dataset(sumstats, ldscore_result)
-
-    def _chr_pos_ldscore(self, genome_build="hg38"):
-        return replace(
-            self.make_ldscore_result(),
-            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build=genome_build),
-        )
-
-    def test_regression_genome_build_skips_rsid_family(self):
-        sumstats = replace(self.make_sumstats_table(), config_snapshot=None)
-        ldscore = replace(self.make_ldscore_result(), config_snapshot=GlobalConfig(snp_identifier="rsid_allele_aware"))
-        # rsID-family run: no error even though the sumstats carries no build metadata.
-        regression_runner._regression_genome_build(sumstats, ldscore, "rsid_allele_aware", context="sumstats")
-
-    def test_regression_genome_build_passes_on_metadata_match(self):
-        sumstats = replace(
-            self.make_sumstats_table(),
-            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-        )
-        regression_runner._regression_genome_build(sumstats, self._chr_pos_ldscore("hg38"), "chr_pos", context="sumstats")
-
-    def test_regression_genome_build_errors_on_metadata_mismatch(self):
-        sumstats = replace(
-            self.make_sumstats_table(),
-            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
-        )
-        with self.assertRaisesRegex(LDSCInputError, "Conflicting genome-build evidence"):
-            regression_runner._regression_genome_build(sumstats, self._chr_pos_ldscore("hg38"), "chr_pos", context="sumstats")
-
-    def test_regression_genome_build_infers_when_metadata_absent(self):
-        frame = pd.DataFrame({"SNP": ["rs1"], "CHR": ["1"], "POS": [10], "Z": [1.0], "N": [100.0]})
-        sumstats = replace(self.make_sumstats_table(), data=frame, config_snapshot=None)
-        with mock.patch(
-            "ldsc._genome.build_policy.infer_chr_pos_build", return_value=SimpleNamespace(genome_build="hg38", coordinate_basis="1-based", inspected_snp_count=500)
-        ):
-            regression_runner._regression_genome_build(sumstats, self._chr_pos_ldscore("hg38"), "chr_pos", context="sumstats")
-        with mock.patch(
-            "ldsc._genome.build_policy.infer_chr_pos_build", return_value=SimpleNamespace(genome_build="hg19", coordinate_basis="1-based", inspected_snp_count=500)
-        ):
-            with self.assertRaisesRegex(LDSCInputError, "Conflicting genome-build evidence"):
-                regression_runner._regression_genome_build(sumstats, self._chr_pos_ldscore("hg38"), "chr_pos", context="sumstats")
-
-    def test_regression_genome_build_errors_when_inference_inconclusive(self):
-        frame = pd.DataFrame({"SNP": ["rs1"], "CHR": ["1"], "POS": [10], "Z": [1.0], "N": [100.0]})
-        sumstats = replace(self.make_sumstats_table(), data=frame, config_snapshot=None)
-        with mock.patch(
-            "ldsc._genome.build_policy.infer_chr_pos_build", side_effect=LDSCInputError("could not infer")
-        ):
-            with self.assertRaisesRegex(LDSCInputError, "unresolved:"):
-                regression_runner._regression_genome_build(sumstats, self._chr_pos_ldscore("hg38"), "chr_pos", context="sumstats")
-
-    def test_regression_genome_build_errors_when_chr_pos_columns_missing(self):
-        # Metadata-absent chr_pos run on a sumstats lacking CHR/POS (e.g. a legacy rsID file).
-        sumstats = replace(self.make_sumstats_table(), config_snapshot=None)
-        with self.assertRaisesRegex(LDSCInputError, "unresolved:"):
-            regression_runner._regression_genome_build(sumstats, self._chr_pos_ldscore("hg38"), "chr_pos", context="sumstats")
-
-    def test_build_dataset_skips_compatibility_check_for_legacy_none_snapshots(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        sumstats = replace(self.make_sumstats_table(), config_snapshot=None)
-        ldscore_result = replace(self.make_ldscore_result(), config_snapshot=None)
-
-        dataset = runner.build_dataset(sumstats, ldscore_result)
-
-        self.assertIsNone(dataset.config_snapshot)
-
-    def test_build_dataset_allows_unknown_sumstats_with_known_ldscore_snapshot(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        sumstats = replace(self.make_sumstats_table(), config_snapshot=None)
-
-        dataset = runner.build_dataset(sumstats, self.make_ldscore_result())
-
-        self.assertEqual(dataset.config_snapshot, GlobalConfig(snp_identifier="rsid"))
 
     def _baseline_only_ldscore_result(self):
         from ldsc._annotation.overlap import OverlapContribution
@@ -1588,7 +451,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             runner,
             "build_dataset",
             wraps=runner.build_dataset,
-        ) as build_dataset, _stub_h2_kernel(fake_hsq):
+        ) as build_dataset, stub_h2_kernel(fake_hsq):
             result = runner.estimate_partitioned_h2(
                 self.make_sumstats_table(),
                 self.make_ldscore_result(),
@@ -1632,7 +495,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         with (
             mock.patch.object(regression_runner, "_raise_on_model_collinearity"),
             self.assertLogs("LDSC.regression_runner", level="INFO") as captured,
-            _stub_h2_kernel(fake_hsq) as patched,
+            stub_h2_kernel(fake_hsq) as patched,
         ):
             result = runner.estimate_partitioned_h2_batch(table, ldscore_result, query_columns=annotation_bundle.query_columns, output_dir=self.temporary_output_dir(), summary_sort_by='category')
         result = result.summary
@@ -1668,7 +531,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             n_annot=2,
         )
         # The toy LD columns are collinear; exercise selection independently.
-        with mock.patch.object(regression_runner, "_raise_on_model_collinearity"), _stub_h2_kernel(fake_hsq):
+        with mock.patch.object(regression_runner, "_raise_on_model_collinearity"), stub_h2_kernel(fake_hsq):
             result = runner.estimate_partitioned_h2_batch(table, ldscore_result, query_columns=annotation_bundle.query_columns, output_dir=self.temporary_output_dir(), summary_sort_by='category')
 
         self.assertIsInstance(result, regression_runner.PartitionedH2BatchResult)
@@ -1918,7 +781,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
             self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            args = _parsed_regression_args(
+            args = parsed_regression_args(
                 "h2",
                 {
                     "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
@@ -1939,7 +802,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             marker = tmpdir / "h2_out/RUN_FAILED.txt"
             marker.parent.mkdir()
             marker.write_text("earlier failed overwrite")
-            with mock.patch.dict("os.environ", {"LDSC_REGRESSION_OUT": str(tmpdir)}), contextlib.chdir(tmpdir), _stub_h2_kernel(
+            with mock.patch.dict("os.environ", {"LDSC_REGRESSION_OUT": str(tmpdir)}), contextlib.chdir(tmpdir), stub_h2_kernel(
                 mock.Mock(
                     tot=np.array([0.1]),
                     tot_se=np.array([0.01]),
@@ -1956,7 +819,7 @@ class RegressionWorkflowTest(unittest.TestCase):
 
             summary = result.summary
             self.assertEqual(result.output_paths["summary"], str(tmpdir / "h2_out" / "h2.tsv"))
-            self.assertEqual(result.legacy_sumstats_drops.columns.tolist(), regression_runner.LEGACY_SUMSTATS_DROP_COLUMNS)
+            self.assertEqual(result.legacy_sumstats_drops.columns.tolist(), LEGACY_SUMSTATS_DROP_COLUMNS)
             patched.assert_called_once()
             self.assertFalse(marker.exists())
             self.assertFalse((tmpdir / "$LDSC_REGRESSION_OUT").exists())
@@ -2004,7 +867,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             )
 
     def _h2_args(self, tmpdir, ldscore_dir, *, samp_prev=None, pop_prev=None):
-        return _parsed_regression_args(
+        return parsed_regression_args(
             "h2",
             {
                 "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
@@ -2031,7 +894,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         return self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
 
     def _patched_h2(self):
-        return _stub_h2_kernel(
+        return stub_h2_kernel(
             mock.Mock(
                 tot=np.array([0.2]),
                 tot_se=np.array([0.03]),
@@ -2077,7 +940,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
             self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            args = _parsed_regression_args(
+            args = parsed_regression_args(
                 "h2",
                 {
                     "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
@@ -2112,7 +975,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             set_global_config(GlobalConfig(snp_identifier="rsid"))
             self.write_footer_sumstats_parquet(tmpdir / "trait.parquet", trait_name=None, snp_identifier="rsid")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            args = _parsed_regression_args(
+            args = parsed_regression_args(
                 "h2",
                 {
                     "sumstats_file": str(tmpdir / "trait.parquet"),
@@ -2129,7 +992,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 },
             )
 
-            with _stub_h2_kernel(
+            with stub_h2_kernel(
                 mock.Mock(
                     tot=np.array([0.1]),
                     tot_se=np.array([0.01]),
@@ -2292,7 +1155,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             )
 
     def test_run_rg_from_args_rejects_missing_output_dir_before_loading_inputs(self):
-        args = _parsed_regression_args(
+        args = parsed_regression_args(
             "rg",
             {
                 "sumstats_sources": ["a.sumstats.gz", "b.sumstats.gz"],
@@ -2339,9 +1202,9 @@ class RegressionWorkflowTest(unittest.TestCase):
                 rg_full=pd.DataFrame([{"trait_1": "a", "trait_2": "b", "n_snps_used": 1, "rg": 0.1, "rg_se": 0.01, "z": 10.0, "p": 0.02, "status": "ok", "error": ""}]),
                 h2_per_trait=pd.DataFrame([{"trait_name": "a"}, {"trait_name": "b"}]),
                 per_pair_metadata=[],
-                legacy_sumstats_drops=pd.DataFrame(columns=regression_runner.LEGACY_SUMSTATS_DROP_COLUMNS),
+                legacy_sumstats_drops=pd.DataFrame(columns=LEGACY_SUMSTATS_DROP_COLUMNS),
             )
-            args = _parsed_regression_args(
+            args = parsed_regression_args(
                 "rg",
                 {
                     "sumstats_sources": sumstats_sources,
@@ -2402,7 +1265,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 h2_per_trait=pd.DataFrame(),
                 per_pair_metadata=[],
             )
-            args = _parsed_regression_args(
+            args = parsed_regression_args(
                 "rg",
                 {
                     "sumstats_sources": sumstats_sources,
@@ -2448,9 +1311,9 @@ class RegressionWorkflowTest(unittest.TestCase):
                 rg_full=pd.DataFrame(),
                 h2_per_trait=pd.DataFrame(),
                 per_pair_metadata=[],
-                legacy_sumstats_drops=pd.DataFrame(columns=regression_runner.LEGACY_SUMSTATS_DROP_COLUMNS),
+                legacy_sumstats_drops=pd.DataFrame(columns=LEGACY_SUMSTATS_DROP_COLUMNS),
             )
-            args = _parsed_regression_args(
+            args = parsed_regression_args(
                 "rg",
                 {
                     "sumstats_sources": sumstats_sources,
@@ -2632,7 +1495,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             stale = output_dir / "diagnostics" / "query_annotations" / "old"
             stale.mkdir(parents=True)
             (stale / "metadata.json").write_text("{}\n", encoding="utf-8")
-            args = _parsed_regression_args(
+            args = parsed_regression_args(
                 "partitioned-h2",
                 {
                     "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
@@ -2675,7 +1538,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             output_dir.mkdir()
             existing = output_dir / "h2.tsv"
             existing.write_text("existing\n", encoding="utf-8")
-            args = _parsed_regression_args(
+            args = parsed_regression_args(
                 "h2",
                 {
                     "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
@@ -2691,7 +1554,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 },
             )
 
-            with _stub_h2_kernel(
+            with stub_h2_kernel(
                 mock.Mock(
                     tot=np.array([0.1]),
                     tot_se=np.array([0.01]),
@@ -2718,7 +1581,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             existing = output_dir / "diagnostics" / "metadata.json"
             existing.parent.mkdir(parents=True)
             existing.write_text("{}\n", encoding="utf-8")
-            args = _parsed_regression_args(
+            args = parsed_regression_args(
                 "h2",
                 {
                     "sumstats_file": str(tmpdir / "missing.sumstats.gz"),
@@ -2762,7 +1625,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             existing_metadata = output_dir / "diagnostics" / "metadata.json"
             existing_metadata.parent.mkdir()
             existing_metadata.write_text('{"old": true}\n', encoding="utf-8")
-            args = _parsed_regression_args(
+            args = parsed_regression_args(
                 "h2",
                 {
                     "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
@@ -2778,7 +1641,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 },
             )
 
-            with _stub_h2_kernel(
+            with stub_h2_kernel(
                 mock.Mock(
                     tot=np.array([0.1]),
                     tot_se=np.array([0.01]),

@@ -13,7 +13,8 @@ import pytest
 from ldsc.config import GlobalConfig, RegressionConfig
 from ldsc.errors import LDSCInputError
 from ldsc._ldscore.results import LDScoreResult
-from ldsc._regression.runner import RegressionRunner, _project_legacy_sumstats_to_panel
+from ldsc._regression.alignment import _project_legacy_sumstats_to_panel
+from ldsc._regression.runner import RegressionRunner
 from ldsc._sumstats.table import SumstatsTable, load_sumstats
 
 

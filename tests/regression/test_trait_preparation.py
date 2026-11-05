@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from ldsc._ldscore.results import LDScoreResult
-from ldsc._regression import runner as workflow
+from ldsc._regression import alignment, runner as workflow
 from ldsc._sumstats.table import SumstatsTable
 from ldsc.config import GlobalConfig, RegressionConfig
 from tests.worker_fixtures import calculation_body
@@ -53,14 +53,14 @@ def signed_statistics(rng, ld_scores):
 
 
 def counting(monkeypatch, name):
-    """Record the context (or trait name) of every call to a module-level runner function."""
-    original, calls = getattr(workflow, name), []
+    """Record the context (or trait name) of every call to a module-level alignment function."""
+    original, calls = getattr(alignment, name), []
 
     def wrapper(*args, **kwargs):
         calls.append(kwargs["context"] if "context" in kwargs else args[0].trait_name)
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(workflow, name, wrapper)
+    monkeypatch.setattr(alignment, name, wrapper)
     return calls
 
 
@@ -121,7 +121,7 @@ def test_base_mode_keying_error_fails_only_its_downgraded_pair(monkeypatch):
               munged("C", "chr_pos", 9)]
     runner = workflow.RegressionRunner(regression_config=RegressionConfig(num_blocks=10,
                                                                           allow_identity_downgrade=True))
-    original = workflow._PreparedTraitSumstats.keyed_rows
+    original = alignment._PreparedTraitSumstats.keyed_rows
 
     def keyed_rows(self, mode, *, cleaned):
         # Trait A's base-mode rows are first needed by its downgraded pair with C.
@@ -129,7 +129,7 @@ def test_base_mode_keying_error_fails_only_its_downgraded_pair(monkeypatch):
             raise ValueError("injected base-mode keying failure")
         return original(self, mode, cleaned=cleaned)
 
-    monkeypatch.setattr(workflow._PreparedTraitSumstats, "keyed_rows", keyed_rows)
+    monkeypatch.setattr(alignment._PreparedTraitSumstats, "keyed_rows", keyed_rows)
 
     with calculation_body():
         result = runner.estimate_rg_pairs(tables, panel())

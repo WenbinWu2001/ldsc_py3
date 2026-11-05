@@ -317,3 +317,26 @@ def test_gene_list_run_fails_in_gate_b_when_the_grid_misses_a_whole_chromosome(t
     # Gate B writes query diagnostics before failing; batch-1 calculation never starts.
     assert (tmp_path / "out" / "diagnostics" / "query_annotation_status.tsv").exists()
     assert not (tmp_path / "out" / "diagnostics" / "chromosome-logs").exists()
+
+
+def test_load_metadata_of_a_chromosome_the_panel_filters_empty_names_the_filter(tmp_path):
+    # ldscore without annotation files builds its synthetic `base` from load_metadata, so a
+    # chromosome the panel's own filters empty must be skippable and its message must not
+    # blame annotation files.
+    pytest.importorskip("bitarray")
+    write_panel(tmp_path)  # rs1 has MAF 0.04 and rs3 has MAF 0.3
+    r2 = R2MatrixRefPanel(GlobalConfig(snp_identifier="rsid"),
+                          RefPanelConfig(backend="r2_matrix", r2_matrix_dir=tmp_path, maf_min=0.4))
+    with pytest.raises(EmptyReferenceSNPs) as caught:
+        r2.load_metadata("1")
+    assert steps(caught.value.reference_snp_funnel, "reference_panel")["maf_floor"] == (2, 0)
+    assert "--maf-min" in str(caught.value) and "annotation" not in str(caught.value)
+
+    restriction = tmp_path / "keep.tsv"
+    restriction.write_text("SNP\nabsent\n")
+    plink = PlinkRefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(
+        backend="plink", plink_prefix=str(PLINK_PREFIX), ref_panel_snps_file=str(restriction)))
+    with pytest.raises(EmptyReferenceSNPs) as caught:
+        plink.load_metadata("22")
+    assert steps(caught.value.reference_snp_funnel, "reference_panel")["ref_panel_snps_file"] == (32, 0)
+    assert "--ref-panel-snps-file" in str(caught.value) and "annotation" not in str(caught.value)

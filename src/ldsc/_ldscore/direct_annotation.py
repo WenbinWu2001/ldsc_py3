@@ -7,6 +7,7 @@ content-derived annotation scope becomes available.
 """
 
 from dataclasses import replace
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -17,7 +18,9 @@ from .._annotation.interval_queries import build_query_shards, prepare_bed_queri
 from .._annotation.sources import prepare_annotation_sources
 from .._annotation.storage import AnnotationShard, ColumnStore
 from .preflight import validate_direct_scope
-from ..errors import LDSCInputError
+from ..errors import EmptyReferenceSNPs, LDSCInputError
+
+LOGGER = logging.getLogger("LDSC.ldscore_calculator")
 
 
 def prepare_direct_annotations(args, config, spec, workspace, output_config, *, declared_inputs, reference_inputs, batch=None):
@@ -67,11 +70,19 @@ def prepare_direct_annotations(args, config, spec, workspace, output_config, *, 
 
 
 def prepare_synthetic_base(panel, config, workspace):
-    """Stage one all-ones chromosome at a time from retained panel metadata."""
-    shards = {}
+    """Stage one all-ones chromosome at a time from retained panel metadata.
+
+    A chromosome that the panel's filters leave without SNPs is skipped with a
+    WARNING, as in runs with annotation files. Returns the bundle and the
+    skipped chromosomes' reference-SNP funnels, which the run publishes.
+    """
+    shards, skipped_funnels = {}, []
     for chrom in panel.available_chromosomes():
-        metadata = panel.load_metadata(chrom)
-        if metadata.empty:
+        try:
+            metadata = panel.load_metadata(chrom)
+        except EmptyReferenceSNPs as exc:
+            LOGGER.warning("Skipping chromosome %s: %s", chrom, exc)
+            skipped_funnels.append(exc.reference_snp_funnel)
             continue
         root = workspace.path/f'base-{chrom}'
         root.mkdir()
@@ -84,6 +95,7 @@ def prepare_synthetic_base(panel, config, workspace):
         shards[str(chrom)] = AnnotationShard(root/'metadata.parquet',(values,),len(metadata))
         del metadata
     if not shards:
-        raise LDSCInputError('ldscore could not build the synthetic `base` annotation: no retained reference-panel SNP metadata rows were available. Check the panel and SNP restrictions.')
-    return AnnotationBundle(shards,['base'],[],workspace,config_snapshot=config,
+        raise LDSCInputError('ldscore could not build the synthetic `base` annotation: the reference-panel filters left no SNP on any chromosome, and each skipped chromosome is a WARNING in the log. Check the panel, --ref-panel-snps-file and --maf-min.')
+    bundle = AnnotationBundle(shards,['base'],[],workspace,config_snapshot=config,
         source_summary={'baseline':'synthetic all-ones base annotation from retained reference-panel metadata'})
+    return bundle, skipped_funnels

@@ -115,7 +115,11 @@ class RefPanel(ABC):
 
     @abstractmethod
     def load_metadata(self, chrom: str) -> pd.DataFrame:
-        """Load prepared SNP metadata for ``chrom`` after panel-layer filters."""
+        """Load prepared SNP metadata for ``chrom`` after panel-layer filters.
+
+        Raises ``EmptyReferenceSNPs``, carrying the chromosome's
+        ``reference_snp_funnel``, when those filters leave no SNP.
+        """
         raise NotImplementedError
 
     @abstractmethod
@@ -347,11 +351,15 @@ class PlinkRefPanel(RefPanel):
         """Load one chromosome's genotype-filtered metadata; the caller owns its lifetime.
 
         The genotypes are read to compute ``MAF`` and orient ``A1`` to the minor
-        allele, so an unreadable BED or a chromosome without usable genotypes is
-        an error.
+        allele, so an unreadable BED is an error. A chromosome that the SNP
+        restriction, identity cleanup of the rows it kept, or genotype QC
+        empties raises ``EmptyReferenceSNPs`` with its funnel.
         """
         chrom = normalize_chromosome(chrom)
-        geno, metadata, _, _, _ = self._load_genotypes(chrom, self._load_source(chrom))
+        source = self._load_source(chrom)
+        if source[3].empty:
+            raise _panel_filter_emptied(chrom, source[5])
+        geno, metadata, _, _, _ = self._load_genotypes(chrom, source)
         geno.close()
         return metadata
 
@@ -472,7 +480,10 @@ class R2MatrixRefPanel(RefPanel):
 
     def load_metadata(self, chrom: str) -> pd.DataFrame:
         """Load, restrict, and validate metadata owned by this chromosome consumer."""
-        return self._load_reference(self.open_chromosome(chrom))[0]
+        metadata, funnel = self._load_reference(self.open_chromosome(chrom))
+        if metadata.empty:
+            raise _panel_filter_emptied(chrom, funnel)
+        return metadata
 
     def _load_reference(self, chromosome: R2MatrixChromosome) -> tuple[pd.DataFrame, ReferenceSNPFunnel]:
         """Return the restricted sidecar and the chromosome's reference-SNP funnel so far."""
@@ -635,6 +646,23 @@ def _resolve_genetic_map(panel, chrom, metadata):
     check.paths(f"--genetic-map-{build}-sources", sources)
     check.resolve()
     return load_genetic_map_group(split_cli_path_tokens(sources))
+
+
+_PANEL_FILTER_OPTIONS = {"ref_panel_snps_file": "--ref-panel-snps-file", "maf_floor": "--maf-min"}
+
+
+def _panel_filter_emptied(chrom, funnel):
+    """Return the error that skips a chromosome whose SNP restriction or MAF floor kept no row."""
+    frame = funnel.frame()
+    reference = frame.loc[frame["funnel"].eq(REFERENCE_PANEL)]
+    emptied = reference.loc[(reference["removed"].fillna(0).gt(0) & reference["remaining"].eq(0)).fillna(False)]
+    step = emptied.iloc[0]
+    error = EmptyReferenceSNPs(
+        f"Reference-panel loading retained no SNPs on chromosome {chrom}: {_PANEL_FILTER_OPTIONS[step.step]} "
+        f"removed its last {int(step.removed):,} panel rows."
+    )
+    error.reference_snp_funnel = frame
+    return error
 
 
 def _record_genotype_qc(funnel, genotype_qc_removed, maf_removed, maf_min):

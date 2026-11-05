@@ -300,7 +300,9 @@ See `LDScoreDirectoryWriter.write_batches` in [`_ldscore/outputs.py`](../../src/
 For ordinary unpartitioned LD scores, callers may omit both baseline and query
 inputs. The workflow then creates a synthetic baseline annotation named exactly
 `base`, with value `1.0` for every row returned by the retained reference-panel
-metadata. Query annotations are partitioned-heritability inputs and require explicit
+metadata; a chromosome that the panel's filters leave without SNPs is skipped
+with a WARNING, and its reference-SNP funnel is still published.
+Query annotations are partitioned-heritability inputs and require explicit
 baseline annotations. Query BED inputs and intervals from the required
 one-based gene coordinate catalog are projected to the same baseline SNP
 grid. `padding_bp` / `--padding-bp` expands either interval type on both

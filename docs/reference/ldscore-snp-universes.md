@@ -63,6 +63,7 @@ A whole chromosome without one shared SNP usually indicates a genome-build, alle
 Gene-list runs raise this error in the gene-support pass, before LD-score computation; other runs raise it after the first query batch's reference preparation.
 A chromosome emptied by an earlier step, such as `--ref-panel-snps-file`, or by genotype QC is skipped with a WARNING in `diagnostics/ldscore.log`, and its funnel shows the step that removed its SNPs.
 This includes a PLINK chromosome on which identity cleanup removes every row that `--ref-panel-snps-file` kept.
+Runs without annotation files skip these chromosomes the same way, with the WARNING and the funnel: they build the synthetic all-ones `base` annotation from the reference SNPs each chromosome keeps (`prepare_synthetic_base()` in [_ldscore/direct_annotation.py](../../src/ldsc/_ldscore/direct_annotation.py)), so a chromosome without reference SNPs gets no `base` rows.
 Without `--ref-panel-snps-file`, identity cleanup that removes every row of a PLINK chromosome stops the run, because the panel has no usable SNP identity on that chromosome; the error counts the removed rows by reason.
 A run in which no chromosome keeps a reference SNP fails.
 

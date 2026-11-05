@@ -252,6 +252,7 @@ Writing workflows retain `diagnostics/ldscore.log` and per-chromosome logs.
 Query-local BED/gene failures are status records; a run continues when at least one query is usable.
 Chromosome workers return only the typed `EmptyReferenceSNPs` outcome as a skip, carrying the error's reference-SNP funnel; other failures propagate independently of diagnostic wording.
 The parent fails the run, naming every such chromosome, when the `annotation_snp_grid` step emptied a chromosome (`annotation_snp_grid_emptied()` in `_refpanel/funnel.py`), and otherwise logs the skip as a WARNING; the batch-1 funnels become `diagnostics/reference_snp_funnel.tsv`.
+Runs without annotation files skip such a chromosome earlier: `_ldscore.direct_annotation.prepare_synthetic_base()` builds the synthetic `base` from `RefPanel.load_metadata()`, which raises `EmptyReferenceSNPs` with the funnel when the panel's filters leave no SNP; the chromosome gets no task, its skip is logged as a WARNING, and `_DirectProducer` adds its funnel to the batch-1 funnels.
 Architecture invariant: computation stays chromosome-wise, global filtering uses the complete chromosome summaries, and final publication follows complete success.
 
 ### `ldsc._refpanel.adapters`, `ldsc._ldscore.compute`

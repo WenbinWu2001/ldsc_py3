@@ -432,24 +432,27 @@ class LDScoreCalculator:
 
     @report_phase(LOGGER, "computation", "LD-score calculation")
     def _run(self, annotation_bundle, ref_panel, ldscore_config, global_config, output_config=None,
-             regression_snps=None, regression_regions=None, *, check_parquet_reference=False):
+             regression_snps=None, regression_regions=None, *, check_parquet_reference=False, skipped_funnels=()):
         """Implement :meth:`run`; the CLI calls this after its own reference preflight.
 
         An annotation result (``AnnotationResult``) is prepared inside this
         run's output directory, so the annotate output directory, an input
         here, is never written; the preparation is removed when the run ends.
+        ``skipped_funnels`` are the reference-SNP funnels of chromosomes the
+        synthetic ``base`` preparation already skipped.
         """
         arguments = (ref_panel, ldscore_config, global_config, output_config, regression_snps, regression_regions)
+        options = dict(check_parquet_reference=check_parquet_reference, skipped_funnels=skipped_funnels)
         if not isinstance(annotation_bundle, AnnotationResult):
-            return self._run_prepared(annotation_bundle, *arguments, check_parquet_reference=check_parquet_reference)
+            return self._run_prepared(annotation_bundle, *arguments, **options)
         if output_config is None:
             raise LDSCUsageError(_annotation_result_message("LDScoreCalculator.run() without output_config") +
                                  " Alternatively pass output_config, and run() prepares it inside the output directory.")
         with annotation_bundle.prepared_in(output_config.output_dir) as bundle:
-            return self._run_prepared(bundle, *arguments, check_parquet_reference=check_parquet_reference)
+            return self._run_prepared(bundle, *arguments, **options)
 
     def _run_prepared(self, annotation_bundle, ref_panel, ldscore_config, global_config, output_config,
-                      regression_snps, regression_regions, *, check_parquet_reference):
+                      regression_snps, regression_regions, *, check_parquet_reference, skipped_funnels):
         """Run the LD-score calculation for an annotation bundle that needs no further preparation."""
         if ldscore_config.export_ref_metadata and output_config is None:
             raise LDSCUsageError(
@@ -505,7 +508,8 @@ class LDScoreCalculator:
             LOGGER.info("Reference-panel CM source: %s; MAF source: %s (annotation CM/MAF are ignored).",
                         cm_source, maf_source)
             producer = _DirectProducer(self, annotation_bundle, ref_panel, ldscore_config, global_config,
-                                       regression_regions, log_paths, output_dir=output_dir, export_dir=export_root)
+                                       regression_regions, log_paths, output_dir=output_dir, export_dir=export_root,
+                                       skipped_funnels=skipped_funnels)
             if output_config is None:
                 if len(annotation_bundle.query_columns) > ldscore_config.query_batch_size:
                     raise LDSCUsageError("Multiple query execution batches require output_config with an output directory. Use one batch for a small in-memory calculation.")
@@ -749,13 +753,14 @@ class _DirectProducer:
     A batch projects its active query annotations, workers compute and stage
     each chromosome's LD scores, and ``reduce`` combines them with the run's
     direct provenance. The no-output path reuses ``prepare``, the tasks, and
-    ``reduce`` for its single materialized batch.
+    ``reduce`` for its single materialized batch. ``skipped_funnels`` belong to
+    chromosomes skipped before the bundle was built, which have no task.
     """
 
     batch_name, phase, task = "batch", "LD-score calculation", "LD-score computation"
 
     def __init__(self, calculator, annotation_bundle, ref_panel, ldscore_config, global_config,
-                 regression_regions, log_paths, *, output_dir=None, export_dir=None):
+                 regression_regions, log_paths, *, output_dir=None, export_dir=None, skipped_funnels=()):
         self.calculator = calculator
         self.annotation_bundle = annotation_bundle
         self.ref_panel = ref_panel
@@ -766,6 +771,7 @@ class _DirectProducer:
         self.logger = LOGGER
         self.output_dir = output_dir
         self.export_dir = export_dir
+        self.skipped_funnels = list(skipped_funnels)
         self.chromosomes = _chromosomes_from_bundle(annotation_bundle)
         self.prefixes = ref_panel._resolved_prefixes() if isinstance(ref_panel, PlinkRefPanel) else None
 
@@ -813,7 +819,7 @@ class _DirectProducer:
         batches, each computed chromosome's query variation.
         """
         ref_panel, ldscore_config = self.ref_panel, self.ldscore_config
-        chromosome_results, funnels, grid_emptied = [], [], []
+        chromosome_results, funnels, grid_emptied = [], list(self.skipped_funnels), []
         for chrom in self.chromosomes:
             outcome = outcomes[chrom]
             funnel = outcome.reference_snp_funnel if outcome.skipped else outcome.result.reference_snp_funnel
@@ -1364,7 +1370,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
                 regression_regions = gate.check('regression regions', getattr(normalized_args, 'regr_snps_exclude_regions', None),
                     lambda: _regression_region_intervals(normalized_args, global_config))
                 gate.finish()
-            scope = {}
+            scope, skipped_funnels = {}, []
             if _has_cli_tokens(normalized_args.baseline_annot_sources):
                 annotation_bundle, scope = prepare_direct_annotations(normalized_args,global_config,
                     _annotation_build_config_from_args(normalized_args),workspace,output_config,batch=batch,
@@ -1374,7 +1380,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
             else:
                 ref_panel = _ref_panel_from_args(normalized_args,global_config,
                     chromosome_prefixes=reference_inputs.scope.get("reference_prefixes_by_chrom"))
-                annotation_bundle = prepare_synthetic_base(ref_panel,global_config,workspace)
+                annotation_bundle, skipped_funnels = prepare_synthetic_base(ref_panel,global_config,workspace)
             if scope.get("chromosomes"):
                 LOGGER.info("Chromosomes resolved and entering the analysis: %s.", ", ".join(scope['chromosomes']))
             log_inputs(output_dir=str(output_dir),reference_mode=ref_panel.spec.backend,
@@ -1395,7 +1401,8 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
                 fail_unusable_queries(_bundle_diagnostics(annotation_bundle),
                                       all_query_annotations_skipped_message(statuses), output_config)
             result = LDScoreCalculator()._run(annotation_bundle,ref_panel,ldscore_config,global_config,
-                output_config=output_config,regression_snps=regression_snps,regression_regions=regression_regions)
+                output_config=output_config,regression_snps=regression_snps,regression_regions=regression_regions,
+                skipped_funnels=skipped_funnels)
             log_query_outcomes(result.gene_list_batch, result.query_statuses)
             log_outputs(**result.output_paths)
             if bool(getattr(args,"_emit_query_console_notices",False)):

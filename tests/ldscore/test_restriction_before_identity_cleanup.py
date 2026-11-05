@@ -111,7 +111,8 @@ def test_restriction_tolerates_unusable_panel_alleles_that_cleanup_then_drops(tm
         assert drops["reason"].tolist() == ["invalid_allele"]
 
 
-def test_chromosome_whose_restricted_rows_cleanup_removes_is_skipped(tmp_path):
+def write_two_chromosome_panel(tmp_path: Path) -> tuple[Path, pd.DataFrame, pd.DataFrame]:
+    """Write a chromosome-21 copy of the fixture and a chromosome 22 whose rows 0 and 1 share a position."""
     original = read_fixture_bim()
     panel = tmp_path / "panel"
     panel.mkdir()
@@ -124,22 +125,65 @@ def test_chromosome_whose_restricted_rows_cleanup_removes_is_skipped(tmp_path):
         bim.to_csv(panel / f"panel.{chrom}.bim", sep="\t", header=False, index=False)
         annotation = bim.loc[:, ["CHR", "SNP", "POS"]].drop_duplicates("POS").assign(base=1.0)
         annotation.to_csv(tmp_path / f"baseline.{chrom}.annot.gz", sep="\t", index=False)
-    # On chromosome 22 the restriction keeps only the two rows that share a position.
-    pd.concat([chr21, chr22.loc[[0, 1]]]).loc[:, ["CHR", "POS"]].to_csv(tmp_path / "keep.tsv", sep="\t", index=False)
     pd.concat([chr21, chr22]).loc[:, ["SNP", "CHR", "POS"]].to_csv(tmp_path / "regr.tsv", sep="\t", index=False)
+    return panel, chr21, chr22
 
-    status = run_cli(["ldscore", "--baseline-annot-sources", str(tmp_path / "baseline.*.annot.gz"),
-                      "--plink-prefix", str(panel / "panel.*"), "--genome-build", "hg38", "--snp-identifier", "chr_pos",
-                      "--ld-wind-kb", "1000", "--ref-panel-snps-file", str(tmp_path / "keep.tsv"),
-                      "--regr-snps-file", str(tmp_path / "regr.tsv"), "--regr-snps-exclude-regions", "none",
-                      "--output-dir", str(tmp_path / "out"), "--workers", "1"])
+
+def run_restricted_ldscore(tmp_path: Path, reference: list[str], keep: pd.DataFrame, *, annotated: bool) -> int:
+    """Run chr_pos ``ldscore`` with ``keep`` as the restriction, with or without baseline annotations."""
+    keep.loc[:, ["CHR", "POS"]].to_csv(tmp_path / "keep.tsv", sep="\t", index=False)
+    annotations = ["--baseline-annot-sources", str(tmp_path / "baseline.*.annot.gz")] if annotated else []
+    return run_cli(["ldscore", *annotations, *reference, "--genome-build", "hg38", "--snp-identifier", "chr_pos",
+                    "--ld-wind-kb", "1000", "--ref-panel-snps-file", str(tmp_path / "keep.tsv"),
+                    "--regr-snps-file", str(tmp_path / "regr.tsv"), "--regr-snps-exclude-regions", "none",
+                    "--output-dir", str(tmp_path / "out"), "--workers", "1"])
+
+
+def assert_chromosome_22_skipped(output: Path) -> dict[str, list[int]]:
+    """Check that only chromosome 21 was computed; return chromosome 22's reference-panel funnel."""
+    baseline = pd.read_parquet(output / "ldscore.baseline.parquet")
+    assert set(baseline["CHR"].astype(str)) == {"21"}
+    assert "Skipping chromosome 22" in (output / "diagnostics" / "ldscore.log").read_text()
+    funnel = pd.read_csv(output / "diagnostics" / "reference_snp_funnel.tsv", sep="\t")
+    rows = funnel.loc[funnel["funnel"].eq("reference_panel") & funnel["chrom"].astype(str).eq("22")]
+    return {row.step: [row.removed, row.remaining] for row in rows.itertuples()}
+
+
+# Without annotation files, ldscore builds the synthetic `base` annotation from the panel itself.
+@pytest.mark.parametrize("annotated", [True, False], ids=["baseline", "synthetic_base"])
+def test_chromosome_whose_restricted_rows_cleanup_removes_is_skipped(tmp_path, annotated):
+    panel, chr21, chr22 = write_two_chromosome_panel(tmp_path)
+    # On chromosome 22 the restriction keeps only the two rows that share a position.
+    keep = pd.concat([chr21, chr22.loc[[0, 1]]])
+
+    status = run_restricted_ldscore(tmp_path, ["--plink-prefix", str(panel / "panel.*")], keep, annotated=annotated)
 
     assert status == 0
-    baseline = pd.read_parquet(tmp_path / "out" / "ldscore.baseline.parquet")
-    assert set(baseline["CHR"].astype(str)) == {"21"}
-    log = (tmp_path / "out" / "diagnostics" / "ldscore.log").read_text()
-    assert "Skipping chromosome 22" in log and "duplicate_identity=2" in log
-    funnel = pd.read_csv(tmp_path / "out" / "diagnostics" / "reference_snp_funnel.tsv", sep="\t")
-    chr22_cleanup = funnel.loc[funnel["funnel"].eq("reference_panel") & funnel["chrom"].astype(str).eq("22")
-                               & funnel["step"].eq("identity_cleanup")]
-    assert chr22_cleanup[["removed", "remaining"]].values.tolist() == [[2, 0]]
+    funnel = assert_chromosome_22_skipped(tmp_path / "out")
+    assert "duplicate_identity=2" in (tmp_path / "out" / "diagnostics" / "ldscore.log").read_text()
+    assert funnel["identity_cleanup"] == [2, 0]
+
+
+@pytest.mark.parametrize("annotated", [True, False], ids=["baseline", "synthetic_base"])
+def test_chromosome_the_restriction_empties_is_skipped(tmp_path, annotated):
+    panel, chr21, _chr22 = write_two_chromosome_panel(tmp_path)
+
+    status = run_restricted_ldscore(tmp_path, ["--plink-prefix", str(panel / "panel.*")], chr21, annotated=annotated)
+
+    assert status == 0
+    funnel = assert_chromosome_22_skipped(tmp_path / "out")
+    assert funnel["ref_panel_snps_file"] == [32, 0]
+
+
+@pytest.mark.parametrize("annotated", [True, False], ids=["baseline", "synthetic_base"])
+def test_r2_matrix_chromosome_the_restriction_empties_is_skipped(tmp_path, annotated):
+    panel, chr21, _chr22 = write_two_chromosome_panel(tmp_path)
+    assert run_cli(["build-r2-matrix", "--plink-prefix", str(panel / "panel.*"), "--source-genome-build", "hg38",
+                    "--snp-identifier", "chr_pos", "--ld-wind-kb", "1000", "--output-dir", str(tmp_path / "r2")]) == 0
+    sidecar_rows = len(pd.read_csv(tmp_path / "r2" / "hg38" / "chr22_meta.tsv.gz", sep="\t", comment="#"))
+
+    status = run_restricted_ldscore(tmp_path, ["--r2-matrix-dir", str(tmp_path / "r2")], chr21, annotated=annotated)
+
+    assert status == 0
+    funnel = assert_chromosome_22_skipped(tmp_path / "out")
+    assert funnel["ref_panel_snps_file"] == [sidecar_rows, 0]

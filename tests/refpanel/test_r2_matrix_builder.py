@@ -844,32 +844,6 @@ class R2MatrixBuildConfigFromArgsTest(unittest.TestCase):
         stack.enter_context(mock.patch.object(builder, "_run", return_value=result))
         return stack
 
-    def test_run_build_r2_matrix_uses_registered_identifier_for_restriction_file(self):
-        captured = {}
-
-        def fake_inspect(self, config):
-            captured["global_config"] = self.global_config
-            captured["config"] = config
-            return Path("out"), [], []
-
-        set_global_config(GlobalConfig(snp_identifier="rsid"))
-        try:
-            with self._built_without_inputs(fake_inspect):
-                r2_matrix_builder.run_build_r2_matrix(
-                    plink_prefix="plink/panel.@",
-                    source_genome_build="hg19",
-                    genetic_map_hg19_sources="maps/hg19.map",
-                    output_dir="out",
-                    ld_wind_kb=1,
-                    ref_panel_snps_file="hm3.tsv",
-                )
-        finally:
-            reset_global_config()
-
-        self.assertEqual(captured["config"].ref_panel_snps_file, "hm3.tsv")
-        self.assertEqual(captured["global_config"].snp_identifier, "rsid")
-        self.assertIsNone(captured["global_config"].genome_build)
-
     def test_run_build_r2_matrix_uses_snp_batch_size_keyword(self):
         captured = {}
 

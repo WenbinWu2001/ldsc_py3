@@ -7,11 +7,12 @@
 """Resolve raw summary-statistics inputs for the munging workflow.
 
 Header aliases, DANER profiles, sample-size selection and bounded source-build
-inference belong here. :func:`resolve_munge_plan` makes every decision a
-munging run takes before it reads data rows (the raw schema from
-:func:`resolve_raw_schema`, the source build and the liftover request), for
-the run, ``--infer-only`` and ``infer_raw_sumstats()`` alike; the numerical
-kernel receives only resolved settings.
+inference belong here. :func:`resolve_munge_plan` makes every check and
+decision a munging run makes before its munging pass (the raw schema from
+:func:`resolve_raw_schema`, the keep-list path, ``INC_ALLELE``/``DEC_ALLELE``
+orientation, the source build and the liftover request), for the run,
+``--infer-only`` and ``infer_raw_sumstats()`` alike; the numerical kernel
+receives only resolved settings.
 """
 
 import bz2
@@ -109,16 +110,31 @@ _ALLELE_TROUBLESHOOTING = "docs/user-guide/troubleshooting.md#munge-sumstats-a1-
 
 @dataclass(frozen=True)
 class RawSchemaIssue:
-    """One header-level problem that stops a munging run.
+    """One problem found before the munging pass that stops a munging run.
 
     ``message`` is the self-contained error the run raises, of class
     ``error``; the ``--infer-only`` report prints it as a note. ``label``
-    names the problem under ``Missing fields`` in that report.
+    names the problem under ``Missing fields`` in that report. ``exception``
+    holds the error a check raised, when the problem was caught from one; the
+    run raises that object, so it keeps its attributes (such as the
+    ``build_evidence`` of a genome-build check) and its traceback.
     """
 
     label: str
     message: str
     error: type[LDSCUserError] = LDSCInputError
+    exception: LDSCUserError | None = None
+
+    @classmethod
+    def caught(cls, label: str, exception: LDSCUserError) -> "RawSchemaIssue":
+        """Return the issue for an error a check raised."""
+        return cls(label, str(exception), type(exception), exception)
+
+    def raise_error(self) -> None:
+        """Raise the caught exception, or a new ``error`` with ``message``."""
+        if self.exception is not None:
+            raise self.exception
+        raise self.error(self.message)
 
 
 @dataclass(frozen=True)
@@ -184,8 +200,7 @@ class RawSchema:
         if not self.issues:
             return
         if len(self.issues) == 1:
-            issue = self.issues[0]
-            raise issue.error(issue.message)
+            self.issues[0].raise_error()
         listed = "\n".join(f"  {index}. {issue.message}" for index, issue in enumerate(self.issues, start=1))
         raise LDSCInputError(
             f"munge-sumstats found {len(self.issues)} problems with the columns of '{self.source_path}'; "
@@ -803,7 +818,7 @@ def _check_increasing_allele_signs(schema: RawSchema) -> None:
 
 @dataclass(frozen=True)
 class MungePlan:
-    """The decisions one munging run makes before it reads data rows.
+    """The checks and decisions one munging run makes before its munging pass.
 
     :func:`resolve_munge_plan` builds it for ``SumstatsMunger.run``,
     ``--infer-only`` and ``infer_raw_sumstats()``, so the run and both
@@ -819,27 +834,35 @@ class MungePlan:
         :func:`resolve_source_config`.
     schema : RawSchema
         The raw header reading and its issues.
+    restriction_path : str or None
+        The resolved keep-list path (the packaged HM3 map or a custom file),
+        or ``None`` without a SNP restriction or when the path does not
+        resolve.
     coordinates : dict or None
         Source-coordinate metadata from :func:`resolve_source_coordinates`,
-        including the resolved ``genome_build``; ``None`` when the source build
-        could not be resolved.
+        including the resolved ``genome_build``; ``None`` when the plan
+        stopped before or at the source build.
     liftover : SumstatsLiftoverRequest
         The liftover request for the resolved source build, with its chain
         file path resolved.
-    build_issue : RawSchemaIssue or None
-        The source-build or liftover problem that stops the run: an
-        unresolved source build (``source_genome_build``), different builds
-        without a liftover method (``liftover_method``) or a chain file that
-        does not resolve (``liftover_chain_file``). At most one can occur,
-        because each needs the step before it to succeed.
+    issue : RawSchemaIssue or None
+        The problem besides the header issues that stops the run: a keep-list
+        path that does not resolve (``sumstats_snps_file``), allele columns
+        whose ``INC_ALLELE``/``DEC_ALLELE`` names the signed statistic
+        contradicts (``A1/A2 orientation``), an unresolved source build
+        (``source_genome_build``), different builds without a liftover method
+        (``liftover_method``) or a chain file that does not resolve
+        (``liftover_chain_file``). At most one occurs, because the plan stops
+        at the first stage that finds a problem.
     """
 
     config: MungeConfig
     source_config: GlobalConfig
     schema: RawSchema
+    restriction_path: str | None
     coordinates: dict | None
     liftover: SumstatsLiftoverRequest
-    build_issue: RawSchemaIssue | None
+    issue: RawSchemaIssue | None
 
     @property
     def source_build(self) -> str | None:
@@ -847,10 +870,10 @@ class MungePlan:
         return None if self.coordinates is None else self.coordinates['genome_build']
 
     def raise_issues(self) -> None:
-        """Raise the header issues first, as one error, then the source-build or liftover problem."""
+        """Raise the header issues first, as one error, then the plan's other problem."""
         self.schema.raise_issues()
-        if self.build_issue is not None:
-            raise self.build_issue.error(self.build_issue.message)
+        if self.issue is not None:
+            self.issue.raise_error()
 
 
 def require_raw_sumstats_file(config: MungeConfig) -> None:
@@ -945,16 +968,23 @@ def liftover_issue(request: SumstatsLiftoverRequest, source_build: str | None) -
     ), LDSCUsageError)
 
 
-def resolve_munge_plan(config: MungeConfig, source_config: GlobalConfig) -> MungePlan:
-    """Resolve every decision a munging run makes before it reads data rows.
+def resolve_munge_plan(config: MungeConfig, source_config: GlobalConfig, *, logger=LOGGER) -> MungePlan:
+    """Resolve every check and decision a munging run makes before its munging pass.
 
-    Reads the raw header (:func:`resolve_raw_schema`), checks or infers the
-    source build in coordinate-family modes (:func:`resolve_source_coordinates`,
-    which samples coordinate rows when the build is ``auto``), selects the
-    liftover method for the resolved build and resolves its chain file.
-    Problems that stop the run are collected, not raised: header issues in
-    the schema and at most one source-build or liftover problem in
-    ``build_issue``. Nothing is written and the keep-list is not loaded.
+    The checks run in stages, and the plan stops at the first stage that finds
+    a problem, as the run stops there:
+
+    1. the raw header (:func:`resolve_raw_schema`) and the keep-list path;
+    2. ``INC_ALLELE``/``DEC_ALLELE`` orientation against the signed statistic,
+       which reads that column in chunks;
+    3. in coordinate-family modes, the source build
+       (:func:`resolve_source_coordinates`, which samples coordinate rows when
+       the build is ``auto``);
+    4. the liftover method for the resolved build, then its chain file.
+
+    Problems are collected, not raised: header issues in the schema and at
+    most one other problem in ``issue``. Nothing is written and the keep-list
+    is not loaded.
 
     Parameters
     ----------
@@ -962,6 +992,11 @@ def resolve_munge_plan(config: MungeConfig, source_config: GlobalConfig) -> Mung
         The munging request.
     source_config : GlobalConfig
         The config from :func:`resolve_source_config`.
+    logger : logging.Logger or None, keyword-only, optional
+        Receives the source-build check's report: the resolved build, or the
+        grouped failure at ERROR level. ``None`` keeps the check silent, as
+        ``infer_raw_sumstats()`` does because it returns the failure in its
+        report. Default is the munging logger.
 
     Returns
     -------
@@ -970,41 +1005,56 @@ def resolve_munge_plan(config: MungeConfig, source_config: GlobalConfig) -> Mung
         raises for the run and the previews report.
     """
     require_raw_sumstats_file(config)
-    source_path = resolve_scalar_path(config.raw_sumstats_file, label="raw sumstats")
+    source_path = resolve_scalar_path(config.raw_sumstats_file, label="raw summary statistics")
     schema = resolve_raw_schema(source_path, config, source_config)
-    coordinates, issue = None, None
-    try:
-        coordinates = resolve_source_coordinates(schema, source_config, restriction_path=snp_restriction_file(config))
-    except LDSCUserError as exc:
-        issue = RawSchemaIssue('source_genome_build', str(exc), type(exc))
-    source_build = None if coordinates is None else coordinates['genome_build']
-    liftover = liftover_request(config, source_build)
-    if issue is None:
-        issue = liftover_issue(liftover, source_build)
-    if issue is None and liftover.liftover_chain_file is not None:
+    restriction_path, issue = snp_restriction_file(config), None
+    if restriction_path is not None:
+        label = "packaged HM3 SNP map" if uses_packaged_hm3(config) else "summary-statistics SNPs file"
         try:
-            liftover = replace(liftover, liftover_chain_file=resolve_scalar_path(
-                liftover.liftover_chain_file, label="liftover chain file"))
+            restriction_path = resolve_scalar_path(restriction_path, label=label)
         except LDSCInputError as exc:
-            issue = RawSchemaIssue('liftover_chain_file', str(exc))
-    return MungePlan(config, source_config, schema, coordinates, liftover, issue)
+            restriction_path, issue = None, RawSchemaIssue.caught('sumstats_snps_file', exc)
+
+    def plan(coordinates=None, issue=None):
+        source_build = None if coordinates is None else coordinates['genome_build']
+        return MungePlan(config, source_config, schema, restriction_path, coordinates,
+                         liftover_request(config, source_build), issue)
+
+    if schema.issues or issue is not None:
+        return plan(issue=issue)
+    try:
+        _check_increasing_allele_signs(schema)
+    except LDSCInputError as exc:
+        return plan(issue=RawSchemaIssue.caught('A1/A2 orientation', exc))
+    try:
+        coordinates = resolve_source_coordinates(schema, source_config, restriction_path=restriction_path,
+                                                 logger=logger)
+    except LDSCUserError as exc:
+        return plan(issue=RawSchemaIssue.caught('source_genome_build', exc))
+    resolved = plan(coordinates)
+    issue = liftover_issue(resolved.liftover, resolved.source_build)
+    if issue is not None or resolved.liftover.liftover_chain_file is None:
+        return replace(resolved, issue=issue)
+    try:
+        chain = resolve_scalar_path(resolved.liftover.liftover_chain_file, label="liftover chain file")
+    except LDSCInputError as exc:
+        return replace(resolved, issue=RawSchemaIssue.caught('liftover_chain_file', exc))
+    return replace(resolved, liftover=replace(resolved.liftover, liftover_chain_file=chain))
 
 
 def prepare_munge_input(plan: MungePlan) -> ResolvedMungeInput:
     """Turn a munging plan into a kernel request: raise its problems, then load the keep-list.
 
-    Raises the plan's problems first (header issues, then the source-build or
-    liftover problem) and checks ``INC_ALLELE``/``DEC_ALLELE`` orientation
-    against the signed statistic. HM3 quick liftover runs only under the
-    packaged HM3 restriction, so for it the HM3 map is loaded once and serves
-    as both the keep-list and the position lookup, and the returned liftover
-    request names that file in ``hm3_map_file``. No output directory or
-    artifact is touched here; the returned request can be executed without a
-    CLI namespace or any further format/build decisions.
+    Raises the plan's problems first (header issues, then the plan's other
+    problem). HM3 quick liftover runs only under the packaged HM3 restriction,
+    so for it the HM3 map is loaded once and serves as both the keep-list and
+    the position lookup, and the returned liftover request names that file in
+    ``hm3_map_file``. No output directory or artifact is touched here; the
+    returned request can be executed without a CLI namespace or any further
+    format/build decisions.
     """
     plan.raise_issues()
     schema = plan.schema
-    _check_increasing_allele_signs(schema)
     if schema.detected_format == 'daner-old':
         LOGGER.info(
             f"Inferred that N_cas = {schema.qc.N_cas}, N_con = {schema.qc.N_con} from the FRQ_[A/U] columns."
@@ -1014,11 +1064,7 @@ def prepare_munge_input(plan: MungePlan) -> ResolvedMungeInput:
                        for x in schema.field_descriptions]) + '\n')
 
     source_path, config, mode = schema.source_path, schema.config, plan.source_config.snp_identifier
-    coordinate_metadata = plan.coordinates
-    restriction_path = snp_restriction_file(plan.config)
-    if restriction_path is not None:
-        label = "packaged HM3 SNP map" if uses_packaged_hm3(plan.config) else "summary-statistics SNPs file"
-        restriction_path = resolve_scalar_path(restriction_path, label=label)
+    coordinate_metadata, restriction_path = plan.coordinates, plan.restriction_path
     liftover = plan.liftover
     hm3_map = None
     if liftover.method == 'hm3_curated':
@@ -1075,7 +1121,7 @@ def all_missing_columns(schema: RawSchema) -> list[str]:
     return [column for column in schema.headers if column in empty]
 
 
-def resolve_source_coordinates(schema: RawSchema, global_config, *, restriction_path=None):
+def resolve_source_coordinates(schema: RawSchema, global_config, *, restriction_path=None, logger=LOGGER):
     """Resolve source build and basis jointly with coordinate restriction evidence.
 
     Concrete source builds must agree with declarations and imply one-based coordinates.
@@ -1083,6 +1129,8 @@ def resolve_source_coordinates(schema: RawSchema, global_config, *, restriction_
     each chromosome before QC. It checks the keep list in the actual filtering
     mode and reports all unresolved/conflicting inputs together. The raw file
     is read with the munging read rules (:func:`_record_raw_build_evidence`).
+    ``logger`` receives the build check's report and the zero-based
+    conversion warning; ``None`` keeps them silent.
     """
     source_path, cname_translation = schema.source_path, schema.column_map
     mode, build = global_config.snp_identifier, global_config.genome_build
@@ -1091,7 +1139,7 @@ def resolve_source_coordinates(schema: RawSchema, global_config, *, restriction_
                 'coordinate_basis': '1-based' if identity_mode_family(mode) == 'chr_pos' else None}
     if identity_mode_family(mode) != 'chr_pos':
         return metadata
-    check = GenomeBuildCheck(build, context='munge-sumstats', option='--source-genome-build', logger=LOGGER)
+    check = GenomeBuildCheck(build, context='munge-sumstats', option='--source-genome-build', logger=logger)
     position_columns = [raw for raw, target in cname_translation.items() if target == 'POS']
     chromosome_columns = [raw for raw, target in cname_translation.items() if target == 'CHR']
     if position_columns and chromosome_columns:
@@ -1119,6 +1167,6 @@ def resolve_source_coordinates(schema: RawSchema, global_config, *, restriction_
         build_inference={'inspected_snp_count': inspected, 'match_counts': counts,
             'match_fractions': {key: count / inspected for key, count in counts.items()},
             'summary_message': '; '.join(value.summary_message for value in source_inferences)})
-    if inference.coordinate_basis == '0-based':
-        LOGGER.warning('Converting inferred zero-based source positions to one-based coordinates.')
+    if inference.coordinate_basis == '0-based' and logger is not None:
+        logger.warning('Converting inferred zero-based source positions to one-based coordinates.')
     return metadata

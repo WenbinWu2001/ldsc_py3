@@ -1,4 +1,5 @@
 """Regression coverage for no-write munging diagnostics."""
+import logging
 import re
 import shlex
 
@@ -279,6 +280,91 @@ def test_run_infer_only_and_python_inference_share_one_build_plan(tmp_path, caps
     with pytest.raises(LDSCUserError, match='Genome-build consistency check failed') as caught:
         SumstatsMunger().run(config, global_config=chr_pos)
     assert any(str(caught.value) in note for note in python.notes)
+
+
+def _unresolvable_chr1_rows(n_column=True):
+    """Return 50 chromosome-1 rows that no HM3 SNP supports, so ``source_genome_build='auto'`` cannot resolve."""
+    header = 'SNP CHR POS A1 A2 P BETA' + (' N' if n_column else '')
+    return header + '\n' + ''.join(
+        f'rs{i} 1 {1000 * (i + 1)} A G 0.5 0.1' + (' 1000' if n_column else '') + '\n' for i in range(50))
+
+
+def test_header_problems_stop_the_run_and_the_previews_before_the_build_check(tmp_path):
+    # Review of audit D9: the build check ran before the header problems were raised, so a run whose header lacked N
+    # and whose build could not be inferred scanned every coordinate row and logged the build ERROR before the N error.
+    from ldsc import GlobalConfig, MungeConfig, SumstatsMunger, infer_raw_sumstats
+
+    raw = tmp_path / 'raw.tsv'
+    raw.write_text(_unresolvable_chr1_rows(n_column=False))
+    out = tmp_path / 'out'
+    config = MungeConfig(raw_sumstats_file=raw, output_genome_build='hg19', no_snp_restriction=True, output_dir=out)
+    chr_pos = GlobalConfig(snp_identifier='chr_pos')
+    preview = infer_raw_sumstats(config, global_config=chr_pos)
+    with pytest.raises(LDSCUserError, match='could not determine sample size') as caught:
+        SumstatsMunger().run(config, global_config=chr_pos)
+    assert preview.missing_fields == ('N',)
+    assert str(caught.value) in preview.notes
+    assert 'Genome-build consistency check failed' not in (out / 'diagnostics' / 'sumstats.log').read_text()
+
+
+def test_the_run_raises_the_build_check_error_with_its_evidence(tmp_path):
+    from ldsc import GlobalConfig, MungeConfig, SumstatsMunger
+
+    raw = tmp_path / 'raw.tsv'
+    raw.write_text(_unresolvable_chr1_rows())
+    with pytest.raises(LDSCUserError, match='Genome-build consistency check failed') as caught:
+        SumstatsMunger().run(MungeConfig(raw_sumstats_file=raw, output_genome_build='hg38', no_snp_restriction=True,
+                                         output_dir=tmp_path / 'out'), global_config=GlobalConfig(snp_identifier='chr_pos'))
+    # GenomeBuildCheck attaches its evidence to the error it raises; the run raises that error, not a copy.
+    assert [entry.role for entry in caught.value.build_evidence] == ['--raw-sumstats-file']
+
+
+@pytest.mark.parametrize('mode', ['rsid', 'chr_pos'])
+def test_previews_report_a_keep_list_that_does_not_resolve(tmp_path, mode):
+    # Review of audit D9: the plan did not resolve the keep-list, so in rsID modes the previews reported the file
+    # runnable, and in chr_pos modes they blamed the source build, while the run stops on the missing keep-list.
+    from ldsc import GlobalConfig, MungeConfig, SumstatsMunger, infer_raw_sumstats
+
+    raw = tmp_path / 'raw.tsv'
+    raw.write_text('SNP CHR POS A1 A2 P BETA N\nrs1 1 100 A G 0.05 0.1 1000\n')
+    builds = {} if mode == 'rsid' else {'source_genome_build': 'hg19', 'output_genome_build': 'hg19'}
+    config = MungeConfig(raw_sumstats_file=raw, sumstats_snps_file=tmp_path / 'missing_keep.tsv',
+                         output_dir=tmp_path / 'out', **builds)
+    global_config = GlobalConfig(snp_identifier=mode)
+    report = infer_raw_sumstats(config, global_config=global_config)
+    assert report.missing_fields == ('sumstats_snps_file',)
+    assert any('missing_keep.tsv' in note and 'summary-statistics SNPs file' in note for note in report.notes)
+    with pytest.raises(LDSCUserError, match='missing_keep.tsv'):
+        SumstatsMunger().run(config, global_config=global_config)
+
+
+def test_previews_report_increasing_allele_columns_that_the_signed_statistic_contradicts(tmp_path):
+    # Review of audit D9: only the run checked INC_ALLELE/DEC_ALLELE against the signed statistic.
+    from ldsc import GlobalConfig, MungeConfig, SumstatsMunger, infer_raw_sumstats
+
+    raw = tmp_path / 'raw.tsv'
+    raw.write_text('SNP INC_ALLELE DEC_ALLELE P BETA N\nrs1 A G 0.05 0.1 1000\nrs2 C T 0.05 -0.2 1000\n')
+    config = MungeConfig(raw_sumstats_file=raw, no_snp_restriction=True, output_dir=tmp_path / 'out')
+    rsid = GlobalConfig(snp_identifier='rsid')
+    report = infer_raw_sumstats(config, global_config=rsid)
+    assert report.missing_fields == ('A1/A2 orientation',)
+    with pytest.raises(LDSCUserError, match='INC_ALLELE as A1') as caught:
+        SumstatsMunger().run(config, global_config=rsid)
+    assert str(caught.value) in report.notes
+
+
+def test_the_python_preview_logs_no_warning_for_a_problem_it_reports(tmp_path, caplog):
+    # Review of audit D9: the Python preview logged the grouped build-check ERROR, which reached stderr through
+    # logging's last-resort handler, besides returning it in its notes.
+    from ldsc import GlobalConfig, MungeConfig, infer_raw_sumstats
+
+    raw = tmp_path / 'raw.tsv'
+    raw.write_text(_unresolvable_chr1_rows())
+    with caplog.at_level(logging.WARNING):
+        report = infer_raw_sumstats(MungeConfig(raw_sumstats_file=raw, output_genome_build='hg38', no_snp_restriction=True),
+                                    global_config=GlobalConfig(snp_identifier='chr_pos'))
+    assert report.missing_fields == ('source_genome_build',)
+    assert [record.getMessage() for record in caplog.records if record.levelno >= logging.WARNING] == []
 
 
 def test_run_lists_every_header_problem_in_one_error(tmp_path):

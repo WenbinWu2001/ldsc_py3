@@ -10,9 +10,10 @@ Overview
 --------
 This module converts the historical munging script behavior into explicit
 Python dataclasses and a small service object. The public workflow boundary
-accepts path-like inputs and resolves the run's plan (raw header, source
-build, liftover method) with ``_sumstats.munge_input.resolve_munge_plan``,
-which ``--infer-only`` and :func:`infer_raw_sumstats` report from as well;
+accepts path-like inputs and resolves the run's munging plan (raw header,
+keep-list path, allele orientation, source build, liftover method) with
+``_sumstats.munge_input.resolve_munge_plan``, which ``--infer-only`` and
+:func:`infer_raw_sumstats` report from as well;
 ``munge_input.prepare_munge_input`` raises the plan's problems and loads the
 keep-list. It passes a ``ResolvedMungeInput`` to the kernel and consumes an explicit ``MungeResult``.
 Packaged HM3 restriction is the default; a custom list replaces it, and
@@ -94,10 +95,12 @@ class RawSumstatsInference:
     """Preview report for one raw summary-statistics file.
 
     The report is produced by ``--infer-only`` and :func:`infer_raw_sumstats`
-    from the plan the munging run itself resolves
-    (``munge_input.resolve_munge_plan``), so ``missing_fields`` names every
-    header, source-build and liftover problem that would stop the run, plus
-    selected columns without any value. It records only safe,
+    from the munging plan the run itself resolves
+    (``munge_input.resolve_munge_plan``), so ``missing_fields`` names the
+    problems the run would stop on before its munging pass (header, keep-list
+    path, ``INC_ALLELE``/``DEC_ALLELE`` orientation, source build and
+    liftover, from the first stage that finds any), plus selected columns
+    without any value. It records only safe,
     format-aware decisions: detected raw format, column hints that can be
     applied without changing statistical meaning, INFO-list handling, missing
     or conflicting fields, and command-line repair suggestions. Suggested commands should prefer
@@ -239,7 +242,7 @@ class SumstatsMunger:
         requested_liftover = munge_input.liftover_request(config, config_snapshot.genome_build)
         early_issue = munge_input.liftover_issue(requested_liftover, config_snapshot.genome_build)
         if early_issue is not None:
-            raise early_issue.error(early_issue.message)
+            early_issue.raise_error()
         output_dir = ensure_output_directory(config.output_dir, label="output directory")
         writer = SumstatsDirectoryWriter()
         family = writer.artifact_family(
@@ -270,7 +273,7 @@ class SumstatsMunger:
                 snp_restriction=("hm3" if munge_input.uses_packaged_hm3(config) else "none" if config.no_snp_restriction else "custom"),
                 hm3_map_file=sumstats_snps_label if munge_input.uses_packaged_hm3(config) else "none",
                 output_genome_build=config.output_genome_build or "none",
-                liftover_method=("unresolved source build" if plan.coordinates is None else plan.liftover.method or "none"),
+                liftover_method=("not resolved" if plan.coordinates is None else plan.liftover.method or "none"),
             )
             LOGGER.info(
                 f"Munging summary statistics from '{source_path}' into '{output_dir}' "
@@ -977,17 +980,22 @@ def infer_raw_sumstats(config: MungeConfig, *, global_config: GlobalConfig | Non
     This is the Python form of ``munge-sumstats --infer-only`` and returns
     the same report. ``config`` is the ``MungeConfig`` the run would take;
     its ``raw_sumstats_file`` names the input and every other option is read
-    from it as the run reads it. The preview resolves the plan the run
-    resolves (``munge_input.resolve_munge_plan``): the raw header and first
-    data row; in coordinate-family modes the source build, sampling
-    coordinate rows when it is ``auto``, and the liftover method; then it
-    scans the selected columns in bounded chunks for columns without any
-    value. It writes nothing and does not load the keep-list.
+    from it as the run reads it. The preview resolves the munging plan the
+    run resolves (``munge_input.resolve_munge_plan``): the raw header and
+    first data row and the keep-list path; the signed statistic, read in
+    chunks, when ``INC_ALLELE``/``DEC_ALLELE`` columns are read as A1/A2; in
+    coordinate-family modes the source build, sampling coordinate rows when
+    it is ``auto``, and the liftover method; then it scans the selected
+    columns in bounded chunks for columns without any value. The plan stops
+    at the first of these stages that finds a problem, as the run does. The
+    preview writes nothing, logs nothing and does not load the keep-list.
 
-    The report lists every header problem that would stop the run (missing
-    or conflicting columns, ambiguous sample-size or signed-statistic
-    columns, unusable old DANER count columns), an unresolved source build,
-    a missing liftover method or chain file, and all-missing columns. It
+    The report lists the problems of that stage: every header problem that
+    would stop the run (missing or conflicting columns, ambiguous sample-size
+    or signed-statistic columns, unusable old DANER count columns) and a
+    keep-list path that does not resolve; allele columns whose names the
+    signed statistic contradicts; an unresolved source build; or a missing
+    liftover method or chain file. It also lists all-missing columns. It
     detects plain text, old DANER, and new DANER inputs; identifies
     numeric/NA comma-separated INFO lists; and returns exact CLI hints for
     cases that still need user confirmation. VCF-style headers with leading
@@ -1003,12 +1011,21 @@ def infer_raw_sumstats(config: MungeConfig, *, global_config: GlobalConfig | Non
         If build or liftover options do not fit the SNP identifier mode, or a
         coordinate-family mode has no output build, as the run raises.
     """
-    return _infer(config, global_config or get_global_config())[1]
+    return _infer(config, global_config or get_global_config(), logger=None)[1]
 
 
-def _infer(config: MungeConfig, global_config: GlobalConfig) -> tuple[munge_input.MungePlan, RawSumstatsInference]:
-    """Resolve the run's plan for ``config`` and report it, as ``--infer-only`` and :func:`infer_raw_sumstats` do."""
-    plan = munge_input.resolve_munge_plan(config, munge_input.resolve_source_config(config, global_config))
+def _infer(
+    config: MungeConfig, global_config: GlobalConfig, *, logger=LOGGER,
+) -> tuple[munge_input.MungePlan, RawSumstatsInference]:
+    """Resolve the run's munging plan for ``config`` and report it, as ``--infer-only`` and :func:`infer_raw_sumstats` do.
+
+    ``logger`` receives the source-build check's report; the CLI keeps it, so
+    its console shows a failed check as the run's does, and the Python preview
+    passes ``None``.
+    """
+    plan = munge_input.resolve_munge_plan(
+        config, munge_input.resolve_source_config(config, global_config), logger=logger,
+    )
     inference = _apply_build_inference_report(plan, _inference_from_schema(plan.schema))
     return plan, _apply_missing_column_report(plan.schema, inference)
 
@@ -1050,16 +1067,20 @@ def _apply_build_inference_report(plan: munge_input.MungePlan, inference: RawSum
         notes.append(f"SNP restriction: custom list ({config.sumstats_snps_file}); replaces packaged HM3.")
     else:
         notes.append("SNP restriction: packaged HM3 (default).")
+    issue = None if plan.issue is None else plan.issue.label
+    if issue in {"sumstats_snps_file", "A1/A2 orientation"}:
+        missing.append(issue)
+        notes.append(plan.issue.message)
     if identity_mode_family(mode) == "rsid":
-        return replace(inference, suggested_args=tuple(suggested), notes=tuple(notes))
-    issue = None if plan.build_issue is None else plan.build_issue.label
+        return replace(inference, missing_fields=tuple(dict.fromkeys(missing)), suggested_args=tuple(suggested),
+                       notes=tuple(notes))
     output_build = config.output_genome_build
     resolved_source = plan.source_build
     if output_build in {"hg19", "hg38"}:
         _append_suggested_option(suggested, "--output-genome-build", output_build)
     if issue == "source_genome_build":
         missing.append("source_genome_build")
-        notes.append(f"Unable to resolve a consistent source genome build. {plan.build_issue.message}")
+        notes.append(f"Unable to resolve a consistent source genome build. {plan.issue.message}")
     if resolved_source in {"hg19", "hg38"}:
         _append_suggested_option(suggested, "--source-genome-build", resolved_source)
     builds_resolved = resolved_source in {"hg19", "hg38"} and output_build in {"hg19", "hg38"}
@@ -1084,7 +1105,7 @@ def _apply_build_inference_report(plan: munge_input.MungePlan, inference: RawSum
         if issue == "liftover_chain_file":
             missing.append("liftover_chain_file")
             notes.append(
-                f"{plan.build_issue.message} For this infer-only report, pass one existing chain file for the "
+                f"{plan.issue.message} For this infer-only report, pass one existing chain file for the "
                 f"expected direction ({_expected_chain_label(resolved_source, output_build)})."
             )
         notes.append(f"Expected chain direction: {resolved_source} -> {output_build}.")

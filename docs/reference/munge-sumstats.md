@@ -64,9 +64,10 @@ With the default HM3 keep-list, allele-aware modes keep none of them, because th
 
 `_sumstats.munge_input.resolve_raw_schema()` reads the raw header once for both the run and `--infer-only`: it detects the format and resolves column aliases and hints, DANER sample-size settings, the signed statistic, QC thresholds and allele columns.
 It collects every header problem; the run raises them together in one error, and a single problem keeps its own message.
-`_sumstats.munge_input.prepare_munge_input()` then resolves the raw coordinate build/basis and the optional keep-list.
+`_sumstats.munge_input.prepare_munge_input()` then resolves the raw coordinate build/basis, the liftover request for that build, and the optional keep-list.
+Under HM3 quick liftover the packaged HM3 map is read once and serves as both the keep-list and the position lookup.
 The kernel accepts a `ResolvedMungeInput` and returns a `MungeResult` containing the munged table, counts, coordinate provenance, and separate identity/liftover drop records.
-CLI parsing and artifact ownership stay in `_sumstats/munger.py`; the kernel neither parses CLI flags nor mutates configuration to return results.
+CLI parsing stays in `_sumstats/munger.py`, artifact writing in `SumstatsDirectoryWriter` (`_sumstats/outputs.py`), and the munged table and its loader in `_sumstats/table.py`; the kernel neither parses CLI flags nor mutates configuration to return results.
 
 Source-build inference reads only `CHR`/`POS` in bounded chunks and stops when sufficient evidence is available. It precedes all QC, and shares its coordinate evidence reader with `--infer-only`. The main parsing pass counts raw records as it reads them; it does not reopen the full raw file to count lines after munging.
 
@@ -202,7 +203,7 @@ Scripts that previously expected `sumstats.parquet` despite supplying a trait la
 
 The munger automatically preserves the selected input frequency column as `FRQ` whenever present and omits `FRQ` when absent. Values are not converted to MAF, so an input frequency above 0.5 remains above 0.5. `--maf-min` still applies the unchanged filter to folded `min(FRQ, 1-FRQ)`. `--keep-maf` and `MungeConfig.keep_maf` are removed; no replacement toggle is needed. An explicitly ignored frequency column is not selected.
 
-This rule applies to the returned table, Parquet, and gzip TSV. TSV frequency values are written without three-decimal rounding; other floating columns keep the existing export rounding. Missing fields are serialized as `NA` to preserve column alignment in whitespace readers. See `parse_dat` and `filter_frq` in [`_sumstats/munge_kernel.py`](../../src/ldsc/_sumstats/munge_kernel.py), and `_write_sumstats_tsv_gz` in [`_sumstats/munger.py`](../../src/ldsc/_sumstats/munger.py).
+This rule applies to the returned table, Parquet, and gzip TSV. TSV frequency values are written without three-decimal rounding; other floating columns keep the existing export rounding. Missing fields are serialized as `NA` to preserve column alignment in whitespace readers. See `parse_dat` and `filter_frq` in [`_sumstats/munge_kernel.py`](../../src/ldsc/_sumstats/munge_kernel.py), and `_write_sumstats_tsv_gz` in [`_sumstats/outputs.py`](../../src/ldsc/_sumstats/outputs.py).
 
 ## Embedded Identity Metadata
 

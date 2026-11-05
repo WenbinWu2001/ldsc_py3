@@ -100,7 +100,7 @@ The lazily exported workflows in `ldsc/__init__.py` and the per-command modules 
 | `ldsc._runtime.worker_runtime`, `ldsc._runtime.serial_calculation` | fixed one-BLAS-thread worker policy, runtime verification, independent Arrow limits, and controlled standalone numerical calls |
 | `ldsc._genome.build_inference` | public `chr_pos` build and coordinate-basis inference helpers |
 | `ldsc._genome.build_policy`, `ldsc._genome.build_inspection` | the build policy workflows apply to their inputs and read-only build inspection of saved artifacts (`infer-genome-build`) |
-| `ldsc._genome.liftover` | shared hg19/hg38 liftover helpers, chain-file translation, dual-build HM3 quick liftover, drop-all coordinate collision helpers, and readable drop reports |
+| `ldsc._genome.liftover` | liftover mechanics shared by munging and R² matrix building: hg19/hg38 chain-file translation, drop-all coordinate collision helpers, and readable drop reports |
 | `ldsc._genome.hm3` | public packaged curated HM3 map loader and installed map path helper for workflow internals |
 | `tools/hm3/build_hm3_chr_pos_reference.py` | maintenance tool (outside the package) that rebuilds the compact HM3 coordinate reference used by genome-build inference |
 | `ldsc._annotation.builder` | public annotation builder and general standalone parser/API dispatch seam |
@@ -129,9 +129,12 @@ The lazily exported workflows in `ldsc/__init__.py` and the per-command modules 
 | `ldsc._refpanel.query` | public `query-r2-matrix` CLI/API, `R2Matrix`, one-shot `query_r2_matrix()`, endpoint key resolution, sign harmonization, and optional unbiased-R²-to-Pearson-r conversion |
 | `ldsc._refpanel.preflight` | `inspect_r2_headers` (each R² matrix chromosome's files, footer and sidecar header, for either reading command) and the genetic-map header check for the declared-input gate |
 | `ldsc._refpanel.outputs` | `QueryR2MatrixDirectoryWriter` for the `query-r2-matrix` result directory |
-| `ldsc._sumstats.munger` | raw-summary-statistics CLI/API orchestration, `--input-format auto` / `--infer-only` header inference, Parquet/TSV munged output writing, self-describing `sumstats.parquet` footer identity metadata, diagnostics under `diagnostics/`, canonical `CHR`/`POS` summary-statistics output, and munged summary-statistics loader |
-| `ldsc._sumstats.munge_input` | private workflow helper resolving raw schema, DANER/sample-size settings, bounded source-build evidence and keep-lists into `ResolvedMungeInput` |
+| `ldsc._sumstats.munger` | raw-summary-statistics CLI/API orchestration, `--input-format auto` / `--infer-only` header inference, diagnostics under `diagnostics/`, and canonical `CHR`/`POS` summary-statistics output |
+| `ldsc._sumstats.table` | the munged artifact: `SumstatsTable`, `load_sumstats()` for munged Parquet and legacy `.sumstats(.gz)` files, and the `ldsc:*` Parquet footer codec; regression imports it without the munging workflow |
+| `ldsc._sumstats.outputs` | `SumstatsDirectoryWriter`: the owned munging output family (`artifact_family()`), staged Parquet and `.sumstats.gz` writing with chromosome row groups, and the dropped-SNP audit |
+| `ldsc._sumstats.munge_input` | private workflow helper resolving raw schema, DANER/sample-size settings, bounded source-build evidence, the liftover request and keep-lists into `ResolvedMungeInput`; loads the packaged HM3 map once for HM3 quick liftover |
 | `ldsc._sumstats.munge_kernel` | chunk QC and restriction, whole-table N and sign conversion, resolved liftover and global identity cleanup; returns `MungeResult` with counts and provenance |
+| `ldsc._sumstats.liftover` | summary-statistics liftover: `SumstatsLiftoverRequest`, HM3 quick liftover, the chain applier, liftover drop rows and the all-rows-dropped error |
 | `ldsc._ldscore.compute` | LD-score math over a `PreparedChromosome`: `compute_chromosome`, R² pair streaming, PLINK block sums (`ld_scores_from_genotypes`), the float64 `ProjectionAccumulator`, counts and the regression-SNP mask; no legacy artifact emitters |
 | `ldsc._ldscore.calculator` | LD-score orchestration, gene-coordinate-catalog build selection, direct prepared-SNP support measurement, optional synthetic `base`, aggregation, and output routing through shared query finalization |
 | `ldsc._ldscore.preflight` | validates direct annotation/reference contents and chromosome equality; enforces complete `@` declarations, authoritative glob matches, and consolidated required-input diagnostics |
@@ -183,7 +186,9 @@ The lazily exported workflows in `ldsc/__init__.py` and the per-command modules 
 | change LD-score orchestration, optional-baseline behavior, or output packaging | `src/ldsc/_ldscore/calculator.py`, `src/ldsc/_ldscore/outputs.py` |
 | change saved LD-score loading or selected-query reads | `src/ldsc/_ldscore/source.py`; keep model-specific validation in `src/ldsc/_regression/runner.py` |
 | change LD-score math | `src/ldsc/_ldscore/compute.py` |
-| change raw summary-statistics ingestion, format inference, `CHR`/`POS` handling, summary-statistics SNP keep-list filtering, liftover drop audit sidecars, footer provenance, or munged loading | `src/ldsc/_sumstats/munger.py`, then `src/ldsc/_sumstats/munge_kernel.py` |
+| change raw summary-statistics ingestion, format inference, `CHR`/`POS` handling, or summary-statistics SNP keep-list filtering | `src/ldsc/_sumstats/munger.py`, then `src/ldsc/_sumstats/munge_input.py` and `src/ldsc/_sumstats/munge_kernel.py` |
+| change summary-statistics liftover or its drop audit | `src/ldsc/_sumstats/liftover.py`; chain translation shared with `build-r2-matrix` is in `src/ldsc/_genome/liftover.py` |
+| change munged output files, footer provenance, or munged loading | `src/ldsc/_sumstats/outputs.py` and `src/ldsc/_sumstats/table.py` |
 | change regression dataset assembly or CLI summaries | `src/ldsc/_regression/runner.py`, then `src/ldsc/_regression/outputs.py`, `docs/reference/results/partitioned-h2.md` for `partitioned-h2` output layout, `docs/reference/formats/artifact-metadata.md` for `rg` output contracts, and `docs/reference/regression-options.md` for the tunable estimator parameters and defaults |
 | change annotation-name validation or continuous-annotation classification | `src/ldsc/_annotation/semantics.py`, then `src/ldsc/_ldscore/calculator.py` and `src/ldsc/_ldscore/outputs.py` |
 | change target quantiles, standardized coefficients, or post-fit alignment | `src/ldsc/_regression/quantile_h2.py`, then `src/ldsc/_regression/outputs.py` and `docs/reference/results/quantile-h2.md` |
@@ -255,7 +260,7 @@ Each test folder has an `__init__.py`, which makes those full module paths impor
 | R² pair query | `tests/refpanel/test_r2_matrix_query.py` |
 | LD-score workflow | `tests/ldscore/test_ldscore_workflow.py` |
 | gene coordinate catalog and gene-list resolution | `tests/annotation/test_gene_list_resolver.py` |
-| summary-statistics munging | `tests/sumstats/test_sumstats_munger.py` |
+| summary-statistics munging | `tests/sumstats/test_sumstats_munger.py`, `tests/sumstats/test_sumstats_outputs.py`, `tests/sumstats/test_sumstats_liftover.py` |
 | regression workflow | `tests/regression/test_regression_workflow.py` |
 | path and config contracts | `tests/runtime/test_path_resolution.py`, `tests/core/test_config_identifiers.py`, `tests/core/test_column_inference.py`, `tests/genome/test_genome_build_inference.py` |
 | package layout and import tiers | `tests/package/test_layering.py`, `tests/package/test_package_layout.py` |
@@ -275,7 +280,7 @@ The result writers keep their separate JSON serialization of NumPy/dataclass pay
 | panel preparation, CM/MAF and traversal | [R² pipeline](../reference/formats/r2-matrices.md), [pair accumulation](../reference/methods/ld-score-computation.md), [window behavior](../reference/formats/r2-matrices.md#37-ld-windows-and-sidecar-values-in-ldscore) | `_refpanel.adapters.RefPanel.prepare_chromosome`; `_ldscore.compute.compute_chromosome` |
 | regression SNPs and region masks | [reference and regression SNPs](../reference/ldscore-snp-universes.md), [region exclusions](../reference/formats/region-exclusion-presets.md) | `_ldscore.calculator._regression_region_intervals`; `_ldscore.compute.regression_mask_from_keys`; `_ldscore.gene_index.build` resolves indexed policy |
 | reference construction and pair queries | [pair query](../reference/query-r2-matrix.md), [path contract](../reference/input-paths.md) | `_refpanel.builder.R2MatrixBuilder`; `_refpanel.query.R2Matrix`; `_refpanel.outputs.QueryR2MatrixDirectoryWriter` |
-| munging and liftover | [munging](../reference/munge-sumstats.md), [liftover](../reference/snp-identity-and-genome-build.md#liftover) | `_sumstats.munger.SumstatsMunger`; `_sumstats.munge_input.resolve_raw_schema`, `.prepare_munge_input`; `_sumstats.munge_kernel` |
+| munging and liftover | [munging](../reference/munge-sumstats.md), [liftover](../reference/snp-identity-and-genome-build.md#liftover) | `_sumstats.munger.SumstatsMunger`; `_sumstats.munge_input.resolve_raw_schema`, `.prepare_munge_input`; `_sumstats.munge_kernel`; `_sumstats.liftover.apply_sumstats_liftover`; `_sumstats.outputs.SumstatsDirectoryWriter` |
 | regression and overlap | [configuration](../reference/regression-options.md), [partitioned results](../reference/results/partitioned-h2.md) | `_regression.runner.RegressionRunner`; `_ldscore.overlap_table`; `_regression.overlap_model`; `_regression.estimators` |
 | indexed gene queries | [index](../reference/gene-ldscore-index.md), [mathematics](../reference/methods/gene-ldscore-index-math.md) | `_ldscore.gene_index.build`, `.artifact`, `.scoring`; `_ldscore.gene_index.atoms` |
 | derived results | [plotting](design/plotting.md), [quantile projection](../reference/results/quantile-h2.md) | `_plotting.dispatch`, `_regression.h2_scale`, `_regression.quantile_h2`; shared `_runtime.result_files` |

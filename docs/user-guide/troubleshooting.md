@@ -404,7 +404,7 @@ Concrete source/output build options do not apply to rsID-family munging.
    see `docs/reference/formats/legacy-sumstats.md`.
 3. Do not hand-edit curated `.sumstats`/`.parquet` artifacts; treat them as outputs.
 
-**Developer reference:** `_sumstats.munger.load_sumstats()` and its metadata helpers · **Exception:** `LDSCInputError`
+**Developer reference:** `_sumstats.table.load_sumstats()` and its metadata helpers · **Exception:** `LDSCInputError`
 
 ### `munge-sumstats`: liftover dropped all rows
 
@@ -428,7 +428,7 @@ Concrete source/output build options do not apply to rsID-family munging.
 
 Successful runs report the method and counts in stdout and `diagnostics/sumstats.log`, including at `--log-level ERROR`; failed runs retain the error and available counts in the log and do not print a success summary. An all-dropped liftover fails before writing the dropped-SNP sidecar, so inspect its count-bearing error first. Mapping input is measured after earlier QC and keep-list filtering. See the [liftover behavior table](../reference/munge-sumstats.md#liftover-rules).
 
-**Developer reference:** `_genome.liftover.apply_sumstats_liftover()` · **Exception:** `LDSCInputError`
+**Developer reference:** `_sumstats.liftover.apply_sumstats_liftover()` · **Exception:** `LDSCInputError`
 
 ## `annotate`
 

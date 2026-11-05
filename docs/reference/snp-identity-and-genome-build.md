@@ -197,7 +197,8 @@ SNP identity and file-format validation remain separate: an explicit build does 
 
 ## Liftover
 
-`munge-sumstats` and `build-r2-matrix` share one liftover implementation, `src/ldsc/_genome/liftover.py`; workflow-specific options and drop accounting are in the [`munge-sumstats` reference](munge-sumstats.md#liftover-rules) and the [R² matrix tutorial](../user-guide/workflows/r2-matrices.md).
+`munge-sumstats` and `build-r2-matrix` share one chain-file translation and duplicate-coordinate detection, `src/ldsc/_genome/liftover.py`; summary-statistics liftover, including HM3 quick liftover, is in `src/ldsc/_sumstats/liftover.py`.
+Workflow-specific options and drop accounting are in the [`munge-sumstats` reference](munge-sumstats.md#liftover-rules) and the [R² matrix tutorial](../user-guide/workflows/r2-matrices.md).
 Liftover is available only in coordinate-family modes.
 
 - Chain mapping takes and returns one-based positions; the 0-based coordinates of `pyliftover` are converted on both sides.

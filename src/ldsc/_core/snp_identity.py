@@ -438,7 +438,7 @@ def empty_identity_drop_frame() -> pd.DataFrame:
 
 
 def coerce_identity_drop_frame(frame: pd.DataFrame | None, *, default_stage: str | None = None) -> pd.DataFrame:
-    """Return ``frame`` in the dropped-SNP sidecar schema shared by every workflow.
+    """Return ``frame`` in the dropped-SNP audit schema shared by every workflow.
 
     The result has the columns of ``IDENTITY_DROP_COLUMNS`` in that order and
     a fresh ``RangeIndex``. Columns ``frame`` lacks are added as missing

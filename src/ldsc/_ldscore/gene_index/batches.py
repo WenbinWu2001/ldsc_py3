@@ -12,16 +12,20 @@ from dataclasses import dataclass
 import logging
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Sequence
 
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from ..._annotation.gene_lists import GeneSourceSelection
 from ..._runtime.parallelism import chromosome_pool, resolve_worker_count
 from ..._runtime.worker_runtime import initialize_worker
 from ..batch_execution import run_query_batches
 from ..diagnostics import chromosome_log
+from ..fragments import StagedLDScoreBatch
+from ..overlap_table import LDScoreOverlap
 from ..query_variation import ScoreVariation, summarize_variation
 from .atoms import assemble_atom_selector, assemble_indexed_ld_scores, assemble_selected_atom_statistics
 
@@ -114,6 +118,25 @@ def _write_chromosome(loader, chrom, query_names, query_rows, control_rows, ordi
         return _ChromosomeBatchSummary(query_counts, query_blocks, variation, baseline_statistics)
 
 
+def _gene_rows_by_chromosome(
+    embedded_catalog: pd.DataFrame,
+    resolution: GeneSourceSelection,
+    chromosomes: Sequence[str],
+) -> dict[str, np.ndarray]:
+    """Translate global embedded-catalog indices into each chromosome's included gene rows, in catalog order.
+
+    A chromosome task turns its rows into its atom selector.
+    """
+    selected = np.asarray(resolution.catalog_indices, dtype=np.int64)
+    genes = embedded_catalog.loc[
+        embedded_catalog["gene_index"].isin(selected) & embedded_catalog["included"].astype(bool),
+        ["chrom", "chromosome_gene_row"],
+    ]
+    labels = genes["chrom"].astype(str)
+    return {str(chrom): genes.loc[labels == str(chrom), "chromosome_gene_row"].astype(int).to_numpy(dtype=np.int64)
+            for chrom in chromosomes}
+
+
 class _IndexedProducer:
     """Indexed LD-score producer: each task projects one chromosome's stored operator.
 
@@ -126,8 +149,6 @@ class _IndexedProducer:
     batch_name, phase, task = "indexed batch", "indexed LD-score assembly", "indexed LD-score computation"
 
     def __init__(self, index, gene_batch, declarations, control, width, scope, log_paths):
-        from .scoring import _gene_rows_by_chromosome
-
         self.index = index
         self.loader = index.chromosome_loader()
         self.gene_batch = gene_batch
@@ -148,8 +169,6 @@ class _IndexedProducer:
 
         Workers write into ``scratch``.
         """
-        from .scoring import _gene_rows_by_chromosome
-
         selected = set(query_columns)
         declarations = [item for item in self.declarations if item["query"] in selected]
         rows = {chrom: [] for chrom in self.chromosomes}
@@ -169,9 +188,6 @@ class _IndexedProducer:
 
     def reduce(self, results, batch):
         """Sum chromosome counts and overlap blocks into one staged batch."""
-        from ..fragments import StagedLDScoreBatch
-        from ..overlap_table import LDScoreOverlap
-
         index, directory = self.index, batch.root
         summaries = [results[chrom] for chrom in self.chromosomes]
         if batch.ordinal == 0:

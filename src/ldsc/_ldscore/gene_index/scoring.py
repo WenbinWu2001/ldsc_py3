@@ -16,7 +16,7 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 
-from ..._annotation.gene_lists import GeneCatalog, GeneSourceSelection, select_index_eligible_gene_indices
+from ..._annotation.gene_lists import GeneCatalog, select_index_eligible_gene_indices
 from ..._annotation.storage import AnnotationWorkspace
 from ..._core.snp_identity import normalize_snp_identifier_mode
 from ...config import GlobalConfig
@@ -587,22 +587,3 @@ def _baseline_columns_from_rows(frame: pd.DataFrame) -> list[str]:
     """Return ordered supplied baseline score columns from one common shard."""
     reserved = {"CHR", "SNP", "POS", "A1", "A2", "regression_ld_scores"}
     return [column for column in frame.columns if column not in reserved]
-
-
-def _gene_rows_by_chromosome(
-    embedded_catalog: pd.DataFrame,
-    resolution: GeneSourceSelection,
-    chromosomes: Sequence[str],
-) -> dict[str, np.ndarray]:
-    """Translate global embedded-catalog indices into each chromosome's included gene rows, in catalog order.
-
-    A chromosome task turns its rows into its atom selector.
-    """
-    selected = np.asarray(resolution.catalog_indices, dtype=np.int64)
-    genes = embedded_catalog.loc[
-        embedded_catalog["gene_index"].isin(selected) & embedded_catalog["included"].astype(bool),
-        ["chrom", "chromosome_gene_row"],
-    ]
-    labels = genes["chrom"].astype(str)
-    return {str(chrom): genes.loc[labels == str(chrom), "chromosome_gene_row"].astype(int).to_numpy(dtype=np.int64)
-            for chrom in chromosomes}

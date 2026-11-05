@@ -439,15 +439,16 @@ For the user-facing contract, command patterns, and output schema, see
 [`munge-sumstats.md`](../reference/munge-sumstats.md).
 
 `SumstatsMunger.run()` preflights the owned family that `_sumstats.outputs.SumstatsDirectoryWriter.artifact_family()` declares: `sumstats.parquet`, `sumstats.gz`, `diagnostics/sumstats.log`, `diagnostics/dropped_snps/dropped.tsv.gz` and `diagnostics/input_issues.tsv`.
-It then delegates to the legacy-compatible munging kernel and hands the munged rows, the Parquet footer from `_sumstats.table.encode_sumstats_footer()` and the dropped-SNP audit to `SumstatsDirectoryWriter.write()`, which stages every file inside the output directory and moves them into place together.
-The workflow owns the log file; the kernel keeps the low-level parsing and QC. Before calling the kernel, the
-workflow runs format and column inference:
+It then delegates to the legacy-compatible munging kernel and hands the munged rows, the Parquet footer from `_sumstats.table.encode_sumstats_footer()` and the dropped-SNP table to `SumstatsDirectoryWriter.write()`, which stages every file inside the output directory and moves them into place together.
+The workflow owns the log file; the kernel keeps the low-level parsing and QC.
+Before calling the kernel, the workflow runs format and column inference:
 `--input-format auto` is the default and detects plain whitespace text, including
 VCF-style headers, old DANER, and new DANER. `--infer-only` runs that inference
 pass, still requires `--output-dir` for the uniform CLI contract, creates no
 output directory, and prints missing fields plus exact repair suggestions.
 `_sumstats.munge_input.resolve_raw_schema()` resolves the raw schema and sample-size settings, shared with `--infer-only`, and `_sumstats.munge_input.prepare_munge_input()` adds the source build/basis, the liftover request for that build and the keep-list into `ResolvedMungeInput`.
-When the request selects HM3 quick liftover, `prepare_munge_input()` loads the packaged HM3 map once and derives both the keep-list and the liftover position lookup from it. The kernel returns a `MungeResult` with parsed row counts, exclusive per-stage drop counts, coordinate provenance and separate identity/liftover drop records. Row counting occurs during chunk parsing; there is no post-run full-file count pass. Source-build inference uses the shared bounded coordinate evidence reader before chunk QC, including when those informative rows will later be filtered out.
+When the request selects HM3 quick liftover, `prepare_munge_input()` loads the packaged HM3 map once and derives both the keep-list and the liftover position lookup from it.
+The kernel returns a `MungeResult` with parsed row counts, exclusive per-stage drop counts, coordinate provenance and separate identity/liftover drop records. Row counting occurs during chunk parsing; there is no post-run full-file count pass. Source-build inference uses the shared bounded coordinate evidence reader before chunk QC, including when those informative rows will later be filtered out.
 
 Default output is `sumstats.parquet`; `--output-format tsv.gz` or `both`
 also supports the legacy `sumstats.gz` artifact. With overwrite
@@ -515,7 +516,7 @@ flowchart LR
 - Preprocessing: `ldsc.config`, `ldsc._runtime.paths`, `ldsc._core.columns`
 - Workflow: `ldsc._sumstats.munger`, `ldsc._sumstats.munge_input`
 - Kernel: `ldsc._sumstats.munge_kernel`, `ldsc._sumstats.liftover` (chain translation from `ldsc._genome.liftover`)
-- Postprocessing: `ldsc._sumstats.outputs.SumstatsDirectoryWriter` (Parquet/TSV and dropped-SNP audit), with the footer codec in `ldsc._sumstats.table`; the workflow writes the log
+- Postprocessing: `ldsc._sumstats.outputs.SumstatsDirectoryWriter` (Parquet/TSV and dropped-SNP table), with the footer codec in `ldsc._sumstats.table`; the workflow writes the log
 
 Allele columns keep the legacy LDSC names `A1` and `A2`.
 `A1` is the effect allele, the allele the signed statistic refers to, and `A2` is the other allele; neither is necessarily the genome reference allele.

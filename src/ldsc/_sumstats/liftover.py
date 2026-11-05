@@ -156,7 +156,7 @@ def _liftover_drop_frame(
     target_pos_col: str | None = None,
     snp_col: str = "SNP",
 ) -> pd.DataFrame:
-    """Build dropped-SNP audit rows, stage ``liftover``, from one filtered frame slice."""
+    """Build dropped-SNP table rows, stage ``liftover``, from one filtered frame slice."""
     mask = np.asarray(drop_mask, dtype=bool)
     if len(mask) != len(frame):
         raise LDSCInternalError(
@@ -209,7 +209,7 @@ def apply_sumstats_liftover(
     chromosome chain hits, and target duplicate ``CHR/POS`` groups only when a
     liftover request reaches the mapping stage. It updates ``CHR``/``POS`` but
     preserves ``SNP`` as a label field. The third return value lists the
-    dropped rows in the dropped-SNP audit schema of
+    dropped rows in the dropped-SNP table schema of
     ``ldsc._core.snp_identity.coerce_identity_drop_frame``, with stage
     ``liftover``; clean/no-op runs return the same schema with zero rows.
     HM3 quick liftover maps positions through ``hm3_map``, the dual-build map

@@ -3,7 +3,7 @@
 ``SumstatsDirectoryWriter`` declares the files a munging run owns and writes
 the munged summary statistics as self-describing Parquet (one row group per
 chromosome, identity footer from ``ldsc._sumstats.table``) and/or the
-legacy-compatible ``.sumstats.gz`` text, plus the dropped-SNP audit.
+legacy-compatible ``.sumstats.gz`` text, plus the dropped-SNP table.
 Every file is written into a staging directory inside the output directory
 and moved into place once all of them are complete, so a reader never sees a
 partly written file. The column contract of both formats is in
@@ -62,7 +62,7 @@ class WrittenSumstats:
 
 
 class SumstatsDirectoryWriter:
-    """Write munged summary statistics and the dropped-SNP audit."""
+    """Write munged summary statistics and the dropped-SNP table."""
 
     @staticmethod
     def artifact_family(output_dir, *, trait_name: str | None = None, output_format: str = "parquet",
@@ -74,7 +74,7 @@ class SumstatsDirectoryWriter:
         trait label names the files: ``<stem>.parquet`` and
         ``<stem>.sumstats.gz``, or ``sumstats.parquet`` and ``sumstats.gz``
         without a label. ``run=True`` adds what a munging run writes besides
-        the data: the workflow log and the dropped-SNP audit, which every
+        the data: the workflow log and the dropped-SNP table, which every
         run writes (header only when empty), and the input-issue table, owned
         but not produced because a passing input check removes it.
         ``SumstatsMunger.write_output`` uses ``run=False`` and leaves those
@@ -107,7 +107,7 @@ class SumstatsDirectoryWriter:
         overwrite: bool = False,
         preflighted: bool = False,
     ) -> WrittenSumstats:
-        """Write the selected munged formats and, for a run, the dropped-SNP audit.
+        """Write the selected munged formats and, for a run, the dropped-SNP table.
 
         Parameters
         ----------
@@ -124,7 +124,7 @@ class SumstatsDirectoryWriter:
         footer_metadata : dict of bytes to bytes
             ``ldsc:*`` footer keys merged into the Parquet schema metadata.
         dropped_snps : pandas.DataFrame or None, optional
-            The run's dropped-SNP audit rows, written to
+            The run's dropped-SNP table rows, written to
             ``diagnostics/dropped_snps/dropped.tsv.gz``. ``SumstatsMunger.run``
             supplies them, and the declared family then also owns the log and
             the input-issue table. ``None``, the default, writes data files

@@ -131,7 +131,7 @@ The lazily exported workflows in `ldsc/__init__.py` and the per-command modules 
 | `ldsc._refpanel.outputs` | `QueryR2MatrixDirectoryWriter` for the `query-r2-matrix` result directory |
 | `ldsc._sumstats.munger` | raw-summary-statistics CLI/API orchestration, `--input-format auto` / `--infer-only` header inference, diagnostics under `diagnostics/`, and canonical `CHR`/`POS` summary-statistics output |
 | `ldsc._sumstats.table` | the munged artifact: `SumstatsTable`, `load_sumstats()` for munged Parquet and legacy `.sumstats(.gz)` files, and the `ldsc:*` Parquet footer codec; regression imports it without the munging workflow |
-| `ldsc._sumstats.outputs` | `SumstatsDirectoryWriter`: the owned munging output family (`artifact_family()`), staged Parquet and `.sumstats.gz` writing with chromosome row groups, and the dropped-SNP audit |
+| `ldsc._sumstats.outputs` | `SumstatsDirectoryWriter`: the owned munging output family (`artifact_family()`), staged Parquet and `.sumstats.gz` writing with chromosome row groups, and the dropped-SNP table |
 | `ldsc._sumstats.munge_input` | private workflow helper resolving raw schema, DANER/sample-size settings, bounded source-build evidence, the liftover request and keep-lists into `ResolvedMungeInput`; loads the packaged HM3 map once for HM3 quick liftover |
 | `ldsc._sumstats.munge_kernel` | chunk QC and restriction, whole-table N and sign conversion, resolved liftover and global identity cleanup; returns `MungeResult` with counts and provenance |
 | `ldsc._sumstats.liftover` | summary-statistics liftover: `SumstatsLiftoverRequest`, HM3 quick liftover, the chain applier, liftover drop rows and the all-rows-dropped error |
@@ -187,7 +187,7 @@ The lazily exported workflows in `ldsc/__init__.py` and the per-command modules 
 | change saved LD-score loading or selected-query reads | `src/ldsc/_ldscore/source.py`; keep model-specific validation in `src/ldsc/_regression/runner.py` |
 | change LD-score math | `src/ldsc/_ldscore/compute.py` |
 | change raw summary-statistics ingestion, format inference, `CHR`/`POS` handling, or summary-statistics SNP keep-list filtering | `src/ldsc/_sumstats/munger.py`, then `src/ldsc/_sumstats/munge_input.py` and `src/ldsc/_sumstats/munge_kernel.py` |
-| change summary-statistics liftover or its drop audit | `src/ldsc/_sumstats/liftover.py`; chain translation shared with `build-r2-matrix` is in `src/ldsc/_genome/liftover.py` |
+| change summary-statistics liftover or its rows in the dropped-SNP table | `src/ldsc/_sumstats/liftover.py`; chain translation shared with `build-r2-matrix` is in `src/ldsc/_genome/liftover.py` |
 | change munged output files, footer provenance, or munged loading | `src/ldsc/_sumstats/outputs.py` and `src/ldsc/_sumstats/table.py` |
 | change regression dataset assembly or CLI summaries | `src/ldsc/_regression/runner.py`, then `src/ldsc/_regression/outputs.py`, `docs/reference/results/partitioned-h2.md` for `partitioned-h2` output layout, `docs/reference/formats/artifact-metadata.md` for `rg` output contracts, and `docs/reference/regression-options.md` for the tunable estimator parameters and defaults |
 | change annotation-name validation or continuous-annotation classification | `src/ldsc/_annotation/semantics.py`, then `src/ldsc/_ldscore/calculator.py` and `src/ldsc/_ldscore/outputs.py` |

@@ -1237,8 +1237,8 @@ class RegressionConfig:
         both NaN/None for a quantitative trait (NaN is stored as ``None``).
         Supplying only one, or a value outside ``(0, 1)``, raises
         ``LDSCConfigError``. For ``rg`` the per-trait pairs are passed to
-        ``estimate_rg_pairs`` instead of this config. Defaults are ``None``
-        (observed scale).
+        ``estimate_rg_pairs`` instead of this config, which rejects a config
+        that sets them. Defaults are ``None`` (observed scale).
     allow_identity_downgrade : bool, optional
         If ``True``, same-family allele-aware/base regression inputs may run
         under the base SNP identifier mode. Cross-family mixes remain rejected.

@@ -1202,7 +1202,9 @@ class RegressionRunner:
             ``anchor`` against every other trait and skips non-anchor pairs.
             Default is ``None``, which computes all unordered pairs.
         config : RegressionConfig or None, optional
-            Regression settings. Defaults to the runner's config.
+            Regression settings. Defaults to the runner's config. Its
+            ``samp_prev`` and ``pop_prev`` must be unset: they hold one trait's
+            pair, and rg takes the pairs from ``prevalences``.
         prevalences : sequence of (float or None, float or None), optional
             One ``(samp_prev, pop_prev)`` pair per input trait, in input order,
             for liability-scale columns; ``(None, None)`` or NaN marks a
@@ -1217,13 +1219,22 @@ class RegressionRunner:
 
         Raises
         ------
-        ValueError
-            If fewer than two traits are supplied, ``anchor_index`` is out of
-            bounds, or ``prevalences`` does not hold one valid pair per trait
-            (checked before any fit). Whole-run input failures, such as
+        LDSCUserError
+            Before any fit, if fewer than two traits are supplied,
+            ``anchor_index`` is out of bounds, ``prevalences`` does not hold
+            one valid pair per trait (``LDSCConfigError`` for an invalid pair),
+            or the config sets ``samp_prev`` or ``pop_prev``
+            (``LDSCUsageError``). Whole-run input failures, such as
             incompatible h2 datasets, also propagate as ordinary exceptions.
         """
         config = config or self.regression_config
+        if config.samp_prev is not None or config.pop_prev is not None:
+            raise LDSCUsageError(
+                f"rg regression does not read the prevalences of RegressionConfig (samp_prev={config.samp_prev!r}, "
+                f"pop_prev={config.pop_prev!r}), which hold one trait's pair; ignoring them would report observed-scale "
+                "estimates. Pass one (samp_prev, pop_prev) pair per trait, in input order, with prevalences=..., "
+                "and leave samp_prev and pop_prev unset in the config."
+            )
         tables = list(sumstats_tables)
         if len(tables) < 2:
             raise LDSCUserError(

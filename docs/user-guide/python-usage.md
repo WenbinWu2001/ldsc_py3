@@ -946,6 +946,7 @@ RgDirectoryWriter().write(result, RgOutputConfig(output_dir="results/trait_1_tra
 
 `anchor_index` is the input position of the anchor trait.
 For liability-scale columns, pass `prevalences=[(0.5, 0.01), (None, None)]`, one `(samp_prev, pop_prev)` pair per table in input order, with `(None, None)` or `nan` for a quantitative trait; half a pair, a value outside (0, 1) or a list of the wrong length stops the call before any fit, as it does for `RegressionConfig(samp_prev=..., pop_prev=...)` in `h2` and `partitioned-h2`.
+Leave `samp_prev` and `pop_prev` unset in the `RegressionConfig` given to `estimate_rg_pairs()`: they hold one trait's pair, so the call stops with `LDSCUsageError` instead of ignoring them.
 The family that `estimate_rg_pairs()` returns has empty `output_paths`; `RgDirectoryWriter().write()` returns the paths it writes.
 Tables that share a trait label are relabeled from their `source_path`; tables loaded with `load_sumstats()` carry their path, and tables that share a label without a path must be given distinct `trait_name` values.
 Exporting the tables with `to_csv()` does not create a plotting input; `plot_result()` needs the directory and metadata written by `RgDirectoryWriter` or `run_rg`.

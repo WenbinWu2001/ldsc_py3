@@ -60,6 +60,21 @@ def test_rg_pairs_reject_bad_prevalences_before_any_fit(monkeypatch, prevalences
         runner.estimate_rg_pairs(tables, panel(), prevalences=prevalences)
 
 
+@pytest.mark.parametrize("route", ["config argument", "runner config"])
+def test_rg_pairs_reject_a_config_that_sets_one_prevalence_pair(monkeypatch, route):
+    # rg takes one (samp_prev, pop_prev) pair per trait from `prevalences`; the config's single pair was ignored,
+    # so the results were silently on the observed scale.
+    def no_fit(*args, **kwargs):
+        raise AssertionError("a fit ran before the config prevalences were rejected")
+
+    monkeypatch.setattr(workflow, "_fit_h2_dataset", no_fit)
+    tables = [munged("A", "chr_pos_allele_aware", 1), munged("B", "chr_pos_allele_aware", 2)]
+    config = RegressionConfig(num_blocks=10, samp_prev=0.5, pop_prev=0.01)
+    runner = workflow.RegressionRunner(regression_config=config if route == "runner config" else None)
+    with calculation_body(), pytest.raises(LDSCUsageError, match=r"samp_prev=0\.5, pop_prev=0\.01.*prevalences="):
+        runner.estimate_rg_pairs(tables, panel(), config=config if route == "config argument" else None)
+
+
 def test_positional_list_aligns_and_marks_qt():
     out = prevalence.parse_positional_prevalences("0.5,0.5,nan", "0.01,0.02,nan", n_traits=3)
     assert out == [(0.5, 0.01), (0.5, 0.02), (None, None)]

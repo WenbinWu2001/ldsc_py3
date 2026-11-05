@@ -11,10 +11,10 @@ from ldsc.errors import LDSCInputError
 from ldsc._regression.outputs import (
     PARTITIONED_H2_COLUMNS,
     PartitionedH2DirectoryWriter,
-    PartitionedH2FitArtifacts,
     PartitionedH2OutputConfig,
     stage_partitioned_h2_fit,
 )
+from ldsc._regression.results import PartitionedH2FitArtifacts
 from ldsc._regression.quantile_h2 import load_fitted_partitioned_model
 
 

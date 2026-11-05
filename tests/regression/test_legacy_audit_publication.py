@@ -6,8 +6,10 @@ import json
 import pandas as pd
 
 from ldsc._regression import runner as workflow
-from ldsc._regression.outputs import H2DirectoryWriter, H2OutputConfig, RgDirectoryWriter, RgOutputConfig
-from ldsc._regression.runner import LEGACY_SUMSTATS_DROP_COLUMNS, RgResultFamily
+from ldsc._regression.outputs import (
+    LEGACY_SUMSTATS_DROP_COLUMNS, H2DirectoryWriter, H2OutputConfig, RgDirectoryWriter, RgOutputConfig,
+)
+from ldsc._regression.results import RgResultFamily
 from ldsc.config import RegressionConfig
 from tests.regression.test_nonfinite_statistics import functional_panel
 from tests.regression.test_trait_preparation import legacy

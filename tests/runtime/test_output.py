@@ -33,7 +33,7 @@ from ldsc._regression.outputs import (
     RgOutputConfig,
 )
 from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
-from ldsc._regression.runner import RgResultFamily
+from ldsc._regression.results import RgResultFamily
 from ldsc import load_ldscore_from_dir
 
 

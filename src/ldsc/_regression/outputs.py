@@ -60,7 +60,6 @@ import unicodedata
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pandas as pd
 
@@ -77,9 +76,7 @@ from .._runtime.paths import (
     ensure_output_directory,
     remove_output_artifacts,
 )
-
-if TYPE_CHECKING:
-    from .runner import RgResultFamily
+from .results import PartitionedH2FitArtifacts, RgResultFamily
 
 
 # Fitted-model files of a partitioned-h2 result that other modules locate.
@@ -465,22 +462,6 @@ class PartitionedH2OutputConfig:
     def __post_init__(self) -> None:
         """Normalize the output directory."""
         object.__setattr__(self, "output_dir", normalize_required_path(self.output_dir))
-
-
-@dataclass(frozen=True)
-class PartitionedH2FitArtifacts:
-    """Paths to one complete fitted model and its publication ownership.
-
-    ``owned=False`` preserves persistent files by copying them at publication.
-    ``owned=True`` transfers the full table and delete values from disposable
-    staging on the output filesystem; those source paths are consumed even if
-    later publication fails. The caller remains responsible for scratch cleanup.
-    """
-
-    full: Path
-    delete_values: Path
-    metadata: Path
-    owned: bool = False
 
 
 def stage_partitioned_h2_fit(directory, category_table, delete_values, metadata):

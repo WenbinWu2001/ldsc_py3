@@ -199,7 +199,7 @@ class PartitionedTest(RegressionFixtures, unittest.TestCase):
         self.assertEqual(result["category"].tolist(), ["query1", "query2"])
         # Overlap-aware Prop._SNPs = M_query1 / M_tot on the common universe (18 / 45).
         self.assertAlmostEqual(result.loc[0, "prop_snps"], 18.0 / 45.0)
-        # One-sided Coefficient_p = P(Z > coef/se) = sf(1.0 / 0.2).
+        # One-sided coefficient_p = P(Z > coef/se) = sf(1.0 / 0.2).
         self.assertAlmostEqual(result.loc[0, "coefficient_p"], stats.norm.sf(5.0))
 
     def test_estimate_partitioned_h2_batch_can_return_full_partitioned_tables(self):

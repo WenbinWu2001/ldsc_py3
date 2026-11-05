@@ -411,7 +411,7 @@ class FittingTest(RegressionFixtures, unittest.TestCase):
         self.assertEqual(summary.loc[0, "category"], "query")
         # Overlap-aware Prop._SNPs = M_query / M_tot on the common universe (30 / 40).
         self.assertAlmostEqual(summary.loc[0, "prop_snps"], 30.0 / 40.0)
-        # One-sided Coefficient_p = sf(coef/se) = sf(0.5 / 0.2).
+        # One-sided coefficient_p = sf(coef/se) = sf(0.5 / 0.2).
         self.assertAlmostEqual(summary.loc[0, "coefficient_p"], stats.norm.sf(2.5))
         self.assertTrue(bool(summary.loc[0, "overlap_annot"]))
         self.assertTrue(np.isfinite(summary.loc[0, "enrichment_p"]))

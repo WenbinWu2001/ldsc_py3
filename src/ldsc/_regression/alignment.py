@@ -10,7 +10,12 @@ of each merge, checks the genome build of coordinate-family inputs, merges a
 trait with the LD scores (``_prepare_h2_inputs``) or a trait pair with them,
 harmonizing trait 2's alleles to trait 1 (``_rg_dataset``), and selects one
 model's LD-score columns and SNP-count vectors (``_select_model_columns``).
-Fitting and reporting belong to ``fitting``.
+The commands, ``RegressionRunner`` and the rg pair run share its preparation
+spine: ``_prepare_h2_dataset`` (one trait's h2 dataset with its preparation
+record), ``_h2_dataset`` (the same from prepared trait summary statistics)
+and ``_prepare_rg_dataset`` (a trait pair). After preparation,
+``_log_regression_identity`` logs the SNP identifier mode each prepared
+dataset used. Fitting and reporting belong to ``fitting``.
 """
 
 from __future__ import annotations

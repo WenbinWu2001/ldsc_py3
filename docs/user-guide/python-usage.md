@@ -881,6 +881,7 @@ The LD-score table includes a `regression_ld_scores` column (legacy LDSC's `w_ld
 **Saved results.**
 `estimate_h2()` returns a `RegressionFit` and writes nothing.
 Its `estimator` holds the estimates; `dataset`, `n_snps`, `n_blocks`, `effective_chisq_max`, `effective_two_step_cutoff` and `diagnostic_bins` describe the rows and settings of the final fit, the same values `ldsc h2` records.
+An estimate the fit leaves undefined is NaN: `estimator.intercept_se` for a fixed intercept, and `estimator.ratio` and `estimator.ratio_se` when the mean $\chi^2$ is at most 1.
 `plot_result()` and `convert_h2_scale()` need a result directory written by `run_h2` or `ldsc h2`.
 
 ## Genetic correlation
@@ -956,3 +957,4 @@ Tables made by the munger, and Parquet files read by `load_sumstats()`, carry th
 A legacy `.sumstats.gz` file is matched to the LD scores by rsID; a Parquet file without the footer is rejected.
 
 `RegressionRunner.build_rg_dataset()` builds one pair's dataset and `RegressionRunner.estimate_rg(dataset)` fits it, returning a `RegressionFit` whose `estimator` is the low-level `RG` object; prefer `estimate_rg_pairs()` or `run_rg`, which return the same tables as the command.
+When either trait's heritability estimate is not positive, `estimator.h2_out_of_bounds` is `True` and `estimator.rg_ratio`, `rg`, `rg_se`, `z` and `p` are NaN; the heritability fits `hsq1` and `hsq2` and the genetic covariance fit `gencov` keep their estimates.

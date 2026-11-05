@@ -2,6 +2,7 @@ from dataclasses import replace
 
 import pytest
 
+import ldsc
 from ldsc._regression import prevalence
 from ldsc._regression import runner as workflow
 from ldsc.config import RegressionConfig
@@ -41,6 +42,20 @@ def test_config_rejects_a_prevalence_outside_the_open_unit_interval(samp_prev, p
 def test_config_rejects_a_prevalence_that_is_not_a_number():
     with pytest.raises(LDSCConfigError, match="not a number"):
         RegressionConfig(samp_prev="0.5", pop_prev=0.01)
+
+
+@pytest.mark.parametrize("wrapper", ["run_h2", "run_partitioned_h2"])
+@pytest.mark.parametrize("samp_prev, pop_prev", [("0.5", "0.01"), (0.5, "0.01")])
+def test_keyword_wrappers_reject_a_prevalence_that_is_not_a_number_before_writing(
+    tmp_path, wrapper, samp_prev, pop_prev,
+):
+    # A keyword call skips the argparse float type. A string prevalence used to be dropped, so the run
+    # silently reported observed-scale results.
+    output_dir = tmp_path / "out"
+    with pytest.raises(LDSCConfigError, match="A prevalence is not a number"):
+        getattr(ldsc, wrapper)(sumstats_file="trait.parquet", ldscore_dir="ldscores", output_dir=str(output_dir),
+                               samp_prev=samp_prev, pop_prev=pop_prev)
+    assert not output_dir.exists()
 
 
 @pytest.mark.parametrize("prevalences, error", [

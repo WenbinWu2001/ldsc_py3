@@ -295,6 +295,35 @@ def test_unsupported_contig_rows_are_dropped_before_any_output_in_every_mode(tmp
     assert table.provenance["coordinate_provenance"]["n_invalid_chr_pos"] == 1
 
 
+@pytest.mark.parametrize("output_format", ["parquet", "tsv.gz"])
+@pytest.mark.parametrize("prefix", ["", "chr"])
+@pytest.mark.parametrize("mode", ["rsid", "rsid_allele_aware"])
+def test_rows_without_complete_coordinates_carry_string_chromosome_labels(tmp_path, mode, prefix, output_format):
+    # rsID-family rows without a complete CHR/POS pair kept their parsed CHR (a float when CHR has a missing value,
+    # or a 'chr'-prefixed string) next to the canonical labels of complete rows: the Parquet writer failed with an
+    # internal error, and the .sumstats.gz wrote '1' and '1.0' in one column.
+    raw = tmp_path / "raw.tsv"
+    raw.write_text("SNP CHR POS A1 A2 Z P N\n"
+                   f"rs1 {prefix}1 100 A G -2.0 0.05 1000\n"
+                   f"rs2 {prefix}1 NA A G 2.0 0.05 1000\n"
+                   "rs3 NA 100 A G -0.01 0.05 1000\n"
+                   f"rs4 {prefix}2 100 A G 0.02 0.05 1000\n")
+    out = tmp_path / "out"
+    table = SumstatsMunger().run(
+        MungeConfig(raw_sumstats_file=raw, output_dir=out, no_snp_restriction=True, output_format=output_format),
+        global_config=GlobalConfig(snp_identifier=mode),
+    )
+    if output_format == "parquet":
+        written = load_sumstats(out / "sumstats.parquet").data
+    else:
+        written = pd.read_csv(out / "sumstats.gz", sep="\t", dtype={"CHR": "string"})
+    for frame in (table.data, written):
+        assert frame.SNP.tolist() == ["rs1", "rs4", "rs2", "rs3"]
+        assert frame.CHR.iloc[:3].tolist() == ["1", "2", "1"]
+        assert pd.isna(frame.CHR.iloc[3])
+    assert all(isinstance(value, str) for value in table.data.CHR.iloc[:3])
+
+
 @pytest.mark.parametrize("alleles,reason", [(("1", "2"), "invalid_allele"), (("NA", "NA"), "missing_allele")])
 @pytest.mark.parametrize("mode", ["rsid_allele_aware", "chr_pos_allele_aware"])
 def test_identity_cleanup_that_drops_every_row_stops_before_writing(tmp_path, mode, alleles, reason):

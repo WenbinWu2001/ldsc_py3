@@ -26,7 +26,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .._core.chromosomes import chrom_sort_key, normalize_chromosome_series
+from .._core.chromosomes import chrom_sort_key, normalize_chromosome, normalize_chromosome_series
 from .._core.coordinates import coordinate_missing_mask, positive_int_position_series
 from .._runtime.artifacts import ArtifactFamily, declare_artifacts
 from .._runtime.paths import ensure_output_directory, remove_output_artifacts
@@ -241,9 +241,12 @@ def curated_sumstats_frame(data: pd.DataFrame) -> pd.DataFrame:
     in that order, and adds missing ``CHR``/``POS`` columns as missing
     values. On rows with a complete ``CHR``/``POS`` pair, ``CHR`` takes its
     canonical label (no ``chr`` prefix) and ``POS`` must be a positive
-    integer. Those rows are ordered by chromosome sort key, ``POS`` and input
-    order; rows without a complete pair follow in input order, so the
-    Parquet writer can place them in one final missing-coordinate row group.
+    integer. A ``CHR`` value on a row without a complete pair becomes a string
+    too: its canonical label where it has one, otherwise its text, so the
+    column holds one type in every output. Complete rows are ordered by
+    chromosome sort key, ``POS`` and input order; rows without a complete pair
+    follow in input order, so the Parquet writer can place them in one final
+    missing-coordinate row group.
     Numeric precision is kept. ``SumstatsMunger.run`` and
     ``SumstatsMunger.write_output`` build this frame once, before any file is
     written.
@@ -273,21 +276,26 @@ def curated_sumstats_frame(data: pd.DataFrame) -> pd.DataFrame:
         )
 
     complete = ~(chr_missing | pos_missing)
+    if (~chr_missing).any() and frame["CHR"].dtype.kind in "biuf":
+        # Labels are strings: convert a numeric column to object first, as
+        # assignment would, instead of relying on implicit upcasting.
+        frame["CHR"] = frame["CHR"].astype(object)
     if complete.any():
         complete_pos = positive_int_position_series(
             frame.loc[complete, "POS"],
             context="munged summary statistics",
             label="POS",
         )
-        if frame["CHR"].dtype.kind in "biuf":
-            # Normalized labels are strings: convert a numeric column to object
-            # first, as assignment would, instead of relying on implicit upcasting.
-            frame["CHR"] = frame["CHR"].astype(object)
         frame.loc[complete, "CHR"] = normalize_chromosome_series(
             frame.loc[complete, "CHR"],
             context="munged summary statistics",
         ).astype(object)
         frame.loc[complete, "POS"] = complete_pos.astype("int64")
+    partial = pos_missing & ~chr_missing
+    if partial.any():
+        values = frame.loc[partial, "CHR"]
+        labels = {value: _chromosome_label(value) for value in pd.unique(values)}
+        frame.loc[partial, "CHR"] = values.map(labels)
 
     # Sort a frame of the keys alone, then take the rows once.
     keys = pd.DataFrame({"missing": ~complete, "pos": pos_numeric.where(complete, pd.NA)})
@@ -302,6 +310,16 @@ def curated_sumstats_frame(data: pd.DataFrame) -> pd.DataFrame:
     frame = frame.take(order)
     frame.index = pd.RangeIndex(len(frame))
     return frame
+
+
+def _chromosome_label(value: object) -> str:
+    """Return the canonical label of a ``CHR`` value without a position, or its text when it has none."""
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)  # a numeric column holding missing values was parsed as float
+    try:
+        return normalize_chromosome(value, context="munged summary statistics")
+    except LDSCInputError:
+        return str(value).strip()
 
 
 def _write_sumstats_tsv_gz(frame: pd.DataFrame, path: Path) -> None:

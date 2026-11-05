@@ -265,7 +265,7 @@ class LDScoreResult:
     ld_window_snp_counts: pd.DataFrame | None = field(default=None, repr=False)
     reference_snp_funnel: pd.DataFrame | None = field(default=None, repr=False)
 
-    def validate(self, *, require_query_alignment: bool = True) -> None:
+    def validate(self) -> None:
         """Check the normalized public contract for aggregated results."""
         from .source import validate_ldscore_schemas
 
@@ -273,7 +273,7 @@ class LDScoreResult:
             self.baseline_columns, self.query_columns, self.baseline_table.columns,
             None if self.query_table is None else self.query_table.columns,
         )
-        if require_query_alignment and self.query_table is not None:
+        if self.query_table is not None:
             assert_same_snp_rows(
                 self.baseline_table,
                 self.query_table,

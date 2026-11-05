@@ -79,8 +79,12 @@ class _ChromosomeRowGroups:
     writes the frame, which holds one chromosome's rows in public order, as
     exactly one row group: pyarrow would otherwise split a table above its
     default cap of 1,048,576 rows into several groups that ``row_groups``
-    does not describe. With ``schema`` the file opens immediately with that
-    schema; without it the file opens with the first appended frame's schema.
+    does not describe. pyarrow still splits a frame above its hard cap of
+    67,108,864 rows, and the loader then rejects the directory; persisted
+    rows are regression SNPs, which no chromosome of an HM3-scale
+    ``--regr-snps-file`` approaches. With ``schema`` the file opens
+    immediately with that schema; without it the file opens with the first
+    appended frame's schema.
     """
 
     def __init__(self, path: Path, compression: str | None, schema: pa.Schema | None = None):

@@ -620,7 +620,6 @@ class LDScoreCalculator:
     def _aggregate_chromosome_results(
         self,
         chromosome_results: Sequence[ChromLDScoreResult | DirectChromosomeFragment],
-        global_config: GlobalConfig,
         count_config: dict[str, Any] | None = None,
     ) -> LDScoreResult | StagedLDScoreBatch:
         """Combine chromosome statistics, retaining query paths for writing runs.
@@ -823,7 +822,6 @@ class _DirectProducer:
             )
         result = self.calculator._aggregate_chromosome_results(
             chromosome_results,
-            global_config=self.global_config,
             count_config=common_count_config(ldscore_config.common_maf_min),
         )
         result = dataclass_replace(
@@ -1380,7 +1378,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
                 LOGGER.info("Gene-list catalog projection build: %s (selected from --genome-build and baseline/reference-panel evidence).",normalized_args.gene_catalog_build)
             if annotation_bundle.gene_list_batch is not None:
                 annotation_bundle, gate_b_error, gate_b_issues = _apply_direct_gene_gate_b(
-                    annotation_bundle, ref_panel, ldscore_config, global_config)
+                    annotation_bundle, ref_panel, ldscore_config)
                 if gate_b_error:
                     fail_unusable_queries(_bundle_diagnostics(annotation_bundle, gate_b_issues), gate_b_error, output_config)
             statuses = annotation_bundle.query_statuses
@@ -1605,7 +1603,7 @@ def _annotation_build_config_from_args(args: argparse.Namespace) -> AnnotationBu
     )
 
 
-def _apply_direct_gene_gate_b(annotation_bundle, ref_panel, ldscore_config, global_config):
+def _apply_direct_gene_gate_b(annotation_bundle, ref_panel, ldscore_config):
     """Measure interval support on the prepared reference SNPs.
 
     Return the updated bundle, the Gate B error message or ``None``, and the

@@ -477,7 +477,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         c1 = OverlapContribution(np.array([[10.0, 4.0]]), None, np.array([6.0]), None, 10, None)
         c2 = OverlapContribution(np.array([[5.0, 3.0]]), None, np.array([4.0]), None, 7, None)
         result = ldscore_workflow.LDScoreCalculator()._aggregate_chromosome_results(
-            [make_chrom("1", "rs1", c1), make_chrom("2", "rs2", c2)], global_config=cfg
+            [make_chrom("1", "rs1", c1), make_chrom("2", "rs2", c2)]
         )
         self.assertIsNotNone(result.overlap)
         np.testing.assert_allclose(result.overlap.baseline_block_all.to_numpy(), [[15.0, 7.0]])
@@ -509,7 +509,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         c1 = OverlapContribution(np.array([[10.0]]), None, np.array([]), None, 10, None)
         c2 = OverlapContribution(np.array([[7.0]]), None, np.array([]), None, 7, None)
         result = ldscore_workflow.LDScoreCalculator()._aggregate_chromosome_results(
-            [make_chrom("1", "rs1", c1), make_chrom("2", "rs2", c2)], global_config=cfg
+            [make_chrom("1", "rs1", c1), make_chrom("2", "rs2", c2)]
         )
         self.assertIsNone(result.overlap)
 
@@ -634,7 +634,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 self.make_chrom_result("2", 20, 2.0, 20.0),
                 self.make_chrom_result("1", 10, 1.0, 10.0),
             ],
-            global_config=GlobalConfig(snp_identifier="rsid"),
         )
         self.assertEqual(result.baseline_table["CHR"].tolist(), ["1", "2"])
         self.assertEqual(result.baseline_table.columns.tolist(), ["CHR", "SNP", "POS", "regression_ld_scores", "base"])
@@ -1504,7 +1503,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             panel = PlinkRefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(backend="plink", plink_prefix=prefix))
 
 
-            gated, control_error, _ = ldscore_workflow._apply_direct_gene_gate_b(bundle, panel, LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True), GlobalConfig(snp_identifier="rsid"))
+            gated, control_error, _ = ldscore_workflow._apply_direct_gene_gate_b(bundle, panel, LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True))
 
             self.assertIsNone(control_error)
             self.assertEqual(gated.query_columns, ["mixed"])
@@ -1568,7 +1567,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             panel = PlinkRefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(backend="plink", plink_prefix=prefix))
 
 
-            gated, control_error, _ = ldscore_workflow._apply_direct_gene_gate_b(bundle, panel, LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True), GlobalConfig(snp_identifier="rsid"))
+            gated, control_error, _ = ldscore_workflow._apply_direct_gene_gate_b(bundle, panel, LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True))
 
             self.assertIsNone(control_error)
             self.assertEqual(gated.query_columns, ["padded"])

@@ -110,7 +110,10 @@ class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
                     "scale": "observed",
                 },
             )
-            self.assertTrue((tmpdir / "h2_out" / "diagnostics" / "h2.log").exists())
+            log_text = (tmpdir / "h2_out" / "diagnostics" / "h2.log").read_text(encoding="utf-8")
+            # The command is the entry point and logs the GlobalConfig once; dataset assembly logs none.
+            self.assertEqual(log_text.count("using GlobalConfig("), 1)
+            self.assertIn("run_h2_from_args using GlobalConfig(", log_text)
             self.assertTrue((tmpdir / "h2_out" / "diagnostics" / "ld_score_regression_bins.tsv").exists())
             legacy_audit = tmpdir / "h2_out" / "diagnostics" / "dropped_snps" / "legacy_sumstats.tsv.gz"
             self.assertTrue(legacy_audit.exists())

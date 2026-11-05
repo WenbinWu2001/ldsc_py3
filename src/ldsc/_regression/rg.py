@@ -24,7 +24,7 @@ from .._ldscore.source import LDScoreSource
 from .._runtime.progress import PhaseProgress
 from .._runtime.serial_calculation import serial_calculation
 from .._sumstats.table import SumstatsTable
-from ..config import GlobalConfig, RegressionConfig, normalize_prevalence_pair, suppress_global_config_banner
+from ..config import GlobalConfig, RegressionConfig, normalize_prevalence_pair
 from ..errors import LDSCInputError, LDSCUsageError, LDSCUserError
 from .jackknife import JackknifeIdentifiabilityError
 from .outputs import RG_CONCISE_COLUMNS, RG_FULL_COLUMNS
@@ -125,7 +125,7 @@ def estimate_rg_pairs(
     ldscores = _PreparedLDScores(ldscore_result)
 
     h2_rows = []
-    with suppress_global_config_banner(), PhaseProgress(LOGGER, "computation", "per-trait h2", len(tables)) as progress:
+    with PhaseProgress(LOGGER, "computation", "per-trait h2", len(tables)) as progress:
         for trait, (samp_prev, pop_prev) in zip(traits, prev):
             trait_name = _trait_label(trait.table)
             h2_dataset = None
@@ -157,7 +157,7 @@ def estimate_rg_pairs(
     alignment_drops: list[tuple[int, int]] = []
     pair_kind = "anchor" if anchor_index is not None else "all_pairs"
     pair_count = len(tables) - 1 if anchor_index is not None else len(tables) * (len(tables) - 1) // 2
-    with suppress_global_config_banner(), PhaseProgress(LOGGER, "computation", "rg pairs", pair_count) as progress:
+    with PhaseProgress(LOGGER, "computation", "rg pairs", pair_count) as progress:
         for i, j in _iter_rg_pairs(len(tables), anchor_index):
             trait_1 = _trait_label(tables[i])
             trait_2 = _trait_label(tables[j])

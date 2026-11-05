@@ -26,13 +26,7 @@ from typing import Sequence
 
 from .._runtime.cli_help import CLIHelpFormatter, SCALAR_PATH_HELP, output_directory_argument
 from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
-from ..config import (
-    GlobalConfig,
-    RegressionConfig,
-    get_global_config,
-    print_global_config_banner,
-    suppress_global_config_banner,
-)
+from ..config import GlobalConfig, RegressionConfig, get_global_config, print_global_config_banner
 from .._runtime.paths import ensure_output_directory, normalize_path_token
 from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from . import partitioned, rg
@@ -256,8 +250,7 @@ def _run_h2(
         sumstats_table = _load_sumstats_table(sumstats_file, trait_name)
         ldscore_result = load_ldscore_from_dir(ldscore_dir)
         _log_effective_regression_identity([sumstats_table], ldscore_result, global_config, config)
-        with suppress_global_config_banner():
-            prepared = _prepare_h2_dataset(sumstats_table, ldscore_result, config, global_config)
+        prepared = _prepare_h2_dataset(sumstats_table, ldscore_result, config, global_config)
         dataset, legacy_drops, nonfinite_rows = (prepared.dataset, prepared.legacy_drops,
                                                  prepared.dropped_nonfinite_statistic_rows)
         prepared = None  # the fitted dataset below replaces the unfiltered one
@@ -366,15 +359,14 @@ def _run_partitioned_h2(
         _log_effective_regression_identity([sumstats_table], ldscore_result, global_config, config)
         _log_partitioned_h2_regime(ldscore_result, has_queries)
         _log_quantitative_annotation_interpretation(ldscore_result)
-        with suppress_global_config_banner():
-            result = partitioned.estimate_partitioned_h2_batch(
-                sumstats_table, ldscore_result, config, global_config, output_dir=output_dir,
-                query_batch_size=query_batch_size,
-                workers=workers,
-                continue_on_query_error=continue_on_query_error,
-                overwrite=overwrite,
-                summary_sort_by=summary_sort_by,
-            )
+        result = partitioned.estimate_partitioned_h2_batch(
+            sumstats_table, ldscore_result, config, global_config, output_dir=output_dir,
+            query_batch_size=query_batch_size,
+            workers=workers,
+            continue_on_query_error=continue_on_query_error,
+            overwrite=overwrite,
+            summary_sort_by=summary_sort_by,
+        )
         log_outputs(**result.output_paths)
         LOGGER.info(
             f"Finished partitioned-h2 regression for {len(ldscore_result.query_columns)} query annotations "
@@ -513,15 +505,14 @@ def _run_rg(
         anchor_index = _resolve_anchor_index(anchor_trait, sumstats_paths, sumstats_tables)
         ldscore_result = load_ldscore_from_dir(ldscore_dir)
         _log_effective_regression_identity(sumstats_tables, ldscore_result, global_config, config)
-        with suppress_global_config_banner():
-            result = rg.estimate_rg_pairs(
-                sumstats_tables,
-                ldscore_result,
-                config,
-                global_config,
-                anchor_index=anchor_index,
-                prevalences=prevalences,
-            )
+        result = rg.estimate_rg_pairs(
+            sumstats_tables,
+            ldscore_result,
+            config,
+            global_config,
+            anchor_index=anchor_index,
+            prevalences=prevalences,
+        )
         written = RgDirectoryWriter().write(
             result,
             RgOutputConfig(

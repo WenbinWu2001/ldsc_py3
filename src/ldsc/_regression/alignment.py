@@ -43,7 +43,7 @@ from .._ldscore.results import LDScoreResult
 from .._ldscore.outputs import REGRESSION_LD_SCORE_COLUMN
 from .._ldscore.source import LDScoreSource
 from .._sumstats.table import SumstatsTable
-from ..config import GlobalConfig, RegressionConfig, print_global_config_banner
+from ..config import GlobalConfig, RegressionConfig
 from ..errors import LDSCInputError, LDSCUsageError
 from .outputs import LEGACY_SUMSTATS_DROP_COLUMNS
 from .results import RegressionDataset
@@ -247,10 +247,8 @@ def _prepare_h2_inputs(
     it; ``_dataset_from_prepared`` selects each model's columns and counts.
     ``build_checked`` skips the genome-build check when the caller already
     checked this trait and LD-score directory together. ``global_config``
-    supplies the SNP identifier mode of an input without recorded provenance;
-    the banner names ``RegressionRunner``, the public entry point.
+    supplies the SNP identifier mode of an input without recorded provenance.
     """
-    print_global_config_banner("RegressionRunner", global_config)
     sumstats_table, ldscore_result = trait.table, ldscores.source
     weight_column = REGRESSION_LD_SCORE_COLUMN
     ref_ld_columns = list(ldscore_result.baseline_columns)
@@ -355,7 +353,6 @@ def _rg_dataset(
     checked both traits and the LD-score directory together. ``global_config``
     is the SNP identifier fallback, as in ``_prepare_h2_inputs``.
     """
-    print_global_config_banner("RegressionRunner", global_config)
     sumstats_table_1, sumstats_table_2, ldscore_result = trait_1.table, trait_2.table, ldscores.source
     identity = _resolve_rg_identity(sumstats_table_1, sumstats_table_2, ldscore_result, global_config, config)
     identifier_mode = identity.effective_mode

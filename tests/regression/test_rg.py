@@ -53,6 +53,29 @@ class RgTest(RegressionFixtures, unittest.TestCase):
         self.assertEqual(result.per_pair_metadata[0]["effective_snp_identifier"], "rsid")
         self.assertFalse(result.per_pair_metadata[0]["identity_downgrade_applied"])
 
+    def test_the_global_config_banner_is_logged_once_by_the_facade_and_never_by_the_pair_run(self):
+        # The banner belongs to entry points: the facade method logs it once, and
+        # the pair run that the rg command calls logs none, whatever the pair count.
+        traits = [
+            replace(self.make_sumstats_table(), trait_name=name, source_path=f"{name}.sumstats.gz")
+            for name in ("A", "B", "C")
+        ]
+        config = RegressionConfig()
+        for label, run in (
+            ("facade", lambda: RegressionRunner(GlobalConfig(snp_identifier="rsid"), config).estimate_rg_pairs(
+                traits, self.make_ldscore_result())),
+            ("pair run", lambda: rg.estimate_rg_pairs(traits, self.make_ldscore_result(), config,
+                                                      GlobalConfig(snp_identifier="rsid"))),
+        ):
+            with self.subTest(label), stub_h2_kernel(self.make_rg_kernel_result().hsq1), mock.patch.object(
+                fitting.reg, "RG", return_value=self.make_rg_kernel_result(),
+            ), self.assertLogs("LDSC", level="INFO") as logs:
+                run()
+            banners = [line for line in logs.output if "using GlobalConfig(" in line]
+            self.assertEqual(banners, [mock.ANY] if label == "facade" else [])
+            if banners:
+                self.assertIn("LDSC.config:RegressionRunner using GlobalConfig(", banners[0])
+
     def test_estimate_rg_pairs_relabels_shared_trait_names_like_the_cli(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         traits = [

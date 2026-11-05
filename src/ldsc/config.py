@@ -21,8 +21,6 @@ Design Notes
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-from contextvars import ContextVar
 from dataclasses import dataclass, field
 import logging
 import math
@@ -290,10 +288,6 @@ class GlobalConfig:
 
 
 _GLOBAL_CONFIG: GlobalConfig = GlobalConfig()
-_GLOBAL_CONFIG_BANNER_SUPPRESSION: ContextVar[int] = ContextVar(
-    "ldsc_global_config_banner_suppression",
-    default=0,
-)
 
 
 def get_global_config() -> GlobalConfig:
@@ -342,20 +336,8 @@ def validate_config_compatibility(
         )
 
 
-@contextmanager
-def suppress_global_config_banner():
-    """Temporarily suppress plain-text GlobalConfig banners within this context."""
-    token = _GLOBAL_CONFIG_BANNER_SUPPRESSION.set(_GLOBAL_CONFIG_BANNER_SUPPRESSION.get() + 1)
-    try:
-        yield
-    finally:
-        _GLOBAL_CONFIG_BANNER_SUPPRESSION.reset(token)
-
-
 def print_global_config_banner(entrypoint: str, global_config: GlobalConfig) -> None:
-    """Log the active GlobalConfig for one public workflow entrypoint."""
-    if _GLOBAL_CONFIG_BANNER_SUPPRESSION.get() > 0:
-        return
+    """Log the active GlobalConfig for one public workflow entrypoint; call it only at entry points."""
     LOGGER.info(f"{entrypoint} using {global_config!r}")
 
 

@@ -3,8 +3,10 @@
 ``RegressionRunner`` holds a ``GlobalConfig`` (the SNP identifier fallback
 for an input without recorded provenance) and a default
 ``RegressionConfig``; each method takes an optional ``config`` that
-overrides the default for that call. Its methods forward to the regression
-modules, which take both configs explicitly:
+overrides the default for that call. Its methods are entry points: each one
+that reads inputs logs the ``GlobalConfig`` once, and all of them forward to
+the regression modules, which take both configs explicitly and log no
+banner:
 
 - ``alignment``: trait preparation, including the legacy ``.sumstats(.gz)``
   projection onto the LD-score panel, SNP identity resolution and keying,
@@ -31,7 +33,7 @@ from .._ldscore.results import LDScoreResult
 from .._ldscore.source import LDScoreSource
 from .._runtime.serial_calculation import serial_calculation
 from .._sumstats.table import SumstatsTable
-from ..config import GlobalConfig, RegressionConfig, get_global_config
+from ..config import GlobalConfig, RegressionConfig, get_global_config, print_global_config_banner
 from . import partitioned, rg
 from .results import PartitionedH2BatchResult, RegressionDataset, RegressionFit, RgResultFamily
 from .alignment import _prepare_h2_dataset, _prepare_rg_dataset, _validate_partitioned_query_columns
@@ -72,6 +74,7 @@ class RegressionRunner:
         chi-square filtering, weights, and jackknife work occur inside the fit.
         ``estimate_partitioned_h2_batch`` shares one alignment across query models.
         """
+        print_global_config_banner("RegressionRunner", self.global_config)
         return _prepare_h2_dataset(sumstats_table, ldscore_result, config or self.regression_config,
                                    self.global_config, query_columns=query_columns).dataset
 
@@ -91,6 +94,7 @@ class RegressionRunner:
         ``A1`` (the effect allele, the allele the signed statistic refers to)
         and ``A2``; otherwise ``LDSCInputError`` is raised.
         """
+        print_global_config_banner("RegressionRunner", self.global_config)
         return _prepare_rg_dataset(sumstats_table_1, sumstats_table_2, ldscore_result,
                                    config or self.regression_config, self.global_config)
 
@@ -249,6 +253,7 @@ class RegressionRunner:
         Shared loading/publication errors and interrupts can stop the scan
         before that final diagnostic table is written.
         """
+        print_global_config_banner("RegressionRunner", self.global_config)
         return partitioned.estimate_partitioned_h2_batch(
             sumstats_table, ldscore_result, config or self.regression_config, self.global_config,
             output_dir=output_dir, query_columns=query_columns, query_batch_size=query_batch_size,
@@ -352,6 +357,7 @@ class RegressionRunner:
             (``LDSCUsageError``). Whole-run input failures, such as
             incompatible h2 datasets, also propagate as ordinary exceptions.
         """
+        print_global_config_banner("RegressionRunner", self.global_config)
         return rg.estimate_rg_pairs(
             sumstats_tables, ldscore_result, config or self.regression_config, self.global_config,
             anchor_index=anchor_index, prevalences=prevalences,

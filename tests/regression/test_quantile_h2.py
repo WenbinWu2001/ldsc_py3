@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 import ldsc
-from ldsc.errors import LDSCInputError
+from ldsc.errors import LDSCConfigError, LDSCInputError
 from ldsc._regression.quantile_storage import parse_missing_token, target_chunks
 from ldsc._regression.quantile_h2 import (
     compute_quantile_h2,
@@ -326,6 +326,22 @@ class QuantileH2WorkflowTest(unittest.TestCase):
                 with self.assertRaisesRegex(LDSCInputError, "requires --num-quantiles to be an integer of at least 2"):
                     run_quantile_h2_from_args(self.args)
                 self.assertFalse(Path(self.args.output_dir).exists())
+
+    def test_gene_list_settings_are_checked_before_anything_is_written(self):
+        # The resupplied annotation settings become an AnnotationBuildConfig before the output preflight.
+        cases = {
+            "gene coordinate file without gene lists": {"gene_coordinate_file": str(self.root / "genes.tsv")},
+            "two query source types": {
+                "query_annot_sources": [str(self.root / "query.annot")],
+                "query_annot_bed_sources": [str(self.root / "query.bed")],
+            },
+        }
+        for label, settings in cases.items():
+            with self.subTest(label):
+                args = Namespace(**{**vars(self.args), **settings})
+                with self.assertRaisesRegex(LDSCConfigError, "Could not construct AnnotationBuildConfig"):
+                    run_quantile_h2_from_args(args)
+                self.assertFalse(Path(args.output_dir).exists())
 
     def test_empty_quantiles_are_rejected(self):
         self._write_target([1, 1, 1, 1])

@@ -439,7 +439,7 @@ For the user-facing contract, command patterns, and output schema, see
 [`munge-sumstats.md`](../reference/munge-sumstats.md).
 
 `SumstatsMunger.run()` preflights the owned family that `_sumstats.outputs.SumstatsDirectoryWriter.artifact_family()` declares: `sumstats.parquet`, `sumstats.gz`, `diagnostics/sumstats.log`, `diagnostics/dropped_snps/dropped.tsv.gz` and `diagnostics/input_issues.tsv`.
-It then delegates to the legacy-compatible munging kernel, curates its rows once with `_sumstats.outputs.curated_sumstats_frame()` (fixed columns, canonical `CHR` labels, genomic row order), and hands that frame, which the returned `SumstatsTable` also holds, the Parquet footer from `_sumstats.table.encode_sumstats_footer()` and the dropped-SNP table to `SumstatsDirectoryWriter.write()`, which stages every file inside the output directory and moves them into place together.
+It then delegates to the legacy-compatible munging kernel, puts its rows into output form once with `_sumstats.outputs.curated_sumstats_frame()` (fixed columns, canonical `CHR` labels, genomic row order), and hands that frame, which the returned `SumstatsTable` also holds, the Parquet footer from `_sumstats.table.encode_sumstats_footer()` and the dropped-SNP table to `SumstatsDirectoryWriter.write()`, which stages every file inside the output directory and moves them into place together.
 The workflow owns the log file; the kernel keeps the low-level parsing and QC.
 Before calling the kernel, the workflow runs format and column inference:
 `--input-format auto` is the default and detects plain whitespace text, including

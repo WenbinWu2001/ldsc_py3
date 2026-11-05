@@ -32,7 +32,7 @@ from .artifact import (
     inspect_index_paths,
     require_current_index_format,
 )
-from ..._runtime.parallelism import validate_workers
+from ..._runtime.parallelism import validate_query_batch_size, validate_workers
 from ..._runtime.paths import output_directory_path
 from ..._refpanel.funnel import concat_funnels
 from ..._runtime.progress import advance, report_phase
@@ -477,8 +477,7 @@ def run_indexed_ldscore(
     numbered names in the required ``query_batches`` manifest. This API writes
     outputs even for a single batch; batch resumption is not supported.
     """
-    if isinstance(query_batch_size, bool) or not isinstance(query_batch_size, int) or query_batch_size < 1:
-        raise ValueError("query_batch_size must be a positive integer.")
+    validate_query_batch_size(query_batch_size)
     validate_workers(workers)
     output_dir = str(output_directory_path(output_dir))
     LDScoreDirectoryWriter.artifact_family(output_dir).preflight(overwrite=overwrite)

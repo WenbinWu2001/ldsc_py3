@@ -33,6 +33,14 @@ def test_invalid_workers_rejected_before_io(tmp_path, workers, workflow):
     assert not (tmp_path / "out").exists()
 
 
+@pytest.mark.parametrize("query_batch_size", [0, -1, True, 1.5, 1.0, "2", None])
+def test_invalid_indexed_query_batch_size_rejected_before_io(tmp_path, query_batch_size):
+    with pytest.raises(ValueError, match="query_batch_size must be a positive integer"):
+        run_indexed_ldscore("missing", query_gene_list_sources=[], output_dir=tmp_path / "out",
+                            query_batch_size=query_batch_size)
+    assert not (tmp_path / "out").exists()
+
+
 @pytest.mark.parametrize("module", ["_ldscore.calculator", "_ldscore.gene_index.build"])
 @pytest.mark.parametrize("value", ["0", "True", "False", "1.5", "1.0"])
 def test_cli_rejects_invalid_workers(module, value, capsys):

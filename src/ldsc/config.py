@@ -637,10 +637,11 @@ class GeneLDScoreIndexBuildConfig:
 
     Parameters
     ----------
-    baseline_annot_sources : str or sequence of str
-        Ordered baseline annotation paths or chromosome-suite tokens, stored
-        as a tuple. As on the command line, comma-separated tokens are split
-        and blank tokens dropped; at least one token must remain. Their
+    baseline_annot_sources : str, path or sequence of them
+        Ordered baseline annotation path tokens, stored as a tuple. As on the
+        command line, the given text is split at commas, each token's
+        ``~`` and environment variables are expanded once, and blank tokens
+        are dropped; at least one token must remain. Their
         effective keys are inner-joined to the selected PLINK BIM before
         genotype QC. Shared-key coordinate or usable-allele contradictions
         fail; PLINK supplies metadata for consistent matches. Allele-aware
@@ -731,9 +732,12 @@ class GeneLDScoreIndexBuildConfig:
     workers: int = 1
 
     def __post_init__(self) -> None:
-        # Split comma-separated tokens and drop blank ones, as the command line does, before the emptiness check.
+        # As on the command line: split the given text at commas, expand each token once and drop blank ones,
+        # before the emptiness check. Expanding first would split a variable's value that holds a comma.
+        sources = self.baseline_annot_sources
         object.__setattr__(
-            self, "baseline_annot_sources", tuple(split_cli_path_tokens(_normalize_path_tuple(self.baseline_annot_sources)))
+            self, "baseline_annot_sources",
+            tuple(split_cli_path_tokens(str(sources) if isinstance(sources, PathLike) else sources)),
         )
         object.__setattr__(self, "plink_prefix", normalize_required_path(self.plink_prefix))
         object.__setattr__(self, "output_dir", normalize_required_path(self.output_dir))

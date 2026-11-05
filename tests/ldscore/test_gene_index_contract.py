@@ -73,6 +73,22 @@ def test_builder_python_config_splits_baseline_tokens_like_the_command_line(sour
     assert config.baseline_annot_sources == expected
 
 
+@pytest.mark.parametrize("sources,expected", [
+    ("$LDSC_TEST_DIR/base.@.annot.gz,$LDSC_TEST_NESTED/extra.annot.gz",
+     ("/data/a,b/base.@.annot.gz", "$LDSC_TEST_INNER/extra.annot.gz")),
+    (Path("base.@.annot.gz"), ("base.@.annot.gz",)),
+])
+def test_builder_python_config_splits_baseline_text_before_expanding_it(sources, expected, monkeypatch):
+    # As on the command line, commas split the text as given; a variable's value is one path, expanded once.
+    monkeypatch.setenv("LDSC_TEST_DIR", "/data/a,b")
+    monkeypatch.setenv("LDSC_TEST_NESTED", "$LDSC_TEST_INNER")
+    monkeypatch.setenv("LDSC_TEST_INNER", "/inner")
+    config = GeneLDScoreIndexBuildConfig(baseline_annot_sources=sources, plink_prefix="panel", output_dir="index",
+                                         gene_coordinate_file="genes", genome_build="hg19", snp_identifier="rsid",
+                                         ld_wind_kb=100)
+    assert config.baseline_annot_sources == expected
+
+
 @pytest.mark.parametrize("build,canonical", [("GRCh37", "hg19"), ("GRCh38", "hg38")])
 def test_builder_normalizes_explicit_build_aliases(build, canonical):
     config = GeneLDScoreIndexBuildConfig(baseline_annot_sources=("baseline",), plink_prefix="panel",

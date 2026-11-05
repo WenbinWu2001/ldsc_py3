@@ -12,6 +12,7 @@ from .._core.chromosomes import normalize_chromosome
 from .._core.columns import A1_COLUMN_SPEC, A2_COLUMN_SPEC, CHR_COLUMN_SPEC, SNP_COLUMN_SPEC, ColumnSpec, resolve_required_column
 from ..errors import LDSCInputError
 from .._core.coordinates import positive_int_position_series
+from .._core.snp_identity import canonical_allele_series
 
 
 HM3_HG19_POS_SPEC = ColumnSpec(
@@ -111,8 +112,8 @@ def _positive_int_position(values, *, label: str, context: str) -> pd.Series:
 
 
 def _canonical_hm3_allele(values, *, label: str, context: str) -> pd.Series:
-    """Return uppercase single-base HM3 alleles, rejecting missing or invalid values."""
-    series = pd.Series(values).astype("string").str.strip().str.upper()
+    """Return HM3 alleles from the canonical allele cleaner, rejecting missing values and letters other than A/C/G/T."""
+    series = canonical_allele_series(pd.Series(values))
     invalid = series.isna() | ~series.isin(["A", "C", "G", "T"])
     if bool(invalid.any()):
         examples = series.loc[invalid].head(5).astype(object).where(series.loc[invalid].notna(), "NA").tolist()
@@ -121,7 +122,7 @@ def _canonical_hm3_allele(values, *, label: str, context: str) -> pd.Series:
             "Most likely the curated map is malformed or was edited manually. "
             "Use the packaged HM3 map or regenerate the curated map with A/C/G/T alleles."
         )
-    return series.astype("string")
+    return series
 
 
 def _reject_duplicate_hm3_coordinates(frame: pd.DataFrame, *, build: str) -> None:

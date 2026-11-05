@@ -84,7 +84,7 @@ The lazily exported workflows in `ldsc/__init__.py` and the per-command modules 
 | `ldsc._core.chromosomes` | canonical chromosome normalization and ordering |
 | `ldsc._core.columns` | resolve header aliases and normalize identifier/build tokens |
 | `ldsc._core.coordinates` | `CHR:POS` keys and coordinate-frame normalization |
-| `ldsc._core.snp_identity`, `ldsc._core.identifiers` | the four SNP identifier modes, base/effective identity keys, allele-aware cleanup, restriction files, `identifier_keys`, retained-identity uniqueness checks, and `read_identity_lines`, which consumes the leading `# ldsc:` identity lines of package-written text tables for the R² matrix sidecar reader and `quantile-h2` reference metadata |
+| `ldsc._core.snp_identity`, `ldsc._core.identifiers` | the four SNP identifier modes, the one allele cleaner (`canonical_allele_series`, which munging and the HM3 map loader also use), base/effective identity keys, allele-aware cleanup, restriction files, `identifier_keys`, retained-identity uniqueness checks, and `read_identity_lines`, which consumes the leading `# ldsc:` identity lines of package-written text tables for the R² matrix sidecar reader and `quantile-h2` reference metadata |
 | `ldsc._core.regions` | packaged and user BED interval loading plus region-exclusion masks |
 | `ldsc._core.row_alignment` | row-alignment checks between SNP tables and the shared genomic sort |
 | `ldsc._core.plink_files` | retained PLINK `.bim`/`.fam` and identifier-list readers; obsolete legacy regression-artifact readers are removed |

@@ -48,6 +48,7 @@ from .._core.snp_identity import (
     _combine_base_and_allele_keys,
     allele_set_series,
     base_key_series,
+    canonical_allele_series,
     clean_identity_artifact_table,
     collapse_restriction_identity_keys,
     identity_mode_family,
@@ -295,25 +296,27 @@ def _coerce_info_list_columns(dat, columns):
     return dat
 
 
-def _uppercase_alleles(alleles, mode):
-    """Return one chunk's ``A1`` or ``A2`` column in uppercase, in every SNP identifier mode.
+def _canonical_alleles(alleles, mode):
+    """Return one chunk's ``A1`` or ``A2`` column through the canonical allele cleaner, in every SNP identifier mode.
 
     Legacy ``munge_sumstats.py`` uppercases both allele columns whenever they
     exist, so the letters a munged file lists, and so the allele comparison in
-    ``rg``, do not depend on the mode. ``astype("string")`` reads every parsed
-    value as text and keeps missing alleles missing. Allele-aware modes store
-    the pandas string dtype; base modes, which do not validate alleles, store
-    Python objects and leave a column without letters (numeric allele codes,
-    or only missing values) as parsed. A missing base-mode allele stays the
-    float ``NaN`` the reader gave it, not ``pd.NA``: the ``rg`` allele
-    comparison of an in-memory table needs comparisons that return ``False``.
+    ``rg``, do not depend on the mode. ``canonical_allele_series`` reads every
+    parsed value as text and keeps missing alleles missing; its stripping and
+    empty-to-missing rules change nothing here, because whitespace-delimited
+    fields hold no blanks. Allele-aware modes store its pandas string dtype;
+    base modes, which do not validate alleles, store Python objects and leave
+    a column without letters (numeric allele codes, or only missing values)
+    as parsed. A missing base-mode allele stays the float ``NaN`` the reader
+    gave it, not ``pd.NA``: the ``rg`` allele comparison of an in-memory table
+    needs comparisons that return ``False``.
     """
     if is_allele_aware_mode(mode):
-        return alleles.astype("string").str.upper()
+        return canonical_allele_series(alleles)
     if pd.api.types.is_numeric_dtype(alleles):
         return alleles
-    upper = alleles.astype("string").str.upper()
-    return upper.astype(object).where(upper.notna(), np.nan)
+    cleaned = canonical_allele_series(alleles)
+    return cleaned.astype(object).where(cleaned.notna(), np.nan)
 
 
 @report_phase(LOGGER, "preparation", "summary-statistic rows")
@@ -385,7 +388,7 @@ def parse_dat(dat_gen, request: ResolvedMungeInput) -> _ParsedChunks:
             old = new
             for allele in ('A1', 'A2'):
                 if allele in dat.columns:
-                    dat[allele] = _uppercase_alleles(dat[allele], mode)
+                    dat[allele] = _canonical_alleles(dat[allele], mode)
 
             if ii.sum() == 0:
                 continue

@@ -269,13 +269,17 @@ def _build_allele_lookup_tables() -> tuple[np.ndarray, np.ndarray]:
 _ALLELE_CANONICAL16, _ALLELE_REASON16 = _build_allele_lookup_tables()
 
 
-def _clean_allele_series(column: pd.Series) -> pd.Series:
-    """Vectorized :func:`_clean_allele` over a column.
+def canonical_allele_series(column: pd.Series) -> pd.Series:
+    """Return alleles in their canonical spelling: stripped, uppercase text, with ``pd.NA`` for missing or empty values.
 
-    Returns a ``StringDtype`` series of stripped, uppercased allele tokens with
-    ``pd.NA`` for missing or empty values. ``astype("string")`` reproduces the
-    scalar ``str(value)`` coercion (including non-string inputs) while preserving
-    missing values, so each element matches ``_clean_allele`` exactly.
+    This is the package's one allele cleaner: SNP identity keys are built
+    from its output, ``munge-sumstats`` writes ``A1``/``A2`` through it in
+    every SNP identifier mode, and the HM3 map loader cleans its alleles with
+    it. It does not validate the letters; callers decide what a valid allele
+    is. The result has the pandas ``string`` dtype. ``astype("string")``
+    reproduces the scalar ``str(value)`` coercion (including non-string
+    inputs) while preserving missing values, so each element matches
+    :func:`_clean_allele`, its scalar form.
     """
     cleaned = column.astype("string").str.strip().str.upper()
     return cleaned.where(cleaned != "", other=pd.NA)
@@ -284,11 +288,11 @@ def _clean_allele_series(column: pd.Series) -> pd.Series:
 def _allele_codes(column: pd.Series) -> tuple[np.ndarray, np.ndarray]:
     """Return per-row missing flags and base codes for one allele column.
 
-    Each distinct token is cleaned once with :func:`_clean_allele_series` and
+    Each distinct token is cleaned once with :func:`canonical_allele_series` and
     mapped back to its rows, which gives the per-row result of cleaning every row.
     """
     codes, uniques = pd.factorize(column, use_na_sentinel=True)
-    cleaned = _clean_allele_series(pd.Series(uniques, dtype=object))
+    cleaned = canonical_allele_series(pd.Series(uniques, dtype=object))
     unique_missing = np.append(cleaned.isna().to_numpy(), True)  # code -1 (NA) reads the final entry
     unique_codes = np.append(_base_codes(cleaned), -1)
     return unique_missing[codes], unique_codes[codes]

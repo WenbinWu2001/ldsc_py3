@@ -34,15 +34,7 @@ from .._sumstats.table import SumstatsTable
 from ..config import GlobalConfig, RegressionConfig, get_global_config
 from . import partitioned, rg
 from .results import PartitionedH2BatchResult, RegressionDataset, RegressionFit, RgResultFamily
-from .alignment import (
-    _PreparedLDScores,
-    _dataset_from_prepared,
-    _prepare_h2_inputs,
-    _prepare_trait_sumstats,
-    _require_rg_alleles,
-    _rg_dataset,
-    _validate_partitioned_query_columns,
-)
+from .alignment import _prepare_h2_dataset, _prepare_rg_dataset, _validate_partitioned_query_columns
 from .fitting import _config_prevalence, _fit_h2_dataset, _fit_rg_dataset, summarize_partitioned_h2
 
 
@@ -80,10 +72,8 @@ class RegressionRunner:
         chi-square filtering, weights, and jackknife work occur inside the fit.
         ``estimate_partitioned_h2_batch`` shares one alignment across query models.
         """
-        config = config or self.regression_config
-        prepared = _prepare_h2_inputs(_prepare_trait_sumstats(sumstats_table, ldscore_result),
-                                      _PreparedLDScores(ldscore_result), config, self.global_config)
-        return _dataset_from_prepared(prepared, config, query_columns=query_columns)
+        return _prepare_h2_dataset(sumstats_table, ldscore_result, config or self.regression_config,
+                                   self.global_config, query_columns=query_columns).dataset
 
     def build_rg_dataset(
         self,
@@ -101,14 +91,8 @@ class RegressionRunner:
         ``A1`` (the effect allele, the allele the signed statistic refers to)
         and ``A2``; otherwise ``LDSCInputError`` is raised.
         """
-        _require_rg_alleles([sumstats_table_1, sumstats_table_2])
-        return _rg_dataset(
-            _prepare_trait_sumstats(sumstats_table_1, ldscore_result),
-            _prepare_trait_sumstats(sumstats_table_2, ldscore_result),
-            _PreparedLDScores(ldscore_result),
-            config or self.regression_config,
-            self.global_config,
-        )
+        return _prepare_rg_dataset(sumstats_table_1, sumstats_table_2, ldscore_result,
+                                   config or self.regression_config, self.global_config)
 
     def estimate_h2(
         self,

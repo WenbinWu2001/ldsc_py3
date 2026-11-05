@@ -31,9 +31,8 @@ from .outputs import RG_CONCISE_COLUMNS, RG_FULL_COLUMNS
 from .results import RgResultFamily
 from .alignment import (
     _PreparedLDScores,
-    _dataset_from_prepared,
+    _h2_dataset,
     _ldscore_identity_mode,
-    _prepare_h2_inputs,
     _prepare_trait_sumstats,
     _regression_genome_build,
     _require_rg_alleles,
@@ -132,9 +131,7 @@ def estimate_rg_pairs(
             h2_dataset = None
             try:
                 # As for pairs, an error fails only this trait's own fit; its pairs are still fitted.
-                h2_dataset = _dataset_from_prepared(
-                    _prepare_h2_inputs(trait, ldscores, config, global_config, build_checked=True), config,
-                )
+                h2_dataset = _h2_dataset(trait, ldscores, config, global_config, build_checked=True)
                 outcome = _fit_h2_dataset(h2_dataset, config, log_level=logging.DEBUG)
                 row = summarize_total_h2(
                     outcome.estimator, outcome.dataset, trait_name=trait_name, n_snps_used=outcome.n_snps,

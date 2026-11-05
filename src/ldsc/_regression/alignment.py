@@ -159,6 +159,80 @@ class _PreparedLDScores:
         return self._keyed[mode, cleaned]
 
 
+@dataclass(frozen=True)
+class _PreparedH2Dataset:
+    """One trait's h2 dataset and the provenance of its trait preparation.
+
+    ``legacy_drops`` and ``dropped_nonfinite_statistic_rows`` come from the
+    trait's ``_PreparedTraitSumstats``; ``h2`` results record both.
+    """
+
+    dataset: RegressionDataset
+    legacy_drops: pd.DataFrame | None
+    dropped_nonfinite_statistic_rows: int
+
+
+def _prepare_h2_dataset(
+    sumstats_table: SumstatsTable,
+    ldscore_result: LDScoreSource | LDScoreResult,
+    config: RegressionConfig,
+    global_config: GlobalConfig,
+    *,
+    query_columns: Sequence[str] | None = None,
+) -> _PreparedH2Dataset:
+    """Prepare one trait and build its h2 dataset; ``ldsc h2`` and ``RegressionRunner.build_dataset`` use it.
+
+    ``query_columns`` adds query LD scores to the baseline model.
+    ``global_config`` supplies the SNP identifier mode of an input without
+    recorded provenance. The trait's keyed rows are released on return; the
+    dataset keeps only the aligned rows.
+    """
+    trait = _prepare_trait_sumstats(sumstats_table, ldscore_result)
+    dataset = _h2_dataset(trait, _PreparedLDScores(ldscore_result), config, global_config, query_columns=query_columns)
+    return _PreparedH2Dataset(dataset, trait.legacy_drops, trait.dropped_nonfinite_statistic_rows)
+
+
+def _h2_dataset(
+    trait: _PreparedTraitSumstats,
+    ldscores: _PreparedLDScores,
+    config: RegressionConfig,
+    global_config: GlobalConfig,
+    *,
+    build_checked: bool = False,
+    query_columns: Sequence[str] | None = None,
+) -> RegressionDataset:
+    """Build one model's h2 dataset from prepared trait summary statistics.
+
+    ``rg`` fits each trait's own SNP heritability with it, reusing the trait
+    it prepared once for the run; ``build_checked`` is as in
+    ``_prepare_h2_inputs``.
+    """
+    prepared = _prepare_h2_inputs(trait, ldscores, config, global_config, build_checked=build_checked)
+    return _dataset_from_prepared(prepared, config, query_columns=query_columns)
+
+
+def _prepare_rg_dataset(
+    sumstats_table_1: SumstatsTable,
+    sumstats_table_2: SumstatsTable,
+    ldscore_result: LDScoreSource | LDScoreResult,
+    config: RegressionConfig,
+    global_config: GlobalConfig,
+) -> RegressionDataset:
+    """Prepare both traits and build their pair dataset; see ``RegressionRunner.build_rg_dataset``.
+
+    Both traits must carry ``A1`` and ``A2``. The rg pair run prepares each
+    trait once and calls ``_rg_dataset`` for every pair instead.
+    """
+    _require_rg_alleles([sumstats_table_1, sumstats_table_2])
+    return _rg_dataset(
+        _prepare_trait_sumstats(sumstats_table_1, ldscore_result),
+        _prepare_trait_sumstats(sumstats_table_2, ldscore_result),
+        _PreparedLDScores(ldscore_result),
+        config,
+        global_config,
+    )
+
+
 def _prepare_h2_inputs(
     trait: _PreparedTraitSumstats,
     ldscores: _PreparedLDScores,

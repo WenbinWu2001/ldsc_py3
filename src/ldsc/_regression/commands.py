@@ -48,14 +48,7 @@ from .outputs import (
     RgOutputConfig,
 )
 from .results import H2Result, PartitionedH2BatchResult, RgResultFamily
-from .alignment import (
-    _PreparedLDScores,
-    _dataset_from_prepared,
-    _log_effective_regression_identity,
-    _prepare_h2_inputs,
-    _prepare_trait_sumstats,
-    _trait_label,
-)
+from .alignment import _log_effective_regression_identity, _prepare_h2_dataset, _trait_label
 from .fitting import _fit_h2_dataset, _h2_metadata, _ldscore_dir_of, _log_phase_timing, summarize_total_h2
 from .partitioned import (
     PARTITIONED_H2_SUMMARY_SORT_COLUMNS,
@@ -263,13 +256,11 @@ def _run_h2(
         sumstats_table = _load_sumstats_table(sumstats_file, trait_name)
         ldscore_result = load_ldscore_from_dir(ldscore_dir)
         _log_effective_regression_identity([sumstats_table], ldscore_result, global_config, config)
-        trait = _prepare_trait_sumstats(sumstats_table, ldscore_result)
         with suppress_global_config_banner():
-            dataset = _dataset_from_prepared(
-                _prepare_h2_inputs(trait, _PreparedLDScores(ldscore_result), config, global_config), config,
-            )
-        # The fit needs only the aligned rows; release the trait's keyed copy.
-        legacy_drops, nonfinite_rows, trait = trait.legacy_drops, trait.dropped_nonfinite_statistic_rows, None
+            prepared = _prepare_h2_dataset(sumstats_table, ldscore_result, config, global_config)
+        dataset, legacy_drops, nonfinite_rows = (prepared.dataset, prepared.legacy_drops,
+                                                 prepared.dropped_nonfinite_statistic_rows)
+        prepared = None  # the fitted dataset below replaces the unfiltered one
         outcome = _fit_h2_dataset(dataset, config)
         hsq, dataset = outcome.estimator, outcome.dataset
         n_snps_used = outcome.n_snps

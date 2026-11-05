@@ -280,6 +280,33 @@ class _LDScorePublication:
     identity_drops_by_chrom: dict[str, TsvDiagnostics] = field(default_factory=dict)
     ref_metadata_chroms: tuple[str, ...] = ()
 
+    @classmethod
+    def from_first_batch(cls, result: LDScoreResult | StagedLDScoreBatch) -> _LDScorePublication:
+        """Start a publication from the run's first batch, materialized or staged.
+
+        The first batch's baseline and run-level provenance belong to the
+        whole run. Counts, annotation types and overlap keep only their
+        baseline entries; every batch, the first included, then adds its own
+        query entries. Identity drops are staged separately.
+        """
+        return cls(
+            baseline_table=result.baseline_table,
+            baseline_columns=list(result.baseline_columns),
+            count_records=[record for record in result.count_records if record["group"] == "baseline"],
+            count_config=dict(result.count_config),
+            config_snapshot=result.config_snapshot,
+            gene_list_batch=result.gene_list_batch,
+            chromosome_scope=result.chromosome_scope,
+            index_provenance=result.index_provenance,
+            annotation_types={name: result.annotation_types.get(name, "unknown") for name in result.baseline_columns},
+            snp_universe_policy=result.snp_universe_policy,
+            legacy_ldscore_conversion=result.legacy_ldscore_conversion,
+            overlap=None if result.overlap is None else result.overlap.select_queries([]),
+            ld_window=result.ld_window,
+            ld_window_snp_counts=result.ld_window_snp_counts,
+            reference_snp_funnel=result.reference_snp_funnel,
+        )
+
 
 @dataclass(frozen=True)
 class LDScoreOutputConfig:
@@ -475,23 +502,7 @@ class LDScoreDirectoryWriter:
                                 result.baseline_table, result.query_table, result.query_columns,
                                 snp_identifier=snp_identifier,
                             )
-                        shared = _LDScorePublication(
-                            baseline_table=result.baseline_table,
-                            baseline_columns=list(result.baseline_columns),
-                            count_records=[record for record in result.count_records if record["group"] == "baseline"],
-                            count_config=dict(result.count_config),
-                            config_snapshot=result.config_snapshot,
-                            gene_list_batch=result.gene_list_batch,
-                            chromosome_scope=result.chromosome_scope,
-                            index_provenance=result.index_provenance,
-                            annotation_types={name: result.annotation_types.get(name, "unknown") for name in result.baseline_columns},
-                            snp_universe_policy=result.snp_universe_policy,
-                            legacy_ldscore_conversion=None if streamed else result.legacy_ldscore_conversion,
-                            overlap=None if result.overlap is None else result.overlap.select_queries([]),
-                            ld_window=result.ld_window,
-                            ld_window_snp_counts=result.ld_window_snp_counts,
-                            reference_snp_funnel=result.reference_snp_funnel,
-                        )
+                        shared = _LDScorePublication.from_first_batch(result)
                         baseline_rg = _write_chromosome_aligned_parquet(shared.baseline_table, stage / BASELINE_FILE, compression)
                         for chrom, artifact in result.identity_drops_by_chrom.items():
                             path = stage / dropped_snps_file(chrom)

@@ -499,6 +499,7 @@ The writer stores run metadata once, and `_regression.quantile_h2.load_fitted_pa
 `LDScoreDirectoryWriter.write_batches()` consumes materialized `LDScoreResult` values or private `StagedLDScoreBatch` descriptors behind the same publication interface.
 It is the only publication path for LD-score directories: direct `ldscore`, indexed scoring and `convert-legacy-ldscores` all publish through it.
 Its publication record retains the baseline, counts, overlap, provenance, and diagnostics, without retaining the LD-score producer's query values or chromosome results.
+`_LDScorePublication.from_first_batch` builds that record from the first batch, materialized or staged alike: both batch records carry the same run-level provenance fields, so the writer has no per-type copy.
 The producer owns active fragments through consumption or worker shutdown; the writer closes the producer before removing publication staging on handled failure.
 Fragment validation consumes tables directly and checks row alignment once per fragment, without constructing partial result objects.
 

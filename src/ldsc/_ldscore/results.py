@@ -282,6 +282,9 @@ class StagedLDScoreBatch:
     LD-score producer's precision; reads select only these retained columns.
     This internal descriptor is neither a materialized ``LDScoreResult`` nor
     a persistent ``LDScoreSource`` and must not escape its producer lifetime.
+    The other fields mean what they mean on ``LDScoreResult``;
+    ``legacy_ldscore_conversion`` stays ``None`` because both producers of
+    staged batches compute native LD scores.
     """
 
     baseline_table: pd.DataFrame
@@ -299,6 +302,7 @@ class StagedLDScoreBatch:
     annotation_types: dict = field(default_factory=dict)
     identity_drops_by_chrom: dict = field(default_factory=dict)
     snp_universe_policy: dict | None = None
+    legacy_ldscore_conversion: dict | None = None
     ld_window: dict | None = None
     ld_window_snp_counts: pd.DataFrame | None = None
     reference_snp_funnel: pd.DataFrame | None = None

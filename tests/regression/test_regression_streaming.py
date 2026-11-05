@@ -1,5 +1,6 @@
 """Selective input and fit ownership checks for large pathway batches."""
 
+from dataclasses import replace
 import weakref
 import json
 import subprocess
@@ -38,7 +39,8 @@ def test_public_directory_reader_does_not_import_regression(tmp_path):
 
         class BlockWorkflowImports(importlib.abc.MetaPathFinder):
             def find_spec(self, fullname, path=None, target=None):
-                if fullname == "ldsc._regression.runner":
+                if fullname in {"ldsc._regression.runner", "ldsc._regression.commands", "ldsc._regression.alignment",
+                                "ldsc._regression.fitting", "ldsc._regression.partitioned", "ldsc._regression.rg"}:
                     raise ImportError(f"Directory reads must not import {fullname}")
 
         sys.meta_path.insert(0, BlockWorkflowImports())
@@ -104,7 +106,7 @@ def test_shared_preparation_preserves_order_and_model_specific_column_filtering(
     fixture = RegressionFixtures()
     result = fixture.make_ldscore_result()
     table = fixture.make_sumstats_table()
-    table = workflow.replace(table, data=table.data.iloc[[2, 0, 1]].reset_index(drop=True))
+    table = replace(table, data=table.data.iloc[[2, 0, 1]].reset_index(drop=True))
     result.query_table["query2"] = 1.0
     runner = workflow.RegressionRunner()
     prepared = alignment._prepare_h2_inputs(alignment._prepare_trait_sumstats(table, result),
@@ -382,7 +384,7 @@ def test_rg_root_metadata_records_each_trait_source_and_the_ldscore_directory(tm
 def test_parallel_queries_match_inline_models_and_artifact_order(tmp_path, batch_size):
     table, source = batch_inputs(tmp_path / "ld")
     # Trait order must never determine contiguous jackknife blocks.
-    table = workflow.replace(table, data=table.data.iloc[::-1].reset_index(drop=True))
+    table = replace(table, data=table.data.iloc[::-1].reset_index(drop=True))
     runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(num_blocks=6))
     results = [runner.estimate_partitioned_h2_batch(
         table, source, output_dir=tmp_path / f"workers-{workers}", workers=workers,
@@ -405,7 +407,7 @@ def test_parallel_queries_match_inline_models_and_artifact_order(tmp_path, batch
         assert not list((tmp_path / f"workers-{workers}").glob(".ldsc-annotation-*"))
 
 
-@pytest.mark.parametrize("sort_by", ["auto", *workflow.PARTITIONED_H2_SUMMARY_SORT_COLUMNS])
+@pytest.mark.parametrize("sort_by", ["auto", *partitioned.PARTITIONED_H2_SUMMARY_SORT_COLUMNS])
 def test_real_partitioned_command_preserves_sorted_artifacts_metadata_and_overwrite(tmp_path, sort_by):
     args, source = cli_inputs(tmp_path)
     output = tmp_path / "out"
@@ -416,7 +418,7 @@ def test_real_partitioned_command_preserves_sorted_artifacts_metadata_and_overwr
     assert not marker.exists()
     written = pd.read_csv(output / "partitioned_h2.tsv", sep="\t")
     pd.testing.assert_frame_equal(written.drop(columns="query_result_dir"), result, check_dtype=False)
-    key = "coefficient_p" if sort_by == "auto" else workflow.PARTITIONED_H2_SUMMARY_SORT_COLUMNS[sort_by]
+    key = "coefficient_p" if sort_by == "auto" else partitioned.PARTITIONED_H2_SUMMARY_SORT_COLUMNS[sort_by]
     ascending = sort_by in {"auto", "category", "enrichment-p", "coefficient-p"}
     assert written[key].tolist() == sorted(written[key], reverse=not ascending)
     manifest = pd.read_csv(output / "diagnostics/query_annotations/manifest.tsv", sep="\t")

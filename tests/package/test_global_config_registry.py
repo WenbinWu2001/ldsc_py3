@@ -17,7 +17,7 @@ from ldsc._ldscore.results import LDScoreResult
 from ldsc._runtime.workflow_kwargs import parse_command_line
 from ldsc._refpanel import builder as r2_matrix_builder
 from ldsc._refpanel.builder import R2MatrixBuildConfig, R2MatrixBuilder
-from ldsc._regression import quantile_h2, runner as regression_runner
+from ldsc._regression import commands, quantile_h2
 from ldsc._regression.runner import RegressionRunner
 from ldsc._sumstats.table import SumstatsTable
 from tests.runtime.test_path_resolution import _write_plink_trio
@@ -198,13 +198,13 @@ _KEYWORD_WRAPPERS = {
     "run_build_r2_matrix": (r2_matrix_builder, "_build", 1, {
         "plink_prefix": "panel.@", "ld_wind_kb": 1.0, "ref_panel_snps_file": "hm3.tsv",
     }, _r2_matrix_global_config),
-    "run_h2": (regression_runner, "run_h2_from_args", 0, {
+    "run_h2": (commands, "run_h2_from_args", 0, {
         "sumstats_file": "trait.parquet", "ldscore_dir": "ldscores",
     }, _log_level_only),
-    "run_partitioned_h2": (regression_runner, "run_partitioned_h2_from_args", 0, {
+    "run_partitioned_h2": (commands, "run_partitioned_h2_from_args", 0, {
         "sumstats_file": "trait.parquet", "ldscore_dir": "ldscores",
     }, _log_level_only),
-    "run_rg": (regression_runner, "run_rg_from_args", 0, {
+    "run_rg": (commands, "run_rg_from_args", 0, {
         "sumstats_sources": ["a.parquet", "b.parquet"], "ldscore_dir": "ldscores",
     }, _log_level_only),
     "run_quantile_h2": (quantile_h2, "run_quantile_h2_from_args", 0, {

@@ -1,3 +1,5 @@
+"""The h2, partitioned-h2 and rg commands: parsers, argument handling, output preflight, and run routes."""
+
 import argparse
 import contextlib
 from dataclasses import replace
@@ -17,14 +19,13 @@ from ldsc.config import GlobalConfig, set_global_config
 from ldsc.errors import LDSCConfigError, LDSCUsageError
 
 from ldsc import cli
-from ldsc._regression import runner as regression_runner
+from ldsc._regression import commands, partitioned, rg
 from ldsc._regression.outputs import LEGACY_SUMSTATS_DROP_COLUMNS, RgDirectoryWriter
 from ldsc._regression.results import RgResultFamily
-from ldsc._regression.runner import RegressionRunner
 from tests.regression_fixtures import RegressionFixtures, parsed_regression_args, stub_h2_kernel
 
 
-class RegressionWorkflowTest(RegressionFixtures, unittest.TestCase):
+class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
     def test_run_h2_from_args_uses_ldscore_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -67,7 +68,7 @@ class RegressionWorkflowTest(RegressionFixtures, unittest.TestCase):
                     coef=np.array([0.001]),
                 ),
             ) as patched:
-                result = regression_runner.run_h2_from_args(args)
+                result = commands.run_h2_from_args(args)
 
             summary = result.summary
             self.assertEqual(result.output_paths["summary"], str(tmpdir / "h2_out" / "h2.tsv"))
@@ -168,7 +169,7 @@ class RegressionWorkflowTest(RegressionFixtures, unittest.TestCase):
             ldscore_dir = self._write_h2_inputs(tmpdir)
             args = self._h2_args(tmpdir, ldscore_dir, samp_prev=0.5, pop_prev=0.01)
             with self._patched_h2():
-                summary = regression_runner.run_h2_from_args(args).summary
+                summary = commands.run_h2_from_args(args).summary
         c = liability_conversion_factor(0.5, 0.01)
         row = summary.iloc[0]
         self.assertAlmostEqual(row["total_h2_liab"], 0.2 * c, places=12)
@@ -182,7 +183,7 @@ class RegressionWorkflowTest(RegressionFixtures, unittest.TestCase):
             ldscore_dir = self._write_h2_inputs(tmpdir)
             args = self._h2_args(tmpdir, ldscore_dir, samp_prev=0.5, pop_prev=None)
             with self._patched_h2(), self.assertRaisesRegex(LDSCConfigError, "exactly one of sample/population"):
-                regression_runner.run_h2_from_args(args)
+                commands.run_h2_from_args(args)
 
     def test_run_h2_from_args_requires_output_dir_before_loading_inputs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -210,12 +211,12 @@ class RegressionWorkflowTest(RegressionFixtures, unittest.TestCase):
             )
 
             with mock.patch.object(
-                regression_runner,
+                commands,
                 "_load_sumstats_table",
                 side_effect=AssertionError("sumstats should not load"),
             ):
                 with self.assertRaisesRegex(LDSCUsageError, "requires `--output-dir`"):
-                    regression_runner.run_h2_from_args(args)
+                    commands.run_h2_from_args(args)
 
             self.assertFalse(list(tmpdir.glob("*.log")))
             self.assertFalse((tmpdir / "h2_out" / "metadata.json").exists())
@@ -257,13 +258,13 @@ class RegressionWorkflowTest(RegressionFixtures, unittest.TestCase):
                     coef=np.array([0.001]),
                 ),
             ):
-                summary = regression_runner.run_h2_from_args(args).summary
+                summary = commands.run_h2_from_args(args).summary
 
         self.assertEqual(summary.loc[0, "trait_name"], "trait.parquet")
 
     def test_common_regression_arguments_expose_only_ldscore_dir(self):
         parser = argparse.ArgumentParser()
-        regression_runner.add_h2_arguments(parser)
+        commands.add_h2_arguments(parser)
 
         args = parser.parse_args(
             ["--ldscore-dir", "ldscores", "--sumstats-file", "trait.sumstats.gz", "--output-dir", "out"]
@@ -299,7 +300,7 @@ class RegressionWorkflowTest(RegressionFixtures, unittest.TestCase):
 
     def test_partitioned_h2_arguments_accept_summary_sort_by(self):
         parser = argparse.ArgumentParser()
-        regression_runner.add_partitioned_h2_arguments(parser)
+        commands.add_partitioned_h2_arguments(parser)
 
         default_args = parser.parse_args(
             [
@@ -342,7 +343,7 @@ class RegressionWorkflowTest(RegressionFixtures, unittest.TestCase):
 
     def test_rg_arguments_use_sumstats_sources_and_reject_old_pairwise_flags(self):
         parser = argparse.ArgumentParser()
-        regression_runner.add_rg_arguments(parser)
+        commands.add_rg_arguments(parser)
 
         args = parser.parse_args(
             [
@@ -427,12 +428,12 @@ class RegressionWorkflowTest(RegressionFixtures, unittest.TestCase):
         )
 
         with mock.patch.object(
-            regression_runner,
+            commands,
             "_load_sumstats_table",
             side_effect=AssertionError("sumstats should not load"),
         ):
             with self.assertRaisesRegex(LDSCUsageError, "requires `--output-dir`"):
-                regression_runner.run_rg_from_args(args)
+                commands.run_rg_from_args(args)
 
     def test_run_rg_from_args_returns_result_family_and_writes_output(self):
         from ldsc._regression.outputs import RG_FULL_COLUMNS
@@ -480,12 +481,12 @@ class RegressionWorkflowTest(RegressionFixtures, unittest.TestCase):
             marker.parent.mkdir()
             marker.write_text("earlier failed overwrite")
             stdout = io.StringIO()
-            with mock.patch.dict("os.environ", {"LDSC_REGRESSION_OUT": str(tmpdir)}), contextlib.chdir(tmpdir), mock.patch.object(RegressionRunner, "estimate_rg_pairs", return_value=expected), mock.patch.object(
+            with mock.patch.dict("os.environ", {"LDSC_REGRESSION_OUT": str(tmpdir)}), contextlib.chdir(tmpdir), mock.patch.object(rg, "estimate_rg_pairs", return_value=expected), mock.patch.object(
                 RgDirectoryWriter,
                 "write",
                 wraps=RgDirectoryWriter().write,
             ) as writer, contextlib.redirect_stdout(stdout):
-                result = regression_runner.run_rg_from_args(args)
+                result = commands.run_rg_from_args(args)
             self.assertFalse(marker.exists())
             self.assertFalse((tmpdir / "$LDSC_REGRESSION_OUT").exists())
             self.assertTrue((tmpdir / "out/rg.tsv").is_file())
@@ -536,8 +537,8 @@ class RegressionWorkflowTest(RegressionFixtures, unittest.TestCase):
                 },
             )
 
-            with mock.patch.object(RegressionRunner, "estimate_rg_pairs", return_value=expected) as patched:
-                result = regression_runner.run_rg_from_args(args)
+            with mock.patch.object(rg, "estimate_rg_pairs", return_value=expected) as patched:
+                result = commands.run_rg_from_args(args)
 
         self.assertIs(result.rg, expected.rg)
         tables = patched.call_args.args[0]
@@ -584,8 +585,8 @@ class RegressionWorkflowTest(RegressionFixtures, unittest.TestCase):
                 },
             )
 
-            with mock.patch.object(RegressionRunner, "estimate_rg_pairs", return_value=expected) as patched:
-                regression_runner.run_rg_from_args(args)
+            with mock.patch.object(rg, "estimate_rg_pairs", return_value=expected) as patched:
+                commands.run_rg_from_args(args)
 
         self.assertEqual(patched.call_args.kwargs["anchor_index"], 1)
 
@@ -611,7 +612,7 @@ class RegressionWorkflowTest(RegressionFixtures, unittest.TestCase):
         )()
 
         stdout = io.StringIO()
-        with mock.patch.object(regression_runner, "run_rg_from_args", return_value=expected) as patched, contextlib.redirect_stdout(stdout):
+        with mock.patch.object(commands, "run_rg_from_args", return_value=expected) as patched, contextlib.redirect_stdout(stdout):
             with self.assertRaises(SystemExit):
                 cli.main(
                 [
@@ -631,7 +632,7 @@ class RegressionWorkflowTest(RegressionFixtures, unittest.TestCase):
         expected = type("Result", (), {"rg": pd.DataFrame([{"trait_1": "a"}])})()
 
         stdout = io.StringIO()
-        with mock.patch.object(regression_runner, "run_rg_from_args", return_value=expected), contextlib.redirect_stdout(stdout):
+        with mock.patch.object(commands, "run_rg_from_args", return_value=expected), contextlib.redirect_stdout(stdout):
             result = cli.main(
                 [
                     "rg",
@@ -652,7 +653,7 @@ class RegressionWorkflowTest(RegressionFixtures, unittest.TestCase):
         expected = pd.DataFrame([{"trait_name": "trait", "total_h2_obs": 0.1, "total_h2_obs_se": np.nan}])
 
         stdout = io.StringIO()
-        with mock.patch.object(regression_runner, "run_h2_from_args", return_value=expected) as patched, contextlib.redirect_stdout(stdout):
+        with mock.patch.object(commands, "run_h2_from_args", return_value=expected) as patched, contextlib.redirect_stdout(stdout):
             with self.assertRaises(SystemExit):
                 cli.main(
                 [
@@ -672,7 +673,7 @@ class RegressionWorkflowTest(RegressionFixtures, unittest.TestCase):
 
         stdout = io.StringIO()
         with mock.patch.object(
-            regression_runner,
+            commands,
             "run_partitioned_h2_from_args",
             return_value=expected,
         ) as patched, contextlib.redirect_stdout(stdout):
@@ -714,12 +715,12 @@ class RegressionWorkflowTest(RegressionFixtures, unittest.TestCase):
             )
 
             with mock.patch.object(
-                regression_runner.RegressionRunner,
+                partitioned,
                 "estimate_partitioned_h2_batch",
                 side_effect=AssertionError("estimation should not run after preflight failure"),
             ):
                 with self.assertRaisesRegex(FileExistsError, "overwrite"):
-                    regression_runner.run_partitioned_h2_from_args(args)
+                    commands.run_partitioned_h2_from_args(args)
 
             self.assertTrue(stale.exists())
             self.assertFalse((output_dir / "partitioned_h2.tsv").exists())
@@ -768,7 +769,7 @@ class RegressionWorkflowTest(RegressionFixtures, unittest.TestCase):
                 ),
             ):
                 with self.assertRaisesRegex(FileExistsError, "overwrite"):
-                    regression_runner.run_h2_from_args(args)
+                    commands.run_h2_from_args(args)
 
             self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
             self.assertFalse((output_dir / "h2.log").exists())
@@ -798,12 +799,12 @@ class RegressionWorkflowTest(RegressionFixtures, unittest.TestCase):
             )
 
             with mock.patch.object(
-                regression_runner,
+                commands,
                 "_fit_h2_dataset",
                 side_effect=AssertionError("estimation should not run after preflight failure"),
             ):
                 with self.assertRaisesRegex(FileExistsError, "overwrite"):
-                    regression_runner.run_h2_from_args(args)
+                    commands.run_h2_from_args(args)
 
             self.assertEqual(existing.read_text(encoding="utf-8"), "{}\n")
             self.assertFalse((output_dir / "h2.tsv").exists())
@@ -854,7 +855,7 @@ class RegressionWorkflowTest(RegressionFixtures, unittest.TestCase):
                     coef=np.array([0.001]),
                 ),
             ):
-                regression_runner.run_h2_from_args(args)
+                commands.run_h2_from_args(args)
 
             self.assertIn("total_h2", existing.read_text(encoding="utf-8"))
             self.assertFalse((output_dir / "metadata.json").exists())

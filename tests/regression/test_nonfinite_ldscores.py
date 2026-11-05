@@ -8,7 +8,7 @@ import pytest
 
 from ldsc import load_ldscore_from_dir
 from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
-from ldsc._regression import runner as workflow
+from ldsc._regression import commands, runner as workflow
 from ldsc.config import RegressionConfig
 from ldsc.errors import LDSCInputError
 from tests.regression.test_regression_streaming import batch_inputs
@@ -36,7 +36,7 @@ def test_h2_command_stops_on_an_infinite_ld_score_even_for_a_snp_the_trait_lacks
         handle.write("SNP\tA1\tA2\tZ\tN\n" + "\n".join(rows) + "\n")
 
     with pytest.raises(LDSCInputError) as caught:
-        workflow.run_h2(sumstats_file=str(sumstats), ldscore_dir=str(tmp_path / "ld"),
+        commands.run_h2(sumstats_file=str(sumstats), ldscore_dir=str(tmp_path / "ld"),
                         output_dir=str(tmp_path / "out"), num_blocks=10)
 
     message = str(caught.value)

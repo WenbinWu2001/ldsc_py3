@@ -9,7 +9,7 @@ import pytest
 from ldsc import cli
 from ldsc._ldscore.results import LDScoreResult
 from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
-from ldsc._regression import rg, runner as workflow
+from ldsc._regression import commands, rg, runner as workflow
 from ldsc._regression.jackknife import JackknifeIdentifiabilityError
 from ldsc._sumstats.munger import SumstatsMunger
 from ldsc._sumstats.table import SumstatsTable
@@ -66,7 +66,7 @@ def test_rg_marks_a_singular_pair_unestimable_with_its_context(tmp_path):
     LDScoreDirectoryWriter().write_batches([panel()], LDScoreOutputConfig(output_dir=tmp_path / "ld"))
     sources = [SumstatsMunger().write_output(table, tmp_path / "sumstats") for table in traits()]
 
-    result = workflow.run_rg(sumstats_sources=sources, ldscore_dir=str(tmp_path / "ld"),
+    result = commands.run_rg(sumstats_sources=sources, ldscore_dir=str(tmp_path / "ld"),
                              output_dir=str(tmp_path / "out"), num_blocks=10, write_per_pair_detail=True)
 
     out = tmp_path / "out"
@@ -98,7 +98,7 @@ def test_rg_records_an_unestimable_trait_heritability_and_fits_its_pairs(tmp_pat
     _, _, c = traits()
     sources = [SumstatsMunger().write_output(table, tmp_path / "sumstats") for table in (c, only_first_region())]
 
-    workflow.run_rg(sumstats_sources=sources, ldscore_dir=str(tmp_path / "ld"), output_dir=str(tmp_path / "out"),
+    commands.run_rg(sumstats_sources=sources, ldscore_dir=str(tmp_path / "ld"), output_dir=str(tmp_path / "out"),
                     num_blocks=10, samp_prev="nan,0.5", pop_prev="nan,0.1")
 
     out = tmp_path / "out"

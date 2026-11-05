@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from ldsc import GlobalConfig, RegressionConfig
-from ldsc._regression import fitting, runner as workflow
+from ldsc._regression import commands, fitting, runner as workflow
 from ldsc.errors import LDSCConfigError, LDSCUsageError
 from ldsc._regression.outputs import H2DirectoryWriter, H2OutputConfig
 from ldsc._sumstats.table import SumstatsTable
@@ -36,7 +36,7 @@ def _intercept_cli_config(command, flags):
         command, *inputs, "--ldscore-dir", "ldscores", "--output-dir", "results",
         "--num-blocks", "6", *flags,
     ])
-    return workflow._configs_from_args(args, command)[1]
+    return commands._configs_from_args(args, command)[1]
 
 
 def _intercept_fit(command, config):
@@ -145,7 +145,7 @@ def test_h2_fit_outcome_and_written_bins_use_exact_final_population(tmp_path, in
                                np.mean(dataset.merged.Z.to_numpy()[1:] ** 2))
     np.testing.assert_allclose(np.average(bins.mean_sample_size, weights=bins.n_snps), 1310.)
     table = SumstatsTable(data=dataset.merged, trait_name='trait', has_alleles=False, source_path='trait')
-    metadata = workflow._h2_metadata(table, None, outcome, RegressionConfig())
+    metadata = fitting._h2_metadata(table, None, outcome, RegressionConfig())
     summary = fitting.summarize_total_h2(outcome.estimator, outcome.dataset)
     H2DirectoryWriter().write(summary, H2OutputConfig(output_dir=tmp_path), metadata=metadata, diagnostic_bins=bins)
     saved = json.loads((tmp_path / 'diagnostics/metadata.json').read_text())

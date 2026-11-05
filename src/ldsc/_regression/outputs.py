@@ -557,8 +557,8 @@ class PartitionedH2DirectoryWriter:
     default plot root derived from the superseded result.
     An optional ``diagnostics/query_status.tsv`` records all attempted queries,
     including failed queries absent from the summary and model tree. The
-    regression runner owns the strict/continue decision; this writer publishes
-    only the successful model artifacts supplied by that runner.
+    partitioned-h2 batch owns the strict/continue decision; this writer
+    publishes only the successful model artifacts supplied by that batch.
     """
 
     @staticmethod

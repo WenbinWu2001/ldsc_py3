@@ -80,7 +80,7 @@ def test_rg_records_zero_when_every_snp_aligns(tmp_path, capsys):
 
 
 def test_python_rg_records_the_counts_without_printing(tmp_path, capsys):
-    from ldsc._regression.runner import run_rg
+    from ldsc._regression.commands import run_rg
 
     LDScoreDirectoryWriter().write_batches([panel("chr_pos")], LDScoreOutputConfig(output_dir=tmp_path / "ld"))
     write_legacy_trait(tmp_path / "a.sumstats.gz", 21, second_trait=False)

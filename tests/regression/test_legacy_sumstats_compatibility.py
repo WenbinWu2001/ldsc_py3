@@ -471,7 +471,7 @@ def test_legacy_sumstats_with_one_allele_column_are_rejected() -> None:
 
 
 def test_h2_command_runs_allele_less_legacy_sumstats_and_records_the_downgrade(tmp_path: Path) -> None:
-    from ldsc._regression.runner import run_h2
+    from ldsc._regression.commands import run_h2
 
     n_snps = 60
     rng = np.random.default_rng(11)
@@ -506,7 +506,7 @@ def test_h2_command_runs_allele_less_legacy_sumstats_and_records_the_downgrade(t
 
 
 def test_h2_command_records_legacy_projection_drops_in_its_audit(tmp_path: Path) -> None:
-    from ldsc._regression.runner import run_h2
+    from ldsc._regression.commands import run_h2
 
     n_snps = 60
     rng = np.random.default_rng(7)

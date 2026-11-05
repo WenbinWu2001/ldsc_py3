@@ -1,5 +1,6 @@
 """Rows whose Z or N is missing or infinite are dropped once per trait, with diagnostics."""
 
+from dataclasses import replace
 import gzip
 import json
 import logging
@@ -11,7 +12,7 @@ from ldsc._annotation.overlap import OverlapContribution
 from ldsc._ldscore.results import LDScoreResult
 from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from ldsc._ldscore.overlap_table import LDScoreOverlap
-from ldsc._regression import runner as workflow
+from ldsc._regression import commands, runner as workflow
 from ldsc._regression.outputs import RgDirectoryWriter, RgOutputConfig
 from ldsc.config import RegressionConfig
 from tests.regression.test_trait_preparation import N_SNPS, munged, panel, signed_statistics
@@ -22,7 +23,7 @@ def with_nonfinite(table, z_rows=(), n_rows=()):
     data = table.data.copy()
     data.loc[list(z_rows), "Z"] = np.nan
     data.loc[list(n_rows), "N"] = np.inf
-    return workflow.replace(table, data=data)
+    return replace(table, data=data)
 
 
 def test_h2_command_drops_nonfinite_legacy_rows_and_records_them(tmp_path):
@@ -36,7 +37,7 @@ def test_h2_command_drops_nonfinite_legacy_rows_and_records_them(tmp_path):
     with gzip.open(sumstats, "wt", encoding="utf-8") as handle:
         handle.write("SNP\tA1\tA2\tZ\tN\n" + "\n".join(rows) + "\n")
 
-    workflow.run_h2(sumstats_file=str(sumstats), ldscore_dir=str(tmp_path / "ld"),
+    commands.run_h2(sumstats_file=str(sumstats), ldscore_dir=str(tmp_path / "ld"),
                     output_dir=str(tmp_path / "out"), num_blocks=10)
 
     audit = pd.read_csv(tmp_path / "out/diagnostics/dropped_snps/legacy_sumstats.tsv.gz", sep="\t")
@@ -78,7 +79,7 @@ def functional_panel():
 
 def test_capped_partitioned_h2_counts_a_missing_z_as_nonfinite_not_as_an_outlier(tmp_path, caplog):
     complete = munged("A", "chr_pos_allele_aware", 13)
-    without_row = workflow.replace(complete, data=complete.data.drop(index=4).reset_index(drop=True))
+    without_row = replace(complete, data=complete.data.drop(index=4).reset_index(drop=True))
     runner = workflow.RegressionRunner(regression_config=RegressionConfig(num_blocks=10))
 
     runs = {}

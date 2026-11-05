@@ -80,17 +80,17 @@ _COMMANDS = {
     "munge-sumstats": _Command("Munge GWAS summary statistics.", "._sumstats.munger"),
     "h2": _Command(
         "Estimate heritability from munged summary statistics and LD scores.",
-        "._regression.runner", "add_h2_arguments", "run_h2_from_args",
+        "._regression.commands", "add_h2_arguments", "run_h2_from_args",
     ),
     "partitioned-h2": _Command(
         "Estimate partitioned heritability with independent query models.",
-        "._regression.runner", "add_partitioned_h2_arguments", "run_partitioned_h2_from_args",
+        "._regression.commands", "add_partitioned_h2_arguments", "run_partitioned_h2_from_args",
     ),
     "quantile-h2": _Command(
         "Summarize fitted heritability across annotation quantiles.",
         "._regression.quantile_h2", "add_quantile_h2_arguments", "run_quantile_h2_from_args",
     ),
-    "rg": _Command("Estimate genetic correlation.", "._regression.runner", "add_rg_arguments", "run_rg_from_args"),
+    "rg": _Command("Estimate genetic correlation.", "._regression.commands", "add_rg_arguments", "run_rg_from_args"),
     "query-r2-matrix": _Command("Look up R2 for SNP pairs in an R2 matrix.", "._refpanel.query"),
     "convert-h2-scale": _Command(
         "Convert a saved observed-scale SNP heritability estimate to liability scale.",

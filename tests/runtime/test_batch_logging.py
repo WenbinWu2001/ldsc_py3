@@ -242,7 +242,7 @@ def test_output_audit_summarizes_query_files_with_manifest_pointer(tmp_path):
 def test_rg_duplicate_trait_names_are_summarized(tmp_path, caplog):
     from dataclasses import replace
     from ldsc import load_sumstats
-    from ldsc._regression.runner import _disambiguate_trait_names
+    from ldsc._regression.rg import _disambiguate_trait_names
 
     cli_inputs(tmp_path)
     table = load_sumstats(tmp_path / "trait.parquet")
@@ -266,7 +266,7 @@ def _rg_tables(tmp_path, named_paths):
 
 
 def test_rg_label_collisions_add_path_parts_instead_of_hashes(tmp_path):
-    from ldsc._regression.runner import _disambiguate_trait_names
+    from ldsc._regression.rg import _disambiguate_trait_names
 
     named_paths = [
         ("SCZ", "pgc/v3/trait.parquet"), ("SCZ", "ukb/v3/trait.parquet"), ("BIP", "pgc/v3/bip.parquet"),
@@ -286,7 +286,7 @@ def test_rg_label_collisions_add_path_parts_instead_of_hashes(tmp_path):
 
 def test_rg_rejects_trait_name_that_matches_a_tie_breaker_label(tmp_path):
     from ldsc.errors import LDSCInputError
-    from ldsc._regression.runner import _disambiguate_trait_names
+    from ldsc._regression.rg import _disambiguate_trait_names
 
     tables = _rg_tables(tmp_path, [("SCZ", "pgc/trait.parquet"), ("SCZ", "ukb/trait.parquet"),
                                    ("SCZ@pgc", "other/trait.parquet")])

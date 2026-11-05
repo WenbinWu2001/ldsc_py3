@@ -71,7 +71,9 @@ Under HM3 quick liftover the packaged HM3 map is read once and serves as both th
 The kernel accepts a `ResolvedMungeInput` and returns a `MungeResult` containing the munged table, counts, coordinate provenance, and separate identity/liftover drop records.
 CLI parsing stays in `_sumstats/munger.py`, artifact writing in `SumstatsDirectoryWriter` (`_sumstats/outputs.py`), and the munged table and its loader in `_sumstats/table.py`; the kernel neither parses CLI flags nor mutates configuration to return results.
 
-Source-build inference reads only `CHR`/`POS` in bounded chunks and stops when sufficient evidence is available. It precedes all QC, and shares its coordinate evidence reader with `--infer-only`. The main parsing pass counts raw records as it reads them; it does not reopen the full raw file to count lines after munging.
+Source-build inference reads only `CHR`/`POS` in bounded chunks and stops when sufficient evidence is available. It precedes all QC, and shares its coordinate evidence reader with `--infer-only`.
+It reads the raw file with the munging read rules (`_sumstats.munge_kernel.read_raw_sumstats()`: whitespace-delimited fields, `.` and `NA` as missing values, leading `##` lines skipped), so it samples the values the run parses, also when the header line uses tabs and the rows spaces.
+The main parsing pass counts raw records as it reads them; it does not reopen the full raw file to count lines after munging.
 
 For Python users, `munger.build_run_summary()` reports parsed `n_input_rows`, final `n_retained_rows`, and `drop_counts`. Headers, leading `##` metadata, and blank lines are excluded. Every drop belongs to the first stage that removes that row, so `sum(drop_counts.values()) == n_input_rows - n_retained_rows`.
 `qc_thresholds` records the effective `INFO` and `FRQ` thresholds; `None` means that filter did not run because no such column was selected, which the log summary also states.

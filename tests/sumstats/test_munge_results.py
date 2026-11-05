@@ -159,6 +159,28 @@ def test_production_build_inference_uses_bounded_raw_evidence_before_qc(tmp_path
     assert summary.drop_counts["P"] == 5300
 
 
+def test_build_inference_reads_the_raw_file_with_the_munging_read_rules(tmp_path):
+    # Audit D11 (i): a tab in the header line made the build check read the file as tab-delimited, so it found no
+    # coordinate rows in the space-delimited body that munging reads; the run stopped on an unresolved build.
+    from ldsc._genome.build_inference import load_packaged_reference_table
+
+    reference = load_packaged_reference_table()
+    positions = reference.loc[reference.CHR.astype(str).eq("22"), "hg19_POS"].head(1500).astype(int)
+    body = "".join(f"rs{idx} 22 {pos} A G {(-1) ** idx * 2.0} 0.05 1000\n" for idx, pos in enumerate(positions))
+    tables = {}
+    for name, header in (("spaces", "SNP CHR POS A1 A2 Z P N\n"), ("tab_header", "SNP\tCHR\tPOS\tA1\tA2\tZ\tP\tN\n")):
+        raw = tmp_path / f"{name}.txt"
+        raw.write_text(header + body)
+        tables[name] = SumstatsMunger().run(
+            MungeConfig(raw_sumstats_file=raw, output_dir=tmp_path / name, no_snp_restriction=True,
+                        output_genome_build="hg19"),
+            global_config=GlobalConfig(snp_identifier="chr_pos"),
+        )
+    assert tables["tab_header"].config_snapshot.genome_build == "hg19"
+    assert tables["tab_header"].provenance["coordinate_provenance"]["genome_build_inferred"] is True
+    pd.testing.assert_frame_equal(tables["tab_header"].data, tables["spaces"].data)
+
+
 def test_coordinate_liftover_and_identity_counts_are_exclusive(tmp_path, monkeypatch):
     from ldsc._sumstats import liftover
 

@@ -25,8 +25,11 @@ import pandas as pd
 from .._core.columns import (
     RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS,
     RAW_SUMSTATS_SIGNED_STAT_SPECS,
+    RESTRICTION_HG19_POS_SPEC,
+    RESTRICTION_HG38_POS_SPEC,
     build_cleaned_alias_lookup,
     clean_header,
+    resolve_optional_column,
 )
 from ..config import GlobalConfig, MungeConfig
 from ..errors import LDSCInputError, LDSCUsageError, LDSCUserError
@@ -38,7 +41,13 @@ from .._core.snp_identity import (
     is_allele_aware_mode,
     normalize_snp_identifier_mode,
 )
-from .munge_kernel import MungeQC, ResolvedMungeInput, mean_info_list_value, prepare_sumstats_restriction
+from .munge_kernel import (
+    MungeQC,
+    ResolvedMungeInput,
+    mean_info_list_value,
+    prepare_sumstats_restriction,
+    read_raw_sumstats,
+)
 from .._genome.build_policy import GenomeBuildCheck
 from .._genome.hm3 import packaged_hm3_curated_map_path
 from .._runtime.paths import resolve_scalar_path
@@ -123,6 +132,10 @@ class RawSchema:
     ----------
     source_path : str
         Resolved raw summary-statistics path.
+    compression : str or None
+        ``gzip``, ``bz2`` or ``None``, from the file suffix.
+    metadata_skiprows : int
+        Number of leading ``##`` metadata lines before the header.
     headers : tuple of str
         Raw header names in file order.
     detected_format : str
@@ -152,6 +165,8 @@ class RawSchema:
     """
 
     source_path: str
+    compression: str | None
+    metadata_skiprows: int
     headers: tuple[str, ...]
     detected_format: str
     inferred_hints: dict[str, str]
@@ -198,9 +213,8 @@ def count_leading_sumstats_comment_lines(fh):
     return count
 
 
-def read_header(fh):
-    '''Read the first non-metadata line of a file and return its column names.'''
-    skiprows = count_leading_sumstats_comment_lines(fh)
+def read_header(fh, skiprows):
+    '''Read the line after ``skiprows`` leading metadata lines and return its column names.'''
     (openfunc, _compression) = get_compression(fh)
     with openfunc(fh) as handle:
         for _idx in range(skiprows):
@@ -209,10 +223,9 @@ def read_header(fh):
         return [x.rstrip('\n') for x in line.split()]
 
 
-def _read_first_data_row(path, headers):
+def _read_first_data_row(path, headers, skiprows):
     """Return the first data row keyed by raw header names."""
     openfunc, _compression = get_compression(path)
-    skiprows = count_leading_sumstats_comment_lines(path)
     with openfunc(path) as handle:
         for _idx in range(skiprows + 1):
             handle.readline()
@@ -273,9 +286,9 @@ def _format_hints(headers, detected_format):
     return hints
 
 
-def _first_row_info_lists(source_path, headers):
+def _first_row_info_lists(source_path, headers, skiprows):
     """Return INFO-alias columns whose first value is a comma-separated list, with a note for each."""
-    sample = _read_first_data_row(source_path, headers)
+    sample = _read_first_data_row(source_path, headers, skiprows)
     columns = [column for column in headers
                if default_cnames.get(clean_header(column)) == 'INFO' and ',' in sample.get(column, '')]
     return columns, [f"{column} appears to contain comma-separated per-study INFO values." for column in columns]
@@ -496,11 +509,13 @@ def resolve_raw_schema(source_path: str, config: MungeConfig, global_config: Glo
         ``issues`` instead of being raised, so one report or one error lists
         them all; :meth:`RawSchema.raise_issues` raises them.
     """
-    headers = tuple(read_header(source_path))
+    _, compression = get_compression(source_path)
+    metadata_skiprows = count_leading_sumstats_comment_lines(source_path)
+    headers = tuple(read_header(source_path, metadata_skiprows))
     clean_set = {clean_header(column) for column in headers}
     detected_format = _detect_format(clean_set, config.sumstats_format)
     inferred_hints = _format_hints(headers, detected_format)
-    info_lists, notes = _first_row_info_lists(source_path, headers)
+    info_lists, notes = _first_row_info_lists(source_path, headers, metadata_skiprows)
     hints = {**inferred_hints, **config.column_hints}
     config = replace(
         config,
@@ -648,6 +663,8 @@ def resolve_raw_schema(source_path: str, config: MungeConfig, global_config: Glo
 
     return RawSchema(
         source_path=source_path,
+        compression=compression,
+        metadata_skiprows=metadata_skiprows,
         headers=headers,
         detected_format=detected_format,
         inferred_hints=inferred_hints,
@@ -705,6 +722,45 @@ def _allele_issues(problem, headers, cname_translation, ignore_cnames, source_pa
         ))
 
 
+def _raw_chunks(schema: RawSchema, columns, *, dtype=None):
+    """Open raw columns of ``schema``'s file in chunks with the munging read rules."""
+    return read_raw_sumstats(schema.source_path, columns, compression=schema.compression,
+                             skiprows=schema.metadata_skiprows, chunk_size=schema.config.chunk_size, dtype=dtype)
+
+
+def _record_raw_build_evidence(check: GenomeBuildCheck, schema: RawSchema, chr_col: str, pos_col: str) -> None:
+    """Record the raw file's build evidence on ``check``, reading the file as munging reads it.
+
+    A ``genome_build`` column or a selected build-specific position column,
+    such as ``hg19_POS``, declares the build. Otherwise ``auto`` samples the
+    coordinate rows, while an explicit build records nothing from them,
+    because unlabeled coordinate rows carry no declaration. A file that
+    cannot be read this way leaves the build unresolved.
+    """
+    role, source = '--raw-sumstats-file', schema.source_path
+    try:
+        declared = next((column for column in schema.headers if column.lower() == 'genome_build'), None)
+        if declared is not None:
+            values = set()
+            with _raw_chunks(schema, [declared]) as reader:
+                for chunk in reader:
+                    values.update(chunk[declared].dropna().astype(str))
+            if not values:
+                check.unresolved(role, source, 'empty genome_build declaration')
+            for value in sorted(values):
+                check.declared(role, source, value, 'genome_build column declaration')
+        selected = [build for build, spec in (('hg19', RESTRICTION_HG19_POS_SPEC), ('hg38', RESTRICTION_HG38_POS_SPEC))
+                    if resolve_optional_column([pos_col], spec, context=source) is not None]
+        for build in selected:
+            check.declared(role, source, build, f'selected coordinate column {pos_col}')
+        if declared is not None or selected or check.explicit:
+            return
+        with _raw_chunks(schema, [chr_col, pos_col]) as reader:
+            check.frames(role, source, (chunk.rename(columns={chr_col: 'CHR', pos_col: 'POS'}) for chunk in reader))
+    except (OSError, ValueError, KeyError, EOFError, LDSCUserError) as exc:
+        check.unresolved(role, source, exc)
+
+
 def _increasing_allele_columns(column_map):
     """Return ``"<column> as A1"`` or ``"<column> as A2"`` for each INC_ALLELE column read as A1 and DEC_ALLELE column read as A2."""
     return [f"{raw} as {target}" for raw, target in column_map.items()
@@ -726,12 +782,7 @@ def _check_increasing_allele_signs(schema: RawSchema) -> None:
     snp = next(raw for raw, target in schema.column_map.items() if target == 'SNP')
     null = schema.signed_sumstat_null
     contradicting, examples = 0, []
-    _, compression = get_compression(schema.source_path)
-    with pd.read_csv(
-        schema.source_path, sep=r"\s+", compression=compression, na_values=[".", "NA"],
-        skiprows=count_leading_sumstats_comment_lines(schema.source_path),
-        chunksize=schema.config.chunk_size, dtype=str, usecols=[snp, signed],
-    ) as reader:
+    with _raw_chunks(schema, [snp, signed], dtype=str) as reader:
         for chunk in reader:
             values = pd.to_numeric(chunk[signed], errors='coerce')
             below = values < null
@@ -923,8 +974,7 @@ def resolve_munge_plan(config: MungeConfig, source_config: GlobalConfig) -> Mung
     schema = resolve_raw_schema(source_path, config, source_config)
     coordinates, issue = None, None
     try:
-        coordinates = resolve_source_coordinates(
-            source_path, schema.column_map, source_config, restriction_path=snp_restriction_file(config))
+        coordinates = resolve_source_coordinates(schema, source_config, restriction_path=snp_restriction_file(config))
     except LDSCUserError as exc:
         issue = RawSchemaIssue('source_genome_build', str(exc), type(exc))
     source_build = None if coordinates is None else coordinates['genome_build']
@@ -964,8 +1014,6 @@ def prepare_munge_input(plan: MungePlan) -> ResolvedMungeInput:
                        for x in schema.field_descriptions]) + '\n')
 
     source_path, config, mode = schema.source_path, schema.config, plan.source_config.snp_identifier
-    _, compression = get_compression(source_path)
-    metadata_skiprows = count_leading_sumstats_comment_lines(source_path)
     coordinate_metadata = plan.coordinates
     restriction_path = snp_restriction_file(plan.config)
     if restriction_path is not None:
@@ -982,8 +1030,8 @@ def prepare_munge_input(plan: MungePlan) -> ResolvedMungeInput:
     return ResolvedMungeInput(
         source_path=source_path,
         column_map=schema.column_map,
-        compression=compression,
-        metadata_skiprows=metadata_skiprows,
+        compression=schema.compression,
+        metadata_skiprows=schema.metadata_skiprows,
         chunk_size=config.chunk_size,
         info_list_columns=tuple(raw for raw in schema.column_map if clean_header(raw) in info_lists),
         signed_sumstat_null=schema.signed_sumstat_null,
@@ -1014,12 +1062,7 @@ def all_missing_columns(schema: RawSchema) -> list[str]:
     if not empty:
         return []
     info_lists = {clean_header(column) for column in schema.config.info_list_columns}
-    _, compression = get_compression(schema.source_path)
-    with pd.read_csv(
-        schema.source_path, sep=r"\s+", compression=compression, na_values=[".", "NA"],
-        skiprows=count_leading_sumstats_comment_lines(schema.source_path),
-        chunksize=schema.config.chunk_size, dtype=str, usecols=list(schema.column_map),
-    ) as reader:
+    with _raw_chunks(schema, schema.column_map, dtype=str) as reader:
         for chunk in reader:
             for column in tuple(empty):
                 values = chunk[column]
@@ -1032,14 +1075,16 @@ def all_missing_columns(schema: RawSchema) -> list[str]:
     return [column for column in schema.headers if column in empty]
 
 
-def resolve_source_coordinates(source_path, cname_translation, global_config, *, restriction_path=None):
+def resolve_source_coordinates(schema: RawSchema, global_config, *, restriction_path=None):
     """Resolve source build and basis jointly with coordinate restriction evidence.
 
     Concrete source builds must agree with declarations and imply one-based coordinates.
     Auto trusts a selected build-specific position column, otherwise samples
     each chromosome before QC. It checks the keep list in the actual filtering
-    mode and reports all unresolved/conflicting inputs together.
+    mode and reports all unresolved/conflicting inputs together. The raw file
+    is read with the munging read rules (:func:`_record_raw_build_evidence`).
     """
+    source_path, cname_translation = schema.source_path, schema.column_map
     mode, build = global_config.snp_identifier, global_config.genome_build
     metadata = {'snp_identifier': mode, 'genome_build': build,
                 'genome_build_inferred': False,
@@ -1050,8 +1095,7 @@ def resolve_source_coordinates(source_path, cname_translation, global_config, *,
     position_columns = [raw for raw, target in cname_translation.items() if target == 'POS']
     chromosome_columns = [raw for raw, target in cname_translation.items() if target == 'CHR']
     if position_columns and chromosome_columns:
-        check.table('--raw-sumstats-file', source_path,
-                    coordinate_columns=(chromosome_columns[0], position_columns[0]))
+        _record_raw_build_evidence(check, schema, chromosome_columns[0], position_columns[0])
     else:
         check.unresolved(
             '--raw-sumstats-file', source_path,

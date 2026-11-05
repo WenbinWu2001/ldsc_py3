@@ -190,7 +190,7 @@ class GenomeBuildCheck:
         self.evidence.append(entry)
         self._panel_alternatives.append((entry, alternatives))
 
-    def table(self, role, path, *, bim=False, coordinate_columns=None, infer_unlabeled=True):
+    def table(self, role, path, *, bim=False, infer_unlabeled=True):
         """Collect declarations; infer unlabeled coordinates only in auto mode."""
         try:
             if bim:
@@ -239,24 +239,10 @@ class GenomeBuildCheck:
                     self.unresolved(role, path, "empty genome_build declaration")
                 for value in sorted(values):
                     self.declared(role, path, value, "genome_build column declaration")
-            if coordinate_columns is not None:
-                selected_position = coordinate_columns[1]
-                for build, spec in (("hg19", RESTRICTION_HG19_POS_SPEC), ("hg38", RESTRICTION_HG38_POS_SPEC)):
-                    if resolve_optional_column([selected_position], spec, context=str(path)) is not None:
-                        self.declared(role, path, build, f'selected coordinate column {selected_position}')
             if len(self.evidence) > evidence_start:
                 return
             if not infer_unlabeled:
                 self.unchecked(role, path, 'unlabeled descriptive coordinates; no coordinate computation')
-                return
-            if coordinate_columns is not None:
-                if self.explicit and not parquet:
-                    # Text coordinate rows carry no build declaration, so an
-                    # explicit build records nothing from scanning them.
-                    return
-                chr_col, pos_col = coordinate_columns
-                self.frames(role, path, (frame.rename(columns={chr_col: 'CHR', pos_col: 'POS'})
-                                        for frame in _table_frames(path, [chr_col, pos_col], parquet)))
                 return
             alternatives = {build for build, spec in (("hg19", RESTRICTION_HG19_POS_SPEC),
                                                        ("hg38", RESTRICTION_HG38_POS_SPEC))

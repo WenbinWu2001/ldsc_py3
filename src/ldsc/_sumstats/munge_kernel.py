@@ -167,6 +167,20 @@ class _ParsedChunks:
 numeric_cols = ['P', 'N', 'N_CAS', 'N_CON', 'POS', 'Z', 'OR', 'BETA', 'LOG_ODDS', 'INFO', 'FRQ', 'SIGNED_SUMSTAT', 'NSTUDY']
 
 
+def read_raw_sumstats(source_path, columns, *, compression, skiprows, chunk_size, dtype=None):
+    """Open selected raw summary-statistics columns in chunks with the munging read rules.
+
+    Fields are whitespace-delimited, ``.`` and ``NA`` read as missing, and
+    the ``skiprows`` leading ``##`` metadata lines are skipped before the
+    header. The munging pass, the source-build check, the
+    ``INC_ALLELE``/``DEC_ALLELE`` sign check and the all-missing column scan
+    all read the raw file through this reader, so they see the same values.
+    Returns a pandas chunk reader to use as a context manager.
+    """
+    return pd.read_csv(source_path, sep=r'\s+', header=0, compression=compression, usecols=list(columns),
+                       na_values=['.', 'NA'], chunksize=chunk_size, skiprows=skiprows, dtype=dtype)
+
+
 @contextmanager
 def _invalid_value_summary():
     """Keep warning totals local to this parse, including a failed partial scan."""
@@ -763,11 +777,9 @@ def munge_sumstats(request: ResolvedMungeInput) -> MungeResult:
     # figure out which columns are going to involve sign information, so we can ensure
     # they're read as floats
     signed_sumstat_cols = [k for k,v in cname_translation.items() if v=='SIGNED_SUMSTAT']
-    dat_gen = pd.read_csv(request.source_path, sep=r'\s+', header=0,
-            compression=request.compression, usecols=cname_translation.keys(),
-            na_values=['.', 'NA'], iterator=True, chunksize=request.chunk_size,
-            skiprows=request.metadata_skiprows,
-            dtype={c:np.float64 for c in signed_sumstat_cols})
+    dat_gen = read_raw_sumstats(request.source_path, cname_translation, compression=request.compression,
+                                skiprows=request.metadata_skiprows, chunk_size=request.chunk_size,
+                                dtype={c: np.float64 for c in signed_sumstat_cols})
 
     with dat_gen:
         parsed = parse_dat(dat_gen, request)

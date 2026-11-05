@@ -28,7 +28,7 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | `convert_h2_scale` | Convert a saved observed-scale SNP heritability estimate. |
 | `convert_legacy_ldscores` | Convert one selected legacy LD-score suite to an LDSC3 LD-score directory. |
 | `infer_chr_pos_build` | Infer the genome build and coordinate basis of a ``CHR``/``POS`` table. |
-| `infer_raw_sumstats` | Infer raw summary-statistics format and minimal parser hints. |
+| `infer_raw_sumstats` | Preview a munging run: detected format, parser hints and every problem that would stop it. |
 | `load_fitted_partitioned_model` | Load one baseline-only or per-query LDSC3 partitioned-h2 fitted model. |
 | `load_gene_ldscore_index` | Load one complete public autosomes 1--22 gene LD-score index. |
 | `load_hm3_curated_map` | Load the packaged curated dual-build HM3 map. |
@@ -91,7 +91,7 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | `PartitionedH2BatchResult` | Compact batch summary and valid persistent artifacts for every fitted model. |
 | `PlotArtifact` | One saved LDSC3 figure and its live Matplotlib objects. |
 | `QuantileH2Result` | Compact result family returned by `run_quantile_h2()`. |
-| `RawSumstatsInference` | Header-level inference report for one raw summary-statistics file. |
+| `RawSumstatsInference` | Preview report for one raw summary-statistics file. |
 | `RefPanelLoader` | Instantiate the backend requested by a `RefPanelConfig`. |
 | `R2MatrixBuildResult` | Summary of files produced by one reference-panel build run. |
 | `RegressionDataset` | Merged regression-ready dataset built from summary statistics and LD-score tables. |

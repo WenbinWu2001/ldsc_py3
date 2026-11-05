@@ -12,6 +12,7 @@ import pandas as pd
 from scipy import stats
 
 from . import estimators as reg
+from .kernel_values import numeric_overlap_table
 from .._ldscore.overlap_table import LDScoreOverlap
 
 
@@ -19,23 +20,23 @@ def overlap_aware_category_table(hsq, overlap_matrix, m_annot, m_tot, category_n
     """Legacy overlap-aware annotation table plus LDSC3 augmentation columns.
 
     The overlap-aware columns are produced verbatim by the ported
-    ``Hsq._overlap_output``. This function then renames the z-score column,
+    ``Hsq._overlap_output``; ``kernel_values`` turns its ``'NA'``
+    ``Enrichment_p`` (a category containing every SNP) into NaN. This function
+    then renames the z-score column,
     appends the one-sided ``Coefficient_p`` (``H1: coefficient > 0``), the
     conditional ``Category_h2`` / ``Category_h2_std_error`` (from ``hsq.cat`` /
     ``hsq.cat_se``), and a per-model ``overlap_aware`` flag.
     """
     overlap_matrix = np.asarray(overlap_matrix, dtype=np.float64)
-    table = reg.Hsq._overlap_output(
+    table = numeric_overlap_table(reg.Hsq._overlap_output(
         hsq,
         list(category_names),
         overlap_matrix,
         np.asarray(m_annot, dtype=np.float64).reshape(1, -1),
         float(m_tot),
         True,
-    ).reset_index(drop=True)
+    ).reset_index(drop=True))
     table = table.rename(columns={"Coefficient_z-score": "Coefficient_z"})
-    # Legacy emits the string 'NA' for a category that contains every SNP; use a numeric NaN.
-    table["Enrichment_p"] = pd.to_numeric(table["Enrichment_p"], errors="coerce")
     coef = np.ravel(hsq.coef).astype(np.float64)
     coef_se = np.ravel(hsq.coef_se).astype(np.float64)
     with np.errstate(divide="ignore", invalid="ignore"):

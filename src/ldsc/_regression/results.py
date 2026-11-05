@@ -79,7 +79,9 @@ class RegressionFit:
     estimator : Hsq or RG
         The fitted kernel estimator (``Hsq`` for h2, ``RG`` for rg), with
         estimates such as ``tot``, ``tot_se`` and ``intercept``, or
-        ``rg_ratio`` and ``rg_se``.
+        ``rg_ratio`` and ``rg_se``. An estimate the kernel leaves undefined
+        is NaN; ``RG.h2_out_of_bounds`` marks a pair whose heritability
+        estimate for either trait is not positive.
     dataset : RegressionDataset
         The exact rows supplied to the final fit, in SNP order, after the
         chi-square filter, with annotation order, count vectors and SNP

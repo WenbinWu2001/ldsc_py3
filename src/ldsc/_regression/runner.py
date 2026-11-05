@@ -115,7 +115,9 @@ class RegressionRunner:
         -------
         RegressionFit
             The ``Hsq`` estimator as ``estimator``, with the SNP rows, block
-            count, chi-square cap and diagnostic bins of the fit.
+            count, chi-square cap and diagnostic bins of the fit. Its
+            ``intercept_se`` is NaN for a fixed intercept, and its ``ratio``
+            and ``ratio_se`` are NaN when the mean chi-square is at most 1.
         """
         return _fit_h2_dataset(dataset, config or self.regression_config)
 
@@ -280,6 +282,10 @@ class RegressionRunner:
         RegressionFit
             The ``RG`` estimator as ``estimator``, with the pair's SNP rows
             after the chi-square filter, block count and the cap applied.
+            When either trait's heritability estimate is not positive, its
+            ``h2_out_of_bounds`` is True and ``rg_ratio``, ``rg_se``, ``z``
+            and ``p`` are NaN; its component fits ``hsq1``, ``hsq2`` and
+            ``gencov`` keep their estimates.
 
         Raises
         ------

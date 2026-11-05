@@ -12,6 +12,7 @@ from ldsc.errors import LDSCConfigError, LDSCUsageError
 from ldsc._regression.outputs import H2DirectoryWriter, H2OutputConfig
 from ldsc._sumstats.table import SumstatsTable
 from tests.cli_parsing import parse_command
+from tests.worker_fixtures import calculation_body
 
 
 def h2_dataset():
@@ -212,3 +213,29 @@ def test_partitioned_default_cap_uses_prefilter_sample_size_and_retains_annotati
     np.testing.assert_allclose(outcome.estimator.coef, expected.coef)
     np.testing.assert_allclose(outcome.estimator.coef_cov, expected.coef_cov)
     np.testing.assert_allclose(outcome.estimator.part_delete_values, expected.part_delete_values)
+
+
+def test_fit_reports_nan_where_the_kernel_stores_na():
+    # A fixed intercept leaves intercept_se undefined, and a mean chi-square of at
+    # most 1 leaves ratio and ratio_se undefined; the kernel stores 'NA' in both.
+    rng = np.random.default_rng(5)
+    n_snps = 400
+    ld = rng.uniform(1.0, 30.0, n_snps)
+    frame = pd.DataFrame({"SNP": [f"rs{i}" for i in range(n_snps)], "Z": 0.9 * rng.standard_normal(n_snps),
+                          "N": 10_000.0, "regression_ld_scores": ld, "base": ld})
+    dataset = workflow.RegressionDataset(
+        merged=frame, ref_ld_columns=["base"], weight_column="regression_ld_scores",
+        reference_snp_count_totals={"all_reference_snp_counts": np.array([float(n_snps)])},
+        count_key_used_for_regression="all_reference_snp_counts", retained_ld_columns=["base"],
+        dropped_zero_variance_ld_columns=[], trait_names=["null"],
+    )
+    with calculation_body():
+        fixed = fitting._fit_h2_dataset(dataset, RegressionConfig(num_blocks=20, intercept_h2=1.0))
+        free = fitting._fit_h2_dataset(dataset, RegressionConfig(num_blocks=20))
+
+    assert isinstance(fixed.estimator.intercept_se, float) and np.isnan(fixed.estimator.intercept_se)
+    assert free.estimator.mean_chisq <= 1  # the simulation's premise
+    for name in ("ratio", "ratio_se"):
+        value = getattr(free.estimator, name)
+        assert isinstance(value, float) and np.isnan(value), name
+    assert np.isfinite(free.estimator.intercept_se)

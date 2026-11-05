@@ -66,7 +66,7 @@ class FittingTest(RegressionFixtures, unittest.TestCase):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         sumstats_1 = self.make_sumstats_table()
         sumstats_2 = replace(self.make_sumstats_table(), trait_name="trait2")
-        with mock.patch.object(fitting.reg, "RG", return_value=mock.sentinel.rg) as patched:
+        with mock.patch.object(fitting.reg, "RG", return_value=self.make_rg_kernel_result()) as patched:
             runner.estimate_rg(runner.build_rg_dataset(sumstats_1, sumstats_2, self.make_ldscore_result()))
         self.assertEqual(patched.call_args.kwargs["twostep"], 30)
 
@@ -178,10 +178,11 @@ class FittingTest(RegressionFixtures, unittest.TestCase):
             data=self.make_sumstats_table().data.assign(Z=[1.0, 1.5, 0.25], N=[900.0, 900.0, 900.0]),
         )
 
-        with mock.patch.object(fitting.reg, "RG", return_value=mock.sentinel.rg_result) as patched:
+        kernel_result = self.make_rg_kernel_result()
+        with mock.patch.object(fitting.reg, "RG", return_value=kernel_result) as patched:
             result = runner.estimate_rg(runner.build_rg_dataset(sumstats_1, sumstats_2, self.make_ldscore_result()))
 
-        self.assertIs(result.estimator, mock.sentinel.rg_result)
+        self.assertIs(result.estimator, kernel_result)
         np.testing.assert_allclose(patched.call_args.args[0], [[2.0], [1.0], [0.5]])
         np.testing.assert_allclose(patched.call_args.args[1], [[1.0], [1.5], [0.25]])
         np.testing.assert_allclose(patched.call_args.args[2], [[1.0], [2.0], [3.0]])

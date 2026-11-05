@@ -124,3 +124,18 @@ def test_the_rg_command_counts_the_pair_as_unestimable_and_fits_the_others(tmp_p
     log = (out / "diagnostics/rg.log").read_text()
     assert "ok=1; unestimable=2" in log
     assert "LDSCInternalError" not in log
+
+
+def test_estimate_rg_returns_nan_and_the_flag_for_an_out_of_bounds_pair():
+    runner = workflow.RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig(num_blocks=N_BLOCKS))
+
+    fit = runner.estimate_rg(runner.build_rg_dataset(trait("T1"), trait("T2"), panel()))
+
+    # The legacy kernel stores the string 'NA' in these fields; the fit reports NaN and the flag instead.
+    assert fit.estimator.h2_out_of_bounds is True
+    for name in ("rg_ratio", "rg", "rg_se", "z", "p"):
+        value = getattr(fit.estimator, name)
+        assert isinstance(value, float) and np.isnan(value), name
+    in_bounds = runner.estimate_rg(runner.build_rg_dataset(trait("T1"), trait("T3"), panel()))
+    assert in_bounds.estimator.h2_out_of_bounds is False
+    np.testing.assert_allclose(in_bounds.estimator.rg_ratio, kernel_fit("T1", "T3").rg_ratio, rtol=1e-12)

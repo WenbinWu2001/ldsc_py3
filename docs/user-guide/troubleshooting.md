@@ -1076,7 +1076,7 @@ A negative heritability estimate is a valid estimate for a trait with little sig
 2. Use free intercepts, or fixed values that agree with the free estimates.
 3. Otherwise report the pair's genetic correlation as unestimable; do not clip the heritability, take its absolute value or change the intercept only to obtain a number.
 
-**Developer reference:** `_kernel_rg_estimate()` and `_summarize_rg_pair()` in `_regression/fitting.py`, which read `RG._negative_hsq` from `_regression/estimators.py` · **Exception:** none; the pair is recorded and the run continues
+**Developer reference:** `numeric_rg_fit()` in `_regression/kernel_values.py`, which turns `RG._negative_hsq` from `_regression/estimators.py` into `h2_out_of_bounds`, and `_summarize_rg_pair()` in `_regression/fitting.py` · **Exception:** none; the pair is recorded and the run continues
 
 ### `partitioned-h2`: a query regression fails
 

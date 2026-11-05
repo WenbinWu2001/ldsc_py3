@@ -8,7 +8,9 @@ and the complete per-query partitioned fit that every query worker runs
 ``serial_calculation`` callables, which the controlled child re-imports by
 module and qualified name. Before an estimator runs, the collinearity guard
 rejects a rank-deficient LD-score design; after a singular jackknife
-deletion, the error gains the model's support counts and block spans.
+deletion, the error gains the model's support counts and block spans. Each
+fitted estimator passes through ``kernel_values``, which replaces the
+kernel's ``'NA'`` strings with NaN, so the result rows read only numbers.
 
 It also turns fitted estimators into result rows: the h2 summary and its
 regression-bin diagnostic, the partitioned-h2 summary, the rg pair rows and
@@ -40,6 +42,7 @@ from .._ldscore.source import LDScoreSource
 from .._sumstats.table import SumstatsTable
 from . import estimators as reg
 from .jackknife import JackknifeIdentifiabilityError
+from .kernel_values import numeric_ldsc_fit, numeric_rg_fit
 from .overlap_model import assemble_model_overlap, overlap_aware_category_table, model_collinearity_error
 from .outputs import H2_REGRESSION_BIN_COLUMNS, PARTITIONED_H2_COLUMNS, RG_FULL_COLUMNS, stage_partitioned_h2_fit
 from .results import RegressionDataset, RegressionFit
@@ -123,7 +126,7 @@ def _fit_h2_dataset(
         dataset.reference_snp_count_totals[dataset.count_key_used_for_regression]
     ).reshape((1, -1))
     try:
-        hsq = reg.Hsq(
+        hsq = numeric_ldsc_fit(reg.Hsq(
             chisq,
             x,
             np.asarray(_kept_rows(merged[[dataset.weight_column]], keep)),
@@ -133,7 +136,7 @@ def _fit_h2_dataset(
             intercept=intercept,
             twostep=two_step,
             old_weights=old_weights,
-        )
+        ))
     except JackknifeIdentifiabilityError as error:
         # Two-step jackknives may use a different row population. The
         # partitioned model uses these exact post-filter rows throughout.
@@ -182,7 +185,7 @@ def _fit_rg_dataset(dataset: RegressionDataset, config: RegressionConfig) -> Reg
     x = np.asarray(merged[dataset.retained_ld_columns])
     try:
         _raise_on_model_collinearity(dataset, x)
-        fitted = reg.RG(
+        fitted = numeric_rg_fit(reg.RG(
             np.asarray(merged[["Z1"]]),
             np.asarray(merged[["Z2"]]),
             x,
@@ -195,7 +198,7 @@ def _fit_rg_dataset(dataset: RegressionDataset, config: RegressionConfig) -> Reg
             intercept_gencov=intercept_gencov,
             n_blocks=n_blocks,
             twostep=two_step,
-        )
+        ))
     except Exception as error:
         # As for h2, a two-step first stage fits a subset of these rows, so
         # spans and support counts are added only without it.
@@ -353,11 +356,11 @@ def summarize_total_h2(
                 "samp_prev": _prev_cell(samp_prev),
                 "pop_prev": _prev_cell(pop_prev),
                 "intercept": _scalar_or_value(hsq.intercept),
-                "intercept_se": _numeric_scalar(getattr(hsq, "intercept_se", None), "intercept_se"),
+                "intercept_se": _numeric_scalar(getattr(hsq, "intercept_se", None)),
                 "mean_chisq": _scalar_or_value(hsq.mean_chisq),
                 "lambda_gc": _scalar_or_value(hsq.lambda_gc),
-                "ratio": _numeric_scalar(getattr(hsq, "ratio", None), "ratio"),
-                "ratio_se": _numeric_scalar(getattr(hsq, "ratio_se", None), "ratio_se"),
+                "ratio": _numeric_scalar(getattr(hsq, "ratio", None)),
+                "ratio_se": _numeric_scalar(getattr(hsq, "ratio_se", None)),
             }
         ]
     )
@@ -555,18 +558,19 @@ def _summarize_rg_pair(
     back to the supplied dataset's row count. Workflows supply the fitted dataset.
 
     ``status`` is ``'ok'``, or ``'unestimable'`` with an ``error`` naming the
-    estimate that is not positive when either heritability estimate is;
-    that row keeps its count and its heritability, genetic covariance and
-    intercept estimates, and its ``rg``/``rg_se``/``z``/``p`` are NaN.
+    estimate that is not positive when ``rg_result.h2_out_of_bounds`` is set
+    (by ``kernel_values.numeric_rg_fit``, which the rg fit applies); that row
+    keeps its count and its heritability, genetic covariance and intercept
+    estimates, and its ``rg``/``rg_se``/``z``/``p`` are NaN.
     """
     n_snps = int(n_snps_used) if n_snps_used is not None else int(len(dataset.merged))
-    estimate, h2_out_of_bounds = _kernel_rg_estimate(rg_result)
-    h2_1_obs = _numeric_attr(getattr(rg_result, "hsq1", None), "tot", "h2_1_obs")
-    h2_1_obs_se = _numeric_attr(getattr(rg_result, "hsq1", None), "tot_se", "h2_1_obs_se")
-    h2_2_obs = _numeric_attr(getattr(rg_result, "hsq2", None), "tot", "h2_2_obs")
-    h2_2_obs_se = _numeric_attr(getattr(rg_result, "hsq2", None), "tot_se", "h2_2_obs_se")
-    gencov_obs = _numeric_attr(getattr(rg_result, "gencov", None), "tot", "gencov_obs")
-    gencov_obs_se = _numeric_attr(getattr(rg_result, "gencov", None), "tot_se", "gencov_obs_se")
+    h2_out_of_bounds = rg_result.h2_out_of_bounds
+    h2_1_obs = _numeric_attr(getattr(rg_result, "hsq1", None), "tot")
+    h2_1_obs_se = _numeric_attr(getattr(rg_result, "hsq1", None), "tot_se")
+    h2_2_obs = _numeric_attr(getattr(rg_result, "hsq2", None), "tot")
+    h2_2_obs_se = _numeric_attr(getattr(rg_result, "hsq2", None), "tot_se")
+    gencov_obs = _numeric_attr(getattr(rg_result, "gencov", None), "tot")
+    gencov_obs_se = _numeric_attr(getattr(rg_result, "gencov", None), "tot_se")
     h2_1_liab, h2_1_liab_se = _liability_pair(h2_1_obs, h2_1_obs_se, samp_prev_1, pop_prev_1)
     h2_2_liab, h2_2_liab_se = _liability_pair(h2_2_obs, h2_2_obs_se, samp_prev_2, pop_prev_2)
     if any(v is not None for v in (samp_prev_1, pop_prev_1, samp_prev_2, pop_prev_2)):
@@ -578,7 +582,10 @@ def _summarize_rg_pair(
         "trait_1": trait_1,
         "trait_2": trait_2,
         "n_snps_used": n_snps,
-        **estimate,
+        "rg": _numeric_scalar(rg_result.rg_ratio),
+        "rg_se": _numeric_scalar(rg_result.rg_se),
+        "z": _numeric_scalar(rg_result.z),
+        "p": _numeric_scalar(rg_result.p),
         "h2_1_obs": h2_1_obs,
         "h2_1_obs_se": h2_1_obs_se,
         "h2_1_liab": h2_1_liab,
@@ -595,42 +602,24 @@ def _summarize_rg_pair(
         "pop_prev_1": _prev_cell(pop_prev_1),
         "samp_prev_2": _prev_cell(samp_prev_2),
         "pop_prev_2": _prev_cell(pop_prev_2),
-        "intercept_h2_1": _numeric_attr(getattr(rg_result, "hsq1", None), "intercept", "intercept_h2_1"),
-        "intercept_h2_1_se": _numeric_attr(getattr(rg_result, "hsq1", None), "intercept_se", "intercept_h2_1_se"),
-        "intercept_h2_2": _numeric_attr(getattr(rg_result, "hsq2", None), "intercept", "intercept_h2_2"),
-        "intercept_h2_2_se": _numeric_attr(getattr(rg_result, "hsq2", None), "intercept_se", "intercept_h2_2_se"),
-        "intercept_gencov": _numeric_attr(getattr(rg_result, "gencov", None), "intercept", "intercept_gencov"),
-        "intercept_gencov_se": _numeric_attr(
-            getattr(rg_result, "gencov", None),
-            "intercept_se",
-            "intercept_gencov_se",
-        ),
-        "ratio_1": _numeric_attr(getattr(rg_result, "hsq1", None), "ratio", "ratio_1"),
-        "ratio_1_se": _numeric_attr(getattr(rg_result, "hsq1", None), "ratio_se", "ratio_1_se"),
-        "ratio_2": _numeric_attr(getattr(rg_result, "hsq2", None), "ratio", "ratio_2"),
-        "ratio_2_se": _numeric_attr(getattr(rg_result, "hsq2", None), "ratio_se", "ratio_2_se"),
-        "lambda_gc_1": _numeric_attr(getattr(rg_result, "hsq1", None), "lambda_gc", "lambda_gc_1"),
-        "lambda_gc_2": _numeric_attr(getattr(rg_result, "hsq2", None), "lambda_gc", "lambda_gc_2"),
-        "mean_chisq_1": _numeric_attr(getattr(rg_result, "hsq1", None), "mean_chisq", "mean_chisq_1"),
-        "mean_chisq_2": _numeric_attr(getattr(rg_result, "hsq2", None), "mean_chisq", "mean_chisq_2"),
+        "intercept_h2_1": _numeric_attr(getattr(rg_result, "hsq1", None), "intercept"),
+        "intercept_h2_1_se": _numeric_attr(getattr(rg_result, "hsq1", None), "intercept_se"),
+        "intercept_h2_2": _numeric_attr(getattr(rg_result, "hsq2", None), "intercept"),
+        "intercept_h2_2_se": _numeric_attr(getattr(rg_result, "hsq2", None), "intercept_se"),
+        "intercept_gencov": _numeric_attr(getattr(rg_result, "gencov", None), "intercept"),
+        "intercept_gencov_se": _numeric_attr(getattr(rg_result, "gencov", None), "intercept_se"),
+        "ratio_1": _numeric_attr(getattr(rg_result, "hsq1", None), "ratio"),
+        "ratio_1_se": _numeric_attr(getattr(rg_result, "hsq1", None), "ratio_se"),
+        "ratio_2": _numeric_attr(getattr(rg_result, "hsq2", None), "ratio"),
+        "ratio_2_se": _numeric_attr(getattr(rg_result, "hsq2", None), "ratio_se"),
+        "lambda_gc_1": _numeric_attr(getattr(rg_result, "hsq1", None), "lambda_gc"),
+        "lambda_gc_2": _numeric_attr(getattr(rg_result, "hsq2", None), "lambda_gc"),
+        "mean_chisq_1": _numeric_attr(getattr(rg_result, "hsq1", None), "mean_chisq"),
+        "mean_chisq_2": _numeric_attr(getattr(rg_result, "hsq2", None), "mean_chisq"),
         "pair_kind": pair_kind,
         "status": "unestimable" if h2_out_of_bounds else "ok",
         "error": _h2_out_of_bounds_error(trait_1, trait_2, h2_1_obs, h2_2_obs, n_snps) if h2_out_of_bounds else "",
     }
-
-
-def _kernel_rg_estimate(rg_result) -> tuple[dict[str, float], bool]:
-    """Return a fitted pair's ``rg``, ``rg_se``, ``z`` and ``p``, and whether a heritability estimate is not positive.
-
-    When either trait's heritability estimate is at most 0, the ``RG`` kernel
-    ported from legacy LDSC sets ``_negative_hsq`` and stores the string
-    ``'NA'`` in these four fields (legacy ``RG.summary()`` reports the pair as
-    "h2 out of bounds"); they are returned as NaN with the flag set.
-    """
-    fields = {"rg": "rg_ratio", "rg_se": "rg_se", "z": "z", "p": "p"}
-    if rg_result._negative_hsq:
-        return dict.fromkeys(fields, math.nan), True
-    return {column: _required_numeric_scalar(getattr(rg_result, attr), column) for column, attr in fields.items()}, False
 
 
 def _h2_out_of_bounds_error(trait_1: str, trait_2: str, h2_1_obs: float, h2_2_obs: float, n_snps: int) -> str:
@@ -828,62 +817,25 @@ def _intercept_policies(config: RegressionConfig) -> dict[str, str]:
     }
 
 
-def _numeric_attr(obj: object | None, attr: str, field: str) -> float:
-    """Return a numeric scalar attribute or NaN when unavailable."""
+def _numeric_attr(obj: object | None, attr: str) -> float:
+    """Return a numeric scalar attribute, or NaN when the object or attribute is absent."""
     if obj is None:
         return math.nan
-    return _numeric_scalar(getattr(obj, attr, None), field)
+    return _numeric_scalar(getattr(obj, attr, None))
 
 
-def _required_numeric_scalar(value: object, field: str) -> float:
-    """Return a numeric scalar or raise for kernel string/invalid headline values."""
-    return _numeric_scalar(value, field, fail_on_non_numeric=True)
+def _numeric_scalar(value: object) -> float:
+    """Return a kernel value as a float: NaN when absent, else the first element of an array-like value.
 
-
-def _numeric_scalar(value: object, field: str, *, fail_on_non_numeric: bool = False) -> float:
-    """Return the first numeric scalar from common kernel return shapes."""
+    The fits receive kernel results through ``kernel_values``, so no value is
+    the kernel's ``'NA'`` string here.
+    """
     if value is None:
         return math.nan
-    if isinstance(value, str):
-        stripped = value.strip()
-        if stripped.upper() == "NA":
-            if fail_on_non_numeric:
-                raise LDSCInternalError(
-                    f"Regression summary field {field} is the non-numeric kernel value 'NA'. "
-                    "Most likely the estimator returned an unavailable headline statistic where a number was required. "
-                    "Re-run with `--log-level DEBUG` and report the traceback."
-                )
-            return math.nan
-        try:
-            return float(stripped)
-        except ValueError as exc:
-            if fail_on_non_numeric:
-                raise LDSCInternalError(
-                    f"Regression summary field {field} is non-numeric kernel value {value!r}. "
-                    "Most likely the estimator returned an unavailable headline statistic where a number was required. "
-                    "Re-run with `--log-level DEBUG` and report the traceback."
-                ) from exc
-            return math.nan
     if hasattr(value, "__array__") or isinstance(value, (list, tuple)):
         array = np.ravel(value)
-        if array.size == 0:
-            return math.nan
-        return _numeric_scalar(array[0].item() if hasattr(array[0], "item") else array[0], field, fail_on_non_numeric=fail_on_non_numeric)
-    try:
-        if pd.isna(value):
-            return math.nan
-    except TypeError:
-        pass
-    try:
-        return float(value)
-    except (TypeError, ValueError) as exc:
-        if fail_on_non_numeric:
-            raise LDSCInternalError(
-                f"Regression summary field {field} is non-numeric kernel value {value!r}. "
-                "Most likely the estimator returned an unavailable headline statistic where a number was required. "
-                "Re-run with `--log-level DEBUG` and report the traceback."
-            ) from exc
-        return math.nan
+        return math.nan if array.size == 0 else float(array[0])
+    return float(value)
 
 
 def _format_exception(exc: Exception) -> str:

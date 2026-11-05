@@ -62,9 +62,7 @@ def test_resolved_request_can_run_twice_without_accumulating_state(tmp_path):
     keep = tmp_path / "keep.tsv"
     keep.write_text("SNP\nkeep\n")
     config = GlobalConfig(snp_identifier="rsid")
-    schema = munge_input.resolve_raw_schema(
-        str(raw), MungeConfig(no_snp_restriction=True), MungeConfig(no_snp_restriction=True), config,
-    )
+    schema = munge_input.resolve_raw_schema(str(raw), MungeConfig(no_snp_restriction=True), config)
     request = munge_input.prepare_munge_input(schema, config, lambda build: SumstatsLiftoverRequest(), str(keep))
     first = kernel_munge.munge_sumstats(request)
     second = kernel_munge.munge_sumstats(request)

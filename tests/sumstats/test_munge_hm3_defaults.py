@@ -272,7 +272,7 @@ def test_quick_liftover_names_the_map_file_it_loaded(tmp_path):
     raw = tmp_path / "raw.tsv"
     raw.write_text("CHR POS SNP A1 A2 P BETA N\n1 100 keep A G .05 .1 1000\n")
     config = GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
-    schema = munge_input.resolve_raw_schema(str(raw), MungeConfig(), MungeConfig(), config)
+    schema = munge_input.resolve_raw_schema(str(raw), MungeConfig(), config)
     # The workflow's request names no map: the keep-list file is the map that
     # quick liftover reads, so the request records that file.
     request = munge_input.prepare_munge_input(

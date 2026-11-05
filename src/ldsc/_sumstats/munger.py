@@ -162,37 +162,26 @@ class SumstatsMunger:
         self._last_summary: MungeRunSummary | None = None
 
     @materializing_overwrite_guard(
-        lambda self, raw_sumstats_config, munge_config=None, global_config=None: (
-            ((munge_config or raw_sumstats_config).output_dir, (munge_config or raw_sumstats_config).overwrite)
-            if (munge_config or raw_sumstats_config).output_dir
-            else None
-        ),
+        lambda self, config, global_config=None: (config.output_dir, config.overwrite) if config.output_dir else None,
         command="SumstatsMunger.run(...)",
     )
-    def run(
-        self,
-        raw_sumstats_config: MungeConfig,
-        munge_config: MungeConfig | None = None,
-        global_config: GlobalConfig | None = None,
-    ) -> SumstatsTable:
+    def run(self, config: MungeConfig, *, global_config: GlobalConfig | None = None) -> SumstatsTable:
         """Munge one raw summary-statistics file into LDSC-ready form.
 
         Parameters
         ----------
-        raw_sumstats_config : MungeConfig
-            Munging config with raw file path and optional column hints. When
-            ``munge_config`` is omitted, this object also supplies output and
-            QC settings. Common plain-text inputs, including VCF-style headers,
-            old DANER, and new DANER are handled before the kernel runs;
-            explicit column hints still take priority.
-        munge_config : MungeConfig or None, optional
-            Munging thresholds, output directory, and munged output format. The
+        config : MungeConfig
+            The whole munging request: the raw file path, trait label and
+            column hints, the QC thresholds, the output directory and the
+            munged output format. Common plain-text inputs, including
+            VCF-style headers, old DANER, and new DANER are handled before the
+            kernel runs; explicit column hints still take priority. The
             workflow writes ``<trait>.parquet`` (self-describing via its footer)
-            and/or ``<trait>.sumstats.gz``, using the filesystem-safe trait label
-            from ``raw_sumstats_config``. Without a label, filenames are
+            and/or ``<trait>.sumstats.gz``, using the filesystem-safe trait
+            label. Without a label, filenames are
             ``sumstats.parquet`` and ``sumstats.gz``. Diagnostics live under
             ``diagnostics/``. Any existing owned artifact is refused before the kernel
-            runs unless ``munge_config.overwrite`` is true; successful
+            runs unless ``config.overwrite`` is true; successful
             overwrites remove stale sibling formats that the current run did
             not produce. Packaged HM3 is the default keep-list; a custom
             ``sumstats_snps_file`` replaces it, while ``no_snp_restriction=True``
@@ -214,7 +203,7 @@ class SumstatsMunger:
             ``sumstats_format="auto"`` is the default; use
             ``sumstats_format="plain"``, ``"daner-old"``, or ``"daner-new"``
             only when overriding auto-detection.
-        global_config : GlobalConfig or None, optional
+        global_config : GlobalConfig or None, keyword-only, optional
             Shared configuration snapshot to attach to the returned
             ``SumstatsTable``. When omitted, the current package-global
             configuration is captured. Default is ``None``.
@@ -235,53 +224,51 @@ class SumstatsMunger:
             mapping. Method selection and mapping/drop counts are always recorded
             in the log; this Python method does not print a console summary.
         """
-        if munge_config is None:
-            munge_config = raw_sumstats_config
-        if raw_sumstats_config.raw_sumstats_file is None:
+        if config.raw_sumstats_file is None:
             raise LDSCUserError(
                 "No input summary statistics given to munge-sumstats. Most likely --raw-sumstats-file was omitted. "
                 "Pass --raw-sumstats-file <file>."
             )
-        if munge_config.output_dir is None:
+        if config.output_dir is None:
             raise LDSCUserError(
                 "No output directory given to munge-sumstats. Most likely --output-dir or output_dir was omitted. "
                 "Pass --output-dir <directory> on the CLI or set MungeConfig.output_dir."
             )
 
-        config_snapshot = _source_global_config_for_munge(munge_config, global_config or get_global_config())
-        _validate_munge_build_contract(munge_config, config_snapshot.snp_identifier)
-        liftover_request = _liftover_request_from_config(munge_config, config_snapshot.genome_build)
+        config_snapshot = _source_global_config_for_munge(config, global_config or get_global_config())
+        _validate_munge_build_contract(config, config_snapshot.snp_identifier)
+        liftover_request = _liftover_request_from_config(config, config_snapshot.genome_build)
         _validate_liftover_request_before_io(config_snapshot, liftover_request)
-        output_dir = ensure_output_directory(munge_config.output_dir, label="output directory")
+        output_dir = ensure_output_directory(config.output_dir, label="output directory")
         writer = SumstatsDirectoryWriter()
         family = writer.artifact_family(
-            output_dir, trait_name=raw_sumstats_config.trait_name, output_format=munge_config.output_format, run=True,
+            output_dir, trait_name=config.trait_name, output_format=config.output_format, run=True,
         )
         output_files = {name: str(family.paths[name]) for name in ("parquet", "tsv.gz") if name in family.paths}
         log_path = str(family.paths["log"])
         dropped_snps_path = family.paths["dropped_snps"]
         input_issues_path = output_dir / INPUT_ISSUES_FILE
-        sumstats_snps_path = _sumstats_snps_file_from_config(munge_config)
+        sumstats_snps_path = _sumstats_snps_file_from_config(config)
         sumstats_snps_label = "none" if sumstats_snps_path is None else str(sumstats_snps_path)
         # The writer checks the family again when it publishes, then removes
         # stale owned siblings.
-        family.preflight(overwrite=munge_config.overwrite)
+        family.preflight(overwrite=config.overwrite)
         family.paths["log"].parent.mkdir(parents=True, exist_ok=True)
         with workflow_logging("munge-sumstats", log_path, log_level=config_snapshot.log_level):
-            inspect_declared_inputs(files=[('raw summary statistics', raw_sumstats_config.raw_sumstats_file),
+            inspect_declared_inputs(files=[('raw summary statistics', config.raw_sumstats_file),
                 ('SNP restriction', sumstats_snps_path), ('liftover chain', liftover_request.liftover_chain_file)],
                 issues_path=input_issues_path)
-            source_path = resolve_scalar_path(raw_sumstats_config.raw_sumstats_file, label="raw sumstats")
-            schema = munge_input.resolve_raw_schema(source_path, raw_sumstats_config, munge_config, config_snapshot)
-            column_hints = {**schema.inferred_hints, **raw_sumstats_config.column_hints}
-            restriction_path = _resolve_sumstats_snps_path(munge_config)
+            source_path = resolve_scalar_path(config.raw_sumstats_file, label="raw sumstats")
+            schema = munge_input.resolve_raw_schema(source_path, config, config_snapshot)
+            column_hints = {**schema.inferred_hints, **config.column_hints}
+            restriction_path = _resolve_sumstats_snps_path(config)
             log_inputs(
                 raw_sumstats_file=source_path,
                 output_dir=str(output_dir),
-                output_format=munge_config.output_format,
+                output_format=config.output_format,
                 sumstats_snps_file=sumstats_snps_label,
-                snp_restriction=("hm3" if _uses_packaged_hm3(munge_config) else "none" if munge_config.no_snp_restriction else "custom"),
-                hm3_map_file=packaged_hm3_curated_map_path() if _uses_packaged_hm3(munge_config) else "none",
+                snp_restriction=("hm3" if _uses_packaged_hm3(config) else "none" if config.no_snp_restriction else "custom"),
+                hm3_map_file=packaged_hm3_curated_map_path() if _uses_packaged_hm3(config) else "none",
                 output_genome_build=liftover_request.target_build or "none",
                 liftover_method=("pending source inference" if config_snapshot.genome_build == "auto" else liftover_request.method or "none"),
             )
@@ -290,11 +277,11 @@ class SumstatsMunger:
                 f"with snp_identifier='{config_snapshot.snp_identifier}', "
                 f"genome_build='{config_snapshot.genome_build}', "
                 f"sumstats_snps_file='{sumstats_snps_label}', "
-                f"packaged_hm3='{_uses_packaged_hm3(munge_config)}', "
+                f"packaged_hm3='{_uses_packaged_hm3(config)}', "
                 f"output_genome_build='{liftover_request.target_build}'."
             )
             request = munge_input.prepare_munge_input(
-                schema, config_snapshot, partial(_liftover_request_from_config, munge_config), restriction_path,
+                schema, config_snapshot, partial(_liftover_request_from_config, config), restriction_path,
             )
             resolved_liftover = request.liftover_request
             if resolved_liftover.liftover_chain_file is not None:
@@ -324,18 +311,18 @@ class SumstatsMunger:
             written = writer.write(
                 data,
                 output_dir,
-                trait_name=raw_sumstats_config.trait_name,
-                output_format=munge_config.output_format,
+                trait_name=config.trait_name,
+                output_format=config.output_format,
                 footer_metadata=encode_sumstats_footer(
-                    table_config_snapshot, raw_sumstats_config.trait_name, qc_thresholds,
+                    table_config_snapshot, config.trait_name, qc_thresholds,
                 ),
                 dropped_snps=drop_frame,
-                overwrite=munge_config.overwrite,
+                overwrite=config.overwrite,
                 preflighted=True,
             )
             _log_sumstats_provenance(
                 coordinate_metadata=coordinate_metadata,
-                output_format=munge_config.output_format,
+                output_format=config.output_format,
                 output_files=output_files,
                 parquet_compression=(
                     SUMSTATS_PARQUET_COMPRESSION
@@ -351,11 +338,11 @@ class SumstatsMunger:
                 data=data,
                 has_alleles={"A1", "A2"}.issubset(data.columns),
                 source_path=source_path,
-                trait_name=raw_sumstats_config.trait_name,
+                trait_name=config.trait_name,
                 provenance={
                     "raw_sumstats_file": source_path,
                     "output_dir": str(output_dir),
-                    "output_format": munge_config.output_format,
+                    "output_format": config.output_format,
                     "output_files": dict(output_files),
                     "column_hints": dict(column_hints),
                     "coordinate_provenance": coordinate_metadata,
@@ -378,7 +365,7 @@ class SumstatsMunger:
                 output_paths=run_output_paths,
                 qc_thresholds={"INFO": request.qc.info_min, "FRQ": request.qc.maf_min},
             )
-            log_summary(_render_munge_summary(self._last_summary, coordinate_metadata, munge_config, table.has_alleles))
+            log_summary(_render_munge_summary(self._last_summary, coordinate_metadata, config, table.has_alleles))
             log_outputs(**run_output_paths)
             LOGGER.info(
                 f"Munged {self._last_summary.n_input_rows} input rows to {self._last_summary.n_retained_rows} retained rows; "
@@ -470,7 +457,7 @@ def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable | Ra
     """Run summary-statistics munging from parsed CLI arguments.
 
     The CLI path normalizes argparse values into the same ``MungeConfig``
-    objects used by the Python API, then delegates to :class:`SumstatsMunger`
+    the Python API takes, then delegates to :class:`SumstatsMunger`
     so path resolution, output preflight, metadata, and result construction
     stay in one workflow path. Successful materializing runs print the resolved
     liftover method and mapping/drop summary to stdout at every log level;
@@ -502,19 +489,19 @@ def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable | Ra
         false.
     """
     if not getattr(args, "infer_only", False):
-        munger, table, munge_config = _munge_from_args(args)
+        munger, table, config = _munge_from_args(args)
         print(_render_munge_summary(
-            munger.build_run_summary(), table.provenance["coordinate_provenance"], munge_config, table.has_alleles,
+            munger.build_run_summary(), table.provenance["coordinate_provenance"], config, table.has_alleles,
         ))
         return table
-    raw_config, munge_config = _checked_munge_configs(args)
+    config = _checked_munge_config(args)
     base_config = _resolve_main_global_config(args)
-    _validate_munge_build_contract(munge_config, base_config.snp_identifier)
-    global_config = _source_global_config_for_munge(munge_config, base_config)
-    source_path = resolve_scalar_path(raw_config.raw_sumstats_file, label="raw sumstats")
-    schema = munge_input.resolve_raw_schema(source_path, raw_config, munge_config, global_config)
+    _validate_munge_build_contract(config, base_config.snp_identifier)
+    global_config = _source_global_config_for_munge(config, base_config)
+    source_path = resolve_scalar_path(config.raw_sumstats_file, label="raw sumstats")
+    schema = munge_input.resolve_raw_schema(source_path, config, global_config)
     inference = _inference_from_schema(schema)
-    inference = _apply_build_inference_report(schema, munge_config, global_config, inference)
+    inference = _apply_build_inference_report(schema, config, global_config, inference)
     inference = _apply_missing_column_report(schema, inference)
     inference = _preserve_inference_options(inference, args)
     print(_render_inference_report(inference, source_path, args.output_dir))
@@ -524,14 +511,14 @@ def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable | Ra
 @materializing_overwrite_guard(args_output_scope, command="run_munge_sumstats_from_args(...)")
 def _munge_from_args(args: argparse.Namespace) -> tuple[SumstatsMunger, SumstatsTable, MungeConfig]:
     """Run a materializing munging request; the caller prints its summary once the run is complete."""
-    raw_config, munge_config = _checked_munge_configs(args)
+    config = _checked_munge_config(args)
     munger = SumstatsMunger()
-    table = munger.run(raw_config, munge_config, _resolve_main_global_config(args))
-    return munger, table, munge_config
+    table = munger.run(config, global_config=_resolve_main_global_config(args))
+    return munger, table, config
 
 
-def _checked_munge_configs(args: argparse.Namespace) -> tuple[MungeConfig, MungeConfig]:
-    """Return the munging configs of parsed arguments whose input and output paths are nonempty."""
+def _checked_munge_config(args: argparse.Namespace) -> MungeConfig:
+    """Return the munging config of parsed arguments whose input and output paths are nonempty."""
     if not str(getattr(args, "raw_sumstats_file", "") or "").strip():
         raise LDSCUsageError(
             "munge-sumstats requires a nonempty --raw-sumstats-file, including with --infer-only. "
@@ -539,7 +526,7 @@ def _checked_munge_configs(args: argparse.Namespace) -> tuple[MungeConfig, Munge
         )
     if not str(getattr(args, "output_dir", "") or "").strip():
         raise LDSCUsageError("munge-sumstats requires a nonempty --output-dir. Pass --output-dir <directory>, including with --infer-only; dry runs write nothing.")
-    return _munge_configs_from_args(args)
+    return _munge_config_from_args(args)
 
 
 def _render_munge_summary(
@@ -702,14 +689,12 @@ def _validate_liftover_request_before_io(config: GlobalConfig, request: Sumstats
         )
 
 
-def _munge_configs_from_args(args: argparse.Namespace) -> tuple[MungeConfig, MungeConfig]:
-    """Convert parsed CLI arguments into raw-input and run configuration."""
-    raw_config = MungeConfig(
+def _munge_config_from_args(args: argparse.Namespace) -> MungeConfig:
+    """Convert parsed CLI arguments into the munging configuration."""
+    return MungeConfig(
         raw_sumstats_file=args.raw_sumstats_file,
         trait_name=getattr(args, "trait_name", None),
         column_hints=_column_hints_from_args(args),
-    )
-    munge_config = MungeConfig(
         output_dir=args.output_dir,
         N=getattr(args, "N", None),
         N_cas=getattr(args, "N_cas", None),
@@ -732,7 +717,6 @@ def _munge_configs_from_args(args: argparse.Namespace) -> tuple[MungeConfig, Mun
         a1_inc=args.a1_inc,
         overwrite=getattr(args, "overwrite", False),
     )
-    return raw_config, munge_config
 
 
 def _column_hints_from_args(args: argparse.Namespace) -> dict[str, str]:
@@ -1099,15 +1083,12 @@ def build_parser() -> argparse.ArgumentParser:
     return public
 
 
-def infer_raw_sumstats(
-    raw_sumstats_file: str | PathLike[str],
-    raw_config: MungeConfig | None = None,
-    munge_config: MungeConfig | None = None,
-    global_config: GlobalConfig | None = None,
-) -> RawSumstatsInference:
+def infer_raw_sumstats(config: MungeConfig, *, global_config: GlobalConfig | None = None) -> RawSumstatsInference:
     """Infer raw summary-statistics format and minimal parser hints.
 
-    The inference pass reads the header and first data row only, through the
+    ``config`` is the ``MungeConfig`` the run would take; its
+    ``raw_sumstats_file`` names the input and every other option is read
+    from it as the run reads it. The inference pass reads the header and first data row only, through the
     raw schema the munging run uses, so it reports every header problem that
     would stop the run: missing or conflicting columns, ambiguous sample-size
     or signed-statistic columns, and unusable old DANER count columns. It
@@ -1120,11 +1101,9 @@ def infer_raw_sumstats(
     mode; base modes ignore alleles and can munge raw summary statistics
     without allele columns.
     """
-    raw_config = raw_config or MungeConfig(raw_sumstats_file=raw_sumstats_file)
-    munge_config = munge_config or MungeConfig()
     global_config = global_config or get_global_config()
-    path = resolve_scalar_path(raw_sumstats_file, label="raw summary statistics")
-    return _inference_from_schema(munge_input.resolve_raw_schema(path, raw_config, munge_config, global_config))
+    path = resolve_scalar_path(config.raw_sumstats_file, label="raw summary statistics")
+    return _inference_from_schema(munge_input.resolve_raw_schema(path, config, global_config))
 
 
 def _inference_from_schema(schema: munge_input.RawSchema) -> RawSumstatsInference:

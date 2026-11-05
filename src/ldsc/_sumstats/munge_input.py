@@ -459,12 +459,7 @@ def _suggest_n_fix(file_cnames):
     return ""
 
 
-def resolve_raw_schema(
-    source_path: str,
-    raw_config: MungeConfig,
-    config: MungeConfig,
-    global_config: GlobalConfig,
-) -> RawSchema:
+def resolve_raw_schema(source_path: str, config: MungeConfig, global_config: GlobalConfig) -> RawSchema:
     """Read one raw summary-statistics header the way the munging run will.
 
     The munging run and ``--infer-only`` both call this, so the report and the
@@ -479,12 +474,10 @@ def resolve_raw_schema(
     ----------
     source_path : str
         Resolved raw summary-statistics path.
-    raw_config : MungeConfig
-        Supplies the explicit ``column_hints``.
     config : MungeConfig
-        Munging options: input format, ignored and INFO-list columns,
-        ``signed_sumstats_spec``, ``a1_inc``, sample-size constants and QC
-        thresholds.
+        Munging options: explicit ``column_hints``, input format, ignored and
+        INFO-list columns, ``signed_sumstats_spec``, ``a1_inc``, sample-size
+        constants and QC thresholds.
     global_config : GlobalConfig
         Supplies the SNP identifier mode; allele-aware modes require A1/A2.
 
@@ -500,7 +493,7 @@ def resolve_raw_schema(
     detected_format = _detect_format(clean_set, config.sumstats_format)
     inferred_hints = _format_hints(headers, detected_format)
     info_lists, notes = _first_row_info_lists(source_path, headers)
-    hints = {**inferred_hints, **raw_config.column_hints}
+    hints = {**inferred_hints, **config.column_hints}
     config = replace(
         config,
         sumstats_format=detected_format,

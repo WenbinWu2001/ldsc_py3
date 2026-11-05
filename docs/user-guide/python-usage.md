@@ -394,12 +394,12 @@ The summary also records `used_n_rule` (the sample-size strategy actually used) 
 ### Preview without writing
 
 `infer_raw_sumstats` is the Python counterpart of `--infer-only`: it reads the header and the first data row and writes nothing.
+It takes the `MungeConfig` that `SumstatsMunger.run` would take and reads every option from it, so a QC threshold whose column is missing appears in `missing_fields` exactly where the run would stop.
 
 ```python
 from ldsc import MungeConfig, infer_raw_sumstats
 
 preview = infer_raw_sumstats(
-    "/path/to/raw/trait.tsv.gz",
     MungeConfig(raw_sumstats_file="/path/to/raw/trait.tsv.gz", output_genome_build="hg38"),
 )
 print(preview.detected_format, preview.column_hints, preview.missing_fields)

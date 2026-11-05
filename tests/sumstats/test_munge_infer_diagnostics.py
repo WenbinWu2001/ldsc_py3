@@ -235,12 +235,27 @@ def test_infer_only_explains_every_missing_field_with_the_runs_message(tmp_path,
 
 
 def test_python_inference_reports_header_problems(tmp_path):
-    from ldsc import GlobalConfig, infer_raw_sumstats
+    from ldsc import GlobalConfig, MungeConfig, infer_raw_sumstats
 
     raw = tmp_path / 'raw.tsv'
     raw.write_text('SNP A1 A2 P BETA Z N\nrs1 A G 0.05 0.1 1.0 1000\n')
-    report = infer_raw_sumstats(raw, global_config=GlobalConfig(snp_identifier='rsid'))
+    report = infer_raw_sumstats(MungeConfig(raw_sumstats_file=raw), global_config=GlobalConfig(snp_identifier='rsid'))
     assert report.missing_fields == ('conflict: signed statistic',)
+
+
+def test_run_and_python_inference_read_every_option_from_one_config(tmp_path):
+    # Audit D9: the documented one-config preview ignored info_min, which the run rejects without an INFO column.
+    from ldsc import GlobalConfig, MungeConfig, SumstatsMunger, infer_raw_sumstats
+
+    raw = tmp_path / 'raw.tsv'
+    raw.write_text('SNP A1 A2 P BETA N\nrs1 A G 0.05 0.1 1000\n')
+    config = MungeConfig(raw_sumstats_file=raw, info_min=0.5, no_snp_restriction=True, output_dir=tmp_path / 'out')
+    rsid = GlobalConfig(snp_identifier='rsid')
+    report = infer_raw_sumstats(config, global_config=rsid)
+    assert report.missing_fields == ('column required by --info-min',)
+    with pytest.raises(LDSCUserError) as caught:
+        SumstatsMunger().run(config, global_config=rsid)
+    assert str(caught.value) in report.notes
 
 
 def test_run_lists_every_header_problem_in_one_error(tmp_path):

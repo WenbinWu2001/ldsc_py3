@@ -11,7 +11,8 @@ from ldsc._ldscore.calculator import LDScoreResult
 from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from ldsc._regression import runner as workflow
 from ldsc._regression.jackknife import JackknifeIdentifiabilityError
-from ldsc._sumstats.munger import SumstatsMunger, SumstatsTable
+from ldsc._sumstats.munger import SumstatsMunger
+from ldsc._sumstats.table import SumstatsTable
 from ldsc.config import GlobalConfig, RegressionConfig
 
 N_SNPS = 200

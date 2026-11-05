@@ -1236,9 +1236,10 @@ class RgDirectoryWriterTest(unittest.TestCase):
 
 class FixedOutputDirectoryTest(unittest.TestCase):
     def test_munge_write_output_requires_config_snapshot(self):
-        module = __import__("ldsc._sumstats.munger", fromlist=["SumstatsMunger", "SumstatsTable"])
+        module = __import__("ldsc._sumstats.munger", fromlist=["SumstatsMunger"])
+        from ldsc._sumstats.table import SumstatsTable
         with tempfile.TemporaryDirectory() as tmpdir:
-            table = module.SumstatsTable(
+            table = SumstatsTable(
                 data=pd.DataFrame({"SNP": ["rs1"], "N": [1000.0], "Z": [1.5]}),
                 has_alleles=False,
                 source_path="source.sumstats.gz",

@@ -19,7 +19,7 @@ from ldsc._refpanel import builder as r2_matrix_builder
 from ldsc._refpanel.builder import R2MatrixBuildConfig, R2MatrixBuilder
 from ldsc._regression import quantile_h2, runner as regression_runner
 from ldsc._regression.runner import RegressionRunner
-from ldsc._sumstats.munger import SumstatsTable
+from ldsc._sumstats.table import SumstatsTable
 from tests.runtime.test_path_resolution import _write_plink_trio
 
 

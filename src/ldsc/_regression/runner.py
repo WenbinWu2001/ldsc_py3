@@ -116,7 +116,7 @@ from .outputs import (
 )
 from .._ldscore.outputs import REGRESSION_LD_SCORE_COLUMN
 from .._annotation.storage import AnnotationWorkspace
-from .._sumstats.munger import SumstatsTable, load_sumstats
+from .._sumstats.table import SumstatsTable, load_sumstats
 from ..errors import LDSCInputError, LDSCInternalError, LDSCUsageError, LDSCUserError
 from .._runtime.progress import PhaseProgress
 from .._genome.build_policy import GenomeBuildCheck

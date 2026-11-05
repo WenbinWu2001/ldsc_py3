@@ -17,6 +17,7 @@ from pandas.testing import assert_series_equal
 import ldsc
 from ldsc.config import GlobalConfig, MungeConfig
 from ldsc._sumstats import munger as sumstats_workflow
+from ldsc._sumstats import table as sumstats_table
 from ldsc._sumstats import munge_kernel as kernel_munge
 from ldsc._sumstats import munge_input
 from ldsc._core.snp_identity import IDENTITY_DROP_COLUMNS
@@ -61,7 +62,7 @@ class SumstatsMungerTest(unittest.TestCase):
         trait_name: str | None = "trait",
     ) -> None:
         """Write a self-describing sumstats parquet with identity footer metadata."""
-        footer = sumstats_workflow._encode_sumstats_footer(
+        footer = sumstats_table.encode_sumstats_footer(
             GlobalConfig(snp_identifier=snp_identifier, genome_build=genome_build), trait_name
         )
         sumstats_workflow._write_sumstats_outputs(
@@ -346,7 +347,7 @@ class SumstatsMungerTest(unittest.TestCase):
             copy = SumstatsMunger().write_output(replace(table, data=table.data.copy()), tmpdir / "copy")
             self.assertEqual(qc_keys(copy), (b"0.8", b""))
 
-            hand_built = sumstats_workflow.SumstatsTable(
+            hand_built = sumstats_table.SumstatsTable(
                 data=table.data, has_alleles=True, source_path=None, trait_name=None,
                 config_snapshot=table.config_snapshot,
             )
@@ -910,7 +911,7 @@ class SumstatsMungerTest(unittest.TestCase):
     def test_write_output_accepts_output_format(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            table = sumstats_workflow.SumstatsTable(
+            table = sumstats_table.SumstatsTable(
                 data=pd.DataFrame({"SNP": ["rs1"], "Z": [1.234567], "N": [1000.123], "A1": ["A"], "A2": ["G"]}),
                 has_alleles=True,
                 source_path="source.tsv",
@@ -931,7 +932,7 @@ class SumstatsMungerTest(unittest.TestCase):
             output_dir.mkdir()
             stale = output_dir / "trait.sumstats.gz"
             stale.write_text("stale\n", encoding="utf-8")
-            table = sumstats_workflow.SumstatsTable(
+            table = sumstats_table.SumstatsTable(
                 data=pd.DataFrame({"SNP": ["rs1"], "Z": [1.5], "N": [1000.0]}),
                 has_alleles=False,
                 source_path="source.tsv",
@@ -951,7 +952,7 @@ class SumstatsMungerTest(unittest.TestCase):
             output_dir.mkdir()
             stale = output_dir / "trait.sumstats.gz"
             stale.write_text("stale\n", encoding="utf-8")
-            table = sumstats_workflow.SumstatsTable(
+            table = sumstats_table.SumstatsTable(
                 data=pd.DataFrame({"SNP": ["rs1"], "Z": [1.5], "N": [1000.0]}),
                 has_alleles=False,
                 source_path="source.tsv",
@@ -1379,7 +1380,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 SumstatsMunger().run(MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path, output_dir=tmpdir / "out"), global_config=GlobalConfig(snp_identifier="rsid"))
 
     def test_sumstats_table_missing_required_columns_uses_input_error(self):
-        table = sumstats_workflow.SumstatsTable(
+        table = sumstats_table.SumstatsTable(
             data=pd.DataFrame({"SNP": ["rs1"], "N": [1000.0]}),
             has_alleles=False,
             source_path="trait.sumstats.gz",
@@ -2884,7 +2885,7 @@ class SumstatsParquetFooterTest(unittest.TestCase):
         import pyarrow.parquet as pq
 
         snapshot = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19")
-        footer = sumstats_workflow._encode_sumstats_footer(snapshot, trait_name="height")
+        footer = sumstats_table.encode_sumstats_footer(snapshot, trait_name="height")
         with tempfile.TemporaryDirectory() as tmp:
             out = str(Path(tmp) / "sumstats.parquet")
             sumstats_workflow._write_sumstats_outputs(
@@ -2900,7 +2901,7 @@ class SumstatsParquetFooterTest(unittest.TestCase):
     def test_loader_rejects_footer_missing_identity_keys(self):
         snapshot = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19")
         for missing in (b"ldsc:snp_identifier", b"ldsc:genome_build"):
-            footer = sumstats_workflow._encode_sumstats_footer(snapshot, trait_name="height")
+            footer = sumstats_table.encode_sumstats_footer(snapshot, trait_name="height")
             del footer[missing]
             with self.subTest(missing=missing), tempfile.TemporaryDirectory() as tmp:
                 out = str(Path(tmp) / "sumstats.parquet")
@@ -2908,7 +2909,7 @@ class SumstatsParquetFooterTest(unittest.TestCase):
                     self._frame(), output_files={"parquet": out}, output_format="parquet", footer_metadata=footer
                 )
                 with self.assertRaisesRegex(ldsc.LDSCInputError, missing.decode() + ".*Re-run munge-sumstats"):
-                    sumstats_workflow.load_sumstats(out)
+                    sumstats_table.load_sumstats(out)
 
     def test_loader_rejects_footers_the_writer_cannot_produce(self):
         cases = {
@@ -2924,7 +2925,7 @@ class SumstatsParquetFooterTest(unittest.TestCase):
                 GlobalConfig(snp_identifier="rsid"), {b"ldsc:trait_name": None}, "ldsc:trait_name"),
         }
         for label, (snapshot, edits, message) in cases.items():
-            footer = sumstats_workflow._encode_sumstats_footer(snapshot, trait_name="height")
+            footer = sumstats_table.encode_sumstats_footer(snapshot, trait_name="height")
             for key, value in edits.items():
                 if value is None:
                     del footer[key]
@@ -2938,10 +2939,10 @@ class SumstatsParquetFooterTest(unittest.TestCase):
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     with self.assertRaisesRegex(ldsc.LDSCInputError, re.escape(message) + ".*Re-run munge-sumstats"):
-                        sumstats_workflow.load_sumstats(out)
+                        sumstats_table.load_sumstats(out)
 
     def test_footer_encodes_none_genome_build_and_trait_as_empty(self):
-        footer = sumstats_workflow._encode_sumstats_footer(
+        footer = sumstats_table.encode_sumstats_footer(
             GlobalConfig(snp_identifier="rsid_allele_aware"), trait_name=None
         )
         self.assertEqual(footer[b"ldsc:genome_build"], b"")

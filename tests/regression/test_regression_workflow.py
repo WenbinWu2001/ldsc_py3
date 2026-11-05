@@ -26,7 +26,7 @@ from ldsc._ldscore.calculator import LDScoreResult
 from ldsc import cli
 from ldsc._regression import runner as regression_runner
 from ldsc._regression.runner import RegressionRunner
-from ldsc._sumstats.munger import SumstatsTable
+from ldsc._sumstats.table import SumstatsTable
 
 
 @contextlib.contextmanager
@@ -88,11 +88,12 @@ class RegressionWorkflowTest(unittest.TestCase):
         genome_build: str | None = None,
     ) -> None:
         """Write a self-describing sumstats parquet carrying identity footer metadata."""
-        from ldsc._sumstats.munger import _encode_sumstats_footer, _write_sumstats_outputs
+        from ldsc._sumstats.munger import _write_sumstats_outputs
+        from ldsc._sumstats.table import encode_sumstats_footer
 
         if frame is None:
             frame = pd.DataFrame({"SNP": ["rs1"], "Z": [1.0], "N": [1000.0]})
-        footer = _encode_sumstats_footer(
+        footer = encode_sumstats_footer(
             GlobalConfig(snp_identifier=snp_identifier, genome_build=genome_build), trait_name
         )
         _write_sumstats_outputs(

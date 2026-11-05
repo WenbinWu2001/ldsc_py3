@@ -5,7 +5,7 @@ import pandas as pd
 
 from ldsc._ldscore.calculator import LDScoreResult
 from ldsc._regression import runner as workflow
-from ldsc._sumstats.munger import SumstatsTable
+from ldsc._sumstats.table import SumstatsTable
 from ldsc.config import GlobalConfig, RegressionConfig
 from tests.worker_fixtures import calculation_body
 

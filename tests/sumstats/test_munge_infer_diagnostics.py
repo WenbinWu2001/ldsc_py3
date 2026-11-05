@@ -272,6 +272,7 @@ def test_infer_only_does_not_turn_an_internal_build_error_into_a_note(tmp_path, 
 
 def test_loading_does_not_relabel_an_internal_footer_error(tmp_path, monkeypatch):
     from ldsc import load_sumstats
+    from ldsc._sumstats import table
 
     raw = tmp_path / 'raw.tsv'
     raw.write_text('SNP A1 A2 P BETA N\nrs1 A G 0.05 0.1 1000\n')
@@ -281,6 +282,6 @@ def test_loading_does_not_relabel_an_internal_footer_error(tmp_path, monkeypatch
     def broken(*args, **kwargs):
         raise RuntimeError('internal failure')
 
-    monkeypatch.setattr(workflow, 'validate_identity_artifact_metadata', broken)
+    monkeypatch.setattr(table, 'validate_identity_artifact_metadata', broken)
     with pytest.raises(RuntimeError, match='internal failure'):
         load_sumstats(tmp_path / 'out' / 'sumstats.parquet')

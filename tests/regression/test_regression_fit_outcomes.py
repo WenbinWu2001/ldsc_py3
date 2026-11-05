@@ -10,7 +10,7 @@ from ldsc import GlobalConfig, RegressionConfig
 from ldsc._regression import runner as workflow
 from ldsc.errors import LDSCConfigError, LDSCUsageError
 from ldsc._regression.outputs import H2DirectoryWriter, H2OutputConfig
-from ldsc._sumstats.munger import SumstatsTable
+from ldsc._sumstats.table import SumstatsTable
 from tests.cli_parsing import parse_command
 
 

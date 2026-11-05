@@ -63,8 +63,10 @@ Packages are arranged in tiers, and a module may import from its own package and
 It also fails when a module outside the root shell sits at the package root.
 In-package imports sit at module level, so a module's header lists its dependencies.
 No modules may import one another, directly or through other modules; the same test fails on any such cycle in the imports Python runs, counting imports inside functions and leaving out imports under `TYPE_CHECKING`.
-An in-package import stays inside a function only when moving it to module level would make `import ldsc` or `ldsc --help` load another module, such as the Matplotlib plot builders, and never to avoid an import cycle.
-`DEFERRED_IMPORTS` in `tests/package/test_layering.py` lists each such import with its reason, and the test fails on an unlisted function-level import, on a stale entry, and when `import ldsc` or `ldsc --help` loads a listed module.
+An in-package import stays inside a function only when moving it to module level would make `import ldsc` or `ldsc --help` load another module, and never to avoid an import cycle.
+The Matplotlib plot builders follow their own rule: Matplotlib loads only on paths that draw a figure, so their import stays inside `_plotting.dispatch`, which `import ldsc` and `ldsc --help` do not load but `ldsc plot --help` does.
+`DEFERRED_IMPORTS` in `tests/package/test_layering.py` lists each such import with its reason, and the test fails on an unlisted function-level import and on a stale entry.
+It also fails when `import ldsc` or `ldsc --help` loads a listed module, when they do not load the importer of a listed import other than the plot builders (so a module-level import would not slow startup), and when `ldsc plot --help` loads the plot builders.
 The lazily exported workflows in `ldsc/__init__.py` and the per-command modules of `ldsc.cli` are loaded by name through `importlib`, and optional third-party dependencies such as pyliftover keep their own guarded imports; neither is an in-package import statement.
 
 - `ldsc.cli` parses arguments and dispatches; workflow logic lives in the domain packages.

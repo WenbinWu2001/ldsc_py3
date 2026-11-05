@@ -15,6 +15,7 @@ inside a function only when ``DEFERRED_IMPORTS`` lists it with its reason.
 """
 
 import ast
+import json
 import subprocess
 import sys
 import tempfile
@@ -47,9 +48,13 @@ PACKAGE_TIERS = {
 }
 
 # The only in-package imports that stay inside functions, as
-# (importing module, imported module): reason. Each target is a module that
-# `import ldsc` and `ldsc --help` do not load (checked below), so moving the
-# import to module level would load it at every start.
+# (importing module, imported module): reason. `import ldsc` or `ldsc --help`
+# loads each importer but not its target (checked below), so moving the
+# import to module level would load the target at every start. The Matplotlib
+# plot builders follow their own rule instead: Matplotlib loads only on paths
+# that draw a figure, so `ldsc plot --help`, which loads their importer, must
+# not load them either (FIGURE_IMPORTS, also checked below).
+FIGURE_IMPORTS = {("ldsc._plotting.dispatch", "ldsc._plotting.builders")}
 DEFERRED_IMPORTS = {
     ("ldsc._plotting.dispatch", "ldsc._plotting.builders"):
         "the plot builders import Matplotlib, which loads only for a figure",
@@ -284,28 +289,42 @@ class LayeringTest(unittest.TestCase):
         self.assertTrue(all(reason.strip() for reason in DEFERRED_IMPORTS.values()))
 
     def test_deferred_imports_stay_unloaded_at_startup(self):
-        # Each deferred import exists to keep its target out of `import ldsc`
-        # and `ldsc --help`; a clean interpreter shows whether that still holds.
-        targets = sorted({target for _, target in DEFERRED_IMPORTS})
+        # A clean interpreter shows whether the premise of each deferred import
+        # still holds: at startup its importer is loaded and its target is not,
+        # and the Matplotlib builders stay unloaded by `ldsc plot --help` too.
         probe = textwrap.dedent(
-            f"""
-            import sys
+            """
+            import contextlib, io, json, sys
             import ldsc
             from ldsc import cli
-            try:
-                cli.main(["--help"])
-            except SystemExit:
-                pass
-            print(",".join(name for name in {targets!r} if name in sys.modules))
+
+            def loaded_after(argv):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    try:
+                        cli.main(argv)
+                    except SystemExit:
+                        pass
+                return sorted(name for name in sys.modules if name.startswith("ldsc"))
+
+            print(json.dumps({"startup": loaded_after(["--help"]), "plot_help": loaded_after(["plot", "--help"])}))
             """
         )
         completed = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True,
                                    cwd=tempfile.gettempdir())
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertEqual(completed.stdout.splitlines()[-1].strip(), "",
+        loaded = {name: set(modules) for name, modules in json.loads(completed.stdout.splitlines()[-1]).items()}
+        startup_targets = sorted(target for _, target in DEFERRED_IMPORTS if target in loaded["startup"])
+        self.assertEqual(startup_targets, [],
                          "`import ldsc` or `ldsc --help` loads a deferred module, so its imports no longer "
                          "need to be deferred")
-
+        idle_importers = sorted(f"{importer} -> {target}" for importer, target in DEFERRED_IMPORTS
+                                if (importer, target) not in FIGURE_IMPORTS and importer not in loaded["startup"])
+        self.assertEqual(idle_importers, [],
+                         "`import ldsc` and `ldsc --help` do not load these importers, so a module-level "
+                         "import would not slow startup; move it to module level:\n" + "\n".join(idle_importers))
+        for importer, target in FIGURE_IMPORTS:
+            self.assertIn(importer, loaded["plot_help"])
+            self.assertNotIn(target, loaded["plot_help"], "`ldsc plot --help` loads the Matplotlib plot builders")
 
 if __name__ == "__main__":
     unittest.main()

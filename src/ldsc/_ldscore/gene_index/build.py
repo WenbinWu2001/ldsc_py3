@@ -949,7 +949,9 @@ def _run_gene_ldscore_index_build(
             "published_reload_validation": "passed",
             "index_path": str(index_path),
         },
-        "chromosomes": evidence_by_chrom,
+        # Root metadata.json holds the combined annotation_types; repeating each chromosome's here is redundant.
+        "chromosomes": {chrom: {key: value for key, value in values.items() if key != "annotation_types"}
+                        for chrom, values in evidence_by_chrom.items()},
         "totals": {
             "chromosome_count": len(chromosomes),
             "catalog_genes": sum(values["catalog_genes"] for values in evidence_by_chrom.values()),

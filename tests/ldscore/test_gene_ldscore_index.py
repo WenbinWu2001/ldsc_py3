@@ -1044,6 +1044,8 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
     assert "Finished " in log_text
     assert diagnostics["chromosomes"]["22"]["catalog_genes"] == 2
     assert diagnostics["chromosomes"]["22"]["operator_nnz"] == chromosome.operator.nnz
+    # Root metadata.json holds the index's annotation_types; the diagnostics do not repeat them per chromosome.
+    assert "annotation_types" not in diagnostics["chromosomes"]["22"]
     assert f"nonzero SNP-atom LD scores={chromosome.operator.nnz}" in log_text
     assert captured_restriction["path"] == tmp_path / "custom-regression.tsv"
     dropped_sidecar = index_dir / "diagnostics" / "dropped_snps" / "chr22_dropped.tsv.gz"

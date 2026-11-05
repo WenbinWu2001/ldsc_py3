@@ -57,7 +57,7 @@ Start with [the contributor entry](code-structure.md) to locate a change; this d
 
 The matrix answers which layer owns an object and which objects take part in a workflow.
 The public import boundary is `ldsc`, the command boundary is `ldsc.cli`, and every package whose name starts with an underscore is internal.
-The packages form one-directional tiers, `_core` < `_runtime` < `config` < `_genome` < (`_annotation`, `_refpanel`, `_sumstats`) < `_ldscore` < `_regression` < `_plotting` < the root shell, enforced by `tests/package/test_layering.py`; the [code structure](code-structure.md#dependency-direction) gives the rules.
+The packages form one-directional tiers, `_core` < `_runtime` < `config` < `_genome` < (`_annotation`, `_refpanel`, `_sumstats`) < `_ldscore` < `_regression` < `_plotting` < the root shell, enforced by `tests/package/test_layering.py`, which also fails on import cycles and on unlisted imports inside functions; the [code structure](code-structure.md#dependency-direction) gives the rules.
 
 | Layer | Shared CLI, config, path, and schema contracts | Annotation building | Reference-panel building and loading | LD-score calculation | Summary-statistics munging | Regression | Output and persistence |
 | --- | --- | --- | --- | --- | --- | --- | --- |

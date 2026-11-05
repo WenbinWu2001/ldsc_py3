@@ -61,7 +61,11 @@ Packages are arranged in tiers, and a module may import from its own package and
 
 [`tests/package/test_layering.py`](../../tests/package/test_layering.py) enforces the table: it reads every import inside the package, including imports inside functions and under `TYPE_CHECKING`, and fails on an import that points upward or between peers.
 It also fails when a module outside the root shell sits at the package root.
-Function-level imports remain for optional or heavy dependencies, such as Matplotlib and the SciPy-backed workflows, but never to avoid an import cycle.
+In-package imports sit at module level, so a module's header lists its dependencies.
+No modules may import one another, directly or through other modules; the same test fails on any such cycle in the imports Python runs, counting imports inside functions and leaving out imports under `TYPE_CHECKING`.
+An in-package import stays inside a function only when moving it to module level would make `import ldsc` or `ldsc --help` load another module, such as the Matplotlib plot builders, and never to avoid an import cycle.
+`DEFERRED_IMPORTS` in `tests/package/test_layering.py` lists each such import with its reason, and the test fails on an unlisted function-level import, on a stale entry, and when `import ldsc` or `ldsc --help` loads a listed module.
+The lazily exported workflows in `ldsc/__init__.py` and the per-command modules of `ldsc.cli` are loaded by name through `importlib`, and optional third-party dependencies such as pyliftover keep their own guarded imports; neither is an in-package import statement.
 
 - `ldsc.cli` parses arguments and dispatches; workflow logic lives in the domain packages.
 - Reference panels hand LD-score computation a `PreparedChromosome` (`_refpanel.prepared`); `_ldscore.compute` consumes it and never reopens sources.
@@ -188,7 +192,7 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 | change owned artifact declarations | `src/ldsc/_runtime/artifacts.py`, then the domain writer: `src/ldsc/_annotation/outputs.py`, `src/ldsc/_refpanel/outputs.py`, `src/ldsc/_ldscore/outputs.py` or `src/ldsc/_regression/outputs.py` |
 | change LD-score directory files, Parquet row-group layout, or LD-score metadata | `src/ldsc/_ldscore/outputs.py` |
 | change the `partitioned-h2` per-query layout, the `rg` result-family layout, or regression metadata payloads | `src/ldsc/_regression/outputs.py` |
-| change which module may import which | the tier table above and `tests/package/test_layering.py` |
+| change which module may import which, or defer an import | the tier table above and `tests/package/test_layering.py` (`DEFERRED_IMPORTS` for imports inside functions) |
 
 ## Architectural Rules That Matter In Practice
 

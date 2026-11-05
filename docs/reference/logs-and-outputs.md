@@ -334,7 +334,7 @@ The exact gene LD-score index builder uses the same lifecycle banner, `Call:`, `
 Its stable path is created before chromosome work so it can be monitored live.
 Its concise INFO narrative records resolved configuration and input counts, the baseline/PLINK identifier intersection and configured regression SNPs, start and completion for each chromosome, catalog genes after exclusion, retained SNPs and regression SNPs, atom/operator nonzeros, component bytes, and publication state.
 The JSON sidecar is the machine-readable summary; the log renders the same per-chromosome and aggregate measurements rather than recomputing them.
-Chromosome workers write their detailed records and tracebacks to chromosome logs, as `ldscore` workers do ([LD-score chromosome logs](#ld-score-chromosome-logs)); warnings that a chromosome's evidence supports, such as zero regression SNP rows, are written by the coordinator to the main log.
+Chromosome workers write their detailed records and tracebacks to chromosome logs, as `ldscore` workers do ([LD-score chromosome logs](#ld-score-chromosome-logs)); warnings that a chromosome's evidence supports, such as a chromosome without regression SNPs, are written by the coordinator to the main log.
 
 For this builder, the coordinator emits `Finished chromosome N` only after the worker has closed every chromosome payload and atomically installed the shard in the hidden run-specific stage.
 It means the internal shard is durable and its in-memory record can be released; it does not report partial public publication.

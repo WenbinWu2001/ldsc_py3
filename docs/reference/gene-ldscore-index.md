@@ -255,7 +255,7 @@ The lock, the live log, issue tables, earlier failed attempts and the index bein
 - Two builders cannot target the same directory concurrently.
 
 While the build is running, the live log is `<index-dir>/.build/build-gene-ldscore-index.log`, so `tail -f` works.
-Each chromosome worker writes its own records, phase timings and any traceback to `<index-dir>/.build/chromosome-logs/chrN.log`, through the per-chromosome log mechanism of `ldscore` ([parallel execution](parallel-execution.md#ld-logs-and-failure-cleanup)); the coordinator writes each chromosome's start, completion and warnings, such as a chromosome with zero regression SNP rows, to the main log.
+Each chromosome worker writes its own records, phase timings and any traceback to `<index-dir>/.build/chromosome-logs/chrN.log`, through the per-chromosome log mechanism of `ldscore` ([parallel execution](parallel-execution.md#ld-logs-and-failure-cleanup)); the coordinator writes each chromosome's start, completion and warnings, such as a chromosome without regression SNPs, to the main log.
 After a successful publication, the handler closes, the complete log moves to `<index-dir>/diagnostics/build-gene-ldscore-index.log`, the chromosome logs move to `<index-dir>/diagnostics/chromosome-logs/`, and `.build/` is removed.
 Failed logs stay in `.build/`, and a retry archives them under `.build/history/`.
 The lifecycle footer is the status authority: `Started` without a terminal `Finished` or `Failed` line indicates abrupt termination; there is no separate status file.

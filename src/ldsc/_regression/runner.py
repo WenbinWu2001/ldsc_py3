@@ -2156,11 +2156,11 @@ def _select_count_key(
     )
 
 
-def _preview_names(names: Sequence[str], limit: int = 5) -> str:
-    """Join the first ``limit`` names for a message and count the rest."""
+def _preview_names(names: Sequence[str]) -> str:
+    """Join the first five names for a message and count the rest."""
     names = list(names)
-    preview = ", ".join(names[:limit])
-    return f"{preview}, ... ({len(names) - limit} more)" if len(names) > limit else preview
+    preview = ", ".join(names[:5])
+    return f"{preview}, ... ({len(names) - 5} more)" if len(names) > 5 else preview
 
 
 def _validate_partitioned_query_columns(ldscore_result: LDScoreSource | LDScoreResult, query_columns: Sequence[str]) -> list[str]:

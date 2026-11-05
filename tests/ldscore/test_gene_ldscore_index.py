@@ -1062,6 +1062,46 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
     assert (unrelated_sibling / "build-gene-ldscore-index.log").read_text(encoding="utf-8") == "not owned by this build\n"
 
 
+def test_build_workers_log_to_chromosome_logs_and_warnings_reach_the_build_log(tmp_path, monkeypatch, capfd):
+    # Real spawn workers: their records reach no handler unless the build attaches one.
+    from tests.ref_panel_helpers import write_tiny_plink
+    narrow_index_chromosomes(monkeypatch, ("1", "2"))
+    bim = pd.DataFrame({"CHR": [1] * 6 + [2] * 6, "SNP": [f"rs{i}" for i in range(12)],
+                        "POS": [10 * (i % 6 + 1) for i in range(12)]})
+    prefix = write_tiny_plink(tmp_path / "panel", bim)
+    baseline = tmp_path / "baseline.annot"
+    bim.assign(CM=0.0, base=1).to_csv(baseline, sep="\t", index=False)
+    # Regression SNPs lie on chromosome 1 only, so chromosome 2 persists no regression rows.
+    regression = tmp_path / "regression.tsv"
+    bim.loc[bim.CHR == 1, ["SNP"]].to_csv(regression, sep="\t", index=False)
+    catalog = tmp_path / "genes.tsv"
+    catalog.write_text("gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
+                       "G1\tONE\t1\t5\t6\thg19\nG2\tTWO\t2\t1\t100\thg19\n")
+    args = gene_ldscore_index.build_parser().parse_args([
+        "--output-dir", str(tmp_path / "index"), "--baseline-annot-sources", str(baseline),
+        "--plink-prefix", str(prefix), "--gene-coordinate-file", str(catalog),
+        "--genome-build", "hg19", "--snp-identifier", "rsid", "--ld-wind-kb", "0.015",
+        "--gene-exclude-regions", "none", "--regr-snps-exclude-regions", "none", "--regr-snps-file", str(regression)])
+
+    index_dir = gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
+
+    stderr = capfd.readouterr().err
+    assert "zero persisted regression SNP rows" not in stderr
+    assert "UserWarning" not in stderr
+    log_lines = (index_dir / "diagnostics" / "build-gene-ldscore-index.log").read_text(encoding="utf-8").splitlines()
+    assert [line for line in log_lines if "Chromosome 2 has zero persisted regression SNP rows" in line
+            and "[WARNING]" in line]
+    for chrom in ("1", "2"):
+        # One completion line per chromosome in the build log.
+        assert sum(f"Finished chromosome {chrom}" in line for line in log_lines) == 1
+        chromosome_log = (index_dir / "diagnostics" / "chromosome-logs" / f"chr{chrom}.log").read_text(encoding="utf-8")
+        assert f"Starting chromosome {chrom}; gene-index construction." in chromosome_log
+        assert "Phase complete: computation; gene-index chromosome" in chromosome_log
+        assert f"Finished chromosome {chrom}; gene-index construction." in chromosome_log
+        assert f"Finished chromosome {chrom}:" not in chromosome_log
+    assert not (index_dir / ".build").exists()
+
+
 def test_completed_chromosome_is_durably_staged_before_other_workers_finish(
     tmp_path, monkeypatch
 ):
@@ -1266,6 +1306,24 @@ def test_chromosome_failure_cleans_staged_shards_without_publication(tmp_path, m
     assert not (output / ".build" / "stage").exists()
     failed_log = output / ".build" / "build-gene-ldscore-index.log"
     assert "Finished chromosome 1" in failed_log.read_text(encoding="utf-8")
+    # The failed chromosome's log keeps its traceback; a retry archives it and publishes its own.
+    failed_chromosome_log = (output / ".build" / "chromosome-logs" / "chr2.log").read_text(encoding="utf-8")
+    assert "Chromosome 2 failed; gene-index construction." in failed_chromosome_log
+    assert "RuntimeError: injected chromosome failure" in failed_chromosome_log
+
+    with pytest.raises(RuntimeError, match="injected chromosome failure"):
+        gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
+    archived = list((output / ".build").glob("history/chromosome-logs.*/chr2.log"))
+    assert len(archived) == 1 and "injected chromosome failure" in archived[0].read_text(encoding="utf-8")
+
+    monkeypatch.setattr(gene_ldscore_index, "build_plink_index_chromosome", lambda chrom, *_a, **_k: replace(
+        chromosome, baseline_rows=chromosome.baseline_rows.assign(CHR=chrom),
+        atom_model=build_disjoint_atoms(chrom, np.array([[0, 10], [5, 15]], dtype=np.int64)),
+        reference_snp_funnel=_fixture_funnel(chrom)))
+    gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
+    published = output / "diagnostics" / "chromosome-logs"
+    assert sorted(path.name for path in published.iterdir()) == ["chr1.log", "chr2.log"]
+    assert "failed" not in (published / "chr2.log").read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("snp_batch_size", [1, 3])

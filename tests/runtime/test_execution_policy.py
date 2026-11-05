@@ -221,7 +221,7 @@ def test_indexed_python_failure_reports_batch_and_full_chromosome_traceback(tmp_
     assert not list(output.glob(".ldsc-*"))
 
 
-def _fail_index_builder_after_durable_first_chromosome(*args):
+def _fail_index_builder_after_durable_first_chromosome(log_path, *args):
     from pathlib import Path
     from ldsc._ldscore.gene_index import build as builder
     if args[0] == "22":
@@ -229,7 +229,7 @@ def _fail_index_builder_after_durable_first_chromosome(*args):
         assert shard.is_file()
         Path(os.environ["LDSC_TEST_DURABLE_SHARD"]).write_text(str(shard))
         raise RuntimeError("failure after chromosome 21 was staged")
-    return builder._build_one_index_chromosome(*args)
+    return builder._index_chromosome_task(log_path, *args)
 
 
 def test_real_index_worker_failure_removes_completed_shards(tmp_path, monkeypatch):
@@ -239,7 +239,7 @@ def test_real_index_worker_failure_removes_completed_shards(tmp_path, monkeypatc
     write_inputs(tmp_path)
     event = tmp_path / "durable-shard.txt"
     monkeypatch.setenv("LDSC_TEST_DURABLE_SHARD", str(event))
-    monkeypatch.setattr(builder, "_build_one_index_chromosome", _fail_index_builder_after_durable_first_chromosome)
+    monkeypatch.setattr(builder, "_index_chromosome_task", _fail_index_builder_after_durable_first_chromosome)
     args = index_args(tmp_path, str(tmp_path / "1000G.EUR.QC.*"), tmp_path / "index", monkeypatch, workers=1)
     with pytest.raises(RuntimeError, match="chromosome 21 was staged"):
         builder.run_build_gene_ldscore_index_from_args(args)

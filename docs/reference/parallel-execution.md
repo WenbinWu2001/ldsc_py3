@@ -103,6 +103,7 @@ Both direct and indexed writing workflows use this layout, at every worker count
 ```
 
 The main log records overall progress and each chromosome's diagnostic path.
+`build-gene-ldscore-index` workers write the same chromosome logs, under the index's hidden `.build/chromosome-logs/` while it runs and in `<index-dir>/diagnostics/chromosome-logs/` after a successful build ([gene LD-score index](gene-ldscore-index.md#output-preflight-logging-and-replacement)).
 Chromosome logs append across batches in the same run and record detailed execution and full Python exception tracebacks.
 A subsequent run follows `--overwrite`: refuse existing owned artifacts by default, or reset owned logs for an explicitly authorized replacement.
 An abnormal worker termination may produce no traceback; the main log lists affected in-flight tasks without guessing which chromosome caused the crash.

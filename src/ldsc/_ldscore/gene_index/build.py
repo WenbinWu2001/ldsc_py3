@@ -43,8 +43,8 @@ from ..._runtime.parallelism import (
 )
 from ..._runtime.progress import report_phase, PhaseProgress
 from .. import compute as kernel_ldscore
-from ..diagnostics import emit_reference_snp_funnel_notice, log_reference_snp_funnel_warning
-from ..outputs import snp_universe_policy_record
+from ..diagnostics import chromosome_log, emit_reference_snp_funnel_notice, log_reference_snp_funnel_warning
+from ..outputs import CHROMOSOME_LOG_DIR, snp_universe_policy_record
 from ..._annotation.semantics import combine_annotation_types
 from ..._refpanel.adapters import PlinkRefPanel, resolve_keep_individuals
 from ..._refpanel.funnel import concat_funnels, funnel_from_records, funnel_records, with_grid_rows
@@ -593,13 +593,23 @@ def _build(
         return published_path
 
 
+def _index_chromosome_task(log_path, chrom, *task):
+    """Construct one chromosome in a worker, its records going to its chromosome log.
+
+    Spawn workers have no handler of their own; ``chromosome_log`` attaches the
+    shared per-chromosome file handler that ``ldscore`` workers use, so worker
+    records, phase timings and tracebacks reach ``log_path``.
+    """
+    with chromosome_log(log_path, chrom, "gene-index construction"):
+        return _build_one_index_chromosome(chrom, *task)
+
+
 @report_phase(LOGGER, 'computation', 'gene-index chromosome')
 def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, chrom_catalog,
                                 config, chromosome_prefixes, genetic_map, regression_keys,
                                 regression_regions, staged_index):
     """Read one staged chromosome and return only its persisted component metadata."""
     chrom_started = time.perf_counter()
-    LOGGER.info(f"Starting chromosome {chrom}.")
     phase = "baseline annotation resolution"
     try:
         metadata = shard.metadata()
@@ -731,19 +741,6 @@ def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, c
         )
         raise
     evidence["elapsed_seconds"] = time.perf_counter() - chrom_started
-    LOGGER.info(
-        f"Finished chromosome {chrom}: catalog genes={catalog_genes}, "
-        f"retained-reference={evidence['retained_reference_rows']}, "
-        f"regression-rows={evidence['regression_rows']}, atoms={evidence['atom_count']}, "
-        f"nonzero SNP-atom LD scores={evidence['nnz_Y']}, elapsed={evidence['elapsed_seconds']:.3f}s."
-    )
-    if not len(record.baseline_rows):
-        LOGGER.warning(
-            f"Chromosome {chrom} has zero persisted regression SNP rows after restriction and region exclusion. "
-            "Index construction continues, but this chromosome supplies no regression SNP rows for indexed scoring. "
-            "Check the requested regression-SNP restriction and region exclusions; correct unintended settings "
-            "before using the index."
-        )
     evidence["worker_runtime"] = native_thread_state()
     return StagedIndexChromosome(
         chromosome=chrom,
@@ -824,13 +821,18 @@ def _run_gene_ldscore_index_build(
                     regression_regions, staged_index)
 
 
+        chromosome_logs = _chromosome_log_dir(build_dir)
+        chromosome_logs.mkdir()
+        LOGGER.info("Chromosome logs: %s; a successful build moves them to %s.",
+                    chromosome_logs, Path(config.output_dir) / CHROMOSOME_LOG_DIR)
         max_workers = resolve_worker_count(config.workers, len(chromosomes))
         with chromosome_pool(max_workers, operation="build-gene-ldscore-index chromosome construction",
                              initializer=initialize_worker, initargs=(log_level,)) as pool:
             completed = {}
             def submit(chrom):
                 LOGGER.info("Starting chromosome %s gene-index construction.", chrom)
-                return pool.submit(_build_one_index_chromosome, *task_arguments(chrom))
+                return pool.submit(_index_chromosome_task, chromosome_logs / f"chr{chrom}.log",
+                                   *task_arguments(chrom))
 
             def collect(chrom, result):
                 completed[result.chromosome] = result
@@ -842,9 +844,16 @@ def _run_gene_ldscore_index_build(
                     evidence["regression_rows"], evidence["atom_count"], evidence["nnz_Y"],
                     evidence["elapsed_seconds"],
                 )
-                runtime = result.evidence["worker_runtime"]
+                if not evidence["regression_rows"]:
+                    LOGGER.warning(
+                        f"Chromosome {result.chromosome} has zero persisted regression SNP rows after restriction "
+                        "and region exclusion. Index construction continues, but this chromosome supplies no "
+                        "regression SNP rows for indexed scoring. Check the requested regression-SNP restriction "
+                        "and region exclusions; correct unintended settings before using the index."
+                    )
+                runtime = evidence["worker_runtime"]
                 LOGGER.log(logging.INFO if runtime["verified"] else logging.WARNING,
-                           "Finished chromosome %s; native thread policy %s: %s",
+                           "Chromosome %s native thread policy %s: %s",
                            result.chromosome, "verified" if runtime["verified"] else "unverified or unmet (continuing)",
                            runtime)
 
@@ -1087,6 +1096,11 @@ def _gene_index_build_dir(index_path: Path) -> Path:
     return index_path.expanduser() / _BUILD_DIR
 
 
+def _chromosome_log_dir(build_dir: Path) -> Path:
+    """Return the live chromosome-log directory; success moves it to ``diagnostics/chromosome-logs``."""
+    return build_dir / Path(CHROMOSOME_LOG_DIR).name
+
+
 def _archive_gene_index_log(log_path: Path, history: Path) -> Path:
     """Move one closed operational log to a collision-resistant history path."""
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
@@ -1096,13 +1110,19 @@ def _archive_gene_index_log(log_path: Path, history: Path) -> Path:
 
 
 def _prepare_gene_index_log(index_path: Path) -> Path:
-    """Archive a failed attempt's log and issue tables, discard its scratch, and return the live-log path.
+    """Archive a failed attempt's logs and issue tables, discard its scratch, and return the live-log path.
 
     Only a failed or interrupted attempt leaves a build directory; its staged
     index and workspaces are never reused.
     """
     build_dir = _gene_index_build_dir(index_path)
     build_dir.mkdir(parents=True, exist_ok=True)
+    chromosome_logs = _chromosome_log_dir(build_dir)
+    if chromosome_logs.is_dir() and not chromosome_logs.is_symlink():
+        history = build_dir / "history"
+        history.mkdir(exist_ok=True)
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+        os.replace(chromosome_logs, history / f"{chromosome_logs.name}.{timestamp}")
     for entry in build_dir.iterdir():
         if entry.is_dir() and not entry.is_symlink() and entry.name != "history":
             shutil.rmtree(entry)
@@ -1138,12 +1158,13 @@ def _write_gene_catalog_issues(index_path: Path, issues: pd.DataFrame) -> Path:
 
 
 def _finalize_gene_index_log(live_log_path: Path, published_path: Path) -> Path:
-    """Move one closed successful log into the published index diagnostics and remove the build directory.
+    """Move the closed successful logs into the published index diagnostics and remove the build directory.
 
     Log placement occurs after the workflow context writes its ``Finished``
-    footer and closes the file handler. Failure is warning-only because the
+    footer and closes the file handler; the chromosome logs follow the main
+    log into ``diagnostics/chromosome-logs``. Failure is warning-only because the
     scientific index has already been published and reload-validated; the live
-    log and its build directory then remain for inspection and later manual movement.
+    logs and their build directory then remain for inspection and later manual movement.
     """
     final_log_path = published_path / "diagnostics" / live_log_path.name
     try:
@@ -1163,6 +1184,19 @@ def _finalize_gene_index_log(live_log_path: Path, published_path: Path) -> Path:
         warnings.warn(message, UserWarning, stacklevel=2)
         return live_log_path
     set_workflow_log_path(final_log_path)
+    chromosome_logs = _chromosome_log_dir(live_log_path.parent)
+    try:
+        if chromosome_logs.is_dir():
+            os.replace(chromosome_logs, published_path / CHROMOSOME_LOG_DIR)
+    except OSError as exc:
+        warnings.warn(
+            "The gene LD-score index was published and reload-validated, but its chromosome logs could not "
+            f"be moved into {published_path / CHROMOSOME_LOG_DIR} ({type(exc).__name__}: {exc}). The published "
+            f"index remains valid; the chromosome logs are retained at {chromosome_logs}.",
+            UserWarning,
+            stacklevel=2,
+        )
+        return final_log_path
     try:
         shutil.rmtree(live_log_path.parent)
     except OSError as exc:
@@ -1445,6 +1479,8 @@ def _publish_staged_gene_ldscore_index(staged_index: Path, destination: Path) ->
     load_gene_ldscore_index(staged_index)
     (destination / "metadata.json").unlink(missing_ok=True)
     (destination / "diagnostics" / "build-gene-ldscore-index.log").unlink(missing_ok=True)
+    if (destination / CHROMOSOME_LOG_DIR).is_dir():
+        shutil.rmtree(destination / CHROMOSOME_LOG_DIR)
     staged = [entry for entry in staged_index.iterdir() if entry.name not in {"metadata.json", "diagnostics"}]
     if (staged_index / "diagnostics").is_dir():
         staged.extend((staged_index / "diagnostics").iterdir())

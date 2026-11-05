@@ -306,7 +306,7 @@ header is written and final work before the footer is written.
 | `annotate` | `<output_dir>/diagnostics/annotate.log` |
 | `ldscore` | `<output_dir>/diagnostics/ldscore.log` |
 | `build-r2-matrix` | `<output_dir>/diagnostics/build-r2-matrix.log`, or `<output_dir>/diagnostics/build-r2-matrix.chr<chrom>.log` for concrete single-chromosome PLINK-prefix runs |
-| `build-gene-ldscore-index` | completed success: `<index_dir>/diagnostics/build-gene-ldscore-index.log`; running/failed: `<index_dir>/.build/build-gene-ldscore-index.log`; prior failed attempts move to `.build/history/` |
+| `build-gene-ldscore-index` | completed success: `<index_dir>/diagnostics/build-gene-ldscore-index.log` and `<index_dir>/diagnostics/chromosome-logs/chrN.log`; running/failed: `<index_dir>/.build/build-gene-ldscore-index.log` and `<index_dir>/.build/chromosome-logs/chrN.log`; prior failed attempts move to `.build/history/` |
 | `convert-legacy-ldscores` | `<output_dir>/diagnostics/convert-legacy-ldscores.log` |
 | `h2` | `<output_dir>/diagnostics/h2.log` |
 | `partitioned-h2` | `<output_dir>/diagnostics/partitioned-h2.log` |
@@ -334,8 +334,11 @@ The exact gene LD-score index builder uses the same lifecycle banner, `Call:`, `
 Its stable path is created before chromosome work so it can be monitored live.
 Its concise INFO narrative records resolved configuration and input counts, the baseline/PLINK identifier intersection and configured regression SNPs, start and completion for each chromosome, catalog genes after exclusion, retained SNPs and regression SNPs, atom/operator nonzeros, component bytes, and publication state.
 The JSON sidecar is the machine-readable summary; the log renders the same per-chromosome and aggregate measurements rather than recomputing them.
+Chromosome workers write their detailed records and tracebacks to chromosome logs, as `ldscore` workers do ([LD-score chromosome logs](#ld-score-chromosome-logs)); warnings that a chromosome's evidence supports, such as zero regression SNP rows, are written by the coordinator to the main log.
 
-For this builder, `Finished chromosome N` is emitted only after the worker has closed every chromosome payload and atomically installed the shard in the hidden run-specific stage. It means the internal shard is durable and its in-memory record can be released; it does not report partial public publication. The public destination changes only after all chromosome and shared metadata are finalized and the complete stage reloads successfully.
+For this builder, the coordinator emits `Finished chromosome N` only after the worker has closed every chromosome payload and atomically installed the shard in the hidden run-specific stage.
+It means the internal shard is durable and its in-memory record can be released; it does not report partial public publication.
+The public destination changes only after all chromosome and shared metadata are finalized and the complete stage reloads successfully.
 
 For a successful run, the final lines identify `index_id`, staged reload
 validation, complete atomic replacement, payload bytes, peak RSS, and the
@@ -378,6 +381,7 @@ Munging emits one immediate warning per invalid P, INFO, or FRQ category within 
 ## LD-score chromosome logs
 
 Direct and indexed writing workflows create `diagnostics/ldscore.log` and `diagnostics/chromosome-logs/chrN.log`, including for one worker.
+`build-gene-ldscore-index` workers use the same chromosome logs, written under the index's hidden `.build/chromosome-logs/` and moved to `diagnostics/chromosome-logs/` with the main log after a successful build ([gene LD-score index build log](#exact-gene-ld-score-index-build-log)).
 The main log lists all chromosome log paths and overall progress.
 Workers append detailed records and Python exception tracebacks to their own chromosome files across query batches within the run.
 Numerical backend verification and independent Arrow CPU/I/O counts are recorded at the task boundary.

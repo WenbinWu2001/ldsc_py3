@@ -179,6 +179,8 @@ One output directory contains one complete immutable index:
     diagnostics/
         build-gene-ldscore-index.json
         build-gene-ldscore-index.log
+        chromosome-logs/
+            chrN.log
         dropped_snps/
             chrN_dropped.tsv.gz
     chromosomes/
@@ -194,6 +196,7 @@ One output directory contains one complete immutable index:
     .build/                       # hidden; present while building or after a failure
         build-gene-ldscore-index.lock
         build-gene-ldscore-index.log # live log
+        chromosome-logs/             # live chromosome logs
         gene_coordinate_catalog_issues.tsv.gz # after a catalog failure
         baseline_plink_issues.tsv    # after an SNP consistency failure
         history/                     # earlier failed or interrupted attempts
@@ -252,14 +255,15 @@ The lock, the live log, issue tables, earlier failed attempts and the index bein
 - Two builders cannot target the same directory concurrently.
 
 While the build is running, the live log is `<index-dir>/.build/build-gene-ldscore-index.log`, so `tail -f` works.
-After a successful publication, the handler closes, the complete log moves to `<index-dir>/diagnostics/build-gene-ldscore-index.log`, and `.build/` is removed.
+Each chromosome worker writes its own records, phase timings and any traceback to `<index-dir>/.build/chromosome-logs/chrN.log`, through the per-chromosome log mechanism of `ldscore` ([parallel execution](parallel-execution.md#ld-logs-and-failure-cleanup)); the coordinator writes each chromosome's start, completion and warnings, such as a chromosome with zero regression SNP rows, to the main log.
+After a successful publication, the handler closes, the complete log moves to `<index-dir>/diagnostics/build-gene-ldscore-index.log`, the chromosome logs move to `<index-dir>/diagnostics/chromosome-logs/`, and `.build/` is removed.
 Failed logs stay in `.build/`, and a retry archives them under `.build/history/`.
 The lifecycle footer is the status authority: `Started` without a terminal `Finished` or `Failed` line indicates abrupt termination; there is no separate status file.
 The JSON diagnostic is a successful-build summary, not a live status record.
 
 Before chromosome computation, the builder creates the staged index in `.build/stage/`.
 Each worker writes its large payloads in a private temporary shard directory, closes them, and atomically renames that directory to `.build/stage/chromosomes/chrN`.
-`Finished chromosome N` is logged only after this rename, so it means the internal shard is durable; it does not mean chromosome N is public.
+The coordinator logs `Finished chromosome N` only after the worker returns from this rename, so it means the internal shard is durable; it does not mean chromosome N is public.
 Workers return compact evidence, and the coordinator writes shared metadata, the catalog, diagnostics, and final `index_id` metadata after all chromosomes finish in canonical order.
 
 The complete staged index is then reload-validated and published without copying its chromosome payloads.

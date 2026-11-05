@@ -409,7 +409,7 @@ def _stage_index_chromosome(
 
     All payload files are first closed in a chromosome-private temporary
     directory. Renaming that directory to ``chrN`` is the durability boundary
-    observed by the worker's subsequent ``Finished chromosome N`` log record.
+    observed by the coordinator's subsequent ``Finished chromosome N`` log record.
     Shared and component identity metadata are intentionally deferred to the
     coordinator.
     """

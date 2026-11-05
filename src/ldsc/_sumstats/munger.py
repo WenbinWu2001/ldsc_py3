@@ -470,8 +470,9 @@ def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable | Ra
     Returns
     -------
     SumstatsTable or RawSumstatsInference
-        Validated in-memory table produced by :meth:`SumstatsMunger.run`, or a
-        header-level inference report when ``infer_only`` is true.
+        Validated in-memory table produced by :meth:`SumstatsMunger.run`, or
+        the preview of the munging plan, as :func:`infer_raw_sumstats`
+        returns it, when ``infer_only`` is true.
 
     Raises
     ------

@@ -109,18 +109,6 @@ def staged_chromosome_task(chrom_result: ChromLDScoreResult):
     return task
 
 
-def dict_chunks(rows):
-    """Wrap legacy {i,j,R2,sign} dict rows as the chunk iterable write_r2_parquet expects."""
-    rows = list(rows)
-    if not rows:
-        return iter([])
-    i = np.array([r["i"] for r in rows], dtype=np.int64)
-    j = np.array([r["j"] for r in rows], dtype=np.int64)
-    r2 = np.array([r["R2"] for r in rows], dtype=np.float32)
-    sign = np.array([1 if r["sign"] == "+" else -1 for r in rows], dtype=np.int8)
-    return [(i, j, r2, sign)]
-
-
 _HAS_BITARRAY = importlib.util.find_spec("bitarray") is not None
 
 

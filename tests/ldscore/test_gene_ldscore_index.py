@@ -1768,6 +1768,35 @@ def test_index_publication_requires_overwrite_and_replaces_complete_index(tmp_pa
     assert load_gene_ldscore_index(output).index_id == calculate_index_id(replacement_identity)
 
 
+@pytest.mark.parametrize(("regression_rows", "expected"), [
+    ({"1": 3, "2": 0, "3": 0}, "chromosomes 2, 3 have zero regression SNPs"),
+    ({"1": 3, "2": 0, "3": 4}, "chromosome 2 has zero regression SNPs"),
+    ({"1": 3, "2": 5, "3": 4}, None),
+])
+def test_cli_build_prints_zero_regression_snp_chromosomes_to_stderr(tmp_path, monkeypatch, capsys, regression_rows,
+                                                                    expected):
+    # The build log holds one WARNING per such chromosome; batch users rarely read it after success.
+    published = tmp_path / "index"
+    (published / "diagnostics").mkdir(parents=True)
+    summary = {"chromosomes": {chrom: {"regression_rows": rows, "reference_snp_funnel": _fixture_funnel(chrom)}
+                               for chrom, rows in regression_rows.items()}}
+    (published / "diagnostics" / "build-gene-ldscore-index.json").write_text(
+        json.dumps(summary, default=lambda frame: frame.to_dict("records")), encoding="utf-8")
+    monkeypatch.setattr(gene_ldscore_index, "build_parser", lambda: SimpleNamespace(parse_args=lambda _argv: None))
+    monkeypatch.setattr(gene_ldscore_index, "run_build_gene_ldscore_index_from_args", lambda _args: published)
+
+    gene_ldscore_index.main([])
+
+    warnings_printed = [line for line in capsys.readouterr().err.splitlines() if "regression SNPs" in line]
+    if expected is None:
+        assert warnings_printed == []
+    else:
+        assert len(warnings_printed) == 1
+        assert warnings_printed[0].startswith("WARNING: build-gene-ldscore-index published an index in which ")
+        assert expected in warnings_printed[0]
+        assert "region exclusions" in warnings_printed[0]
+
+
 def test_index_overwrite_replaces_a_symlinked_chromosome_log_directory(tmp_path, monkeypatch):
     output, args, _identity = _build_fixture_index(tmp_path, monkeypatch)
     gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)

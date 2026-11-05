@@ -315,11 +315,31 @@ def main(argv: Sequence[str] | None = None):
     args = build_parser().parse_args(argv)
     published = run_build_gene_ldscore_index_from_args(args)
     summary = Path(published) / "diagnostics" / "build-gene-ldscore-index.json"
-    emit_reference_snp_funnel_notice(_evidence_funnel(json.loads(summary.read_text(encoding="utf-8"))["chromosomes"]),
-                                     summary, command="build-gene-ldscore-index")
+    evidence_by_chrom = json.loads(summary.read_text(encoding="utf-8"))["chromosomes"]
+    emit_reference_snp_funnel_notice(_evidence_funnel(evidence_by_chrom), summary, command="build-gene-ldscore-index")
     emit_dropped_snps_notice(sorted((Path(published) / "diagnostics" / "dropped_snps").glob("*.tsv.gz")),
                              command="build-gene-ldscore-index")
+    _emit_zero_regression_snp_notice(evidence_by_chrom)
     return published
+
+
+def _emit_zero_regression_snp_notice(evidence_by_chrom: dict) -> None:
+    """Print one stderr WARNING naming the chromosomes that persisted no regression SNPs.
+
+    The build log already holds one WARNING per such chromosome; the notice
+    exists because batch-scheduler users rarely read logs after a
+    successful run.
+    """
+    empty = sorted((chrom for chrom, values in evidence_by_chrom.items() if not values["regression_rows"]), key=int)
+    if not empty:
+        return
+    subject = f"chromosome {empty[0]} has" if len(empty) == 1 else f"chromosomes {', '.join(empty)} have"
+    print(
+        f"WARNING: build-gene-ldscore-index published an index in which {subject} zero regression SNPs after the "
+        "regression-SNP restriction and region exclusions, so indexed scoring has no regression SNPs there. "
+        "Check those settings and correct unintended ones before using the index.",
+        file=sys.stderr,
+    )
 
 
 def _evidence_funnel(evidence_by_chrom: dict) -> pd.DataFrame | None:

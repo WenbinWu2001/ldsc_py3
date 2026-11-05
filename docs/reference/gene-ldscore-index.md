@@ -111,7 +111,7 @@ and `--genome-build` options even when they equal the index. A matching direct
 run must explicitly use the index's mode and coordinate build.
 In Python, `run_ldscore(gene_ldscore_index_dir=...)` ignores the registered `GlobalConfig.snp_identifier` and `GlobalConfig.genome_build` and records the index values in the result's `config_snapshot`.
 
-An individual chromosome may have zero regression SNPs after restriction and region subtraction, which produces a warning.
+An individual chromosome may have zero regression SNPs after restriction and region subtraction; the build continues, the build log records one WARNING per such chromosome, and a successful command-line build prints one stderr WARNING naming them.
 Public construction always builds autosomes 1 through 22; `--chromosomes` is not a public option.
 Public loading rejects partial coverage.
 Smaller coverage exists only as a private test seam.

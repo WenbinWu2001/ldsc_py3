@@ -73,7 +73,9 @@ Its checks run in stages, in this order:
 The munging plan stops at the first stage that finds a problem, as the run stops there, so the two previews report the problems that the run stops on before its munging pass.
 Problems that only the data rows reveal during the munging pass, such as a signed-statistic median far from its null value or a stage that leaves no row, are found by the run alone.
 The munging plan collects every header problem; the run raises them together in one error, and a single problem keeps its own message.
-A keep-list path that does not resolve, a contradicted `INC_ALLELE`/`DEC_ALLELE` orientation, an unresolved source build, different builds without a liftover method, or a chain file that does not resolve is raised after the header problems; at most one of them occurs.
+A contradicted `INC_ALLELE`/`DEC_ALLELE` orientation, an unresolved source build, different builds without a liftover method, or a chain file that does not resolve is raised after the header problems; at most one of them occurs.
+The run stops earlier on three problems, so it never reaches them in the munging plan: a keep-list path that does not resolve stops it in its input preflight, before the header problems, as does the chain file of an explicit source build; an explicit source build that differs from the output build without a liftover method stops it before any input IO.
+The previews report each of them from the munging plan.
 `_sumstats.munge_input.prepare_munge_input()` then raises those problems for the run and loads the optional keep-list.
 Under HM3 quick liftover the packaged HM3 map is read once and serves as both the keep-list and the position lookup.
 The kernel accepts a `ResolvedMungeInput` and returns a `MungeResult` containing the munged table, counts, coordinate provenance, and separate identity/liftover drop records.

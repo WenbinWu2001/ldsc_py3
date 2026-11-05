@@ -853,7 +853,11 @@ class MungePlan:
         (``source_genome_build``), different builds without a liftover method
         (``liftover_method``) or a chain file that does not resolve
         (``liftover_chain_file``). At most one occurs, because the plan stops
-        at the first stage that finds a problem.
+        at the first stage that finds a problem. The run checks the keep-list
+        path, and the liftover method and chain file of an explicit source
+        build, before it resolves the plan, so it never stops on a
+        ``sumstats_snps_file`` issue here and stops on a liftover issue here
+        only after ``auto`` resolves; the previews report them all.
     """
 
     config: MungeConfig

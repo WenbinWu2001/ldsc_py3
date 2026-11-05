@@ -134,7 +134,9 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
         self.assertIn("Required for coordinate-family modes", help_text)
         self.assertIn("direct gene-list runs default to auto", help_text)
-        self.assertIn("Gene-list runs also use this build for --regr-snps-exclude-regions", help_text)
+        self.assertIn("gene intervals and the --regr-snps-exclude-regions presets", help_text)
+        self.assertIn("Other rsid runs need hg19 or hg38 unless --regr-snps-exclude-regions is none", help_text)
+        self.assertIn("Region coordinates follow the run's genome build (see --genome-build)", help_text)
 
     def test_build_parser_accepts_r2_matrix_dir(self):
         args = parse_command_line(ldscore_workflow.build_parser(),

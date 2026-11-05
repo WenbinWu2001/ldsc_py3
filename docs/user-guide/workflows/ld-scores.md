@@ -1,6 +1,6 @@
 # Calculate LD scores
 
-Last updated on: 2026-11-02
+Last updated on: 2026-11-04
 
 `ldsc ldscore` computes LD scores from a reference panel and writes them to an LD-score directory.
 The regression commands `h2`, `rg` and `partitioned-h2` read that directory through `--ldscore-dir` and never recompute LD scores, so one LD-score directory serves every trait you analyze with the same reference panel and annotations.
@@ -182,7 +182,8 @@ It is ignored with `--r2-matrix-dir`.
 
 ## Genome build
 
-The coordinate-family modes `chr_pos` and `chr_pos_allele_aware` need `--genome-build`; rsID-family runs without gene lists need none, and direct gene-list runs default to `auto`.
+The coordinate-family modes `chr_pos` and `chr_pos_allele_aware` need `--genome-build`, and direct gene-list runs default to `auto`.
+rsID-family runs without gene lists need `--genome-build hg19` or `--genome-build hg38` to select the `--regr-snps-exclude-regions` presets, unless `--regr-snps-exclude-regions none` is given.
 `--genome-build auto` checks all coordinate inputs together: annotation files, `.bim` files or R² matrix sidecars, the gene coordinate catalog and coordinate-based SNP restriction files must agree.
 A concrete `hg19` or `hg38` must agree with any genome build those inputs declare, and it is used for unlabeled coordinates; `ldscore` never converts coordinates.
 To check a file's genome build before a run, use `ldsc infer-genome-build`.

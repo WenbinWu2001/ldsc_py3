@@ -1,6 +1,6 @@
 # Command-line reference
 
-Last updated on: 2026-11-02
+Last updated on: 2026-11-04
 
 LDSC3 provides one command, `ldsc`, with one subcommand per workflow; `python -m ldsc` is equivalent.
 This page lists every option of every subcommand, taken on 2026-10-28 from the parsers that `ldsc.cli._command_parser()` returns.
@@ -71,7 +71,7 @@ Compute LD scores.
 | Option | Description |
 | --- | --- |
 | `--snp-identifier` | Match SNPs by rsID (rsid) or chromosome and position (chr_pos); allele-aware variants also use A1/A2. Default: chr_pos_allele_aware; usable alleles are required. With --gene-ldscore-index-dir, inherit the stored identity and omit this flag. |
-| `--genome-build` | Genome build for coordinate matching and gene intervals. Required for coordinate-family modes; direct gene-list runs default to auto. Auto checks all coordinate inputs and shards; concrete builds must agree with input declarations. Other rsid runs need no build. Gene-list runs also use this build for --regr-snps-exclude-regions. With --gene-ldscore-index-dir, inherit its build and omit this flag. |
+| `--genome-build` | Genome build for coordinate matching, gene intervals and the --regr-snps-exclude-regions presets. Required for coordinate-family modes; direct gene-list runs default to auto. Auto checks all coordinate inputs and shards; concrete builds must agree with input declarations. Other rsid runs need hg19 or hg38 unless --regr-snps-exclude-regions is none. With --gene-ldscore-index-dir, inherit its build and omit this flag. |
 | `--baseline-annot-sources` | Baseline annotation tables: comma-separated paths, '*' or '@' patterns. Required with direct query inputs. If omitted without queries, use a single all-SNP baseline. Cannot be combined with --gene-ldscore-index-dir. Quote patterns: '*' matches filename text; '@' substitutes chromosome numbers 1-22 by default. Use '*' to select available files for a chromosome subset where allowed. |
 | `--query-annot-bed-sources` | BED files whose intervals define query SNPs; accepts comma-separated paths or '*' patterns. Requires --baseline-annot-sources; cannot be combined with --query-annot-sources, --query-annot-gene-list-sources, or --gene-ldscore-index-dir. If omitted, add no BED queries. '@' is not expanded; see --baseline-annot-sources for wildcard and quoting rules. |
 | `--query-annot-gene-list-sources` | One-column gene-list files, separated by commas. Direct mode requires --baseline-annot-sources, --gene-coordinate-file, and --padding-bp; indexed mode requires --gene-ldscore-index-dir. Cannot be combined with --query-annot-sources or --query-annot-bed-sources. If omitted, add no gene-list queries. Accepts '*' patterns (see --baseline-annot-sources); '@' is not expanded. |
@@ -94,7 +94,7 @@ Compute LD scores.
 | `--output-dir` | Required. Required destination for LD-score tables, SNP counts, and diagnostics. |
 | `--overwrite` | Replace this command's existing output files and remove obsolete outputs from an earlier run. Default: off; stop if output files already exist. |
 | `--regr-snps-file` | Headered SNP identity table selecting the regression SNPs: stored output rows and regression weights. If omitted, use bundled HapMap3 SNPs. --regr-snps-exclude-regions then applies. Direct mode only; rejected with --gene-ldscore-index-dir. Accepts an exact path or a quoted '*' pattern matching exactly one file; '@' is not expanded. |
-| `--regr-snps-exclude-regions` | Exclude MHC, centromeres, both, or neither from regression SNPs after --regr-snps-file or HapMap3 selection. Default: mhc-and-centromeres. Reference SNPs and annotation counts are unchanged. Direct mode only; indexed runs inherit this setting. |
+| `--regr-snps-exclude-regions` | Exclude MHC, centromeres, both, or neither from regression SNPs after --regr-snps-file or HapMap3 selection. Default: mhc-and-centromeres. Region coordinates follow the run's genome build (see --genome-build). Reference SNPs and annotation counts are unchanged. Direct mode only; indexed runs inherit this setting. |
 | `--ref-panel-snps-file` | Headered SNP identity table restricting the reference SNPs contributing to LD scores. If omitted, use all otherwise eligible reference SNPs. Extra columns are ignored and duplicate keys collapse. Direct mode only; rejected with --gene-ldscore-index-dir. Supply an exact file path; patterns are not expanded. |
 | `--maf-min` | Keep reference SNPs with MAF at or above this value, in [0, 0.5]. If omitted, apply no additional MAF threshold. Direct mode only; indexed runs inherit their reference selection. |
 | `--common-maf-min` | Minimum MAF for common-SNP annotation counts, including the boundary. Default: 0.05; does not filter reference SNPs. Direct mode only; indexed runs inherit their count threshold. |

@@ -1020,11 +1020,11 @@ def build_parser() -> argparse.ArgumentParser:
     identity.add_argument(
         '--genome-build', choices=('auto', 'hg19', 'hg37', 'GRCh37', 'hg38', 'GRCh38'), default=None,
         help=(
-            'Genome build for coordinate matching and gene intervals. Required for coordinate-family modes; direct '
-            'gene-list runs default to auto. Auto checks all coordinate inputs and shards; concrete builds '
-            'must agree with input declarations. Other rsid runs need '
-            'no build. Gene-list runs also use this build for --regr-snps-exclude-regions. With '
-            '--gene-ldscore-index-dir, inherit its build and omit this flag.'
+            'Genome build for coordinate matching, gene intervals and the --regr-snps-exclude-regions presets. '
+            'Required for coordinate-family modes; direct gene-list runs default to auto. Auto checks all '
+            'coordinate inputs and shards; concrete builds must agree with input declarations. Other rsid runs '
+            'need hg19 or hg38 unless --regr-snps-exclude-regions is none. With --gene-ldscore-index-dir, '
+            'inherit its build and omit this flag.'
         ),
     )
 
@@ -1223,8 +1223,9 @@ def build_parser() -> argparse.ArgumentParser:
         '--regr-snps-exclude-regions', choices=REGR_SNPS_EXCLUDE_REGIONS_CHOICES, default='mhc-and-centromeres',
         help=(
             'Exclude MHC, centromeres, both, or neither from regression SNPs after --regr-snps-file '
-            'or HapMap3 selection. Default: mhc-and-centromeres. Reference SNPs and annotation '
-            'counts are unchanged. Direct mode only; indexed runs inherit this setting.'
+            'or HapMap3 selection. Default: mhc-and-centromeres. Region coordinates follow the run\'s '
+            'genome build (see --genome-build). Reference SNPs and annotation counts are unchanged. '
+            'Direct mode only; indexed runs inherit this setting.'
         ),
     )
     snps.add_argument(

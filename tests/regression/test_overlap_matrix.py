@@ -141,17 +141,18 @@ def test_overlap_aware_category_table_matches_legacy_and_augments():
     table = overlap_aware_category_table(hsq, O, M, M_tot, names)
 
     ps, ph, phse, en, ense, enp = _legacy_overlap_reference(prop, prop_cov, coef, coef_cov, 200, O, M, M_tot)
-    np.testing.assert_allclose(table["Prop._SNPs"], ps)
-    np.testing.assert_allclose(table["Prop._h2"], ph)
-    np.testing.assert_allclose(table["Prop._h2_std_error"], phse)
-    np.testing.assert_allclose(table["Enrichment"], en)
-    np.testing.assert_allclose(table["Enrichment_std_error"], ense)
-    np.testing.assert_allclose(np.asarray(table["Enrichment_p"], float), np.asarray(enp, float))
-    assert np.isnan(float(table.loc[0, "Enrichment_p"]))  # base contains all SNPs
-    np.testing.assert_allclose(table["Coefficient_p"], stats.norm.sf(coef / np.sqrt(np.diag(coef_cov))))
-    np.testing.assert_allclose(table["Category_h2"], cat)
-    assert table["overlap_aware"].all()
-    assert "Coefficient_z" in table.columns and "Coefficient_z-score" not in table.columns
+    np.testing.assert_allclose(table["prop_snps"], ps)
+    np.testing.assert_allclose(table["prop_h2"], ph)
+    np.testing.assert_allclose(table["prop_h2_se"], phse)
+    np.testing.assert_allclose(table["enrichment"], en)
+    np.testing.assert_allclose(table["enrichment_se"], ense)
+    np.testing.assert_allclose(np.asarray(table["enrichment_p"], float), np.asarray(enp, float))
+    assert table["enrichment_p"].dtype == np.float64
+    assert np.isnan(table.loc[0, "enrichment_p"])  # base contains all SNPs
+    np.testing.assert_allclose(table["coefficient_p"], stats.norm.sf(coef / np.sqrt(np.diag(coef_cov))))
+    np.testing.assert_allclose(table["category_h2_obs"], cat)
+    assert table["overlap_annot"].all()
+    assert "coefficient_z" in table.columns and "Coefficient_z-score" not in table.columns
 
 
 def test_overlap_aware_hand_example_disjoint_plus_base():
@@ -169,13 +170,13 @@ def test_overlap_aware_hand_example_disjoint_plus_base():
         coef=coef, coef_cov=np.eye(3) * 1e-6, coef_se=np.full(3, 1e-3),
         n_blocks=200, cat=cat, cat_se=np.full(3, 1e-3),
     )
-    table = overlap_aware_category_table(hsq, O, M, M_tot, names).set_index("Category")
-    # h2_tot = sum M*coef = 3*1 + 3*2 = 9 ; Prop._h2[A] = (3*0 + 3*1 + 0*2)/9 = 3/9
-    assert abs(float(table.loc["A", "Prop._h2"]) - (3 / 9)) < 1e-9
-    assert abs(float(table.loc["Bcat", "Prop._h2"]) - (6 / 9)) < 1e-9
-    assert abs(float(table.loc["base", "Prop._h2"]) - 1.0) < 1e-9
-    assert abs(float(table.loc["A", "Prop._SNPs"]) - 0.5) < 1e-12
-    assert abs(float(table.loc["A", "Enrichment"]) - (3 / 9) / 0.5) < 1e-9
+    table = overlap_aware_category_table(hsq, O, M, M_tot, names).set_index("category")
+    # h2_tot = sum M*coef = 3*1 + 3*2 = 9 ; prop_h2[A] = (3*0 + 3*1 + 0*2)/9 = 3/9
+    assert abs(float(table.loc["A", "prop_h2"]) - (3 / 9)) < 1e-9
+    assert abs(float(table.loc["Bcat", "prop_h2"]) - (6 / 9)) < 1e-9
+    assert abs(float(table.loc["base", "prop_h2"]) - 1.0) < 1e-9
+    assert abs(float(table.loc["A", "prop_snps"]) - 0.5) < 1e-12
+    assert abs(float(table.loc["A", "enrichment"]) - (3 / 9) / 0.5) < 1e-9
 
 
 def test_assemble_model_overlap_reconstructs_submatrix():

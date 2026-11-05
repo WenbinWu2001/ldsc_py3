@@ -16,16 +16,31 @@ from .kernel_values import numeric_overlap_table
 from .._ldscore.overlap_table import LDScoreOverlap
 
 
+# The one rename of the legacy overlap-aware table to the partitioned-h2 schema.
+_LEGACY_OVERLAP_COLUMNS = {
+    "Category": "category",
+    "Prop._SNPs": "prop_snps",
+    "Prop._h2": "prop_h2",
+    "Prop._h2_std_error": "prop_h2_se",
+    "Enrichment": "enrichment",
+    "Enrichment_std_error": "enrichment_se",
+    "Enrichment_p": "enrichment_p",
+    "Coefficient": "coefficient",
+    "Coefficient_std_error": "coefficient_se",
+    "Coefficient_z-score": "coefficient_z",
+}
+
+
 def overlap_aware_category_table(hsq, overlap_matrix, m_annot, m_tot, category_names) -> pd.DataFrame:
-    """Legacy overlap-aware annotation table plus LDSC3 augmentation columns.
+    """Legacy overlap-aware annotation table plus LDSC3 augmentation columns, in the partitioned-h2 column names.
 
     The overlap-aware columns are produced verbatim by the ported
     ``Hsq._overlap_output``; ``kernel_values`` turns its ``'NA'``
     ``Enrichment_p`` (a category containing every SNP) into NaN. This function
-    then renames the z-score column,
-    appends the one-sided ``Coefficient_p`` (``H1: coefficient > 0``), the
-    conditional ``Category_h2`` / ``Category_h2_std_error`` (from ``hsq.cat`` /
-    ``hsq.cat_se``), and a per-model ``overlap_aware`` flag.
+    then renames them once to the lowercase ``PARTITIONED_H2_COLUMNS`` names
+    and appends the one-sided ``coefficient_p`` (``H1: coefficient > 0``), the
+    conditional ``category_h2_obs`` / ``category_h2_obs_se`` (from ``hsq.cat`` /
+    ``hsq.cat_se``), and a per-model ``overlap_annot`` flag.
     """
     overlap_matrix = np.asarray(overlap_matrix, dtype=np.float64)
     table = numeric_overlap_table(reg.Hsq._overlap_output(
@@ -35,18 +50,17 @@ def overlap_aware_category_table(hsq, overlap_matrix, m_annot, m_tot, category_n
         np.asarray(m_annot, dtype=np.float64).reshape(1, -1),
         float(m_tot),
         True,
-    ).reset_index(drop=True))
-    table = table.rename(columns={"Coefficient_z-score": "Coefficient_z"})
+    ).reset_index(drop=True)).rename(columns=_LEGACY_OVERLAP_COLUMNS)
     coef = np.ravel(hsq.coef).astype(np.float64)
     coef_se = np.ravel(hsq.coef_se).astype(np.float64)
     with np.errstate(divide="ignore", invalid="ignore"):
         z = np.where(coef_se > 0, coef / coef_se, np.nan)
-    table["Coefficient_p"] = stats.norm.sf(z)
-    table["Category_h2"] = np.ravel(hsq.cat).astype(np.float64)
-    table["Category_h2_std_error"] = np.ravel(hsq.cat_se).astype(np.float64)
+    table["coefficient_p"] = stats.norm.sf(z)
+    table["category_h2_obs"] = np.ravel(hsq.cat).astype(np.float64)
+    table["category_h2_obs_se"] = np.ravel(hsq.cat_se).astype(np.float64)
     off_diagonal = overlap_matrix.copy()
     np.fill_diagonal(off_diagonal, 0.0)
-    table["overlap_aware"] = bool(np.any(off_diagonal > 0))
+    table["overlap_annot"] = bool(np.any(off_diagonal > 0))
     return table
 
 

@@ -494,24 +494,6 @@ def summarize_partitioned_h2(
     table = overlap_aware_category_table(
         hsq, model_overlap, m_annot, float(m_tot), dataset.retained_ld_columns
     )
-    table = table.rename(
-        columns={
-            "Category": "category",
-            "Prop._SNPs": "prop_snps",
-            "Prop._h2": "prop_h2",
-            "Prop._h2_std_error": "prop_h2_se",
-            "Enrichment": "enrichment",
-            "Enrichment_std_error": "enrichment_se",
-            "Enrichment_p": "enrichment_p",
-            "Coefficient": "coefficient",
-            "Coefficient_std_error": "coefficient_se",
-            "Coefficient_z": "coefficient_z",
-            "Coefficient_p": "coefficient_p",
-            "overlap_aware": "overlap_annot",
-            "Category_h2": "category_h2_obs",
-            "Category_h2_std_error": "category_h2_obs_se",
-        }
-    )
     c = (
         float(reg.liability_conversion_factor(samp_prev, pop_prev))
         if samp_prev is not None and pop_prev is not None

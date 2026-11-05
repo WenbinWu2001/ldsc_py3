@@ -394,7 +394,6 @@ class PlinkRefPanel(RefPanel):
                 baseline_columns=list(annotations.baseline_columns), query_columns=list(annotations.query_columns),
                 reference_rows_before_genotype_qc=input_rows,
                 genotype_qc_removed=geno.genotype_qc_removed, maf_removed=geno.maf_removed,
-                selected_individual_count=int(geno.n),
                 cm_source="explicit_genetic_map" if genetic_map is not None else "bim_cm", identity_drops=drops,
                 reference_snp_funnel=funnel,
             )

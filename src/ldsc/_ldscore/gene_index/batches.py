@@ -132,7 +132,6 @@ class _IndexedProducer:
         self.loader = index.chromosome_loader()
         self.gene_batch = gene_batch
         self.declarations = declarations
-        self.control = control
         self.control_rows = (None if control is None else
                              _gene_rows_by_chromosome(index.gene_catalog, control, index.chromosomes))
         self.scope = scope

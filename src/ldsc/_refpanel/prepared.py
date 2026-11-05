@@ -58,7 +58,6 @@ class PreparedChromosome:
     reference_rows_before_genotype_qc: int = 0
     genotype_qc_removed: int = 0
     maf_removed: int = 0
-    selected_individual_count: int = 0
     cm_source: str = "bim_cm"
     identity_drops: pd.DataFrame = field(default_factory=empty_identity_drop_frame)
     reference_snp_funnel: pd.DataFrame | None = None

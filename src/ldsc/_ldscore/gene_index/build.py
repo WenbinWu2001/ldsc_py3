@@ -1,13 +1,11 @@
-"""Build, validate, and query exact disjoint-atom gene LD-score indexes.
+"""Build exact disjoint-atom gene LD-score indexes.
 
-The offline workflow computes a PLINK-backed LD-score operator for one fixed
-baseline, reference panel, regression-SNP policy, and gene projection. The online
-workflow resolves gene lists against the embedded catalog, assembles their
-Boolean union from the stored operator, and writes an ordinary self-contained
-LD-score directory. It never discovers an index or silently falls back to live
-LD calculation. During an offline build, completed chromosome payloads become
-durable inside one private run transaction and are released from memory; only a
-complete reload-validated transaction is published as an index.
+The ``build-gene-ldscore-index`` workflow computes a PLINK-backed LD-score
+operator for one fixed baseline, reference panel, regression-SNP policy, and
+gene projection. Completed chromosome payloads become durable in the staged
+index under the hidden ``.build/`` directory and are released from memory; only
+a complete reload-validated stage is published as an index. Loading an index
+and scoring gene lists with it live in ``ldsc._ldscore.gene_index.scoring``.
 """
 
 from __future__ import annotations
@@ -59,7 +57,6 @@ from .atoms import (
     map_snps_to_atoms,
     validate_ldscore_operator,
 )
-from ..._core.chromosomes import normalize_chromosome
 from ..._core.regions import RegionIntervals, region_exclusion_keep_mask
 from ..._core.identifiers import read_snp_restriction_keys
 from ..._core.plink_files import PlinkFAMFile
@@ -354,12 +351,12 @@ def build_gene_ldscore_index(
         not support incremental updates or component reuse. Default is
         ``False``.
     log_level : {"DEBUG", "INFO", "WARNING", "ERROR"}, optional
-        Workflow logging threshold. The open log uses hidden sibling
-        ``.<output-name>.build-state/build-gene-ldscore-index.log`` so it is
-        never part of the replaceable index transaction. After success, the
-        closed log moves into ``<output_dir>/diagnostics``. Default is
-        ``None``: use the registered ``GlobalConfig.log_level`` (``"INFO"``
-        unless changed).
+        Workflow logging threshold. The open log is
+        ``<output_dir>/.build/build-gene-ldscore-index.log``, in the hidden
+        build directory beside the index components. After success, the
+        closed log moves into ``<output_dir>/diagnostics`` and ``.build/`` is
+        removed. Default is ``None``: use the registered
+        ``GlobalConfig.log_level`` (``"INFO"`` unless changed).
 
     Returns
     -------
@@ -397,12 +394,15 @@ def build_gene_ldscore_index(
     atomically persists its completed shard in a private run stage before
     releasing the in-memory record; ``workers`` therefore controls concurrent
     chromosome-local peak memory. A ``Finished chromosome N`` log record means
-    that internal shard is durable, not that a partial public index exists. The
-    destination remains missing, empty, or loadable at its prior version until
-    the complete staged index passes reload validation and is committed. Stages
-    are never resumed or reused. After destination reload validation succeeds,
-    failure to remove builder-owned staging/backup data is warned with its
-    retained path and does not change publication success.
+    that internal shard is durable, not that a partial public index exists. A
+    missing destination is created when the build starts and holds only
+    ``.build/`` until a build succeeds. A failure before publication begins
+    keeps an earlier index complete and loadable; a failure during publication
+    leaves no loadable index, because publication removes the old root
+    ``metadata.json`` first and writes the new one last. Stages are never
+    resumed or reused. After destination reload validation
+    succeeds, failure to move the closed log or remove ``.build/`` is warned
+    with its retained path and does not change publication success.
     """
     if not isinstance(config, GeneLDScoreIndexBuildConfig):
         raise TypeError("build_gene_ldscore_index requires GeneLDScoreIndexBuildConfig.")
@@ -442,7 +442,6 @@ def build_gene_ldscore_index(
 def _build_embedded_gene_catalog(
     catalog: GeneCatalog,
     *,
-    genome_build: str,
     gene_exclude_regions: str,
 ) -> pd.DataFrame:
     """Build the index's self-contained ordered catalog and inclusion policy."""
@@ -587,7 +586,7 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                     declared_inputs=declared_inputs,
                 )
             except Exception:
-                _remove_gene_index_transaction(staged_index, published=False)
+                _remove_gene_index_transaction(staged_index)
                 raise
         _finalize_gene_index_log(live_log_path, published_path)
         return published_path
@@ -766,7 +765,6 @@ def _run_gene_ldscore_index_build(
     """Build chromosome shards into the staged index, then publish it with root metadata last."""
     embedded_catalog = _build_embedded_gene_catalog(
         catalog,
-        genome_build=config.genome_build,
         gene_exclude_regions=config.gene_exclude_regions,
     )
     # The index independently records the explicit projection build.
@@ -1581,11 +1579,9 @@ def build_plink_index_chromosome(
             atom_model=atom_model,
             operator=operator,
             atom_statistics=atom_statistics,
-            reference_metadata=metadata,
             reference_rows_before_genotype_qc=prepared.reference_rows_before_genotype_qc,
             genotype_qc_removed=prepared.genotype_qc_removed,
             maf_removed=prepared.maf_removed,
-            selected_individual_count=prepared.selected_individual_count,
             cm_source=prepared.cm_source,
             reference_snp_funnel=prepared.reference_snp_funnel,
             annotation_types=annotation_types,

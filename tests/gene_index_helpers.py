@@ -76,4 +76,4 @@ def write_gene_ldscore_index(index_dir, *, index_identity, gene_catalog, chromos
         )
         return gene_index_build._publish_staged_gene_ldscore_index(staged_index, destination)
     finally:
-        _remove_gene_index_transaction(gene_index_build._gene_index_build_dir(destination), published=False)
+        _remove_gene_index_transaction(gene_index_build._gene_index_build_dir(destination))

@@ -176,7 +176,6 @@ def _artifact_payload():
             np.array([1, 1, 0], dtype=np.int64), np.array([1, 0, 0], dtype=np.int64),
             np.array([[1.0, 1.0, 0.0]]), np.array([[1.0, 0.0, 0.0]]),
         ),
-        reference_metadata=pd.DataFrame(),
         reference_snp_funnel=_fixture_funnel("22"),
         annotation_types={"base": "binary"},
         regression_selected_snp_count=2,
@@ -340,9 +339,7 @@ def test_embedded_catalog_keeps_mhc_exclusions_with_empty_gene_rows():
     )
     catalog = GeneCatalog.from_embedded_frame(frame, source="test.tsv.gz")
 
-    embedded = _build_embedded_gene_catalog(
-        catalog, genome_build="hg19", gene_exclude_regions="mhc"
-    )
+    embedded = _build_embedded_gene_catalog(catalog, gene_exclude_regions="mhc")
 
     assert embedded["included"].tolist() == [False, True, True]
     assert embedded["exclusion_reason"].tolist() == ["excluded_gene_region", "", ""]
@@ -803,7 +800,7 @@ def test_plink_index_fuses_baseline_and_regression_weights_but_keeps_atom_batche
     # One common pass projects baseline and the separate regression mask;
     # each remaining call is the intentional one-column gene-atom operator batch.
     assert len(calls) == 1 + result.atom_model.n_atoms
-    assert all((start, end) == (0, len(result.reference_metadata)) for start, end, _ in calls)
+    assert all((start, end) == (0, len(prepared.metadata)) for start, end, _ in calls)
     np.testing.assert_array_equal(
         calls[0][2], baseline64
     )
@@ -811,7 +808,7 @@ def test_plink_index_fuses_baseline_and_regression_weights_but_keeps_atom_batche
     for kwargs in options:
         np.testing.assert_array_equal(kwargs["output_rows"], np.flatnonzero(persisted))
     assert calls[0][2].dtype == np.float64
-    assert all(projected.shape == (len(result.reference_metadata), 1) for _, _, projected in calls[1:])
+    assert all(projected.shape == (len(prepared.metadata), 1) for _, _, projected in calls[1:])
     assert all(projected.dtype == np.bool_ for _, _, projected in calls[1:])
 
     expected_rows = prepared.metadata.loc[
@@ -821,7 +818,7 @@ def test_plink_index_fuses_baseline_and_regression_weights_but_keeps_atom_batche
     expected_rows["base"] = expected_baseline[persisted, 0]
     expected_rows["baseline_aux"] = expected_baseline[persisted, 1]
     pd.testing.assert_frame_equal(result.baseline_rows, expected_rows)
-    pd.testing.assert_frame_equal(result.reference_metadata, prepared.metadata)
+    assert result.total_reference_snps_all == len(prepared.metadata)
     common = (prepared.metadata["MAF"] >= config.common_maf_min).to_numpy()
     np.testing.assert_array_equal(result.baseline_count_all, baseline64.sum(axis=0))
     np.testing.assert_array_equal(result.baseline_count_common, baseline64[common].sum(axis=0))

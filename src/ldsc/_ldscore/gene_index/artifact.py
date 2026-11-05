@@ -70,31 +70,21 @@ def index_global_config(snp_identifier: str, genome_build: str) -> GlobalConfig:
     return GlobalConfig(snp_identifier=snp_identifier, genome_build=genome_build)
 
 
-def _remove_gene_index_transaction(path: Path, *, published: bool) -> bool:
-    """Best-effort removal of builder-owned staging and build-directory data.
+def _remove_gene_index_transaction(path: Path) -> bool:
+    """Best-effort removal of builder-owned staging data after a build error.
 
-    Cleanup after a reload-validated publication cannot change the successful
-    outcome. Before publication, cleanup errors likewise must not replace the
-    primary build exception.
+    A cleanup error is logged and must not replace the primary build exception.
     """
     if not path.exists():
         return True
     try:
         shutil.rmtree(path)
     except Exception as exc:
-        if published:
-            LOGGER.warning(
-                "The gene LD-score index was published and reload-validated, but build-directory "
-                f"cleanup failed ({type(exc).__name__}: {exc}). The published index is valid. "
-                f"Retained builder-owned cleanup path: {path}. Remove it after confirming no "
-                "build is active for this destination."
-            )
-        else:
-            LOGGER.warning(
-                "Gene LD-score index staging cleanup also failed after an earlier build or "
-                f"publication error ({type(exc).__name__}: {exc}). Retained builder-owned path: "
-                f"{path}. The earlier exception remains the build failure."
-            )
+        LOGGER.warning(
+            "Gene LD-score index staging cleanup also failed after an earlier build or "
+            f"publication error ({type(exc).__name__}: {exc}). Retained builder-owned path: "
+            f"{path}. The earlier exception remains the build failure."
+        )
         return False
     return True
 
@@ -222,11 +212,9 @@ class IndexChromosomeData:
     atom_model: ChromosomeAtomModel
     operator: sparse.csr_matrix
     atom_statistics: AtomStatistics
-    reference_metadata: pd.DataFrame
     reference_rows_before_genotype_qc: int = 0
     genotype_qc_removed: int = 0
     maf_removed: int = 0
-    selected_individual_count: int = 0
     cm_source: str = "bim_cm"
     reference_snp_funnel: pd.DataFrame | None = None
     annotation_types: dict[str, str] = field(default_factory=dict)
@@ -409,7 +397,7 @@ def _stage_index_chromosome(
         _write_index_chromosome_payload(temporary, chrom=chrom, record=record)
         os.replace(temporary, destination)
     except Exception:
-        _remove_gene_index_transaction(temporary, published=False)
+        _remove_gene_index_transaction(temporary)
         raise
     return destination
 
@@ -782,6 +770,5 @@ def _load_index_chromosome(
             atom_stats["baseline_atom_overlap_all"],
             atom_stats["baseline_atom_overlap_common"],
         ),
-        reference_metadata=pd.DataFrame(),
         reference_snp_funnel=funnel_from_records(funnel_records(funnel)),
     )

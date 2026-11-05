@@ -221,10 +221,8 @@ class SumstatsLiftoverRequest:
         return self.target_build is not None or self.method is not None
 
 
-def default_liftover_metadata(*, source_build: str | None, snp_identifier: str) -> dict[str, Any]:
+def default_liftover_metadata() -> dict[str, Any]:
     """Return the no-op liftover report used when liftover is not applicable."""
-    normalize_snp_identifier_mode(snp_identifier)
-    normalize_genome_build(source_build)
     return {
         "applied": False,
         "source_build": None,
@@ -466,7 +464,7 @@ def apply_sumstats_liftover(
             "Use chr_pos or chr_pos_allele_aware identifiers, or omit liftover for rsID-family inputs."
         )
     if not request.requested:
-        return frame, default_liftover_metadata(source_build=source, snp_identifier=mode), _empty_liftover_drop_frame()
+        return frame, default_liftover_metadata(), _empty_liftover_drop_frame()
     if source not in SUPPORTED_LIFTOVER_BUILDS:
         raise LDSCUsageError(
             "Cannot apply summary-statistics liftover: the source genome build is unresolved. "
@@ -481,7 +479,7 @@ def apply_sumstats_liftover(
             )
             warnings.warn(message, UserWarning, stacklevel=2)
             logger.warning(message)
-        return frame, default_liftover_metadata(source_build=source, snp_identifier=mode), _empty_liftover_drop_frame()
+        return frame, default_liftover_metadata(), _empty_liftover_drop_frame()
     if request.method is None:
         raise LDSCUsageError(
             f"Cannot apply summary-statistics liftover from {source} to {request.target_build}: no liftover method was specified. "

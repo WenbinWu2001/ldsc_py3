@@ -170,21 +170,11 @@ def resolve_genome_build(
             "Pass --genome-build hg19 or --genome-build hg38 explicitly."
         )
 
-    try:
-        inference = infer_chr_pos_build(
-            sample_frame.loc[:, ["CHR", "POS"]],
-            context=context,
-            reference_table=reference_table,
-        )
-    except (ValueError, LDSCInputError) as exc:
-        message = str(exc)
-        if "Insufficient evidence" in message:
-            raise LDSCInputError(
-                f"Could not infer genome build for {context}: insufficient overlap with the HM3 reference. "
-                "Most likely the input has too few HapMap3-like CHR/POS rows or the coordinates use the wrong build. "
-                f"Pass --genome-build hg19 or --genome-build hg38 explicitly. Other causes & fixes: {_GENOME_BUILD_TROUBLESHOOTING}"
-            ) from exc
-        raise
+    inference = infer_chr_pos_build(
+        sample_frame.loc[:, ["CHR", "POS"]],
+        context=context,
+        reference_table=reference_table,
+    )
 
     msg = f"Inferred genome build for {context}: {inference.summary_message}"
     if logger is not None:

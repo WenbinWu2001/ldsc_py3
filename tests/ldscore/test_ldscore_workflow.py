@@ -733,7 +733,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     option, value,
                 ]
                 args = parse_command_line(parser, argv)
-                args._explicit_cli_options = frozenset({"--query-annot-bed-sources", option})
                 with self.assertRaisesRegex(LDSCUsageError, "valid only with.*gene-list"):
                     ldscore_workflow.run_ldscore_from_args(args)
 

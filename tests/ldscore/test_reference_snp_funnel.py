@@ -260,7 +260,7 @@ def test_chromosome_emptied_by_the_panel_restriction_is_skipped_with_a_logged_wa
     pd.concat([chrom1, baseline], ignore_index=True).to_csv(inputs.baseline_annot_sources, sep="\t", index=False)
     restriction = tmp_path / "keep.txt"
     restriction.write_text("SNP\nrs2\n")
-    result = run_ldscore_from_args(parse_command_line(build_parser(), 
+    result = run_ldscore_from_args(parse_command_line(build_parser(),
         workflow_argv(tmp_path, inputs, "--ref-panel-snps-file", str(restriction))))
     assert result.baseline_table["CHR"].tolist() == ["22"]
     funnel = read_funnel(tmp_path)

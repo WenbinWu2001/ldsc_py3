@@ -1214,8 +1214,9 @@ def _log_regression_identity(
     ``realized`` holds the ``(effective_snp_identifier,
     identity_downgrade_applied)`` of the prepared datasets: one for ``h2`` and
     ``partitioned-h2``, one per pair for ``rg``, whose pairs can resolve to
-    different modes. ``unresolved_pairs`` counts rg pairs that failed before
-    their mode was resolved. The GlobalConfig banner reports
+    different modes. ``unresolved_pairs`` counts failed rg pairs whose
+    metadata records no mode, whether they failed before alignment or after
+    the fit. The GlobalConfig banner reports
     ``snp_identifier`` as a default that applies only to an LD-score directory
     without recorded provenance (summary statistics without it take the LD-score
     directory's mode), so this line states whether that default was used and
@@ -1257,8 +1258,7 @@ def _log_regression_identity(
             for (mode, downgrade), count in groups.items()
         ]
         if unresolved_pairs:
-            parts.append(f"not resolved for {unresolved_pairs} pair{'s' * (unresolved_pairs != 1)} that failed "
-                         "before alignment")
+            parts.append(f"not recorded for {unresolved_pairs} pair{'s' * (unresolved_pairs != 1)} that failed")
         used = "SNP identifiers used for this regression: " + "; ".join(parts) + "."
     if used_default:
         default_clause = (

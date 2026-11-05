@@ -361,6 +361,21 @@ class AlignmentTest(RegressionFixtures, unittest.TestCase):
         self.assertIn("LD-score=rsid (no provenance recorded; using GlobalConfig default)", log_text)
         self.assertIn("=rsid (no provenance recorded; using the LD-score directory's mode)", log_text)
 
+    def test_log_regression_identity_does_not_say_when_an_unrecorded_pair_failed(self):
+        # A pair can fail before alignment or after its fit, and its metadata
+        # then lacks the realized mode either way, so the line must not claim
+        # which stage failed.
+        runner_config = GlobalConfig(snp_identifier="chr_pos")
+        ldscore_result, sumstats = self._identity_inputs(ldscore_mode="chr_pos", sumstats_mode="chr_pos")
+
+        with self.assertLogs("LDSC.regression_runner", level="INFO") as caught:
+            alignment._log_regression_identity(
+                [sumstats, sumstats], ldscore_result, runner_config, [("chr_pos", False)], unresolved_pairs=2)
+        log_text = "\n".join(caught.output)
+
+        self.assertIn("chr_pos for 1 pair; not recorded for 2 pairs that failed.", log_text)
+        self.assertNotIn("before alignment", log_text)
+
     def test_h2_keeps_sumstats_z_in_the_effect_allele_orientation(self):
         # h2 fits chi^2 = Z^2, so the sign of Z is never aligned to LD-score alleles.
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid_allele_aware"), RegressionConfig())

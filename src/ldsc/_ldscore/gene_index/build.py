@@ -87,7 +87,7 @@ from ..._core.chromosomes import normalize_chromosome, normalize_chromosome_seri
 from ..._core.coordinates import positive_int_position_series
 from ..._core.columns import normalize_genome_build
 from ...config import (
-    DEFAULT_SNP_BATCH_SIZE, GeneLDScoreIndexBuildConfig, GlobalConfig, LDScoreConfig, RefPanelConfig, get_global_config,
+    DEFAULT_SNP_BATCH_SIZE, GeneLDScoreIndexBuildConfig, LDScoreConfig, RefPanelConfig, get_global_config,
 )
 from ...errors import LDSCInputError, LDSCInternalError
 from ..._annotation.gene_lists import (
@@ -607,7 +607,7 @@ def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, c
         if metadata.empty:
             raise LDSCInputError(f"No baseline annotation rows were found for chromosome {chrom}.")
         ref_panel = PlinkRefPanel(
-            GlobalConfig(snp_identifier=config.snp_identifier, genome_build=config.genome_build),
+            index_global_config(config.snp_identifier, config.genome_build),
             RefPanelConfig(backend="plink", plink_prefix=chromosome_prefixes[chrom],
                            keep_indivs_file=config.keep_indivs_file, maf_min=config.maf_min),
             chromosome_prefixes=chromosome_prefixes,

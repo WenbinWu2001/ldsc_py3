@@ -13,6 +13,7 @@ import shutil
 import threading
 import time
 from types import SimpleNamespace
+import warnings
 import weakref
 
 import numpy as np
@@ -1677,6 +1678,17 @@ def test_index_loader_rejects_chromosome_coverage_corruption(tmp_path):
 
     with pytest.raises(LDSCInputError, match="chromosome coverage"):
         load_gene_ldscore_index(index_dir)
+
+
+def test_rsid_build_workers_do_not_warn_about_an_ignored_genome_build(tmp_path, monkeypatch):
+    # An rsID index records its explicit build, so nothing is ignored; a
+    # GlobalConfig built with that build would warn once per chromosome.
+    _output, args, _identity = _build_fixture_index(tmp_path, monkeypatch)
+    assert args.snp_identifier == "rsid" and args.genome_build == "hg19"
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
+    assert [str(item.message) for item in caught if "rsid-family" in str(item.message)] == []
 
 
 def test_index_publication_requires_overwrite_and_replaces_complete_index(tmp_path, monkeypatch):

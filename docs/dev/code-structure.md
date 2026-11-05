@@ -178,7 +178,7 @@ The lazily exported workflows in `ldsc/__init__.py` and the per-command modules 
 | change annotation loading or `ldsc annotate` behavior | `src/ldsc/_annotation/builder.py`, then `src/ldsc/_annotation/sources.py` and `src/ldsc/_annotation/annotate.py` |
 | change BED parsing or interval projection | `src/ldsc/_core/regions.py:iter_bed_rows`, then `src/ldsc/_annotation/interval_queries.py` and `src/ldsc/_annotation/interval_projection.py:ChromosomeProjector` |
 | change gene coordinate catalog validation, identifier resolution, or list naming | `src/ldsc/_annotation/gene_lists.py`, then `src/ldsc/_annotation/builder.py` |
-| change BED/gene partial-success statuses or diagnostic schemas | `src/ldsc/_annotation/query_outcomes.py`, `src/ldsc/_ldscore/calculator.py`, `src/ldsc/_ldscore/outputs.py` |
+| change BED/gene partial-success statuses or diagnostic schemas | `src/ldsc/_annotation/query_outcomes.py`, `src/ldsc/_ldscore/batch_execution.py` (`finalize_batch`), `src/ldsc/_ldscore/results.py` (`select_queries`), `src/ldsc/_ldscore/calculator.py`, `src/ldsc/_ldscore/outputs.py` |
 | change R²-matrix build logic | `src/ldsc/_refpanel/builder.py`, then `src/ldsc/_refpanel/build_kernel.py` |
 | change named regression-SNP region exclusion for `ldscore` or gene LD-score index construction | `src/ldsc/config.py`, `src/ldsc/_core/regions.py`, then `src/ldsc/_ldscore/calculator.py` or `src/ldsc/_ldscore/gene_index/build.py` |
 | change R² pair lookup CLI/API behavior | `src/ldsc/_refpanel/query.py`, then `src/ldsc/_refpanel/r2_format.py:lookup_pairs_in_parquet` |

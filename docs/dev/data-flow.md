@@ -341,6 +341,10 @@ flowchart LR
   subgraph W3[Workflow (public)<br/>ldsc._ldscore.calculator]
     C3[Resolve/project queries or synthesize base]
     C4[Select backend]
+  end
+
+  subgraph D3[Direct LD-score producer (private)<br/>ldsc._ldscore.direct_batches]
+    C9[Prepare each chromosome]
     C5[Aggregate chromosome results]
   end
 
@@ -353,7 +357,7 @@ flowchart LR
     C8[Write LDSC3 artifacts]
   end
 
-  I1 --> C1 --> C3 --> C4 --> C6 --> C7 --> C5 --> C8
+  I1 --> C1 --> C3 --> C4 --> C9 --> C6 --> C7 --> C5 --> C8
   I2 --> C1 --> C4
   I3 --> C1 --> C2 --> C6
 ```
@@ -375,6 +379,7 @@ flowchart LR
 
 - Preprocessing: `ldsc.config`, `ldsc._runtime.paths`, `ldsc._core.columns`
 - Workflow: `ldsc._ldscore.calculator`
+- Direct LD-score producer: `ldsc._ldscore.direct_batches` (one task per chromosome and query batch, then chromosome aggregation), run batch by batch by `ldsc._ldscore.batch_execution`
 - Kernel: `ldsc._ldscore.compute`
 - Postprocessing: `ldsc._ldscore.outputs`
 

@@ -30,7 +30,7 @@ from ldsc._core.plink_files import PlinkFAMFile
 from ldsc._ldscore import compute as kernel_ldscore
 from ldsc._refpanel.prepared import ChromosomeAnnotations
 from ldsc._ldscore.gene_index.atoms import AtomStatistics, build_disjoint_atoms
-from ldsc.errors import LDSCInputError, LDSCUsageError
+from ldsc.errors import LDSCInputError, LDSCInternalError, LDSCUsageError
 from ldsc._ldscore.gene_index.build import (
     _build_embedded_gene_catalog,
     _genetic_map_identity,
@@ -826,6 +826,33 @@ def test_plink_index_fuses_baseline_and_regression_weights_but_keeps_atom_batche
     np.testing.assert_array_equal(result.baseline_overlap_common, baseline64[common].T @ baseline64[common])
     assert result.annotation_types == {"base": "binary", "baseline_aux": "binary"}
     assert result.regression_selected_snp_count == int(persisted.sum())
+
+
+@pytest.mark.parametrize("missing_rows", [slice(0, 1), slice(None)])
+def test_plink_index_chromosome_requires_maf_for_every_reference_snp(monkeypatch, missing_rows):
+    # The index stores common-SNP counts, so a reference SNP without MAF would silently leave them.
+    prefix = Path(__file__).resolve().parents[1] / "fixtures" / "plink" / "plink"
+    bim = pd.read_csv(prefix.with_suffix(".bim"), sep=r"\s+", header=None,
+                      names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+    metadata = bim[["CHR", "SNP", "CM", "POS"]].copy()
+    bundle = ChromosomeAnnotations(metadata, pd.DataFrame({"base": np.ones(len(metadata), dtype=np.float32)}),
+                                   ["base"], [])
+    panel = plink_panel(prefix)
+    prepare = panel.prepare_chromosome
+
+    def prepare_without_maf(*args, **kwargs):
+        prepared = prepare(*args, **kwargs)
+        prepared.metadata.loc[prepared.metadata.index[missing_rows], "MAF"] = np.nan
+        return prepared
+
+    monkeypatch.setattr(panel, "prepare_chromosome", prepare_without_maf)
+    with pytest.raises(LDSCInternalError, match="without MAF"):
+        build_plink_index_chromosome(
+            "1", bundle, panel, LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True),
+            regression_keys=set(metadata["SNP"].astype(str)), regression_regions=None,
+            gene_intervals=np.array([[0, 4]], dtype=np.int64), included=np.array([True]),
+            padding_bp=0, atom_batch_size=1,
+        )
 
 
 def test_build_index_command_requires_explicit_identity_and_build(capsys):

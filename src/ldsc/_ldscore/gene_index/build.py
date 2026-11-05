@@ -1520,11 +1520,12 @@ def build_plink_index_chromosome(
 
         baseline_count_all, baseline_count_common, overlap, annotation_types = annotation_statistics(
             metadata, prepared.annotations, n_baseline_columns, common_maf_min=common_maf_min)
-        if baseline_count_common is None:
+        # A SNP without MAF would silently leave the common-SNP counts the index stores.
+        if baseline_count_common is None or metadata["MAF"].isna().any():
             raise LDSCInternalError(
-                f"Gene-index construction received reference metadata without MAF on chromosome {chrom}, "
-                "so the common-SNP counts the index stores cannot be computed. PLINK panel preparation "
-                "always supplies MAF; re-run with DEBUG logging and report the traceback."
+                f"Gene LD-score index construction received reference metadata without MAF on chromosome "
+                f"{chrom}, so the common-SNP counts the index stores cannot be computed. PLINK panel "
+                "preparation always supplies MAF for every SNP; re-run with DEBUG logging and report the traceback."
             )
         common_mask = metadata["MAF"].to_numpy(dtype=np.float64) >= float(common_maf_min)
 

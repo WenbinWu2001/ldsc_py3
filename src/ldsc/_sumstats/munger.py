@@ -686,7 +686,6 @@ def _liftover_request_from_config(config: MungeConfig, source_build: str | None)
         target_build=target,
         liftover_chain_file=config.liftover_chain_file,
         use_hm3_quick_liftover=quick,
-        hm3_map_file=packaged_hm3_curated_map_path() if quick else None,
     )
 
 

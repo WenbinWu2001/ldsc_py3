@@ -235,6 +235,9 @@ def test_packaged_map_is_parsed_once_per_run(tmp_path, monkeypatch, mode, target
     # The allele-aware keep-list rejects the A/G row at the A/C position, the base keep-list keeps both.
     assert table.data.SNP.tolist() == (["keep", "other"] if mode == "chr_pos" else ["keep"])
     assert table.data.POS.tolist() == ([1000, 2000] if target == "hg38" else [100, 200])[:len(table.data)]
+    # The report names the map file the run read, which is the packaged keep-list.
+    hm3_map_file = table.provenance["coordinate_provenance"]["liftover"]["hm3_map_file"]
+    assert hm3_map_file == (str(hm3) if target == "hg38" else None)
 
 
 @pytest.mark.parametrize("mode", ["chr_pos", "chr_pos_allele_aware"])
@@ -258,3 +261,23 @@ def test_keep_list_from_the_loaded_map_equals_the_file_readers(tmp_path, mode, b
 
     assert from_map.identifiers == from_file.identifiers
     assert (from_map.identity_keys is None) == (from_file.identity_keys is None)
+
+
+def test_quick_liftover_names_the_map_file_it_loaded(tmp_path):
+    from ldsc._sumstats import munge_input
+    from ldsc._sumstats.liftover import SumstatsLiftoverRequest
+
+    hm3 = tmp_path / "hm3.tsv"
+    hm3.write_text("CHR\thg19_POS\thg38_POS\tSNP\n1\t100\t1000\tkeep\n")
+    raw = tmp_path / "raw.tsv"
+    raw.write_text("CHR POS SNP A1 A2 P BETA N\n1 100 keep A G .05 .1 1000\n")
+    config = GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
+    schema = munge_input.resolve_raw_schema(str(raw), MungeConfig(), MungeConfig(), config)
+    # The workflow's request names no map: the keep-list file is the map that
+    # quick liftover reads, so the request records that file.
+    request = munge_input.prepare_munge_input(
+        schema, config, lambda build: SumstatsLiftoverRequest(target_build="hg38", use_hm3_quick_liftover=True),
+        str(hm3),
+    )
+    assert request.liftover_request.hm3_map_file == str(hm3)
+    assert request.hm3_map["hg38_POS"].tolist() == [1000]

@@ -57,7 +57,14 @@ _SUMSTATS_LIFTOVER_TROUBLESHOOTING = (
 
 @dataclass(frozen=True)
 class SumstatsLiftoverRequest:
-    """Resolved liftover request passed from the munger workflow into the kernel."""
+    """Resolved liftover request passed from the munger workflow into the kernel.
+
+    ``hm3_map_file`` names the HM3 map file that HM3 quick liftover reads; it
+    is provenance for the liftover report, because the positions come from the
+    loaded map that :func:`apply_sumstats_liftover` receives as ``hm3_map``.
+    ``ldsc._sumstats.munge_input.prepare_munge_input`` sets it to the packaged
+    keep-list path, the file it loads that map from.
+    """
 
     target_build: str | None = None
     liftover_chain_file: str | PathLike[str] | None = None

@@ -762,7 +762,8 @@ def prepare_munge_input(
     liftover request for the resolved source build. HM3 quick liftover runs
     only under the packaged HM3 restriction, so for it the HM3 map at
     ``restriction_path`` is loaded once and serves as both the keep-list and
-    the position lookup. No output directory or artifact is touched here; the
+    the position lookup, and the returned liftover request names that file in
+    ``hm3_map_file``. No output directory or artifact is touched here; the
     returned request can be executed without a CLI namespace or any further
     format/build decisions.
     """
@@ -783,6 +784,7 @@ def prepare_munge_input(
     liftover_request = liftover_for_build(coordinate_metadata['genome_build'])
     hm3_map = None
     if liftover_request.method == 'hm3_curated':
+        liftover_request = replace(liftover_request, hm3_map_file=restriction_path)
         alleles = is_allele_aware_mode(mode) and restriction_file_has_allele_columns(restriction_path)
         hm3_map = load_hm3_map_file(restriction_path, alleles=alleles)
     restriction = prepare_sumstats_restriction(restriction_path, mode, coordinate_metadata['genome_build'], hm3_map=hm3_map)

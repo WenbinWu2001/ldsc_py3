@@ -1,6 +1,5 @@
 """Error reporting across the serial-calculation process boundary."""
 
-import argparse
 from concurrent.futures.process import BrokenProcessPool
 import sys
 from pathlib import Path
@@ -14,6 +13,7 @@ from ldsc._runtime.workflow_logging import overwrite_failure_marker, workflow_lo
 from ldsc._runtime.serial_calculation import serial_calculation
 from ldsc.cli import run_cli
 from ldsc.errors import LDSCInputError
+from tests.cli_parsing import parse_command
 
 PLINK_FIXTURE = Path(__file__).parents[1] / "fixtures/minimal_external_resources/plink/hm3_chr22_subset"
 
@@ -80,7 +80,12 @@ def test_a_crashed_worker_leaves_a_failure_marker(tmp_path, monkeypatch, workflo
                 output_dir=output, overwrite=True,
             )
         else:
-            run_quantile_h2_from_args(argparse.Namespace(output_dir=str(output), overwrite=True, log_level="INFO"))
+            run_quantile_h2_from_args(parse_command([
+                "quantile-h2", "--partitioned-h2-result-dir", str(tmp_path / "fit"),
+                "--target-annot-sources", "target.tsv", "--target-annot-column", "score",
+                "--baseline-annot-sources", "baseline.tsv", "--ref-metadata-sources", "ref.tsv",
+                "--output-dir", str(output), "--overwrite",
+            ]))
 
     assert "BrokenProcessPool" in (output / "RUN_FAILED.txt").read_text(encoding="utf-8")
 

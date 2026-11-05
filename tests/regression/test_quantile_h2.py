@@ -11,7 +11,7 @@ import pytest
 
 import ldsc
 from ldsc.errors import LDSCInputError
-from ldsc._regression.quantile_storage import target_chunks
+from ldsc._regression.quantile_storage import parse_missing_token, target_chunks
 from ldsc._regression.quantile_h2 import (
     compute_quantile_h2,
     compute_standardized_coefficients,
@@ -29,12 +29,21 @@ class QuantileH2NumericsTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            chunk = next(target_chunks([str(target)], "target", "NaN"))
+            chunk = next(target_chunks([str(target)], "target", parse_missing_token("NaN")))
             values, excluded = chunk.target_value, chunk.target_excluded
 
             self.assertEqual(excluded.tolist(), [True, False])
             self.assertTrue(math.isnan(values.iloc[0]))
             self.assertEqual(values.iloc[1], 1.5)
+
+    def test_missing_token_is_parsed_once_into_a_number_or_text(self):
+        # A finite number matches numerically equal values; any other token matches its stripped text.
+        self.assertEqual(parse_missing_token(" -999 "), -999.0)
+        self.assertIsInstance(parse_missing_token("-999"), float)
+        self.assertEqual(parse_missing_token(" NaN "), "NaN")
+        self.assertEqual(parse_missing_token("inf"), "inf")
+        self.assertEqual(parse_missing_token("NA"), "NA")
+        self.assertIsNone(parse_missing_token(None))
 
     def test_projection_matches_hand_worked_jackknife_example(self):
         result = compute_quantile_h2(
@@ -307,6 +316,16 @@ class QuantileH2WorkflowTest(unittest.TestCase):
         self.assertEqual(result.quantile_h2["n_snps"].tolist(), [3, 1])
         self.assertEqual(result.quantile_h2["target_value_lower"].tolist(), [0.0, 1.0])
         self.assertEqual(result.quantile_h2["target_value_upper"].tolist(), [1.0, 3.0])
+
+    def test_quantile_count_is_checked_before_anything_is_written(self):
+        # The quantile count is part of the typed settings built before the output preflight, so it no
+        # longer waits for annotation staging and SNP alignment.
+        for value in (1, 2.5):
+            with self.subTest(num_quantiles=value):
+                self.args.num_quantiles = value
+                with self.assertRaisesRegex(LDSCInputError, "requires --num-quantiles to be an integer of at least 2"):
+                    run_quantile_h2_from_args(self.args)
+                self.assertFalse(Path(self.args.output_dir).exists())
 
     def test_empty_quantiles_are_rejected(self):
         self._write_target([1, 1, 1, 1])

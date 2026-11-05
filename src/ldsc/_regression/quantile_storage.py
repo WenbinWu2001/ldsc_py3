@@ -24,8 +24,29 @@ from .outputs import SNP_ALIGNMENT_ISSUE_COLUMNS
 ROW_CHUNK_SIZE = 65536
 
 
-def target_chunks(paths, target_annotation, missing_token):
-    """Yield selected target metadata, float64 values, and raw-token exclusions."""
+def parse_missing_token(token):
+    """Return ``--target-missing-value`` in the form :func:`target_chunks` compares target values with.
+
+    A token that parses as a finite number becomes that float, which excludes
+    numerically equal values (``-999`` excludes ``-999.0``); any other token,
+    such as ``NaN``, becomes its stripped text, which excludes values whose
+    stripped text equals it. ``None`` excludes no value.
+    """
+    if token is None:
+        return None
+    try:
+        number = float(token)
+    except ValueError:
+        number = np.nan
+    return number if np.isfinite(number) else str(token).strip()
+
+
+def target_chunks(paths, target_annotation, missing):
+    """Yield selected target metadata, float64 values, and exclusions.
+
+    ``missing`` is the value :func:`parse_missing_token` returned for the
+    ``--target-missing-value`` token.
+    """
     for path in paths:
         try:
             header = pd.read_csv(path, sep=r"\s+", nrows=0).columns
@@ -49,13 +70,9 @@ def target_chunks(paths, target_annotation, missing_token):
                 for frame in reader:
                     raw = frame[target_annotation].astype("string")
                     excluded = pd.Series(False, index=frame.index)
-                    if missing_token is not None:
-                        try:
-                            token = float(missing_token)
-                        except ValueError:
-                            token = np.nan
-                        excluded = (pd.to_numeric(raw, errors="coerce").eq(token) if np.isfinite(token)
-                                    else raw.str.strip().eq(str(missing_token).strip())).fillna(False)
+                    if missing is not None:
+                        excluded = (pd.to_numeric(raw, errors="coerce").eq(missing) if isinstance(missing, float)
+                                    else raw.str.strip().eq(missing)).fillna(False)
                     numeric = pd.to_numeric(raw.mask(excluded), errors="coerce").to_numpy(dtype=np.float64, na_value=np.nan)
                     invalid = ~excluded.to_numpy(dtype=bool) & ~np.isfinite(numeric)
                     if invalid.any():

@@ -395,6 +395,7 @@ Each is a thin adapter: it turns the parsed arguments into typed settings before
 `run_h2_from_args()` returns an `H2Result`, `run_partitioned_h2_from_args()` the complete `PartitionedH2BatchResult`, and `run_rg_from_args()` the `RgResultFamily` with the paths written.
 The three typed bodies share `_inspect_regression_inputs()`, which checks the declared summary statistics, prevalence manifest and LD-score directory before any input is loaded.
 `h2` and `rg` publish from their typed bodies; `estimate_partitioned_h2_batch()` publishes its own result directory, because its query workers stage each fitted model inside it.
+`run_quantile_h2_from_args()` follows the same pattern: `_regression.quantile_h2._configs_from_args()` builds the resupplied annotation sources as an `AnnotationBuildConfig` and the target as a `_regression.quantile_inputs.QuantileTarget`, which checks `--num-quantiles` and parses `--target-missing-value` once, and the typed body `_run_quantile_h2()` runs in one worker and passes them to `prepare_quantile_statistics()`; it builds no `GlobalConfig`, because the SNP identifier mode and genome build come from the fitted model's LD-score directory.
 `tests/regression/test_python_regression_workflows.py` checks that the Python and CLI routes write identical result files.
 
 `RegressionFit` values in `_regression/runner.py` carry the estimator, fitted dataset, realized block count, effective cap, two-step cutoff, and optional single-annotation diagnostic bins.

@@ -6,7 +6,7 @@ bounded reads from chromosome artifacts. Chan's merged centered moments avoid
 the cancellation of E[x^2] - E[x]^2 for high-offset annotations.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import logging
 
@@ -15,8 +15,8 @@ import pandas as pd
 
 from .._annotation.loading import build_annotation_shards
 from .._core.snp_identity import effective_merge_key_series, identity_base_mode, is_allele_aware_mode
-from .quantile_storage import QuantileIdentityStore, reference_chunks, target_chunks
-from ..config import AnnotationBuildConfig, GlobalConfig
+from .quantile_storage import QuantileIdentityStore, parse_missing_token, reference_chunks, target_chunks
+from ..config import GlobalConfig
 from ..errors import LDSCInputError
 from .._runtime.paths import resolve_file_group, split_cli_path_tokens
 from .overlap_model import assemble_model_overlap
@@ -24,6 +24,35 @@ from .._ldscore.overlap_table import overlap_from_long_frame
 from .._genome.build_policy import GenomeBuildCheck
 
 LOGGER = logging.getLogger("LDSC.quantile_h2")
+
+
+@dataclass(frozen=True)
+class QuantileTarget:
+    """The target annotation that defines the quantiles, checked when it is built, before anything is written.
+
+    ``sources`` holds the ``--target-annot-sources`` path tokens, ``column``
+    the ``--target-annot-column``, ``num_quantiles`` the ``--num-quantiles``,
+    and ``missing_value`` the ``--target-missing-value`` token as given, which
+    the result metadata records; ``missing`` is that token parsed once by
+    :func:`parse_missing_token` for the target reads.
+
+    Raises
+    ------
+    LDSCInputError
+        If ``num_quantiles`` is not an integer of at least 2.
+    """
+
+    sources: object
+    column: str
+    num_quantiles: int
+    missing_value: object = None
+    missing: object = field(init=False)
+
+    def __post_init__(self):
+        q = self.num_quantiles
+        if int(q) != q or q < 2:
+            raise LDSCInputError("quantile-h2 requires --num-quantiles to be an integer of at least 2.")
+        object.__setattr__(self, "missing", parse_missing_token(self.missing_value))
 
 
 @dataclass(frozen=True)
@@ -44,16 +73,9 @@ class QuantileInputStatistics:
     common_maf_min: float
 
 
-def _model_annotations(args, model, metadata, workspace, issues_path):
-    spec = AnnotationBuildConfig(
-        **{name: tuple(split_cli_path_tokens(getattr(args, name, None))) for name in (
-            "baseline_annot_sources", "query_annot_sources", "query_annot_bed_sources", "query_annot_gene_list_sources")},
-        **{name: getattr(args, name, default) for name, default in (
-            ("gene_coordinate_file", None), ("control_gene_list_file", None),
-            ("gene_list_resolution_policy", "strict"), ("gene_exclude_regions", "none"), ("padding_bp", 0))},
-    )
+def _model_annotations(annotation_config, model, metadata, workspace, issues_path):
     mode, build = str(metadata.get("snp_identifier")), metadata.get("genome_build")
-    bundle = build_annotation_shards(spec, GlobalConfig(snp_identifier=mode, genome_build=build), workspace,
+    bundle = build_annotation_shards(annotation_config, GlobalConfig(snp_identifier=mode, genome_build=build), workspace,
                                      projection_genome_build=build, issues_path=issues_path)
     missing = [name for name in model.annotation_names if name not in bundle.baseline_columns + bundle.query_columns]
     if missing:
@@ -77,7 +99,7 @@ def _infer_keys(store, frame, mode, role, diagnostics, reference_source):
     return bases.map(lookup)
 
 
-def _alignment(args, bundle, metadata, store, diagnostics, reference_paths, target_paths):
+def _alignment(target, bundle, metadata, store, diagnostics, reference_paths, target_paths):
     mode = str(metadata.get("snp_identifier"))
     reference_source, target_source = ",".join(reference_paths), ",".join(target_paths)
     invalid_maf = 0
@@ -144,8 +166,7 @@ def _alignment(args, bundle, metadata, store, diagnostics, reference_paths, targ
     n_all = store.scalar(f"SELECT count(*) FROM reference r WHERE {intersection}")
     _validate_universe(metadata, "all", n_all)
     for path in target_paths:
-        for chunk, frame in enumerate(target_chunks([path], args.target_annot_column,
-                                                    getattr(args, "target_missing_value", None))):
+        for chunk, frame in enumerate(target_chunks([path], target.column, target.missing)):
             if chunk == 0 and is_allele_aware_mode(mode) and not {"A1", "A2"}.issubset(frame.columns):
                 LOGGER.info(f"quantile-h2 target annotation '{path}' has no A1/A2 columns, so its SNPs are matched "
                             f"by {identity_base_mode(mode)}, the base mode of {mode}, without checking alleles.")
@@ -205,27 +226,35 @@ def _validate_aggregates(model, metadata, sums, products):
             raise LDSCInputError("quantile-h2 reconstructed fitted-annotation cross-products that disagree with the linked LD-score overlap artifact. Resupply the exact original annotations and reference metadata.")
 
 
-def prepare_quantile_statistics(args, model, workspace, diagnostics, input_issues_path):
+def prepare_quantile_statistics(annotation_config, target, ref_metadata_sources, model, workspace, diagnostics,
+                                input_issues_path):
     """Validate sources and reduce chromosome artifacts using exact global bounds.
 
-    Unusable BED query names are written to ``input_issues_path`` before the
-    run stops.
+    ``annotation_config`` holds the resupplied annotation sources of the fit,
+    ``target`` the checked :class:`QuantileTarget`, and
+    ``ref_metadata_sources`` the reference SNP metadata path tokens. Unusable
+    BED query names are written to ``input_issues_path`` before the run stops.
     """
     metadata = json.loads((model.ldscore_dir / "metadata.json").read_text(encoding="utf-8"))
     if str(metadata.get('snp_identifier', '')).startswith('chr_pos'):
         check = GenomeBuildCheck('auto', context='quantile-h2', option=None)
         check.declared('saved LD scores', model.ldscore_dir, metadata.get('genome_build'))
-        for role in ('baseline_annot_sources', 'query_annot_sources', 'target_annot_sources', 'ref_metadata_sources', 'gene_coordinate_file'):
-            check.paths('--' + role.replace('_', '-'), getattr(args, role, None))
-        check.unchecked('--query-annot-bed-sources', getattr(args, 'query_annot_bed_sources', None), 'ordinary BED; inherits saved build')
+        for flag, tokens in (('--baseline-annot-sources', annotation_config.baseline_annot_sources),
+                             ('--query-annot-sources', annotation_config.query_annot_sources),
+                             ('--target-annot-sources', target.sources),
+                             ('--ref-metadata-sources', ref_metadata_sources),
+                             ('--gene-coordinate-file', annotation_config.gene_coordinate_file)):
+            check.paths(flag, tokens)
+        check.unchecked('--query-annot-bed-sources', annotation_config.query_annot_bed_sources,
+                        'ordinary BED; inherits saved build')
         check.resolve()
-    bundle = _model_annotations(args, model, metadata, workspace, input_issues_path)
-    references = resolve_file_group(split_cli_path_tokens(args.ref_metadata_sources),
+    bundle = _model_annotations(annotation_config, model, metadata, workspace, input_issues_path)
+    references = resolve_file_group(split_cli_path_tokens(ref_metadata_sources),
         label="reference metadata", allow_chromosome_suite=True)
-    targets = resolve_file_group(split_cli_path_tokens(args.target_annot_sources),
+    targets = resolve_file_group(split_cli_path_tokens(target.sources),
         label="target annotation", allow_chromosome_suite=True)
     with QuantileIdentityStore(workspace.path / "quantile-identities.sqlite") as store:
-        threshold, n_common = _alignment(args, bundle, metadata, store, diagnostics, references, targets)
+        threshold, n_common = _alignment(target, bundle, metadata, store, diagnostics, references, targets)
         joins = "FROM fitted f JOIN reference r ON r.effective_snp_id=f.effective_snp_id JOIN target t ON t.effective_snp_id=r.effective_snp_id WHERE r.MAF>=?"
         n_eligible = store.scalar(f"SELECT count(*) {joins} AND NOT t.target_excluded", (threshold,))
         target_vector = np.empty(n_eligible, dtype=np.float64)
@@ -234,7 +263,7 @@ def prepare_quantile_statistics(args, model, workspace, diagnostics, input_issue
         full_sums, mean, m2 = (np.zeros(p) for _ in range(3))
         products, seen = np.zeros((p, p)), 0
         same_name_mismatch = False
-        target_index = model.annotation_names.index(args.target_annot_column) if args.target_annot_column in model.annotation_names else None
+        target_index = model.annotation_names.index(target.column) if target.column in model.annotation_names else None
         for values, aligned in _common_values(bundle, model.annotation_names, store, joins, threshold):
             n = len(values)
             local_mean = values.mean(axis=0)
@@ -254,10 +283,8 @@ def prepare_quantile_statistics(args, model, workspace, diagnostics, input_issue
             del values, centered, aligned, eligible, target_values
         _validate_aggregates(model, metadata, full_sums, products)
         if same_name_mismatch:
-            raise LDSCInputError(f"Target annotation '{args.target_annot_column}' matches a fitted annotation name but its values differ. Supply the same values or rename the external target annotation.")
-        q = args.num_quantiles
-        if int(q) != q or q < 2:
-            raise LDSCInputError("quantile-h2 requires --num-quantiles to be an integer of at least 2.")
+            raise LDSCInputError(f"Target annotation '{target.column}' matches a fitted annotation name but its values differ. Supply the same values or rename the external target annotation.")
+        q = target.num_quantiles
         if not n_eligible:
             raise LDSCInputError("quantile-h2 target values must be nonempty, numeric, and finite after exclusions.")
         target_vector.sort(kind="stable")

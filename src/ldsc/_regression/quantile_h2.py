@@ -25,7 +25,7 @@ from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
 from ..errors import LDSCInputError
 from .._annotation.outputs import AnnotationDirectoryWriter
 from .._annotation.storage import AnnotationWorkspace
-from .quantile_inputs import prepare_quantile_statistics
+from .quantile_inputs import QuantileTarget, prepare_quantile_statistics
 from .quantile_storage import AlignmentDiagnostics
 from .outputs import (
     QUANTILE_H2_COLUMNS,
@@ -37,12 +37,13 @@ from .outputs import (
 )
 from .._runtime.paths import (
     ensure_output_directory,
+    split_cli_path_tokens,
 )
 from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from .._runtime.preflight import inspect_declared_inputs, inspect_artifact_paths
 from .estimators import liability_conversion_factor
 from .._runtime.workflow_kwargs import run_from_kwargs
-from ..config import get_global_config
+from ..config import AnnotationBuildConfig, get_global_config
 
 
 LOGGER = logging.getLogger("LDSC.quantile_h2")
@@ -579,6 +580,9 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
 
     Preparation and projection share one worker with 1 BLAS thread.
 
+    The resupplied annotation settings become an ``AnnotationBuildConfig`` and
+    the target settings a ``QuantileTarget`` before anything is written, so an
+    invalid ``--num-quantiles`` or gene-list setting stops the run first.
     The workflow reconstructs the fitted model's common reference
     SNPs from the original annotation sources and reference metadata,
     assigns eligible SNPs to target-value quantiles, and projects the saved
@@ -609,43 +613,92 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
     ------
     LDSCInputError
         If the fitted model is unsupported, required sources cannot be aligned,
-        provenance checks fail, target values are invalid, or a requested
-        quantile is empty.
+        provenance checks fail, target values are invalid, ``--num-quantiles``
+        is not an integer of at least 2, or a requested quantile is empty.
     """
-    return _run_quantile_h2(args)
+    annotation_config, target = _configs_from_args(args)
+    return _run_quantile_h2(
+        annotation_config, target, partitioned_h2_result_dir=args.partitioned_h2_result_dir,
+        ref_metadata_sources=args.ref_metadata_sources, output_dir=args.output_dir, overwrite=args.overwrite,
+        log_level=args.log_level,
+    )
+
+
+def _configs_from_args(args) -> tuple[AnnotationBuildConfig, QuantileTarget]:
+    """Return the resupplied annotation sources and the quantile target of parsed ``quantile-h2`` arguments.
+
+    Building them checks the gene-list settings and ``--num-quantiles`` and
+    parses ``--target-missing-value`` once, before anything is written. The
+    SNP identifier mode and genome build come from the fitted model's
+    LD-score directory, so no ``GlobalConfig`` is built here.
+    """
+    annotation_config = AnnotationBuildConfig(
+        baseline_annot_sources=tuple(split_cli_path_tokens(args.baseline_annot_sources)),
+        query_annot_sources=tuple(split_cli_path_tokens(args.query_annot_sources)),
+        query_annot_bed_sources=tuple(split_cli_path_tokens(args.query_annot_bed_sources)),
+        query_annot_gene_list_sources=tuple(split_cli_path_tokens(args.query_annot_gene_list_sources)),
+        gene_coordinate_file=args.gene_coordinate_file,
+        control_gene_list_file=args.control_gene_list_file,
+        gene_list_resolution_policy=args.gene_list_resolution_policy,
+        gene_exclude_regions=args.gene_exclude_regions,
+        padding_bp=args.padding_bp,
+    )
+    target = QuantileTarget(
+        sources=args.target_annot_sources, column=args.target_annot_column,
+        num_quantiles=args.num_quantiles, missing_value=args.target_missing_value,
+    )
+    return annotation_config, target
 
 
 @serial_calculation
-def _run_quantile_h2(args) -> QuantileH2Result:
-    """Run :func:`run_quantile_h2_from_args` in one worker; its failure marker stays with the caller."""
-    output_dir = ensure_output_directory(args.output_dir, label="output directory")
+def _run_quantile_h2(
+    annotation_config: AnnotationBuildConfig,
+    target: QuantileTarget,
+    *,
+    partitioned_h2_result_dir: str,
+    ref_metadata_sources,
+    output_dir: str,
+    overwrite: bool,
+    log_level: str,
+) -> QuantileH2Result:
+    """Project one fitted model onto target quantiles in one worker and write the result directory.
+
+    ``ref_metadata_sources`` holds the reference SNP metadata path tokens.
+    The failure-marker scope stays with the caller.
+    """
+    output_dir = ensure_output_directory(output_dir, label="output directory")
     diagnostics_dir = output_dir / "diagnostics"
     writer = QuantileH2DirectoryWriter()
     log_path = diagnostics_dir / "quantile-h2.log"
-    writer.artifact_family(output_dir).preflight(overwrite=args.overwrite, additional_paths=[log_path])
+    writer.artifact_family(output_dir).preflight(overwrite=overwrite, additional_paths=[log_path])
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     issues_path = diagnostics_dir / "snp_alignment_issues.tsv.gz"
     input_issues_path = diagnostics_dir / "input_issues.tsv"
-    with workflow_logging("quantile-h2", log_path, log_level=args.log_level):
-        fitted_dir = Path(args.partitioned_h2_result_dir).resolve()
+    with workflow_logging("quantile-h2", log_path, log_level=log_level):
+        fitted_dir = Path(partitioned_h2_result_dir).resolve()
         query_metadata = fitted_dir / "metadata.json"
         # Per-query manifests keep file paths relative to the aggregate result root.
         artifact_root = fitted_dir.parents[2] if query_metadata.is_file() else fitted_dir
         metadata_file = query_metadata if query_metadata.is_file() else "diagnostics/metadata.json"
-        inspect_declared_inputs(files=[(name, getattr(args, name, None)) for name in (
-            'baseline_annot_sources', 'query_annot_sources', 'query_annot_bed_sources', 'ref_metadata_sources')],
-            checks=[('fitted model', args.partitioned_h2_result_dir,
+        inspect_declared_inputs(files=[
+            ('baseline_annot_sources', annotation_config.baseline_annot_sources),
+            ('query_annot_sources', annotation_config.query_annot_sources),
+            ('query_annot_bed_sources', annotation_config.query_annot_bed_sources),
+            ('ref_metadata_sources', ref_metadata_sources)],
+            checks=[('fitted model', partitioned_h2_result_dir,
                      lambda: inspect_artifact_paths(artifact_root, metadata_file=metadata_file))],
             issues_path=input_issues_path)
         log_inputs(
-            partitioned_h2_result_dir=args.partitioned_h2_result_dir,
-            target_annotation=args.target_annot_column,
+            partitioned_h2_result_dir=partitioned_h2_result_dir,
+            target_annotation=target.column,
             output_dir=str(output_dir),
         )
         with AnnotationWorkspace(output_dir) as workspace, AlignmentDiagnostics(issues_path) as diagnostics:
-            model = load_fitted_partitioned_model(args.partitioned_h2_result_dir)
+            model = load_fitted_partitioned_model(partitioned_h2_result_dir)
             try:
-                inputs = prepare_quantile_statistics(args, model, workspace, diagnostics, input_issues_path)
+                inputs = prepare_quantile_statistics(
+                    annotation_config, target, ref_metadata_sources, model, workspace, diagnostics, input_issues_path,
+                )
             except LDSCInputError as exc:
                 # The gene-list audit is staged in the workspace, so it is written before the workspace closes.
                 if getattr(exc, "gene_list_batch", None) is not None:
@@ -701,7 +754,7 @@ def _run_quantile_h2(args) -> QuantileH2Result:
             "snp_identifier": ldscore_metadata.get("snp_identifier"),
             "genome_build": ldscore_metadata.get("genome_build"),
             "retained_ld_columns": model.annotation_names,
-            "target_annotation": args.target_annot_column,
+            "target_annotation": target.column,
             "target_annot_sources": inputs.target_paths,
             "ref_metadata_sources": inputs.reference_paths,
             "common_reference_snp_maf_min": common_maf_min,
@@ -709,8 +762,8 @@ def _run_quantile_h2(args) -> QuantileH2Result:
             "common_reference_snp_universe_size": int(inputs.n_common),
             "target_eligible_snp_count": int(inputs.counts.sum()),
             "target_missing_exclusion_count": inputs.n_excluded,
-            "target_missing_value": args.target_missing_value,
-            "num_quantiles": int(args.num_quantiles),
+            "target_missing_value": target.missing_value,
+            "num_quantiles": int(target.num_quantiles),
             "quantile_boundary_rule": "round_i_times_n_minus_1_over_q; lower_ties",
             "enrichment_p_test": "two_sided_normal_inside_vs_complement",
             "tau_star_scale": "fixed_full_common_reference_snp_universe_total",
@@ -721,7 +774,7 @@ def _run_quantile_h2(args) -> QuantileH2Result:
             "Fitted model=%s; target=%s; common MAF rule=MAF >= %g; common reference SNPs=%d; "
             "target missing exclusions=%d.",
             model.model_type,
-            args.target_annot_column,
+            target.column,
             common_maf_min,
             inputs.n_common,
             inputs.n_excluded,

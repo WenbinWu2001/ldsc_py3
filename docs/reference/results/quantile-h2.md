@@ -86,6 +86,9 @@ No target value is excluded by default. A nonnumeric, `NaN`, or infinite target 
 
 ## Reconstruction and provenance checks
 
+Before anything is written, `_configs_from_args()` in [_regression/quantile_h2.py](../../../src/ldsc/_regression/quantile_h2.py) checks `--num-quantiles` (an integer of at least 2) and the gene-list settings and parses `--target-missing-value` once; an invalid value stops the run without an output directory.
+The checks below run after the output preflight.
+
 The workflow inherits the linked LD-score directory's inclusive common-MAF threshold; it has no common-MAF override.
 It validates effective SNP identity, duplicate rows, reference/annotation intersections, the recorded numbers of all and common reference SNPs, recorded common-SNP fitted annotation sums, and available overlap cross-products.
 Aggregate comparisons retain `rtol=1e-6` and `atol=1e-8`.

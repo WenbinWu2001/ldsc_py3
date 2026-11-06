@@ -297,7 +297,10 @@ def select_plink_chromosome(
 
 
 def keep_individual_indices(keep_individuals: KeepIndividuals | None, fam) -> list[int] | None:
-    """Return the ``.fam`` rows whose IID the keep list names, in ``.fam`` order; ``None`` keeps everyone."""
+    """Return the ``.fam`` rows whose IID the keep list names, in ``.fam`` order; ``None`` keeps everyone.
+
+    The keep list is a set: an IID listed more than once selects its row once.
+    """
     if keep_individuals is None:
         return None
     indices = fam.loj(keep_individuals.ids)

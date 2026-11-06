@@ -2,6 +2,7 @@
 # Derived from legacy LDSC ldscore/parse.py; GPLv3 (LICENSE).
 # Modified 2024 for Python 3; 2026-04 for package extraction and docstrings,
 # and 2026-08 for the reduced parser surface. Notice restored 2026-09-10.
+# 2026-11: loj selects rows by membership, so a repeated ID counts once.
 # See NOTICE for attribution and dated modifications.
 
 """
@@ -47,7 +48,7 @@ def __ID_List_Factory__(colnames, keepcol, fname_end, header=None, usecols=None)
 
     The returned class mirrors the historical ``parse.py`` behavior used by the
     LD kernel: it reads one file into ``self.df`` and, when requested, exposes
-    a one-column ``IDList`` table that can be left-joined against an external
+    a one-column ``IDList`` table that can be matched against an external
     list to obtain retained row indices.
     """
 
@@ -85,15 +86,12 @@ def __ID_List_Factory__(colnames, keepcol, fname_end, header=None, usecols=None)
                 self.IDList = self.df.iloc[:, [self.__keepcol__]].astype('object')
 
         def loj(self, externalDf):
-            '''Returns indices of those elements of self.IDList that appear in exernalDf.'''
-            r = externalDf.columns[0]
-            l = self.IDList.columns[0]
-            merge_df = externalDf.iloc[:, [0]]
-            merge_df['keep'] = True
-            z = pd.merge(self.IDList, merge_df, how='left', left_on=l, right_on=r,
-                         sort=False)
-            ii = (z['keep'] == True).to_numpy()
-            return np.nonzero(ii)[0]
+            '''Returns indices of those elements of self.IDList that appear in externalDf.
+
+            Rows are selected by membership, in ``self.IDList`` order, so an ID
+            listed more than once in ``externalDf`` selects its rows once.
+            '''
+            return np.flatnonzero(self.IDList.iloc[:, 0].isin(externalDf.iloc[:, 0]).to_numpy())
 
     return IDContainer
 

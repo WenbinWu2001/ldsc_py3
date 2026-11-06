@@ -1,0 +1,128 @@
+"""A keep file is a set of individuals: a repeated IID selects its ``.fam`` row once.
+
+``--keep-indivs-file`` selects the ``.fam`` rows whose IID it lists, in ``.fam``
+order. A keep file that lists an IID more than once, as concatenated keep lists
+do, must select the same individuals, and give the same LD scores, as the file
+that lists each IID once, in every PLINK route.
+
+The expected rows come from the ``.fam`` text itself. The fixture is the
+32-SNP chromosome-22 panel with 3,202 individuals; the keep list names fifteen
+individuals near the start of the ``.fam`` and the last ten, so a repeated IID
+can push a selected row past the last individual.
+"""
+import importlib.util
+import json
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+import pyarrow.parquet as pq
+
+from ldsc.cli import run_cli
+from ldsc._core.plink_files import PlinkFAMFile
+from ldsc._refpanel.plink_source import keep_individual_indices, read_keep_individuals
+
+FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
+FAM_IIDS = [line.split()[1] for line in Path(f"{FIXTURE}.fam").read_text(encoding="utf-8").splitlines()]
+LISTED = FAM_IIDS[1:16] + FAM_IIDS[-10:]
+REPEATED = {
+    "early_individual": [FAM_IIDS[1]],
+    "last_fam_individual": [FAM_IIDS[-1]],
+    "both": [FAM_IIDS[1], FAM_IIDS[-1]],
+}
+needs_bitarray = pytest.mark.skipif(importlib.util.find_spec("bitarray") is None, reason="bitarray required")
+
+
+def write_keep(path: Path, iids: list[str]) -> Path:
+    path.write_text("\n".join(iids) + "\n", encoding="utf-8")
+    return path
+
+
+def keep_files(tmp_path: Path, repeats: dict[str, list[str]]) -> dict[str, Path]:
+    """Write the keep file that lists each IID once and one file per repeat pattern."""
+    files = {"once": write_keep(tmp_path / "once.keep", LISTED)}
+    for name, extra in repeats.items():
+        files[name] = write_keep(tmp_path / f"{name}.keep", LISTED + extra)
+    return files
+
+
+@pytest.mark.parametrize("repeated", REPEATED.values(), ids=REPEATED.keys())
+def test_a_repeated_iid_selects_its_fam_row_once(tmp_path, repeated):
+    listed = set(LISTED)
+    expected = [row for row, iid in enumerate(FAM_IIDS) if iid in listed]
+    assert expected == list(range(1, 16)) + list(range(len(FAM_IIDS) - 10, len(FAM_IIDS)))
+    fam = PlinkFAMFile(f"{FIXTURE}.fam")
+
+    selected = keep_individual_indices(read_keep_individuals(str(write_keep(tmp_path / "keep.txt", LISTED + repeated))), fam)
+
+    assert selected == expected
+
+
+SILENT_REPEATS = {name: REPEATED[name] for name in ("early_individual", "last_fam_individual")}
+
+
+@needs_bitarray
+def test_ldscore_with_a_repeated_iid_matches_the_keep_file_listing_it_once(tmp_path):
+    tables = {}
+    for name, keep in keep_files(tmp_path, SILENT_REPEATS).items():
+        out = tmp_path / f"ldscore_{name}"
+        assert run_cli(["ldscore", "--plink-prefix", str(FIXTURE), "--genome-build", "hg38", "--ld-wind-kb", "1000",
+                        "--keep-indivs-file", str(keep), "--output-dir", str(out)]) == 0
+        tables[name] = pd.read_parquet(out / "ldscore.baseline.parquet")
+
+    for name in SILENT_REPEATS:
+        pd.testing.assert_frame_equal(tables[name], tables["once"], check_exact=True, obj=name)
+
+
+@needs_bitarray
+def test_build_r2_matrix_with_a_repeated_iid_matches_the_keep_file_listing_it_once(tmp_path):
+    builds = {}
+    for name, keep in keep_files(tmp_path, SILENT_REPEATS).items():
+        out = tmp_path / f"r2_{name}"
+        assert run_cli(["build-r2-matrix", "--plink-prefix", str(FIXTURE), "--source-genome-build", "hg38",
+                        "--ld-wind-kb", "1000", "--keep-indivs-file", str(keep), "--output-dir", str(out)]) == 0
+        [r2_path] = out.rglob("chr22_r2.parquet")
+        [meta_path] = out.rglob("chr22_meta.tsv.gz")
+        n_samples = pq.ParquetFile(r2_path).schema_arrow.metadata[b"ldsc:n_samples"]
+        builds[name] = (pd.read_parquet(r2_path), pd.read_csv(meta_path, sep="\t", comment="#"), n_samples)
+
+    assert builds["once"][2] == str(len(LISTED)).encode()
+    for name in SILENT_REPEATS:
+        pd.testing.assert_frame_equal(builds[name][0], builds["once"][0], check_exact=True, obj=f"{name} R2")
+        pd.testing.assert_frame_equal(builds[name][1], builds["once"][1], check_exact=True, obj=f"{name} sidecar")
+        assert builds[name][2] == builds["once"][2]
+
+
+@needs_bitarray
+def test_gene_index_with_a_repeated_iid_matches_the_keep_file_listing_it_once(tmp_path, monkeypatch):
+    from ldsc._ldscore.gene_index.build import main as build_index
+    from tests.gene_index_helpers import narrow_index_chromosomes
+
+    narrow_index_chromosomes(monkeypatch, ["22"])
+    bim = pd.read_csv(f"{FIXTURE}.bim", sep=r"\s+", header=None, names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+    bim.loc[:, ["CHR", "SNP", "POS", "CM", "A1", "A2"]].assign(base=1.0).to_csv(
+        tmp_path / "baseline.annot", sep="\t", index=False)
+    bim.loc[:, ["SNP", "CHR", "POS"]].to_csv(tmp_path / "regression_snps.tsv", sep="\t", index=False)
+    (tmp_path / "genes.tsv").write_text(
+        "gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
+        f"G1\tGene1\t22\t{int(bim.POS.min())}\t{int(bim.POS.median())}\thg38\n")
+    indexes = {}
+    for name, keep in keep_files(tmp_path, SILENT_REPEATS).items():
+        out = tmp_path / f"index_{name}"
+        build_index(["--baseline-annot-sources", str(tmp_path / "baseline.annot"), "--plink-prefix", str(FIXTURE),
+                     "--gene-coordinate-file", str(tmp_path / "genes.tsv"), "--genome-build", "hg38",
+                     "--snp-identifier", "chr_pos_allele_aware", "--ld-wind-kb", "1000", "--padding-bp", "0", "--gene-exclude-regions", "none",
+                     "--regr-snps-exclude-regions", "none", "--regr-snps-file", str(tmp_path / "regression_snps.tsv"),
+                     "--keep-indivs-file", str(keep), "--output-dir", str(out)])
+        metadata = json.loads((out / "metadata.json").read_text(encoding="utf-8"))
+        with np.load(out / "chromosomes" / "chr22" / "ldscore_operator.npz") as operator:
+            arrays = {key: operator[key] for key in operator.files}
+        indexes[name] = (metadata, pd.read_parquet(out / "chromosomes" / "chr22" / "baseline_rows.parquet"), arrays)
+
+    assert indexes["once"][0]["index_identity"]["selected_individuals"]["selected_count"] == len(LISTED)
+    for name in SILENT_REPEATS:
+        assert indexes[name][0]["index_id"] == indexes["once"][0]["index_id"]
+        pd.testing.assert_frame_equal(indexes[name][1], indexes["once"][1], check_exact=True, obj=name)
+        for key, values in indexes["once"][2].items():
+            np.testing.assert_array_equal(indexes[name][2][key], values, err_msg=f"{name} {key}")

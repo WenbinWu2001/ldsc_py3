@@ -108,10 +108,11 @@ Sources: legacy LDSC [`ldscore/ldscore.py:167-168`, `__corSumVarBlocks__`](https
 
 A keep file (`--keep-indivs-file`, legacy `--keep`) is a set of individuals: `ldscore`, `build-r2-matrix` and `build-gene-ldscore-index` retain each `.fam` row whose IID the file lists, in `.fam` order, and an IID listed more than once counts once.
 Legacy LDSC left-merged the `.fam` IIDs with the keep list and used the positions of the matched rows in the merged table as `.fam` rows, so each repeated IID shifted every later selected row by one.
-Such a run silently retained individuals the file does not list, and it could read the bits after the last individual (the BED padding) as a sample, because its bounds check also accepted an index equal to the number of individuals.
+Such a run silently retained individuals the file does not list, and it could read the unused bits after the last individual in a BED SNP record as an individual, because its bounds check also accepted an index equal to the number of individuals.
 The current reader rejects that index.
 IIDs match by their exact text.
 Legacy LDSC let pandas infer the type of each ID column, so `01003` in an all-numeric `.fam` matched keep ID `1003`, and a numeric keep list matched nobody in a `.fam` that also held a non-numeric IID.
+Legacy LDSC also read an IID written as `NA`, `nan` or `NULL` as a missing value, so keep ID `NA` also retained a `.fam` row whose IID is `nan`; the current reader treats these words as ordinary IIDs.
 A listed IID that names more than one `.fam` row, such as the same IID under two FIDs, stops the run with an error that names it, because matching by IID cannot tell those individuals apart; legacy LDSC retained every such row.
 Apart from these cases, a keep file selects the same individuals as in legacy LDSC.
 

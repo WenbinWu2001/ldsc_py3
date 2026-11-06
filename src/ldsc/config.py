@@ -475,7 +475,9 @@ class RefPanelConfig:
         ``LDScoreConfig``. Default is ``None``.
     keep_indivs_file : str or os.PathLike[str] or None, optional
         Optional path to a one-column IID keep file applied in PLINK mode before
-        genotype-derived MAF is computed. Default is ``None``.
+        genotype-derived MAF is computed. A repeated IID counts once, IIDs
+        match by their exact text, and an IID on more than one ``.fam`` row is
+        rejected. Default is ``None``.
     ref_panel_snps_file : str or os.PathLike[str] or None, optional
         Optional SNP list restricting the reference-panel SNPs, read under the
         run's SNP identifier mode. Default is ``None``.
@@ -706,7 +708,9 @@ class GeneLDScoreIndexBuildConfig:
     common_maf_min : float, optional
         Inclusive MAF threshold for common-SNP count statistics. Default 0.05.
     keep_indivs_file : str, optional
-        One-IID-per-row PLINK individual restriction.
+        One-IID-per-row PLINK individual restriction. A repeated IID counts
+        once, IIDs match by their exact text, and an IID on more than one
+        ``.fam`` row is rejected.
     regr_snps_file : str, optional
         Identity-only output/regression SNP restriction. When omitted, the
         bundled HapMap3 restriction is used.
@@ -875,8 +879,9 @@ class R2MatrixBuildConfig:
         file must be aligned to the resolved source reference-panel build; the
         builder never uses ``GlobalConfig.genome_build``.
     keep_indivs_file : str or os.PathLike[str] or None, optional
-        Optional individual keep-file applied before R2 calculation. Default is
-        ``None``.
+        Optional one-column IID keep file applied before R2 calculation. A
+        repeated IID counts once, IIDs match by their exact text, and an IID
+        on more than one ``.fam`` row is rejected. Default is ``None``.
     snp_batch_size : int, optional
         Number of SNPs loaded per pairwise-R2 computation batch. Larger values
         may improve throughput but use more memory; stored pairs are the same

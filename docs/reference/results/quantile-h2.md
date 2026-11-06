@@ -90,7 +90,13 @@ Before the output preflight, `_configs_from_args()` in [_regression/quantile_h2.
 An invalid value stops the run before the output directory or its log is created; with `--overwrite`, the failed run still leaves its `RUN_FAILED.txt` marker.
 The checks below run after the output preflight.
 
-The workflow inherits the linked LD-score directory's inclusive common-MAF threshold; it has no common-MAF override.
+The input preflight checks the declared annotation and reference-metadata files and every file the fitted model's metadata declares.
+A query folder's metadata is resolved against the aggregate result root only when the folder sits under `diagnostics/query_annotations`; any other directory holding a `metadata.json`, such as an LD-score directory, is read in place and rejected as not a partitioned-h2 fitted model.
+After loading the fitted model, and before reading any annotation, a second preflight checks the linked LD-score directory as `load_ldscore_from_dir()` does, without reading its LD-score values: `metadata.json` must be readable, every declared file readable and inside the directory, and the identity, row-group, query-batch, count and overlap metadata consistent (`read_ldscore_manifest()` in [_ldscore/source.py](../../../src/ldsc/_ldscore/source.py)).
+A failure stops the run with an `LDSCInputError` and lists the directory under the role `LD scores` in `diagnostics/input_issues.tsv`.
+Undecodable fitted-model metadata, from `run_quantile_h2()` or `load_fitted_partitioned_model()`, is also an `LDSCInputError`.
+
+The workflow inherits the linked LD-score directory's inclusive common-MAF threshold from its `count_config`; it has no common-MAF override and no default for a missing `count_config`.
 It validates effective SNP identity, duplicate rows, reference/annotation intersections, the recorded numbers of all and common reference SNPs, recorded common-SNP fitted annotation sums, and available overlap cross-products.
 Aggregate comparisons retain `rtol=1e-6` and `atol=1e-8`.
 A target whose name matches a fitted annotation must match that resupplied fitted column's float32 values on target-eligible SNPs.

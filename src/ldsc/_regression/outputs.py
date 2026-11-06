@@ -502,7 +502,7 @@ def _query_fit_files(folder: Path, *, owned: bool = False) -> PartitionedH2FitAr
                                      folder / QUERY_METADATA_FILE, owned=owned)
 
 
-def fitted_model_files(result_dir) -> tuple[str, PartitionedH2FitArtifacts]:
+def fitted_model_files(result_dir) -> tuple[str, PartitionedH2FitArtifacts, Path]:
     """Locate one fitted model inside a partitioned-h2 result.
 
     Parameters
@@ -514,19 +514,26 @@ def fitted_model_files(result_dir) -> tuple[str, PartitionedH2FitArtifacts]:
 
     Returns
     -------
-    tuple of (str, PartitionedH2FitArtifacts)
-        The ``artifact_type`` this writer records for that layout, and the
-        model's full table, coefficient delete values and metadata. A
-        baseline-only root's ``partitioned_h2.tsv`` is its full table. Files
-        are named, not checked for existence.
+    tuple of (str, PartitionedH2FitArtifacts, pathlib.Path)
+        The ``artifact_type`` this writer records for that layout; the
+        model's full table, coefficient delete values and metadata; and the
+        manifest root, the directory the metadata's ``files`` paths are
+        relative to. A baseline-only root's ``partitioned_h2.tsv`` is its
+        full table. A query folder's manifest root is the aggregate result
+        root (resolved), and only when the folder really sits under
+        ``diagnostics/query_annotations``; for any other directory it is
+        ``result_dir`` itself, so the root never leaves the directory given.
+        Files are named, not checked for existence.
     """
     root = Path(result_dir)
     if (root / QUERY_METADATA_FILE).is_file():
-        return "partitioned_h2_query_result", _query_fit_files(root)
+        folder = root.resolve()
+        nested = folder.parts[-3:-1] == Path(QUERY_RESULT_ROOT).parts
+        return "partitioned_h2_query_result", _query_fit_files(root), folder.parents[2] if nested else root
     return "partitioned_h2_result", PartitionedH2FitArtifacts(
         root / PARTITIONED_H2_SUMMARY_FILE, root / "diagnostics" / COEFFICIENT_DELETE_VALUES_FILE,
         root / RESULT_METADATA_FILE,
-    )
+    ), root
 
 
 def published_query_artifacts(output_dir, summary: pd.DataFrame) -> dict[str, PartitionedH2FitArtifacts]:

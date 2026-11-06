@@ -256,7 +256,7 @@ Only the baseline-row block $A_B^\top A$ and each query's self-overlap are store
 Query files repeat the SNP identity columns (`CHR`, `SNP`, `POS`, and `A1` and `A2` when available).
 These `A1` and `A2` are the reference panel's alleles: `A1` is the minor allele in the retained reference individuals for every LD-score source, not the effect allele of summary statistics (see [What A1 means in each file type](column-schema.md#what-a1-means-in-each-file-type)).
 Opening an LD-score directory validates every declared schema and allele column, and `LDScoreSource.read_queries` checks that the selected query files share the same SNP rows (`src/ldsc/_ldscore/source.py`).
-Opening first reads the manifest alone (`read_ldscore_manifest`): `metadata.json` must be a JSON object, every declared file must lie inside the directory, the baseline, query and overlap files must exist and have readable Parquet footers, and the row-group, identity, count and overlap metadata must pass the checks in the table below.
+Opening first reads the manifest alone (`read_ldscore_manifest`), which `quantile-h2` also uses: `metadata.json` must be a JSON object, every declared file must lie inside the directory, the baseline, query and overlap files must exist and have readable Parquet footers, and the row-group, identity, count and overlap metadata must pass the checks in the table below.
 The name-keyed long format survives zero-variance column drops and reordering, because regression assembles each model's overlap matrix by annotation name.
 Embedding the matrix in `metadata.json` was rejected because it would reach tens of MB for cell-type panels; `.npz` or position-aligned records were rejected as fragile.
 

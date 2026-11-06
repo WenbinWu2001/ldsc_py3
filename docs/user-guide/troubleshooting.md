@@ -249,7 +249,10 @@ Inference uses bounded samples from every relevant file/chromosome and retains t
 2. Keep LDSC-generated data files and their sidecars together; do not hand-edit them.
 3. If you need a different `snp_identifier` or `genome_build`, regenerate from the upstream input.
 
-**Developer reference:** `_core.snp_identity.validate_identity_artifact_metadata()` and artifact reload guards · **Exception:** `LDSCInputError`
+The same causes apply when an LD-score directory's manifest cannot be read (`Could not load LD-score directory ...`): an unreadable or non-object `metadata.json`, a missing or unusable `count_config`, a declared file that is missing or lies outside the directory, or an unreadable Parquet footer.
+`load_ldscore_from_dir()`, the regression commands and `quantile-h2` stop on these before any computation.
+
+**Developer reference:** `_core.snp_identity.validate_identity_artifact_metadata()`, `_ldscore.source.read_ldscore_manifest()` and artifact reload guards · **Exception:** `LDSCInputError`
 
 ### Common: a BED query name is not usable
 

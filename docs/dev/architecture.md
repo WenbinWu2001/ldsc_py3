@@ -369,7 +369,7 @@ It supplies `ResolvedMungeInput` to `_sumstats.munge_kernel.munge_sumstats()`, w
 This module owns manifest/schema checks, count/overlap consistency, and table/identity validation shared by materialized and staged output.
 `validate_ldscore_baseline_table()` validates the complete shared baseline; `validate_ldscore_query_table()` checks a materialized query table against its already-validated baseline rows, and `_ldscore.outputs._write_query_fragments()` requires each staged fragment's identity columns to equal the shared first-batch baseline rows exactly.
 `LDScoreSource.read_queries()` returns explicit, uncached selections in requested column order; callers own their memory and must keep the source directory available and unchanged.
-The batch output writer and regression workflows both call this loader; `_ldscore/source.py` has no dependency on output writers or regression orchestration.
+The batch output writer and regression workflows both call this loader, and `quantile-h2` reads only the manifest; `_ldscore/source.py` has no dependency on output writers or regression orchestration.
 Selected-value validation and alignment to a regression model remain in `ldsc._regression.alignment`.
 
 ### `ldsc._regression.runner`, `ldsc._regression.alignment`, `ldsc._regression.fitting`, `ldsc._regression.partitioned`, `ldsc._regression.rg`, `ldsc._regression.commands`
@@ -417,6 +417,7 @@ Each is a thin adapter: it turns the parsed arguments into typed settings before
 The three typed bodies share `_inspect_regression_inputs()`, which checks the declared summary statistics, prevalence manifest and LD-score directory before any input is loaded.
 `h2` and `rg` publish from their typed bodies; `estimate_partitioned_h2_batch()` publishes its own result directory, because its query workers stage each fitted model inside it.
 `run_quantile_h2_from_args()` follows the same pattern: `_regression.quantile_h2._configs_from_args()` builds the resupplied annotation sources as an `AnnotationBuildConfig` and the target as a `_regression.quantile_inputs.QuantileTarget`, which checks `--num-quantiles` and parses `--target-missing-value` once, and the typed body `_run_quantile_h2()` runs in one worker and passes them to `prepare_quantile_statistics()`; it builds no `GlobalConfig`, because the SNP identifier mode and genome build come from the fitted model's LD-score directory.
+That directory is read only through `_ldscore.source.read_ldscore_manifest()`: after loading the fitted model, `_run_quantile_h2()` runs it, with the declared-file check of the regression commands, in an input gate before any annotation is read, and passes the `LDScoreManifest` on for the SNP identity, common-SNP rule, counts and overlap.
 `tests/regression/test_python_regression_workflows.py` checks that the Python and CLI routes write identical result files.
 
 `RegressionFit` values in `_regression/results.py` carry the estimator, fitted dataset, realized block count, effective cap, two-step cutoff, and optional single-annotation diagnostic bins.
@@ -481,7 +482,7 @@ Each directory writer exposes `artifact_family()` as the single declaration of i
 `stage_partitioned_h2_fit()` marks private regression files as owned so `PartitionedH2DirectoryWriter` can move them into its sorted publication tree.
 Persistent `PartitionedH2FitArtifacts` default to copying.
 The writer stores run metadata once, and `_regression.quantile_h2.load_fitted_partitioned_model()` resolves the query's relative `global_metadata` reference before applying model-specific fields.
-`_regression/outputs.py` spells the fitted-model file names and the `global_metadata` reference once: `fitted_model_files()` locates one fitted model and its expected `artifact_type` for `quantile-h2`, and `published_query_artifacts()` names the published per-query files for `PartitionedH2BatchResult`.
+`_regression/outputs.py` spells the fitted-model file names and the `global_metadata` reference once: `fitted_model_files()` locates one fitted model, its expected `artifact_type` and its manifest root for `quantile-h2` (the aggregate root only for a folder under `diagnostics/query_annotations`, so the root never leaves the directory given), and `published_query_artifacts()` names the published per-query files for `PartitionedH2BatchResult`.
 `tests/regression/test_partitioned_publication.py` and `tests/regression/test_quantile_streaming.py` cover this writer-to-reader contract, relocation, and publication failure cleanup.
 
 | Module and symbol | Responsibility |

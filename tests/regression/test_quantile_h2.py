@@ -434,3 +434,79 @@ def test_loader_requires_retained_ld_columns(tmp_path):
                  ).to_parquet(model_dir / "coefficient_delete_values.parquet", index=False)
     with pytest.raises(LDSCInputError, match="retained_ld_columns"):
         load_fitted_partitioned_model(model_dir)
+
+
+def _edit_ldscore_metadata(root, edit):
+    path = root / "ldscores" / "metadata.json"
+    metadata = json.loads(path.read_text(encoding="utf-8"))
+    edit(metadata)
+    path.write_text(json.dumps(metadata), encoding="utf-8")
+
+
+@pytest.mark.parametrize("edit, message", [
+    (lambda metadata: metadata.update(artifact_type="annotation"), "expected artifact_type='ldscore'"),
+    (lambda metadata: metadata.pop("artifact_type"), "lacks `artifact_type`"),
+    (lambda metadata: metadata["overlap_config"].update(common_maf_min=0.01, common_maf_operator=">"),
+     "count_config and overlap_config disagree"),
+    (lambda metadata: metadata.pop("count_config"), "missing a usable `count_config`"),
+])
+def test_ldscore_directories_the_loader_rejects_stop_before_computation(tmp_path, edit, message):
+    # Each edit makes load_ldscore_from_dir reject the directory; quantile-h2 used to accept all four.
+    args = write_quantile_inputs(tmp_path)
+    _edit_ldscore_metadata(tmp_path, edit)
+    # Annotation staging would fail on this value, so the LD-score error shows the check ran before it.
+    annotations = Path(args.baseline_annot_sources[0])
+    annotations.write_text(annotations.read_text(encoding="utf-8").replace("\t1\t3\n", "\t1\tnot-a-number\n"),
+                           encoding="utf-8")
+
+    with pytest.raises(LDSCInputError, match=message):
+        run_quantile_h2_from_args(args)
+
+
+@pytest.mark.parametrize("damage", ["missing overlap", "corrupt metadata"])
+def test_a_damaged_ldscore_directory_fails_in_the_preflight(tmp_path, damage):
+    args = write_quantile_inputs(tmp_path)
+    if damage == "missing overlap":
+        (tmp_path / "ldscores" / "ldscore.overlap.parquet").unlink()
+    else:
+        (tmp_path / "ldscores" / "metadata.json").write_text("{not json", encoding="utf-8")
+
+    with pytest.raises(LDSCInputError, match="Input preflight.*LD scores"):
+        run_quantile_h2_from_args(args)
+
+    issues = pd.read_csv(Path(args.output_dir) / "diagnostics" / "input_issues.tsv", sep="\t")
+    assert issues["input_role"].tolist() == ["LD scores"]
+    assert issues["source"].tolist() == [str(tmp_path / "ldscores")]
+    assert not (Path(args.output_dir) / "quantile_h2.tsv").exists()
+
+
+def test_an_ldscore_directory_is_not_read_as_a_fitted_model(tmp_path):
+    # A directory holding its own metadata.json is a per-query folder only under diagnostics/query_annotations.
+    args = write_quantile_inputs(tmp_path)
+    args.partitioned_h2_result_dir = str(tmp_path / "ldscores")
+
+    with pytest.raises(LDSCInputError, match="expected a partitioned-h2 fitted model.*artifact_type 'ldscore'"):
+        run_quantile_h2_from_args(args)
+
+
+@pytest.mark.parametrize("target", ["query", "shared"])
+def test_undecodable_fitted_metadata_is_an_input_error(tmp_path, target):
+    from ldsc._regression.outputs import (
+        PARTITIONED_H2_COLUMNS, PartitionedH2DirectoryWriter, PartitionedH2OutputConfig, stage_partitioned_h2_fit,
+    )
+
+    args = write_quantile_inputs(tmp_path)
+    fitted = Path(args.partitioned_h2_result_dir)
+    full = pd.read_csv(fitted / "partitioned_h2.tsv", sep="\t").reindex(columns=PARTITIONED_H2_COLUMNS)
+    deletes = pd.read_parquet(fitted / "diagnostics/coefficient_delete_values.parquet")
+    artifacts = stage_partitioned_h2_fit(tmp_path / "private_fit", full, deletes, {"n_snps": 4})
+    shared = json.loads((fitted / "diagnostics/metadata.json").read_text(encoding="utf-8"))
+    published = tmp_path / "published"
+    PartitionedH2DirectoryWriter().write(full.iloc[[1]], PartitionedH2OutputConfig(published, write_per_query_results=True),
+                                         {"cont": artifacts}, dict(shared, analysis_type="cell_type_specific"))
+    model_dir = published / "diagnostics/query_annotations/0001_cont"
+    damaged = model_dir / "metadata.json" if target == "query" else published / "diagnostics/metadata.json"
+    damaged.write_text("{not json", encoding="utf-8")
+
+    with pytest.raises(LDSCInputError, match=f"could not read.*{damaged.name}"):
+        load_fitted_partitioned_model(model_dir)

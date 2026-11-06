@@ -43,6 +43,7 @@ from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_o
 from .._runtime.preflight import inspect_declared_inputs, inspect_artifact_paths
 from .estimators import liability_conversion_factor
 from .._runtime.workflow_kwargs import run_from_kwargs
+from .._ldscore.source import LDScoreManifest, read_ldscore_manifest
 from ..config import AnnotationBuildConfig, get_global_config
 
 
@@ -287,7 +288,7 @@ def load_fitted_partitioned_model(result_dir: str | Path) -> FittedPartitionedMo
         fitted annotation order.
     """
     root = Path(result_dir)
-    artifact_type, files = fitted_model_files(root)
+    artifact_type, files, _ = fitted_model_files(root)
     metadata_path, summary_path, delete_path = files.metadata, files.full, files.delete_values
     model_type = "baseline_plus_query" if artifact_type == "partitioned_h2_query_result" else "baseline_only"
     if not metadata_path.is_file():
@@ -296,7 +297,7 @@ def load_fitted_partitioned_model(result_dir: str | Path) -> FittedPartitionedMo
             "Pass a baseline-only partitioned-h2 output root or one diagnostics/query_annotations/<query> directory. "
             "Raw legacy regression prefixes are not accepted."
         )
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata = _read_fitted_metadata(metadata_path)
     if metadata.get("artifact_type") != artifact_type:
         raise LDSCInputError(
             f"quantile-h2 expected a partitioned-h2 fitted model in '{root}', but '{metadata_path}' records "
@@ -317,7 +318,7 @@ def load_fitted_partitioned_model(result_dir: str | Path) -> FittedPartitionedMo
                 "Restore the enclosing diagnostics/metadata.json from the same fit and keep the "
                 "complete result directory when copying results."
             )
-        shared = json.loads(shared_path.read_text(encoding="utf-8"))
+        shared = _read_fitted_metadata(shared_path)
         metadata = {**shared, **metadata}
     if model_type == "baseline_only" and metadata.get("analysis_type") == "cell_type_specific":
         raise LDSCInputError(
@@ -400,6 +401,34 @@ def load_fitted_partitioned_model(result_dir: str | Path) -> FittedPartitionedMo
         tau_delete=delete_frame.loc[:, annotation_names].to_numpy(dtype=np.float64),
         ldscore_dir=ldscore_dir,
     )
+
+
+def _read_fitted_metadata(path: Path) -> dict:
+    """Decode one fitted-model metadata file, raising ``LDSCInputError`` when it is unreadable or not an object."""
+    try:
+        metadata = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        metadata = exc
+    if not isinstance(metadata, dict):
+        detail = f": {metadata}" if isinstance(metadata, Exception) else ": it is not a JSON object"
+        raise LDSCInputError(
+            f"quantile-h2 could not read fitted-model metadata '{path}'{detail}."
+            " Restore the original fitted summary, coefficient-delete table, and metadata from the same "
+            "partitioned-h2 fit, or rerun that fit. LD scores do not need to be recomputed solely to "
+            "regenerate fitted-result files."
+        )
+    return metadata
+
+
+def _read_fitted_ldscores(ldscore_dir: Path) -> LDScoreManifest:
+    """Check the fit's LD-score directory as the loader does and return its manifest.
+
+    Every file the manifest declares must be readable, as in the regression
+    commands' preflight.
+    """
+    manifest = read_ldscore_manifest(ldscore_dir)
+    inspect_artifact_paths(ldscore_dir)
+    return manifest
 
 
 def add_quantile_h2_arguments(parser: argparse.ArgumentParser) -> None:
@@ -681,18 +710,14 @@ def _run_quantile_h2(
     issues_path = diagnostics_dir / "snp_alignment_issues.tsv.gz"
     input_issues_path = diagnostics_dir / "input_issues.tsv"
     with workflow_logging("quantile-h2", log_path, log_level=log_level):
-        fitted_dir = Path(partitioned_h2_result_dir).resolve()
-        query_metadata = fitted_dir / "metadata.json"
-        # Per-query manifests keep file paths relative to the aggregate result root.
-        artifact_root = fitted_dir.parents[2] if query_metadata.is_file() else fitted_dir
-        metadata_file = query_metadata if query_metadata.is_file() else "diagnostics/metadata.json"
+        _, fitted_files, manifest_root = fitted_model_files(Path(partitioned_h2_result_dir).resolve())
         inspect_declared_inputs(files=[
             ('baseline_annot_sources', annotation_config.baseline_annot_sources),
             ('query_annot_sources', annotation_config.query_annot_sources),
             ('query_annot_bed_sources', annotation_config.query_annot_bed_sources),
             ('ref_metadata_sources', ref_metadata_sources)],
             checks=[('fitted model', partitioned_h2_result_dir,
-                     lambda: inspect_artifact_paths(artifact_root, metadata_file=metadata_file))],
+                     lambda: inspect_artifact_paths(manifest_root, metadata_file=fitted_files.metadata))],
             issues_path=input_issues_path)
         log_inputs(
             partitioned_h2_result_dir=partitioned_h2_result_dir,
@@ -701,16 +726,20 @@ def _run_quantile_h2(
         )
         with AnnotationWorkspace(output_dir) as workspace, AlignmentDiagnostics(issues_path) as diagnostics:
             model = load_fitted_partitioned_model(partitioned_h2_result_dir)
+            # The linked LD scores pass the loader's manifest checks before any annotation is read.
+            ldscores = inspect_declared_inputs(
+                checks=[('LD scores', str(model.ldscore_dir), lambda: _read_fitted_ldscores(model.ldscore_dir))],
+                issues_path=input_issues_path).files['LD scores']
             try:
                 inputs = prepare_quantile_statistics(
-                    annotation_config, target, ref_metadata_sources, model, workspace, diagnostics, input_issues_path,
+                    annotation_config, target, ref_metadata_sources, model, ldscores, workspace, diagnostics,
+                    input_issues_path,
                 )
             except LDSCInputError as exc:
                 # The gene-list audit is staged in the workspace, so it is written before the workspace closes.
                 if getattr(exc, "gene_list_batch", None) is not None:
                     AnnotationDirectoryWriter().write_diagnostics(output_dir, batch=exc.gene_list_batch)
                 raise
-        ldscore_metadata = inputs.ldscore_metadata
         common_maf_min = inputs.common_maf_min
         samp_prev = pd.to_numeric(model.summary.get("samp_prev", pd.Series([np.nan])), errors="coerce").iloc[0]
         pop_prev = pd.to_numeric(model.summary.get("pop_prev", pd.Series([np.nan])), errors="coerce").iloc[0]
@@ -741,7 +770,7 @@ def _run_quantile_h2(
             )
         total_h2 = float(model.tau @ inputs.full_sums)
         annotation_types = {
-            name: str((ldscore_metadata.get("annotation_types") or {}).get(name, "unknown"))
+            name: ldscores.annotation_types.get(name, "unknown")
             for name in model.annotation_names
         }
         standardized = compute_standardized_coefficients(
@@ -757,8 +786,8 @@ def _run_quantile_h2(
             "selected_model_path": str(model.result_dir),
             "selected_model_type": model.model_type,
             "ldscore_dir": str(model.ldscore_dir),
-            "snp_identifier": ldscore_metadata.get("snp_identifier"),
-            "genome_build": ldscore_metadata.get("genome_build"),
+            "snp_identifier": ldscores.snp_identifier,
+            "genome_build": ldscores.genome_build,
             "retained_ld_columns": model.annotation_names,
             "target_annotation": target.column,
             "target_annot_sources": inputs.target_paths,

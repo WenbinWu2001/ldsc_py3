@@ -7,7 +7,6 @@ the cancellation of E[x^2] - E[x]^2 for high-offset annotations.
 """
 
 from dataclasses import dataclass, field
-import json
 import logging
 
 import numpy as np
@@ -20,7 +19,6 @@ from ..config import GlobalConfig
 from ..errors import LDSCInputError
 from .._runtime.paths import resolve_file_group, split_cli_path_tokens
 from .overlap_model import assemble_model_overlap
-from .._ldscore.overlap_table import overlap_from_long_frame
 from .._genome.build_policy import GenomeBuildCheck
 
 LOGGER = logging.getLogger("LDSC.quantile_h2")
@@ -67,14 +65,13 @@ class QuantileInputStatistics:
     counts: np.ndarray
     n_common: int
     n_excluded: int
-    ldscore_metadata: dict
     reference_paths: list
     target_paths: list
     common_maf_min: float
 
 
-def _model_annotations(annotation_config, model, metadata, workspace, issues_path):
-    mode, build = str(metadata.get("snp_identifier")), metadata.get("genome_build")
+def _model_annotations(annotation_config, model, ldscores, workspace, issues_path):
+    mode, build = ldscores.snp_identifier, ldscores.genome_build
     bundle = build_annotation_shards(annotation_config, GlobalConfig(snp_identifier=mode, genome_build=build), workspace,
                                      projection_genome_build=build, issues_path=issues_path)
     missing = [name for name in model.annotation_names if name not in bundle.baseline_columns + bundle.query_columns]
@@ -99,8 +96,8 @@ def _infer_keys(store, frame, mode, role, diagnostics, reference_source):
     return bases.map(lookup)
 
 
-def _alignment(target, bundle, metadata, store, diagnostics, reference_paths, target_paths):
-    mode = str(metadata.get("snp_identifier"))
+def _alignment(target, bundle, ldscores, store, diagnostics, reference_paths, target_paths):
+    mode = ldscores.snp_identifier
     reference_source, target_source = ",".join(reference_paths), ",".join(target_paths)
     invalid_maf = 0
     for path in reference_paths:
@@ -152,8 +149,8 @@ def _alignment(target, bundle, metadata, store, diagnostics, reference_paths, ta
     store.issues(diagnostics, "reference", "NOT EXISTS (SELECT 1 FROM fitted s WHERE s.effective_snp_id=r.effective_snp_id)",
                  role="reference_metadata", source=reference_source, issue="missing_baseline_annotation",
                  action="excluded", details="reference SNP is outside the fitted annotation SNP grid")
-    threshold = float((metadata.get("count_config") or {}).get("common_reference_snp_maf_min", .05))
-    operator = str((metadata.get("count_config") or {}).get("common_reference_snp_maf_operator", ">="))
+    threshold = float(ldscores.count_config["common_reference_snp_maf_min"])
+    operator = ldscores.count_config["common_reference_snp_maf_operator"]
     if operator != ">=":
         raise LDSCInputError(
             f"quantile-h2 does not support inherited common-MAF operator {operator!r}."
@@ -164,7 +161,7 @@ def _alignment(target, bundle, metadata, store, diagnostics, reference_paths, ta
         )
     intersection = "EXISTS (SELECT 1 FROM fitted f WHERE f.effective_snp_id=r.effective_snp_id)"
     n_all = store.scalar(f"SELECT count(*) FROM reference r WHERE {intersection}")
-    _validate_universe(metadata, "all", n_all)
+    _validate_universe(ldscores, "all", n_all)
     for path in target_paths:
         for chunk, frame in enumerate(target_chunks([path], target.column, target.missing)):
             if chunk == 0 and is_allele_aware_mode(mode) and not {"A1", "A2"}.issubset(frame.columns):
@@ -198,47 +195,45 @@ def _alignment(target, bundle, metadata, store, diagnostics, reference_paths, ta
             "docs/user-guide/troubleshooting.md#quantile-h2-fitted-model-or-resupplied-sources-do-not-verify."
         )
     n_common = store.scalar(f"SELECT count(*) FROM reference r WHERE MAF>=? AND {intersection}", (threshold,))
-    _validate_universe(metadata, "common", n_common)
+    _validate_universe(ldscores, "common", n_common)
     return threshold, n_common
 
 
-def _validate_universe(metadata, universe, actual):
-    expected = (metadata.get("overlap_config") or {}).get(f"total_{universe}_reference_snps")
+def _validate_universe(ldscores, universe, actual):
+    expected = (ldscores.overlap_config or {}).get(f"total_{universe}_reference_snps")
     if expected is not None and int(round(float(expected))) != actual:
         label = "all-reference SNP" if universe == "all" else "common reference-SNP"
         raise LDSCInputError(f"quantile-h2 reconstructed a different {label} count than the fitted LD-score directory: {actual} vs {expected}. Check --ref-metadata-sources and annotation sources.")
 
 
-def _validate_aggregates(model, metadata, sums, products):
-    records = {str(row.get("column")): row for row in metadata.get("counts", [])}
+def _validate_aggregates(model, ldscores, sums, products):
+    records = {str(row.get("column")): row for row in ldscores.count_records}
     for name, actual in zip(model.annotation_names, sums):
         expected = records.get(name, {}).get("common_reference_snp_count")
         if expected is not None and not np.isclose(actual, float(expected), rtol=1e-6, atol=1e-8):
             raise LDSCInputError(f"quantile-h2 fitted annotation '{name}' has common reference-SNP sum {actual}, expected {expected}. Resupply the exact annotation sources used for LD-score construction.")
-    overlap_path = (metadata.get("files") or {}).get("overlap")
-    if overlap_path:
-        config = metadata.get("overlap_config") or {}
-        overlap = overlap_from_long_frame(pd.read_parquet(model.ldscore_dir / str(overlap_path)),
-            baseline_columns=metadata.get("baseline_columns", []), query_columns=metadata.get("query_columns", []),
-            total_all_reference_snps=config.get("total_all_reference_snps"), total_common_reference_snps=config.get("total_common_reference_snps"))
+    overlap = ldscores.load_overlap()
+    if overlap is not None:
         expected = assemble_model_overlap(overlap, model.annotation_names, use_common=True)
         if not np.allclose(products, expected, rtol=1e-6, atol=1e-8):
             raise LDSCInputError("quantile-h2 reconstructed fitted-annotation cross-products that disagree with the linked LD-score overlap artifact. Resupply the exact original annotations and reference metadata.")
 
 
-def prepare_quantile_statistics(annotation_config, target, ref_metadata_sources, model, workspace, diagnostics,
-                                input_issues_path):
+def prepare_quantile_statistics(annotation_config, target, ref_metadata_sources, model, ldscores, workspace,
+                                diagnostics, input_issues_path):
     """Validate sources and reduce chromosome artifacts using exact global bounds.
 
     ``annotation_config`` holds the resupplied annotation sources of the fit,
-    ``target`` the checked :class:`QuantileTarget`, and
-    ``ref_metadata_sources`` the reference SNP metadata path tokens. Unusable
-    BED query names are written to ``input_issues_path`` before the run stops.
+    ``target`` the checked :class:`QuantileTarget`,
+    ``ref_metadata_sources`` the reference SNP metadata path tokens, and
+    ``ldscores`` the checked ``LDScoreManifest`` of the fit's LD-score
+    directory, which supplies the SNP identity, the common-SNP rule, the
+    counts and the overlap. Unusable BED query names are written to
+    ``input_issues_path`` before the run stops.
     """
-    metadata = json.loads((model.ldscore_dir / "metadata.json").read_text(encoding="utf-8"))
-    if str(metadata.get('snp_identifier', '')).startswith('chr_pos'):
+    if ldscores.snp_identifier.startswith('chr_pos'):
         check = GenomeBuildCheck('auto', context='quantile-h2', option=None)
-        check.declared('saved LD scores', model.ldscore_dir, metadata.get('genome_build'))
+        check.declared('saved LD scores', model.ldscore_dir, ldscores.genome_build)
         for flag, tokens in (('--baseline-annot-sources', annotation_config.baseline_annot_sources),
                              ('--query-annot-sources', annotation_config.query_annot_sources),
                              ('--target-annot-sources', target.sources),
@@ -248,13 +243,13 @@ def prepare_quantile_statistics(annotation_config, target, ref_metadata_sources,
         check.unchecked('--query-annot-bed-sources', annotation_config.query_annot_bed_sources,
                         'ordinary BED; inherits saved build')
         check.resolve()
-    bundle = _model_annotations(annotation_config, model, metadata, workspace, input_issues_path)
+    bundle = _model_annotations(annotation_config, model, ldscores, workspace, input_issues_path)
     references = resolve_file_group(split_cli_path_tokens(ref_metadata_sources),
         label="reference metadata", allow_chromosome_suite=True)
     targets = resolve_file_group(split_cli_path_tokens(target.sources),
         label="target annotation", allow_chromosome_suite=True)
     with QuantileIdentityStore(workspace.path / "quantile-identities.sqlite") as store:
-        threshold, n_common = _alignment(target, bundle, metadata, store, diagnostics, references, targets)
+        threshold, n_common = _alignment(target, bundle, ldscores, store, diagnostics, references, targets)
         joins = "FROM fitted f JOIN reference r ON r.effective_snp_id=f.effective_snp_id JOIN target t ON t.effective_snp_id=r.effective_snp_id WHERE r.MAF>=?"
         n_eligible = store.scalar(f"SELECT count(*) {joins} AND NOT t.target_excluded", (threshold,))
         target_vector = np.empty(n_eligible, dtype=np.float64)
@@ -281,7 +276,7 @@ def prepare_quantile_statistics(annotation_config, target, ref_metadata_sources,
             if target_index is not None:
                 same_name_mismatch |= not np.array_equal(values[eligible, target_index].astype(np.float32), target_values.astype(np.float32))
             del values, centered, aligned, eligible, target_values
-        _validate_aggregates(model, metadata, full_sums, products)
+        _validate_aggregates(model, ldscores, full_sums, products)
         if same_name_mismatch:
             raise LDSCInputError(f"Target annotation '{target.column}' matches a fitted annotation name but its values differ. Supply the same values or rename the external target annotation.")
         q = target.num_quantiles
@@ -307,7 +302,7 @@ def prepare_quantile_statistics(annotation_config, target, ref_metadata_sources,
             empty = (np.flatnonzero(counts == 0) + 1).tolist()
             raise LDSCInputError(f"quantile-h2 produced an empty quantile: {empty}. Target-value ties do not provide enough distinct realized intervals; reduce --num-quantiles or use a less discrete target annotation.")
     return QuantileInputStatistics(quantile_sums, full_sums, np.sqrt(m2 / n_common), bounds[:-1], bounds[1:], counts,
-                                  n_common, n_common - n_eligible, metadata, references, targets, threshold)
+                                  n_common, n_common - n_eligible, references, targets, threshold)
 
 
 def _common_values(bundle, names, store, joins, threshold):

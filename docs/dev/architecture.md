@@ -1,6 +1,6 @@
 # Architecture
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-06
 
 LDSC3 (distribution `ldsc`) is the Python 3 package that replaces legacy LDSC.
 It reads optional SNP-level annotations, PLINK reference panels or R² matrices, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to the computation modules of its private domain packages; and writes LDSC3 artifacts that can be chained into later runs.
@@ -208,15 +208,18 @@ See [the annotation contract](design/plotting.md#heritability-annotations-in-rg-
 This is the public annotation API and CLI dispatch seam: `AnnotationBuilder`, `AnnotationBundle`, `AnnotationResult`, `run_annotate()`, `parse_annotate_args()`, `run_annotate_from_args()`, and `main()`.
 `AnnotationBuilder.run(..., output_dir=...)` prepares a chromosome-backed dataset with explicit ownership.
 `_annotation.annotate` owns standalone BED/gene validation and incremental canonical output.
-`_annotation.bim_grid` stages metadata-only BIM grids through shared identity selection.
+`_annotation.bim_grid` stages metadata-only BIM grids through `_annotation.sources.stage_retained_rows()`, the global identity cleanup that annotation-file preparation also uses.
 Annotation-grid input emits aligned baseline/query families; BIM input emits query values only.
 `_annotation.saved_results` records these exports in the returned `AnnotationResult`, which owns no files; `prepared_in(directory)` reopens them, without original-input dependencies, as a bundle that owns its private folder in the directory the caller chooses.
 `_annotation.preflight` holds the query checks that `run_annotate()`, `ldscore` and `build_annotation_shards()` (behind `AnnotationBuilder` and `quantile-h2`) share: BED and gene-list query names that are reserved or collide stop before any grid is read, and the gene-list Gate A error and the projection genome build come from one place; `ldscore` resolves its own build against the reference panel.
+Gene-list Gate A is one call in all four gene-list workflows (`annotate`, `ldscore`, indexed scoring and `build_annotation_shards()`): `_annotation.gene_query_storage.resolve_gene_lists_staged()` resolves the lists and applies the query-name check against its required `existing_columns`, and each workflow keeps its own failure handling.
+Each preparation path turns its `PreparedAnnotationSources` into a bundle with `PreparedAnnotationSources.bundle()`.
 The other `_annotation` modules own bounded discovery, identity cleanup, separate metadata/value artifacts, projection, and storage lifetime; `_ldscore.direct_annotation` integrates them with direct LD-score scope and support gates.
 The complete module and ownership map is in [memory-and-cpu.md](design/memory-and-cpu.md).
 
 For interval projection, `_annotation.interval_queries.prepare_bed_queries()` streams validated BED rows from `_core.regions.iter_bed_rows()` into chromosome spools.
 `_annotation.interval_queries.build_query_shards()` uses `_annotation.interval_projection.ChromosomeProjector` for both BED and gene intervals, preserving zero-based half-open membership against one-based SNP positions.
+`annotate` measures annotation-row gene support in the same pass by passing a `gene_support` object, which also sets the gene query statuses; the other callers only project.
 
 ### `ldsc._annotation.gene_lists`, `ldsc._annotation.query_outcomes`
 

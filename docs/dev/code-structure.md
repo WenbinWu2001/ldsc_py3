@@ -1,6 +1,6 @@
 # Code Structure
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-06
 
 This is the authoritative contributor entry for LDSC3.
 Start here to locate a change.
@@ -90,7 +90,7 @@ The lazily exported workflows in `ldsc/__init__.py` and the per-command modules 
 | `ldsc._core.regions` | packaged and user BED interval loading plus region-exclusion masks |
 | `ldsc._core.row_alignment` | row-alignment checks between SNP tables and the shared genomic sort |
 | `ldsc._core.plink_files` | retained PLINK `.bim`/`.fam` and identifier-list readers; obsolete legacy regression-artifact readers are removed |
-| `ldsc._runtime.paths` | normalize path tokens, resolve concrete input files, create output directories, preflight fixed output paths, and enforce coherent output artifact families |
+| `ldsc._runtime.paths` | normalize path tokens, expand `@` chromosome suites (`expand_chromosome_suite`), resolve concrete input files, create output directories, preflight fixed output paths, and enforce coherent output artifact families |
 | `ldsc._runtime.preflight` | the declared-input gate (`InputGate`, `inspect_declared_inputs`), issue records, companion and saved-manifest checks; domains plug in their own declaration and header checks, and scientific content validators stay with their owners |
 | `ldsc._runtime.scratch` | `ScratchWorkspace`, the owner of one hidden `.ldsc-annotation-*` scratch directory below an output directory for a run or a query batch; `FrameSpool`; and the `DiagnosticRows` protocol (`frames()`, `write_to(path)`) shared by spooled, file-staged (`TsvDiagnostics`) and in-memory (`MemoryDiagnostics`) diagnostic rows |
 | `ldsc._runtime.artifacts` | `ArtifactFamily` declarations shared by workflow preflight, final writes, metadata file entries and cleanup, plus atomic table and JSON writes |
@@ -110,13 +110,13 @@ The lazily exported workflows in `ldsc/__init__.py` and the per-command modules 
 | `ldsc._annotation.annotate`, `ldsc._annotation.interval_queries` | standalone BED/gene gates and incremental projection |
 | `ldsc._annotation.interval_projection` | `ChromosomeProjector` maps BED/gene interval unions to chromosome SNP positions; called by `interval_queries.build_query_shards()` after shared BED parsing |
 | `ldsc._annotation.bundle`, `ldsc._annotation.storage` | explicit dataset ownership, chromosome descriptors, and detached selected reads from packed-binary and dense-float32 column stores |
-| `ldsc._annotation.sources`, `ldsc._annotation.identity_cleanup`, `ldsc._annotation.loading` | bounded input scans, aligned source preparation, global identity cleanup, and shared source-backed construction |
+| `ldsc._annotation.sources`, `ldsc._annotation.identity_cleanup`, `ldsc._annotation.loading` | bounded input scans, aligned source preparation, global identity cleanup (`stage_retained_rows`, shared with BIM grids), the one conversion of prepared sources into a bundle (`PreparedAnnotationSources.bundle`), and shared source-backed construction |
 | `ldsc._annotation.parsing` | annotation chunk normalization and numeric-value validation shared by every annotation reader |
 | `ldsc._annotation.preflight` | annotation declaration resolution and `inspect_annotation_inputs`, the declared-input gate with annotation header checks first; the query checks that `annotate`, `ldscore` and `build_annotation_shards` share: reserved and colliding BED and gene-list query names, the gene-list Gate A error and the projection genome build |
 | `ldsc._annotation.saved_results` | `AnnotationResult`, the record `run_annotate()` returns: saved baseline/query descriptors with no original-input dependencies, construction-owner detachment, and explicit preparation with `prepared_in(directory)` |
 | `ldsc._annotation.bim_grid` | metadata-only standalone BIM grid scans using shared identity cleanup; no genotype companions or value synthesis |
-| `ldsc._annotation.gene_lists` | required/embedded gene-coordinate-catalog validation and vectorized query/control resolution into exact IDs, intervals, audits, and summaries |
-| `ldsc._annotation.gene_query_storage` | staged per-source gene selections, complete audit replay with shared gene-coordinate-catalog state, and the shared gene coverage check (`with_coverage`) |
+| `ldsc._annotation.gene_lists` | required/embedded gene-coordinate-catalog validation and vectorized per-chunk query/control resolution (`resolve_gene_rows`) into exact IDs, intervals and audit rows |
+| `ldsc._annotation.gene_query_storage` | gene-list Gate A (`resolve_gene_lists_staged`: bounded resolution, the one cross-chunk duplicate pass, summaries, and the required query-name check), staged per-source gene selections, complete audit replay with shared gene-coordinate-catalog state, and the shared gene coverage check (`with_coverage`) |
 | `ldsc._annotation.query_outcomes` | shared resolution/support precedence, required-control and all-skipped failures, ordered diagnostics, and final query statuses from counts and score variation (`finalize_query_measurements`); the LD-score result records prune skipped queries themselves; does not import workflow orchestration |
 | `ldsc._annotation.in_memory` | small prepared annotations and diagnostics without filesystem writes |
 | `ldsc._annotation.semantics` | global annotation-name uniqueness and advisory binary/continuous classification, combined across chromosomes by `combine_annotation_types` |

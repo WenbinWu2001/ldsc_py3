@@ -75,7 +75,7 @@ The packages form one-directional tiers, `_core` < `_runtime` < `config` < `_gen
 The continuous-annotation extension keeps semantics and post-fit work in the public layers: `_annotation/semantics.py` owns advisory classification; routine annotation fingerprints are not computed, `_regression/fitting.py` (each query model) and `_regression/partitioned.py` (the baseline-only model) persist one delete matrix per fitted model, `_regression/quantile_h2.py` owns source reconstruction and projection, and `_regression/outputs.py` owns the result family. The regression kernel is unchanged.
 
 Explicit result exploration follows the same direction.
-`_plotting.dispatch` validates canonical result metadata and owns derived figure output, while `_plotting.builders` alone imports Matplotlib.
+`_plotting.dispatch` validates canonical result metadata and owns derived figure output, while `_plotting.builders` imports Matplotlib for plots; the only other importer is `_regression.h2_scale`, for its prevalence-range figure.
 `_regression.h2_scale` loads a canonical `h2` result and reuses the regression kernel's conversion factor.
 Neither path is called automatically by a core workflow.
 

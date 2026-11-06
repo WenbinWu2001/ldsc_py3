@@ -30,6 +30,7 @@ from ..._core.snp_identity import identity_cleanup_keys, identity_mode_family, n
 from ..._refpanel.funnel import FUNNEL_COLUMNS, concat_funnels, funnel_from_records, funnel_records
 from ..._runtime.progress import advance, report_phase
 from .atoms import AtomStatistics, ChromosomeAtomModel, validate_ldscore_operator
+from ..outputs import _cast_parquet_floats
 from ..source import REGRESSION_LD_SCORE_COLUMN
 from ...config import GlobalConfig
 from ...errors import LDSCInputError, LDSCInternalError
@@ -193,18 +194,15 @@ def _canonical_tokens(values: pd.Series) -> np.ndarray:
     return tokens.to_numpy(dtype=object)
 
 
+# Catalog columns the index identity binds, and the column order of the embedded ``gene_catalog.parquet``.
+_CATALOG_IDENTITY_COLUMNS = ("gene_id", "gene_name", "chrom", "start", "end", "genome_build", "catalog_line")
+EMBEDDED_CATALOG_COLUMNS = ("gene_index", *_CATALOG_IDENTITY_COLUMNS, "source", "included", "exclusion_reason",
+                            "chromosome_gene_row")
+
+
 def _catalog_identity_records(frame: pd.DataFrame) -> list[dict[str, object]]:
     """Return JSON-stable normalized catalog rows for the index identity."""
-    columns = [
-        "gene_id",
-        "gene_name",
-        "chrom",
-        "start",
-        "end",
-        "genome_build",
-        "catalog_line",
-    ]
-    normalized = frame.loc[:, columns].copy()
+    normalized = frame.loc[:, list(_CATALOG_IDENTITY_COLUMNS)].copy()
     normalized["gene_name"] = normalized["gene_name"].fillna("").astype(str)
     for column in ("gene_id", "chrom", "genome_build"):
         normalized[column] = normalized[column].astype(str)
@@ -306,12 +304,6 @@ def _validate_metadata_identity(metadata: dict, *, index_id: str) -> None:
         )
 
 
-def _cast_index_baseline_rows(frame: pd.DataFrame) -> pd.DataFrame:
-    """Match the LD-score directory writer's persisted floating dtypes."""
-    float64_columns = [column for column in frame.columns if frame[column].dtype == np.float64]
-    return frame.astype({column: np.float32 for column in float64_columns}) if float64_columns else frame
-
-
 def _published_row_metadata_sha256(frame: pd.DataFrame) -> str:
     """Bind ordered CHR/SNP/POS/A1/A2 metadata for all four SNP identifier modes."""
     required = ["CHR", "SNP", "POS", "A1", "A2"]
@@ -332,14 +324,9 @@ def _index_chromosome_metadata(
     genome_build: str,
 ) -> dict:
     """Return compact component metadata without the not-yet-known index ID."""
-    baseline_columns = [
-        column
-        for column in record.baseline_rows.columns
-        if column not in {"CHR", "SNP", "POS", "A1", "A2", REGRESSION_LD_SCORE_COLUMN}
-    ]
-    published_digest = _published_row_metadata_sha256(
-        _cast_index_baseline_rows(record.baseline_rows)
-    )
+    baseline_columns = _baseline_columns_from_rows(record.baseline_rows)
+    # Bind the rows exactly as the LD-score directory writer persists them.
+    published_digest = _published_row_metadata_sha256(_cast_parquet_floats(record.baseline_rows))
     return {
         "artifact_type": "gene_ldscore_index",
         "format_version": _INDEX_FORMAT_VERSION,
@@ -369,7 +356,7 @@ def _write_index_chromosome_payload(
             f"Gene LD-score index chromosome {chrom} has no reference-SNP funnel to store. "
             "Report the command, package version, and traceback."
         )
-    _cast_index_baseline_rows(record.baseline_rows).to_parquet(
+    _cast_parquet_floats(record.baseline_rows).to_parquet(
         chrom_path / "baseline_rows.parquet", index=False
     )
     record.reference_snp_funnel.to_parquet(chrom_path / "reference_snp_funnel.parquet", index=False)
@@ -850,11 +837,7 @@ def load_gene_ldscore_index(
     inspect_index_paths(index_path, metadata=root)
     catalog_path = index_path / "gene_catalog.parquet"
     catalog = pd.read_parquet(catalog_path)
-    required_catalog = [
-        "gene_index", "gene_id", "gene_name", "chrom", "start", "end", "genome_build",
-        "catalog_line", "source", "included", "exclusion_reason", "chromosome_gene_row",
-    ]
-    if list(catalog.columns) != required_catalog:
+    if list(catalog.columns) != list(EMBEDDED_CATALOG_COLUMNS):
         raise _index_error("Gene LD-score index catalog schema is invalid.")
     expected_gene_indices = np.arange(len(catalog), dtype=np.int64)
     if not np.array_equal(catalog["gene_index"].to_numpy(), expected_gene_indices):

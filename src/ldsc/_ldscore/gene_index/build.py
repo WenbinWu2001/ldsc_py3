@@ -99,8 +99,10 @@ from ..._annotation.gene_lists import (
 from ..._genome.hm3 import packaged_hm3_curated_map_path
 from ..._runtime.paths import split_cli_path_tokens
 from .artifact import (
+    EMBEDDED_CATALOG_COLUMNS,
     IndexChromosomeData,
     StagedIndexChromosome,
+    _CATALOG_IDENTITY_COLUMNS,
     _canonical_frame_sha256,
     _catalog_identity_records,
     _finalize_staged_index_artifact,
@@ -458,28 +460,13 @@ def _build_embedded_gene_catalog(
         )
     )
     frame = catalog.frame.copy().reset_index(drop=True)
-    embedded = frame.loc[:, ["gene_id", "gene_name", "chrom", "start", "end", "genome_build", "catalog_line"]].copy()
+    embedded = frame.loc[:, list(_CATALOG_IDENTITY_COLUMNS)].copy()
     embedded.insert(0, "gene_index", np.arange(len(embedded), dtype=np.int64))
     embedded["source"] = catalog.source
     embedded["included"] = embedded["gene_index"].isin(eligible)
     embedded["exclusion_reason"] = np.where(embedded["included"], "", "excluded_gene_region")
     embedded["chromosome_gene_row"] = embedded.groupby("chrom", sort=False).cumcount().astype(np.int64)
-    return embedded[
-        [
-            "gene_index",
-            "gene_id",
-            "gene_name",
-            "chrom",
-            "start",
-            "end",
-            "genome_build",
-            "catalog_line",
-            "source",
-            "included",
-            "exclusion_reason",
-            "chromosome_gene_row",
-        ]
-    ]
+    return embedded[list(EMBEDDED_CATALOG_COLUMNS)]
 
 
 @materializing_overwrite_guard(

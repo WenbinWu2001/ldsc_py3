@@ -13,8 +13,8 @@ import numpy as np
 import pandas as pd
 
 from .._core.columns import (
-    A1_COLUMN_SPEC, A2_COLUMN_SPEC, CHR_COLUMN_SPEC, MAF_COLUMN_SPEC, POS_COLUMN_SPEC,
-    SNP_COLUMN_SPEC, resolve_optional_column, resolve_required_column,
+    A1_COLUMN_SPEC, A2_COLUMN_SPEC, ANNOTATION_METADATA_SPEC_MAP, CHR_COLUMN_SPEC, MAF_COLUMN_SPEC,
+    POS_COLUMN_SPEC, SNP_COLUMN_SPEC, resolve_optional_column, resolve_required_column,
 )
 from .._core.identifiers import open_identity_table
 from ..errors import LDSCInputError
@@ -45,23 +45,26 @@ def target_chunks(paths, target_annotation, missing):
     """Yield selected target metadata, float64 values, and exclusions.
 
     ``missing`` is the value :func:`parse_missing_token` returned for the
-    ``--target-missing-value`` token.
+    ``--target-missing-value`` token. Header names resolve through the
+    annotation-file aliases, so ``SNP``, ``A1`` and ``A2`` match only their
+    name or an alias, as in every other annotation file.
     """
+    specs = ANNOTATION_METADATA_SPEC_MAP
     for path in paths:
         try:
             header = pd.read_csv(path, sep=r"\s+", nrows=0).columns
             rename = {
-                resolve_required_column(header, CHR_COLUMN_SPEC, context=path): "CHR",
-                resolve_required_column(header, POS_COLUMN_SPEC, context=path): "POS",
-                resolve_required_column(header, SNP_COLUMN_SPEC, context=path): "SNP",
+                resolve_required_column(header, specs["CHR"], context=path): "CHR",
+                resolve_required_column(header, specs["POS"], context=path): "POS",
+                resolve_required_column(header, specs["SNP"], context=path): "SNP",
             }
             if target_annotation not in header:
                 raise LDSCInputError(
                     f"Target annotation '{target_annotation}' is absent from '{path}'. Choose an existing column "
                     "with --target-annot-column or supply the correct --target-annot-sources."
                 )
-            a1 = resolve_optional_column(header, A1_COLUMN_SPEC, context=path)
-            a2 = resolve_optional_column(header, A2_COLUMN_SPEC, context=path)
+            a1 = resolve_optional_column(header, specs["A1"], context=path)
+            a2 = resolve_optional_column(header, specs["A2"], context=path)
             if a1 is not None and a2 is not None:
                 rename.update({a1: "A1", a2: "A2"})
             with pd.read_csv(path, sep=r"\s+", dtype=str, keep_default_na=False,

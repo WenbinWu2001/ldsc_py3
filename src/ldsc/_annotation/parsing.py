@@ -13,20 +13,18 @@ import pandas as pd
 
 from .._core.snp_identity import identity_mode_family
 from .._core.chromosomes import normalize_chromosome
-from .._core.columns import (
-    A1_COLUMN_SPEC, A2_COLUMN_SPEC, ANNOTATION_METADATA_SPEC_MAP,
-    ColumnSpec, CHR_COLUMN_SPEC, CM_COLUMN_SPEC, POS_COLUMN_SPEC,
-    SNP_COLUMN_SPEC, resolve_optional_column, resolve_required_column,
-)
+from .._core.columns import ANNOTATION_METADATA_SPEC_MAP, resolve_optional_column, resolve_required_column
 from ..errors import LDSCInputError
 
 LOGGER = logging.getLogger("LDSC.annotation")
-_ANNOTATION_A1_COLUMN_SPEC = ColumnSpec(A1_COLUMN_SPEC.canonical, A1_COLUMN_SPEC.aliases, A1_COLUMN_SPEC.label, allow_suffix_match=False)
-_ANNOTATION_A2_COLUMN_SPEC = ColumnSpec(A2_COLUMN_SPEC.canonical, A2_COLUMN_SPEC.aliases, A2_COLUMN_SPEC.label, allow_suffix_match=False)
 
 
 def normalize_annotation_chunk(df, path, snp_identifier, chrom=None, *, log_ignored_metadata=True, value_dtype=np.float32):
     """Normalize aligned metadata and numeric values, ordinarily to float32.
+
+    ``SNP``, ``CM``, ``MAF``, ``A1`` and ``A2`` are recognised by exact name or
+    alias only, so a header that merely ends in one of them (``lowMAF``,
+    ``EUR_MAF``, ``eQTL_SNP``) stays an annotation value column.
 
     Source preparation enables ``log_ignored_metadata`` only on the first
     classification chunk, so the DEBUG CM/MAF notice appears once per source per
@@ -34,20 +32,20 @@ def normalize_annotation_chunk(df, path, snp_identifier, chrom=None, *, log_igno
     ``value_dtype=None`` preserves parsed precision for exact binary detection.
     """
     context = str(path)
-    chr_col = resolve_required_column(df.columns, CHR_COLUMN_SPEC, context=context)
-    pos_col = resolve_required_column(df.columns, POS_COLUMN_SPEC, context=context)
+    chr_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["CHR"], context=context)
+    pos_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["POS"], context=context)
     # SNP is the identity key only in rsID-family modes; coordinate-family modes
     # key on CHR/POS, so SNP is optional there.
     if identity_mode_family(snp_identifier) == "rsid":
-        snp_col = resolve_required_column(df.columns, SNP_COLUMN_SPEC, context=context)
+        snp_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["SNP"], context=context)
     else:
-        snp_col = resolve_optional_column(df.columns, SNP_COLUMN_SPEC, context=context)
+        snp_col = resolve_optional_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["SNP"], context=context)
     # CM/MAF are population-specific; the reference panel is authoritative. CM is
     # optional here and kept only as a placeholder for the legacy .annot layout
     # and the BED-query projection; ldscore ignores annotation CM/MAF.
-    cm_col = resolve_optional_column(df.columns, CM_COLUMN_SPEC, context=context)
-    a1_col = resolve_optional_column(df.columns, _ANNOTATION_A1_COLUMN_SPEC, context=context)
-    a2_col = resolve_optional_column(df.columns, _ANNOTATION_A2_COLUMN_SPEC, context=context)
+    cm_col = resolve_optional_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["CM"], context=context)
+    a1_col = resolve_optional_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["A1"], context=context)
+    a2_col = resolve_optional_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["A2"], context=context)
     if (a1_col is None) ^ (a2_col is None):
         raise LDSCInputError(
             f"Could not read annotation file '{path}': exactly one allele column was found. "

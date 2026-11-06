@@ -146,8 +146,22 @@ RAW_SUMSTATS_SIGNED_STAT_SPECS = (
 )
 
 
+def _exact_or_alias_spec(spec: ColumnSpec) -> ColumnSpec:
+    """Return ``spec`` restricted to its canonical name and aliases."""
+    return ColumnSpec(spec.canonical, spec.aliases, spec.label, allow_suffix_match=False)
+
+
 # Context families for permissive external inputs.
-ANNOTATION_METADATA_SPECS = (CHR_COLUMN_SPEC, POS_COLUMN_SPEC, SNP_COLUMN_SPEC, CM_COLUMN_SPEC, MAF_COLUMN_SPEC)
+# In annotation files every column that is not metadata is an annotation, so
+# SNP, CM, MAF and the alleles match only their name or an alias: a suffix match
+# would silently move an annotation such as lowMAF, eQTL_SNP or Enhancers (which
+# ends in the alias RS) out of the model. CHR and POS are required and keep the
+# shared ranking.
+ANNOTATION_METADATA_SPECS = (
+    CHR_COLUMN_SPEC,
+    POS_COLUMN_SPEC,
+    *(_exact_or_alias_spec(spec) for spec in (SNP_COLUMN_SPEC, CM_COLUMN_SPEC, MAF_COLUMN_SPEC, A1_COLUMN_SPEC, A2_COLUMN_SPEC)),
+)
 ANNOTATION_METADATA_SPEC_MAP = {spec.canonical: spec for spec in ANNOTATION_METADATA_SPECS}
 
 RESTRICTION_RSID_SPECS = (SNP_COLUMN_SPEC,)

@@ -1171,15 +1171,8 @@ def _resolve_ldscore_chr_pos_genome_build(
 
 
 @report_phase(LOGGER, 'validation', 'regression SNP restriction')
-def _load_regression_snps(
-    path: str | None,
-    global_config: GlobalConfig,
-    *,
-    label: str = "regression SNP list",
-) -> RestrictionIdentityKeys | None:
-    """Load ``LDScoreConfig.regr_snps_file`` using the active identifier mode."""
-    if not path:
-        return None
+def _load_regression_snps(path: str, global_config: GlobalConfig, *, label: str) -> RestrictionIdentityKeys:
+    """Load the regression SNP list, or the packaged HM3 map, using the active identifier mode."""
     return read_snp_restriction_keys(
         resolve_scalar_path(path, label=label),
         global_config.snp_identifier,

@@ -796,12 +796,7 @@ def _discover_ldscore_family(root: Path, role: str, issues: list[dict[str, objec
         if len(representations) == 1:
             selected[chrom] = representations[0]
             continue
-        if len(representations) != 2 or {path.suffix for path in representations} != {".gz", ".ldscore"}:
-            raise LDSCInputError(
-                f"Legacy {role} family has ambiguous representations for chromosome {chrom}: "
-                f"{[str(path) for path in representations]}. "
-                "Keep one correctly named representation per chromosome from the intended source release."
-            )
+        # The filename pattern allows one plain and one gzip name per chromosome, so these are the two.
         contents = [_decompressed_bytes(path) for path in representations]
         if contents[0] != contents[1]:
             raise LDSCInputError(

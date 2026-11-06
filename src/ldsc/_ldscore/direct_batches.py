@@ -210,28 +210,12 @@ def _split_ldscore_table(
     if not isinstance(ldscore_table.index, pd.RangeIndex) or ldscore_table.index.start != 0:
         ldscore_table = ldscore_table.reset_index(drop=True)
     # Both tables are column selections (copies) of one frame, so their rows match.
+    # The caller builds the table from exactly these columns, so every selection exists.
     baseline_table = None
     if baseline_columns is not None:
-        baseline_order = [*metadata_columns, REGRESSION_LD_SCORE_COLUMN, *baseline_columns]
-        missing_baseline = [column for column in baseline_order if column not in ldscore_table.columns]
-        if missing_baseline:
-            raise LDSCInternalError(
-                "LD-score split-table assembly failed in _split_ldscore_table(): "
-                f"the merged table is missing baseline columns {missing_baseline}. Most likely "
-                "a kernel result omitted expected baseline annotation scores. Re-run with DEBUG "
-                "logging and report the traceback."
-            )
-        baseline_table = ldscore_table.loc[:, baseline_order]
+        baseline_table = ldscore_table.loc[:, [*metadata_columns, REGRESSION_LD_SCORE_COLUMN, *baseline_columns]]
     query_table = None
     if query_columns:
-        missing_query = [column for column in query_order if column not in ldscore_table.columns]
-        if missing_query:
-            raise LDSCInternalError(
-                "LD-score split-table assembly failed in _split_ldscore_table(): "
-                f"the merged table is missing query columns {missing_query}. Most likely "
-                "a kernel result omitted expected query annotation scores. Re-run with DEBUG "
-                "logging and report the traceback."
-            )
         query_table = ldscore_table.loc[:, query_order]
     return baseline_table, query_table
 

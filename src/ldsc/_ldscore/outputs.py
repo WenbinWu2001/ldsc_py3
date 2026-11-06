@@ -606,20 +606,6 @@ class LDScoreDirectoryWriter:
                        identity_drops_by_chrom={chrom: TsvDiagnostics(root / dropped_snps_file(chrom))
                                                 for chrom in shared.identity_drops_by_chrom})
 
-    def write_gene_list_preflight(
-        self,
-        batch: StagedGeneListBatch,
-        output_config: LDScoreOutputConfig,
-    ) -> dict[str, str]:
-        """Write Gate A audit/summary artifacts without scientific outputs."""
-        output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
-        family = self.artifact_family(output_dir, QueryDiagnostics({}, gene_list_batch=batch))
-        paths = family.paths
-        stale_paths = family.preflight(overwrite=output_config.overwrite)
-        self._write_gene_list_diagnostic_files(batch, paths)
-        remove_output_artifacts(stale_paths)
-        return {name: str(path) for name, path in paths.items()}
-
     def write_query_diagnostics(
         self,
         diagnostics: QueryDiagnostics,

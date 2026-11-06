@@ -11,7 +11,8 @@ from pathlib import Path
 
 from .._runtime.workflow_logging import workflow_logging, log_outputs
 from .._runtime.worker_runtime import log_native_thread_state
-from .outputs import CHROMOSOME_LOG_DIR, LDSCORE_LOG, REFERENCE_SNP_FUNNEL_FILE, LDScoreDirectoryWriter, chromosome_log_file
+from .outputs import (CHROMOSOME_LOG_DIR, LDSCORE_LOG, REFERENCE_SNP_FUNNEL_FILE, LDScoreDirectoryWriter,
+                      QueryDiagnostics, chromosome_log_file)
 from .._annotation.query_outcomes import (
     gene_list_gate_a_message,
     log_gene_list_rejections,
@@ -94,7 +95,7 @@ def fail_gene_list_resolution(batch, output_config):
     Writes the gene-list audit and resolution summary, logs the rejections,
     and raises the consolidated ``LDSCInputError``.
     """
-    LDScoreDirectoryWriter().write_gene_list_preflight(batch, output_config)
+    LDScoreDirectoryWriter().write_query_diagnostics(QueryDiagnostics({}, gene_list_batch=batch), output_config)
     log_gene_list_rejections(batch)
     raise LDSCInputError(gene_list_gate_a_message(batch))
 

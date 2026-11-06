@@ -310,7 +310,7 @@ The default zero threshold preserves zero and negative unbiased pairs.
 
 ## Direct LD-score computation
 
-[`PreparedChromosome`](../../../src/ldsc/_ldscore/compute.py) owns the current chromosome's reference reader, reference-SNP metadata, physical-row mappings, LD-window state, selected annotation accessor, and drop diagnostics.
+[`PreparedChromosome`](../../../src/ldsc/_refpanel/prepared.py) owns the current chromosome's reference reader, reference-SNP metadata, physical-row mappings, LD-window state, selected annotation accessor, and drop diagnostics.
 `close()` clears these references and closes the reader, including on failure.
 PLINK physical SNP indices remain distinct from annotation order.
 The reference adapters in [`_refpanel/adapters.py`](../../../src/ldsc/_refpanel/adapters.py) do not retain a metadata cache containing all chromosomes.

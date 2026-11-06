@@ -208,7 +208,8 @@ It covers the baseline values on the retained reference SNPs (after genotype QC)
 Batching, workers, logging, output path, and overwrite are resource or publication controls and do not change the identity.
 The input fingerprints behind `index_id` (baseline content on the retained reference SNPs, whole PLINK BED file bytes, parsed BIM metadata, selected individual IDs, sorted regression keys, and the genetic map) only define the identity; indexed scoring never re-reads those inputs to check them again.
 Identical inputs and settings must produce identical fingerprints and the same `index_id`; changing what a fingerprint covers changes the identity of every index.
-Earlier builds fingerprinted the baseline/PLINK match before genotype QC, so an index built before that change has a different `index_id` from a new build of the same inputs; it stays loadable and scores the same, and only comparisons of `index_id` values across the change differ.
+Earlier builds fingerprinted the baseline/PLINK match before genotype QC, so a format-version-6 index built before that change has a different `index_id` from a new build of the same inputs; it stays loadable and scores the same, and only comparisons of `index_id` values across the change differ.
+An index of an earlier format version is rejected by the loader regardless and must be rebuilt.
 
 Root and chromosome metadata record `format_version: 6` and repeat the immutable SNP identifier mode and hg19/hg38 build.
 Root metadata also stores two records that indexed `ldscore` copies into its `metadata.json` ([LD-score metadata](formats/artifact-metadata.md#ldscore)), outside `index_identity`:

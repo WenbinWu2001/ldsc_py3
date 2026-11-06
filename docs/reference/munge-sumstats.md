@@ -1,6 +1,6 @@
 # `munge-sumstats`
 
-Last updated on: 2026-11-05
+Last updated on: 2026-11-06
 
 This document explains the public shape of `ldsc munge-sumstats`: what it does,
 what it writes, how genome builds are handled, and how to use `--infer-only`
@@ -100,8 +100,9 @@ For Python users, `munger.build_run_summary()` reports parsed `n_input_rows`, fi
 | `liftover` | Liftover-stage exclusions, including source/target duplicate coordinates |
 | `identity` | Final global identity cleanup |
 
-If parsing with QC and the SNP restriction, sample-size filtering, or SNP identity cleanup leaves no row, the run stops before writing any data file with `munge-sumstats retained 0 of <N> input rows after <stage>` and the recorded counts; after identity cleanup the error also lists the identity drop reasons.
-Only `diagnostics/sumstats.log` is written.
+If parsing and QC leave no row, or sample-size filtering or SNP identity cleanup removes every remaining row, the run stops with `munge-sumstats retained 0 of <N> input rows after <stage>` and the recorded removal counts, where `<stage>` is `QC and SNP restriction`, `sample-size filtering` or `SNP identity cleanup`; after identity cleanup the error also lists the identity drop reasons.
+If the SNP keep-list removes every row that passed QC, the run stops with `munge-sumstats no SNPs remain after SNP keep-list restriction` and the keep-list file, SNP identifier mode, genome build, and row and identifier counts; a keep-list without any usable identifier stops with the same error before the raw rows are read.
+Either error stops the run before it writes any data file; only `diagnostics/sumstats.log` is written.
 A liftover that drops every row stops with its own error.
 All keys are present, including stages with zero drops. Detailed coordinate reason counts in provenance can overlap when a row has multiple invalid fields; the `coordinates` stage count counts that row once. `used_n_rule` reports the strategy actually used: `input_columns`, `fixed_N`, or `fixed_case_control_N`. Per-variant N or case/control columns retain their existing precedence over supplied constant sample sizes. Row-level audit sidecars remain limited to identity and liftover drops.
 

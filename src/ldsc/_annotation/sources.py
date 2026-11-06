@@ -23,7 +23,7 @@ from .._runtime.progress import report_phase, advance, PhaseProgress
 from .identity_cleanup import DiskIdentityIndex, IdentityDropSpool
 from .parsing import annotation_parse_error_message, normalize_annotation_chunk, validate_annotation_values
 from .._core.chromosomes import AUTOSOMES
-from .._runtime.preflight import INPUT_ISSUE_COLUMNS, input_issue
+from .._runtime.input_issues import INPUT_ISSUE_COLUMNS, input_issue
 from .bundle import AnnotationBundle
 from .storage import AnnotationShard, ColumnStore
 from .._runtime.scratch import FrameSpool
@@ -32,7 +32,7 @@ from .._core.row_alignment import assert_same_snp_rows
 from .semantics import require_unique_annotation_names
 from .._core.chromosomes import chrom_sort_key
 from ..errors import LDSCInputError, LDSCUserError
-from .preflight import inspect_annotation_inputs
+from .preflight import ANNOTATION_INPUT_REPAIR, inspect_annotation_inputs
 
 LOGGER = logging.getLogger("LDSC.annotation")
 
@@ -358,7 +358,8 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
                     )
                 sources.append(source)
             except (OSError, EOFError, ValueError, UnicodeError, LDSCUserError) as exc:
-                issues.append(input_issue('baseline' if i < len(baseline_files) else 'query', path, declared, 'invalid_required_input', exc))
+                issues.append(input_issue('baseline' if i < len(baseline_files) else 'query', path, declared,
+                                          'invalid_required_input', exc, repair=ANNOTATION_INPUT_REPAIR))
             source_progress.advance()
     if issues:
         error = LDSCInputError('Annotation input preflight failed: ' + '; '.join(f"{row['source']}: {row['details']}" for row in issues[:10]) + '. Complete diagnostics: diagnostics/input_issues.tsv. Other causes & fixes: docs/user-guide/troubleshooting.md#annotate-input-preflight')

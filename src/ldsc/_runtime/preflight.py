@@ -14,17 +14,12 @@ import logging
 import pandas as pd
 
 from ..errors import LDSCInputError, LDSCUserError
+from .input_issues import INPUT_ISSUE_COLUMNS, input_issue
 from .paths import _discover_plink_members, resolve_file_group, split_cli_path_tokens, normalize_path_tokens, resolve_exact_file, resolve_scalar_path
 from .progress import PhaseProgress
 
 LOGGER = logging.getLogger('LDSC.preflight')
 INPUT_ERRORS = (OSError, EOFError, ValueError, UnicodeError, LDSCUserError)
-INPUT_ISSUE_COLUMNS = ['input_role', 'source', 'chrom', 'reason', 'details', 'repair']
-
-
-def input_issue(role, path, chrom, reason, details):
-    return dict(input_role=role, source=str(path), chrom=chrom, reason=reason, details=str(details),
-                repair='Supply valid annotation inputs for the declared scope; inspect exact paths, glob matches, and @ declarations.')
 
 
 @dataclass
@@ -71,7 +66,7 @@ class InputGate:
                     reason = 'unreadable_required_input'
                     details = f'{type(cause).__name__} (errno {cause.errno}): {cause.strerror}'
                     repair = 'Check the named input and its access permissions from the compute node.'
-                self.issues.append(dict(input_issue(role, source, chrom, reason, details), repair=repair))
+                self.issues.append(input_issue(role, source, chrom, reason, details, repair=repair))
             return None
 
     def finish(self):

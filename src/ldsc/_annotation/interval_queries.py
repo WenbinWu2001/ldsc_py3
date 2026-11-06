@@ -19,7 +19,8 @@ from .._core.chromosomes import normalize_chromosome
 from .semantics import require_unique_annotation_names
 from .query_outcomes import QueryAnnotationStatus, gene_query_statuses
 from ..errors import LDSCInputError
-from .._runtime.preflight import InputGate, input_issue
+from .._runtime.input_issues import input_issue
+from .._runtime.preflight import InputGate
 
 
 @dataclass
@@ -102,7 +103,7 @@ def require_readable_bed_sources(bed_sources, issues_path=None):
     for source in bed_sources:
         if source.failure_reason:
             reason, repair = _BED_FAILURE_ISSUES[source.failure_reason]
-            issues.append(dict(input_issue('query BED', source.source, '', reason, source.details), repair=repair))
+            issues.append(input_issue('query BED', source.source, '', reason, source.details, repair=repair))
     InputGate('BED query content validation', issues_path, issues).finish()
 
 

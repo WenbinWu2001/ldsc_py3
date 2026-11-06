@@ -72,8 +72,6 @@ DEFERRED_IMPORTS = {
         "the overlap matrix is assembled only after chromosome results exist",
     ("ldsc._ldscore.gene_index.scoring", "ldsc._ldscore.gene_index.batches"):
         "only indexed scoring runs the indexed LD-score producer",
-    ("ldsc._ldscore.gene_index.scoring", "ldsc._ldscore.preflight"):
-        "only a failed index load writes an input-issue table",
     ("ldsc._ldscore.outputs", "ldsc._ldscore.overlap_table"):
         "only directories with an overlap matrix write one",
     ("ldsc._ldscore.source", "ldsc._ldscore.overlap_table"):

@@ -18,7 +18,7 @@ def forbid_work(*args, **kwargs):
 
 def test_missing_sumstats_reports_path_check_repair_and_original_cause(tmp_path):
     from ldsc._runtime.preflight import inspect_declared_inputs
-    from ldsc._runtime.preflight import INPUT_ISSUE_COLUMNS
+    from ldsc._runtime.input_issues import INPUT_ISSUE_COLUMNS
 
     missing = tmp_path / "missing.tsv.gz"
     diagnostics = tmp_path / "diagnostics/input_issues.tsv"

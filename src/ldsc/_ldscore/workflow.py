@@ -102,6 +102,7 @@ from .._annotation.preflight import (
     require_usable_bed_query_names,
     inspect_annotation_inputs,
 )
+from .._runtime.input_issues import input_issue
 from .._runtime.preflight import InputGate
 from .gene_index.scoring import run_indexed_ldscore
 
@@ -1016,8 +1017,8 @@ def _apply_direct_gene_gate_b(annotation_bundle, ref_panel, ldscore_config):
             counts = np.zeros(len(genes), dtype=np.int64)
         except (OSError, EOFError, ValueError, LDSCUserError) as exc:
             errors.append(f"Chromosome {chrom} reference preparation failed: {exc}")
-            input_issues.append({"input_role": "reference", "source": f"chromosome {chrom}", "chrom": str(chrom), "reason": "invalid_required_input",
-                                 "details": str(exc), "repair": "Repair reference inputs and runtime filters before retrying."})
+            input_issues.append(input_issue("reference", f"chromosome {chrom}", str(chrom), "invalid_required_input", exc,
+                                            repair="Repair reference inputs and runtime filters before retrying."))
             continue
         support.loc[genes["catalog_index"].astype(int).to_numpy()] = counts
     if grid_emptied:

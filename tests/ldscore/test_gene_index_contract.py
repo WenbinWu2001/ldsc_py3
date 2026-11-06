@@ -362,3 +362,16 @@ def read_reference_snp_funnel_from(frame):
     from ldsc._refpanel.funnel import funnel_from_records, funnel_records
 
     return funnel_from_records(funnel_records(frame))
+
+
+def test_missing_index_component_gets_an_index_repair(tmp_path):
+    # A missing index file is repaired by restoring or rebuilding the index, not by annotation inputs.
+    from ldsc._ldscore.gene_index.artifact import _INDEX_FORMAT_VERSION, inspect_index_paths
+
+    metadata = {"format_version": _INDEX_FORMAT_VERSION, "chromosomes": [str(c) for c in range(1, 23)]}
+    with pytest.raises(LDSCInputError) as failure:
+        inspect_index_paths(tmp_path, metadata=metadata)
+    issues = failure.value.input_issues
+    assert set(issues.reason) == {"missing_required_input"}
+    assert issues.repair.str.contains("build-gene-ldscore-index").all()
+    assert not issues.repair.str.contains("annotation").any()

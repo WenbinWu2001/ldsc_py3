@@ -6,8 +6,15 @@ gate's genetic-map header check is in ``genetic_map.py``.
 
 from pathlib import Path
 
-from .._runtime.preflight import InputGate, input_issue
+from .._runtime.input_issues import input_issue
+from .._runtime.preflight import InputGate
 from .r2_format import R2MatrixChromosome, r2_matrix_chromosomes, r2_matrix_file_paths, resolve_r2_build_dir
+
+# The input-issue repair of an R2 matrix that a reading command cannot use.
+R2_MATRIX_REPAIR = (
+    "Set --r2-matrix-dir to an R2 matrix built with this run's --snp-identifier and --genome-build, "
+    "or rebuild it with build-r2-matrix; the details name the check that failed."
+)
 
 
 def inspect_r2_headers(directory, genome_build=None, *, command, ld_window=None):
@@ -31,7 +38,8 @@ def inspect_r2_headers(directory, genome_build=None, *, command, ld_window=None)
     members = r2_matrix_chromosomes(root)
     gate = InputGate('R2 matrix declarations and headers')
     if not members:
-        gate.issues.append(input_issue('reference', root, '', 'missing_required_input', 'No R2 Parquet or sidecar chromosome files found.'))
+        gate.issues.append(input_issue('reference', root, '', 'missing_required_input',
+                                       'No R2 Parquet or sidecar chromosome files found.', repair=R2_MATRIX_REPAIR))
     for chrom in members:
         source = r2_matrix_file_paths(root, chrom)[0]
         chromosome = gate.check('reference', source, lambda: R2MatrixChromosome.open(root, chrom, command=command),

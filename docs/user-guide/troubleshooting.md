@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-06
 
 This reference expands run-aborting `ldsc` errors with at least three distinct plausible causes, following the [current logging and error-message guide](../dev/design/logging.md#diagnostics-and-troubleshooting).
 It also retains guidance for failed-run artifacts, documented query omissions, and cleanup warnings that users need to interpret.
@@ -64,7 +64,7 @@ Failed declaration-validation phases report the number of distinct inputs with i
 
 Output collisions are a separate error: passing `--overwrite` authorizes owned output replacement but never bypasses input validation. Early input failures preserve existing scientific files and retain the established authorized-overwrite `RUN_FAILED.txt` contract. INFO phase records distinguish validation, staging, computation, and publication; periodic progress occurs when bounded chunks return, not during a blocking third-party call.
 
-**Developer reference:** `_runtime.preflight.InputGate` and workflow content gates.
+**Developer reference:** `_runtime.preflight.InputGate`, the row constructor `_runtime.input_issues.input_issue` (every row names its own repair), and workflow content gates.
 
 ## Common
 

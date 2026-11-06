@@ -37,6 +37,7 @@ from typing import Optional, Union
 from .._core.chromosomes import AUTOSOMES, STANDARD_CHROMOSOMES, chrom_sort_key, normalize_chromosome
 from ..errors import LDSCConfigError, LDSCInputError
 from .._core import plink_files as parse
+from .input_issues import input_issue
 from .progress import PhaseProgress
 
 InputPathToken = Union[str, PathLike[str]]
@@ -48,6 +49,9 @@ _INPUT_PATH_TROUBLESHOOTING = (
 _OUTPUT_COLLISION_TROUBLESHOOTING = (
     "docs/user-guide/troubleshooting.md#common-output-artifact-already-exists"
 )
+# The input-issue repair of every PLINK discovery and content issue.
+PLINK_INPUT_REPAIR = ("Supply valid, complete PLINK trios with one source per chromosome. "
+                      + _INPUT_PATH_TROUBLESHOOTING)
 
 
 def normalize_path_token(path: InputPathToken) -> str:
@@ -332,8 +336,8 @@ class PlinkInputResolution:
         for chrom in required_chromosomes:
             chrom = normalize_chromosome(chrom)
             if chrom not in self.chromosome_prefixes:
-                issues.append(_plink_issue("", chrom, "missing_required_input",
-                    f"No validated PLINK trio contains chromosome {chrom}."))
+                issues.append(input_issue("reference", "", chrom, "missing_required_input",
+                    f"No validated PLINK trio contains chromosome {chrom}.", repair=PLINK_INPUT_REPAIR))
         if issues:
             self.issues = issues
             details = "\n".join(f"- {row['source']} {row['chrom']}: {row['details']}" for row in issues)
@@ -431,16 +435,16 @@ def inspect_plink_inputs(
                         )
                 for chrom in sorted(chroms, key=chrom_sort_key):
                     if chrom in mapping and mapping[chrom] != prefix:
-                        issues.append(_plink_issue(prefix, chrom, "ambiguous_chromosome_input",
+                        issues.append(input_issue("reference", prefix, chrom, "ambiguous_chromosome_input",
                             f"Multiple PLINK trios contain chromosome {chrom}: {mapping[chrom]} and {prefix}. "
-                            "Select one complete trio per chromosome."))
+                            "Select one complete trio per chromosome.", repair=PLINK_INPUT_REPAIR))
                     else:
                         mapping[chrom] = prefix
             except (OSError, EOFError, ValueError, LDSCInputError) as exc:
                 if "Usecols do not match columns" in str(exc):
                     exc = LDSCInputError("PLINK BIM requires six columns CHR/SNP/CM/BP/A1/A2 and FAM requires sample IDs. " + str(exc))
-                issues.append(_plink_issue(prefix, ",".join(sorted(declared, key=chrom_sort_key)),
-                                           "invalid_required_input", str(exc)))
+                issues.append(input_issue("reference", prefix, ",".join(sorted(declared, key=chrom_sort_key)),
+                                          "invalid_required_input", exc, repair=PLINK_INPUT_REPAIR))
             progress.advance(object=prefix)
     return PlinkInputResolution(list(declarations), mapping, issues)
 
@@ -469,12 +473,6 @@ def _require_whole_bim_positions(bim, prefix: str) -> None:
     )
 
 
-def _plink_issue(source: str, chrom: str, reason: str, details: str) -> dict[str, str]:
-    """Use the shared workflow input-issue schema for PLINK diagnostics."""
-    return dict(input_role="reference", source=source, chrom=chrom, reason=reason, details=details,
-                repair="Supply valid, complete PLINK trios with one source per chromosome. " + _INPUT_PATH_TROUBLESHOOTING)
-
-
 def _discover_plink_members(tokens, *, chromosomes, allow_chromosome_suite, require_complete_suite=False):
     """Expand PLINK declarations without discarding partially present trios."""
     suffixes = (".bed", ".bim", ".fam")
@@ -492,17 +490,20 @@ def _discover_plink_members(tokens, *, chromosomes, allow_chromosome_suite, requ
             if not candidates and allow_chromosome_suite and "@" not in token and not glob.has_magic(pattern):
                 candidates = sorted({path[:-4] for suffix in suffixes for path in glob.glob(pattern + "*" + suffix)})
             if not candidates and (not declared or require_complete_suite):
-                issues.append(_plink_issue(pattern, declared, "missing_required_input", "No selected PLINK input exists."))
+                issues.append(input_issue("reference", pattern, declared, "missing_required_input",
+                                          "No selected PLINK input exists.", repair=PLINK_INPUT_REPAIR))
             for prefix in candidates:
                 missing = [suffix for suffix in suffixes if not os.path.isfile(prefix + suffix)]
                 for suffix in missing:
-                    issues.append(_plink_issue(prefix + suffix, declared, "missing_required_input",
-                                               "PLINK requires the complete .bed/.bim/.fam trio."))
+                    issues.append(input_issue("reference", prefix + suffix, declared, "missing_required_input",
+                                              "PLINK requires the complete .bed/.bim/.fam trio.",
+                                              repair=PLINK_INPUT_REPAIR))
                 if not missing:
                     token_members.append((normalize_path_token(prefix), declared))
         members.extend(token_members)
     if not members and not issues:
-        issues.append(_plink_issue(str(tokens), "", "missing_required_input", "No selected PLINK input exists."))
+        issues.append(input_issue("reference", tokens, "", "missing_required_input", "No selected PLINK input exists.",
+                                  repair=PLINK_INPUT_REPAIR))
     return list(dict.fromkeys(members)), issues
 
 

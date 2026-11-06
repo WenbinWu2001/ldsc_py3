@@ -33,7 +33,8 @@ from .atoms import AtomStatistics, ChromosomeAtomModel, validate_ldscore_operato
 from ..source import REGRESSION_LD_SCORE_COLUMN
 from ...config import GlobalConfig
 from ...errors import LDSCInputError, LDSCInternalError
-from ..._runtime.preflight import InputGate, check_readable, input_issue
+from ..._runtime.input_issues import input_issue
+from ..._runtime.preflight import InputGate, check_readable
 
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
 
@@ -51,6 +52,11 @@ _INDEX_FORMAT_VERSION = 6
 # Chromosomes every published index covers. Callers read it through this
 # module when they run, so small test indexes can narrow it.
 INDEX_CHROMOSOMES = AUTOSOMES
+# The input-issue repair of a missing or unreadable index component.
+INDEX_COMPONENT_REPAIR = (
+    "Restore the complete gene LD-score index directory from one build, or rebuild it with "
+    "ldsc build-gene-ldscore-index; do not combine components from different builds."
+)
 
 
 def _semantic_sha256(payload: dict) -> str:
@@ -496,7 +502,8 @@ def inspect_index_paths(directory, *, metadata=None):
     for name, chrom in paths:
         path = root/name
         if not path.is_file():
-            gate.issues.append(input_issue('index', path, chrom, 'missing_required_input', 'Required index component is missing.'))
+            gate.issues.append(input_issue('index', path, chrom, 'missing_required_input', 'Required index component is missing.',
+                                           repair=INDEX_COMPONENT_REPAIR))
         elif name.endswith('.parquet'):
             gate.check('index', path, lambda path=path: check_readable(path), chrom=chrom)
         elif chrom and name.endswith('metadata.json'):
@@ -1081,9 +1088,8 @@ def load_gene_ldscore_index(
             chromosome_paths[chrom] = index_path / "chromosomes" / f"chr{chrom}"
             advance(object=f'chromosome {chrom}')
         except (OSError, ValueError, EOFError, LDSCInputError) as exc:
-            issues.append({"input_role": "index", "source": str(index_path / "chromosomes" / f"chr{chrom}"),
-                           "chrom": chrom, "reason": "invalid_required_input", "details": str(exc),
-                           "repair": "Restore or rebuild the complete immutable index."})
+            issues.append(input_issue("index", index_path / "chromosomes" / f"chr{chrom}", chrom, "invalid_required_input",
+                                      exc, repair="Restore or rebuild the complete immutable index."))
         finally:
             record = None
     if issues:

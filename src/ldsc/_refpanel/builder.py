@@ -96,7 +96,8 @@ from .._genome.liftover import (
     log_liftover_drop_report,
     mapping_reason_masks,
 )
-from .._runtime.preflight import inspect_declared_inputs, InputGate, input_issue
+from .._runtime.input_issues import input_issue
+from .._runtime.preflight import inspect_declared_inputs, InputGate
 from .._genome.build_policy import GenomeBuildCheck
 
 
@@ -544,8 +545,8 @@ class R2MatrixBuilder:
                     buildable.append((prefix, chrom))
                 elif chrom in _AUTOSOMES:
                     details = f"all {selection.n_bim_snps} SNPs were removed at {selection.empty_stage}"
-                    issues.append(dict(input_issue('reference panel PLINK input', prefix, chrom, 'no_snps_remain', details),
-                                       repair=_EMPTIED_AUTOSOME_REPAIR))
+                    issues.append(input_issue('reference panel PLINK input', prefix, chrom, 'no_snps_remain', details,
+                                              repair=_EMPTIED_AUTOSOME_REPAIR))
                 else:
                     LOGGER.warning(
                         f"Skipping chromosome {chrom}: all {selection.n_bim_snps} SNPs were removed at "

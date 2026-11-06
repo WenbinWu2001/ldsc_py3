@@ -21,6 +21,7 @@ from .artifact import inspect_index_paths, load_gene_ldscore_index
 from ..._runtime.parallelism import validate_query_batch_size, validate_workers
 from ..._runtime.paths import output_directory_path
 from ...errors import LDSCInputError
+from ..._runtime.input_issues import INPUT_ISSUE_COLUMNS, input_issue
 from ..._runtime.preflight import inspect_declared_inputs
 from ..._annotation.gene_query_storage import resolve_gene_lists_staged
 from ..._annotation.query_outcomes import gene_query_statuses, gene_control_errors, gene_viability_errors
@@ -163,12 +164,10 @@ def _run_indexed_ldscore_in_workspace(
     try:
         index = load_gene_ldscore_index(index_dir)
     except (OSError, ValueError, LDSCInputError) as exc:
-        from ..preflight import ISSUE_COLUMNS
-
-        issues = getattr(exc, "input_issues", pd.DataFrame([{
-            "input_role": "index", "source": str(index_dir), "chrom": "", "reason": "invalid_required_input",
-            "details": str(exc), "repair": "Restore or rebuild the complete immutable autosomes 1-22 index.",
-        }], columns=ISSUE_COLUMNS))
+        issues = getattr(exc, "input_issues", pd.DataFrame([input_issue(
+            "index", index_dir, "", "invalid_required_input", exc,
+            repair="Restore or rebuild the complete immutable autosomes 1-22 index.",
+        )], columns=INPUT_ISSUE_COLUMNS))
         LDScoreDirectoryWriter().write_query_diagnostics(
             QueryDiagnostics(_FAILED_INDEX_SCOPE, input_issues=issues),
             LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite))

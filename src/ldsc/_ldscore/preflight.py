@@ -14,15 +14,16 @@ import pandas as pd
 
 from .._core.chromosomes import AUTOSOMES, chrom_sort_key
 from ..errors import LDSCInputError, LDSCUserError
+from .._runtime.input_issues import INPUT_ISSUE_COLUMNS, input_issue
 from .._runtime.paths import inspect_plink_inputs, split_cli_path_tokens
 from .._refpanel.adapters import R2MatrixRefPanel
+from .._refpanel.preflight import R2_MATRIX_REPAIR
 from .._refpanel.r2_format import r2_matrix_chromosomes, resolve_r2_build_dir
 from .._runtime.progress import PhaseProgress
 from .outputs import LDScoreDirectoryWriter, QueryDiagnostics
 from .._annotation.query_outcomes import gene_query_statuses, gene_control_errors
 
 
-ISSUE_COLUMNS = ["input_role", "source", "chrom", "reason", "details", "repair"]
 GLOB_CAVEAT = "Globs select their actual matches. A missing file may be undetectable when the remaining required artifacts consistently cover the same subset."
 SCOPE_REPAIR = (
     "'@' requires all chromosomes 1-22. For an intentional subset, use quoted '*' patterns or exact paths "
@@ -32,10 +33,7 @@ SCOPE_REPAIR = (
     "does not filter genes. With --r2-matrix-dir, select a directory whose chromosome set matches the baseline; "
     "directory paths do not expand patterns."
 )
-R2_MATRIX_REPAIR = (
-    "Set --r2-matrix-dir to an R2 matrix built with this run's --snp-identifier and --genome-build, "
-    "or rebuild it with build-r2-matrix; the details name the check that failed."
-)
+DIRECT_SCOPE_REPAIR = "Supply valid, matching baseline/reference artifacts for the declared scope. " + SCOPE_REPAIR
 NON_AUTOSOMAL_BED_REPAIR = (
     "Remove the BED lines on chromosomes outside autosomes 1-22 and rerun; LD scores for query annotations "
     "use autosomes 1-22 only, and the remaining intervals are used as given."
@@ -67,11 +65,6 @@ def inspect_reference_inputs(ref_panel_config, global_config, *, require_autosom
     issues, declarations = [], []
     sets = {"reference": set()}
     reference_prefixes = {}
-
-    def issue(role, source, chrom, reason, details, repair=SCOPE_REPAIR):
-        issues.append(dict(input_role=role, source=str(source), chrom=chrom,
-                           reason=reason, details=str(details), repair=repair))
-
     r2_matrix_dir = ref_panel_config.r2_matrix_dir
     if r2_matrix_dir:
         try:
@@ -84,7 +77,8 @@ def inspect_reference_inputs(ref_panel_config, global_config, *, require_autosom
                     "restore or rebuild the complete R2 matrix if its files are missing."
                 )
         except (OSError, EOFError, ValueError, LDSCUserError) as exc:
-            issue("reference", r2_matrix_dir, "", "invalid_required_input", exc, R2_MATRIX_REPAIR)
+            issues.append(input_issue("reference", r2_matrix_dir, "", "invalid_required_input", exc,
+                                      repair=R2_MATRIX_REPAIR))
             members = []
         panel = R2MatrixRefPanel(global_config, ref_panel_config) if members else None
         for chrom in members:
@@ -103,7 +97,8 @@ def inspect_reference_inputs(ref_panel_config, global_config, *, require_autosom
                     panel.check_chromosome(chrom)
                 sets["reference"].add(chrom)
             except (OSError, EOFError, ValueError, LDSCUserError) as exc:
-                issue("reference", r2_matrix_dir, chrom, "invalid_required_input", exc, R2_MATRIX_REPAIR)
+                issues.append(input_issue("reference", r2_matrix_dir, chrom, "invalid_required_input", exc,
+                                          repair=R2_MATRIX_REPAIR))
     else:
         plink_tokens = split_cli_path_tokens(ref_panel_config.plink_prefix)
         declarations.extend(plink_tokens)
@@ -113,12 +108,13 @@ def inspect_reference_inputs(ref_panel_config, global_config, *, require_autosom
         sets["reference"].update(chrom for chrom in reference_prefixes if chrom in AUTOSOMES)
         for chrom, prefix in reference_prefixes.items():
             if require_autosomes and chrom not in AUTOSOMES:
-                issue("reference", prefix, chrom, "invalid_required_input", "PLINK contents must identify autosomal SNPs.")
+                issues.append(input_issue("reference", prefix, chrom, "invalid_required_input",
+                                          "PLINK contents must identify autosomal SNPs.", repair=SCOPE_REPAIR))
 
     return DirectInputPreflight(
         dict(chromosomes=sorted(sets['reference'], key=lambda c: (len(c), c)),
              reference_prefixes_by_chrom=reference_prefixes, declarations=declarations),
-        pd.DataFrame(issues, columns=ISSUE_COLUMNS))
+        pd.DataFrame(issues, columns=INPUT_ISSUE_COLUMNS))
 
 
 def inspect_direct_inputs(annotation_config, *, bed_sources, reference_inputs, annotation_sources=None,
@@ -137,22 +133,17 @@ def inspect_direct_inputs(annotation_config, *, bed_sources, reference_inputs, a
     issues = list(annotation_issues)
     declarations = []
 
-    def issue(role, source, chrom, reason, details):
-        issues.append(dict(input_role=role, source=str(source), chrom=chrom,
-                           reason=reason, details=str(details),
-                           repair="Supply valid, matching baseline/reference artifacts for the declared scope. " + SCOPE_REPAIR))
-
     def bed_query(source, line_counts):
         """Add a BED file's autosomes to the query scope; report its other lines as one issue."""
         outside = {chrom: count for chrom, count in line_counts.items() if chrom not in AUTOSOMES}
         if outside:
             labels = sorted(outside, key=chrom_sort_key)
             total = sum(outside.values())
-            issues.append(dict(
-                input_role="query", source=str(source), chrom=",".join(labels), reason="non_autosomal_chromosomes",
-                details=(f"{total} line{'s' if total != 1 else ''} on chromosomes outside autosomes 1-22: "
-                         + ", ".join(f"{chrom} ({outside[chrom]})" for chrom in labels)
-                         + ". Remove these lines from the BED file and rerun"),
+            issues.append(input_issue(
+                "query", source, ",".join(labels), "non_autosomal_chromosomes",
+                f"{total} line{'s' if total != 1 else ''} on chromosomes outside autosomes 1-22: "
+                + ", ".join(f"{chrom} ({outside[chrom]})" for chrom in labels)
+                + ". Remove these lines from the BED file and rerun",
                 repair=NON_AUTOSOMAL_BED_REPAIR,
             ))
         query_sets.append((source, {chrom for chrom in line_counts if chrom in AUTOSOMES}))
@@ -167,7 +158,8 @@ def inspect_direct_inputs(annotation_config, *, bed_sources, reference_inputs, a
 
     for source in bed_sources:
         if source.failure_reason:
-            issue('query',source.source,'','invalid_required_input',source.details)
+            issues.append(input_issue('query', source.source, '', 'invalid_required_input', source.details,
+                                      repair=DIRECT_SCOPE_REPAIR))
         else:
             bed_query(source.source, {chrom: spool.n_rows for chrom, spool in source.shards.items()})
 
@@ -178,20 +170,23 @@ def inspect_direct_inputs(annotation_config, *, bed_sources, reference_inputs, a
 
     requires_all = any("@" in token for token in declarations)
     if sets["baseline"] != sets["reference"] or (requires_all and sets["baseline"] != set(AUTOSOMES)):
-        issue("alignment", "baseline/reference", "", "chromosome_set_mismatch",
-              f"Validated baseline chromosomes={sorted(sets['baseline'], key=int)}; reference chromosomes={sorted(sets['reference'], key=int)}; @ requires autosomes 1-22={requires_all}.")
+        issues.append(input_issue("alignment", "baseline/reference", "", "chromosome_set_mismatch",
+              f"Validated baseline chromosomes={sorted(sets['baseline'], key=int)}; reference chromosomes={sorted(sets['reference'], key=int)}; @ requires autosomes 1-22={requires_all}.",
+              repair=DIRECT_SCOPE_REPAIR))
     scope = sets["baseline"] & sets["reference"]
     for path, chroms in query_sets:
         missing = chroms - scope
         if missing:
-            issue("query", path, ",".join(sorted(missing, key=int)), "incomplete_chromosome_coverage", "Query contents include chromosomes outside the validated baseline/reference scope; no truncation is allowed.")
+            issues.append(input_issue("query", path, ",".join(sorted(missing, key=int)), "incomplete_chromosome_coverage",
+                                      "Query contents include chromosomes outside the validated baseline/reference scope; "
+                                      "no truncation is allowed.", repair=DIRECT_SCOPE_REPAIR))
     return DirectInputPreflight(
         dict(chromosomes=sorted(scope, key=int), baseline_chromosomes=sorted(sets["baseline"], key=int),
              reference_chromosomes=sorted(sets["reference"], key=int), requires_all_autosomes=requires_all,
              selection="validated_input_contents", glob_selection_caveat=GLOB_CAVEAT,
              reference_prefixes_by_chrom=reference_prefixes,
              validation_status="failed" if issues else "passed"),
-        pd.DataFrame(issues, columns=ISSUE_COLUMNS),
+        pd.DataFrame(issues, columns=INPUT_ISSUE_COLUMNS),
     )
 
 

@@ -226,3 +226,19 @@ def test_python_api_run_reports_every_chromosome_defect_before_computing(tmp_pat
     assert "chr1_r2.parquet" in message and "ldsc:n_samples" in message
     assert "chr2_meta.tsv.gz" in message and "out-of-range MAF" in message
     assert not (output / "diagnostics" / "chromosome-logs").exists()
+
+
+def test_empty_r2_matrix_dir_gets_an_r2_matrix_repair(tmp_path):
+    # The repair must point at the R2 matrix the run reads, not at annotation inputs.
+    from ldsc import cli
+
+    empty = tmp_path / "empty_r2"
+    empty.mkdir()
+    out = tmp_path / "out"
+    assert cli.run_cli(["ldscore", "--r2-matrix-dir", str(empty), "--genome-build", "hg19",
+                        "--ld-wind-kb", "1", "--output-dir", str(out)]) == 1
+    issues = pd.read_csv(out / "diagnostics/input_issues.tsv", sep="\t", keep_default_na=False)
+    assert issues[["input_role", "reason"]].values.tolist() == [["reference", "missing_required_input"]]
+    repair = issues.loc[0, "repair"]
+    assert "--r2-matrix-dir" in repair and "build-r2-matrix" in repair
+    assert "annotation" not in repair

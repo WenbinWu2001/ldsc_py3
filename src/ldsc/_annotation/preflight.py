@@ -18,13 +18,17 @@ from .query_outcomes import gene_list_gate_a_message
 from .._core.columns import normalize_genome_build
 from .._core.snp_identity import identity_mode_family
 from .._genome.build_policy import GenomeBuildCheck
-from .._runtime.preflight import InputGate, input_issue, inspect_declared_inputs
+from .._runtime.input_issues import input_issue
+from .._runtime.preflight import InputGate, inspect_declared_inputs
 from .._runtime.paths import (
     expand_chromosome_suite, normalize_path_token, normalize_path_tokens, resolve_file_group, split_cli_path_tokens,
 )
 from ..errors import LDSCInputError, LDSCUsageError, LDSCUserError
 
 LOGGER = logging.getLogger('LDSC.annotation')
+# The input-issue repair of an annotation file that cannot be used.
+ANNOTATION_INPUT_REPAIR = ('Supply valid annotation inputs for the declared scope; inspect exact paths, glob matches, '
+                           'and @ declarations.')
 
 
 def resolve_annotation_inputs(tokens, *, role='baseline'):
@@ -41,7 +45,7 @@ def resolve_annotation_inputs(tokens, *, role='baseline'):
                     if chrom:
                         declared[match] = chrom
             except (OSError, LDSCUserError) as exc:
-                issues.append(input_issue(role, path, chrom, 'missing_required_input', exc))
+                issues.append(input_issue(role, path, chrom, 'missing_required_input', exc, repair=ANNOTATION_INPUT_REPAIR))
     return paths, declared, issues
 
 
@@ -92,7 +96,8 @@ def inspect_annotation_inputs(*, baseline=(), query=(), mode='rsid', strict_anno
                 for path, names in declared_headers[1:]:
                     if names != expected:
                         gate.issues.append(input_issue(role, path, declarations[path], 'invalid_required_input',
-                            'Annotation columns differ across declared chromosomes. Use the same annotation header for every shard.'))
+                            'Annotation columns differ across declared chromosomes. Use the same annotation header for every shard.',
+                            repair=ANNOTATION_INPUT_REPAIR))
         return dict(declarations=declarations, widths=widths, columns=columns)
 
     return inspect_declared_inputs(declaration_check=check, **kwargs)
@@ -129,9 +134,8 @@ def require_usable_bed_query_names(paths, existing_columns, issues_path=None):
             problem = 'is also the query name of another BED file of this run'
         else:
             continue
-        issues.append(dict(input_issue('query BED', path, '', 'annotation_name_collision',
-                                       f'its query name {name!r} {problem}'),
-                           repair='Rename the BED file; its name without the last suffix becomes the query annotation name'))
+        issues.append(input_issue('query BED', path, '', 'annotation_name_collision', f'its query name {name!r} {problem}',
+                                  repair='Rename the BED file; its name without the last suffix becomes the query annotation name'))
     InputGate('BED query name validation', issues_path, issues,
               troubleshooting='docs/user-guide/troubleshooting.md#common-a-bed-query-name-is-not-usable').finish()
 

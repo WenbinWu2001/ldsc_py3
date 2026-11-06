@@ -13,7 +13,8 @@ from pathlib import Path
 import numpy as np
 
 from .._annotation.bundle import AnnotationBundle
-from .._runtime.preflight import input_issue
+from .._runtime.input_issues import input_issue
+from .._annotation.preflight import ANNOTATION_INPUT_REPAIR
 from .._annotation.interval_queries import DeferredQueries, build_query_shards, prepare_bed_queries, query_source_statuses
 from .._annotation.sources import prepare_annotation_sources
 from .._annotation.storage import AnnotationShard, ColumnStore
@@ -51,7 +52,8 @@ def prepare_direct_annotations(spec, config, workspace, output_config, *, declar
     except LDSCInputError as exc:
         if has_queries:
             failure_issues = getattr(exc,'input_issues',None)
-            records = failure_issues.to_dict('records') if failure_issues is not None else [input_issue('alignment','annotation sources','','invalid_required_input',exc)]
+            records = failure_issues.to_dict('records') if failure_issues is not None else [input_issue('alignment','annotation sources','','invalid_required_input',exc,
+                                                                                                       repair=ANNOTATION_INPUT_REPAIR)]
             validate_direct_scope(spec,batch,output_config,annotation_issues=records,bed_sources=bed_sources,reference_inputs=reference_inputs)
         raise
     scope = {}

@@ -22,7 +22,7 @@ from .._core.columns import normalize_genome_build
 from ..config import GlobalConfig, LDScoreConfig, RefPanelConfig, validate_config_compatibility
 from ..errors import EmptyReferenceSNPs, LDSCConfigError, LDSCInputError, LDSCInternalError
 from .._genome.build_inference import resolve_genome_build, validate_auto_genome_build_mode
-from .._runtime.paths import inspect_plink_inputs, split_cli_path_tokens
+from .._runtime.paths import split_cli_path_tokens
 from .._runtime.preflight import InputGate
 from .._core.identifiers import identifier_keys, validate_retained_identifier_uniqueness
 from .funnel import ANNOTATION_SNP_GRID, REFERENCE_PANEL, ReferenceSNPFunnel
@@ -31,6 +31,7 @@ from .plink_source import (
     PlinkChromosomeSource,
     build_plink_metadata_frame,
     build_restriction_mask,
+    inspect_plink_inputs,
     read_keep_individuals,
     select_plink_chromosome,
 )

@@ -57,7 +57,7 @@ Output paths are different:
 
 ### PLINK prefix resolution
 
-PLINK is an exception to the file-token rule against bare prefixes. `ldscore`, `build-gene-ldscore-index`, `build-r2-matrix`, and direct Python PLINK panels use the shared `_runtime.paths.inspect_plink_inputs()` implementation.
+PLINK is an exception to the file-token rule against bare prefixes. `ldscore`, `build-gene-ldscore-index`, `build-r2-matrix`, and direct Python PLINK panels use the shared implementation: `_runtime.paths.discover_plink_members()` finds the trios and `_refpanel.plink_source.inspect_plink_inputs()` checks their contents.
 
 - Accept an exact prefix (`panel.22`), a member path (`panel.22.bim`), a plain stem (`1000G.EUR.QC.`), a glob (`"panel.*"`), or an explicit `@` pattern (`"panel.@"`). Only `.bed`, `.bim`, and `.fam` are stripped as PLINK member extensions; `.22` remains part of a prefix.
 - An exact selected prefix takes precedence over broader stem discovery. Otherwise a plain stem discovers matching PLINK members; a glob selects its actual matches. Every selected prefix must have a complete BED/BIM/FAM trio. Partially present trios are reported rather than silently omitted.
@@ -68,7 +68,7 @@ PLINK is an exception to the file-token rule against bare prefixes. `ldscore`, `
   Gene LD-score index construction always requires autosomes 1-22.
   Generic group expansion and `build-r2-matrix` retain existing `@` members, while rejecting incomplete selected trios.
 
-[`inspect_plink_inputs()`](../../src/ldsc/_runtime/paths.py) returns prefixes, chromosome assignments, and issue records.
+[`inspect_plink_inputs()`](../../src/ldsc/_refpanel/plink_source.py) returns prefixes, chromosome assignments, and issue records in a `PlinkInputResolution` (`_runtime/paths.py`).
 `require_valid()` raises a combined error, optionally including missing required chromosomes.
 `resolve_plink_prefix_group()` retains the path-only group interface when no chromosome is requested; per-chromosome resolution uses the shared content validation.
 The direct workflow combines these issues with its annotation diagnostics.

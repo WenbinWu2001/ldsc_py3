@@ -311,13 +311,15 @@ def test_direct_reuses_discovery_and_reference_validation_with_phase_records(tmp
     from ldsc import GlobalConfig, set_global_config
     from ldsc._ldscore import preflight as _ldscore_preflight
     from ldsc._runtime import paths as path_resolution
+    from ldsc._refpanel import plink_source
     write_inputs(tmp_path)
-    discover = Mock(wraps=path_resolution._discover_plink_members)
+    discover = Mock(wraps=path_resolution.discover_plink_members)
     inspect = Mock(wraps=_ldscore_preflight.inspect_plink_inputs)
     # The declaration owner imports discovery once; the content owner receives its result.
     from ldsc._runtime import preflight as _input_preflight
-    monkeypatch.setattr(_input_preflight, '_discover_plink_members', discover)
-    monkeypatch.setattr(path_resolution, '_discover_plink_members', discover)
+    monkeypatch.setattr(_input_preflight, 'discover_plink_members', discover)
+    monkeypatch.setattr(path_resolution, 'discover_plink_members', discover)
+    monkeypatch.setattr(plink_source, 'discover_plink_members', discover)
     monkeypatch.setattr(_ldscore_preflight, 'inspect_plink_inputs', inspect)
     set_global_config(GlobalConfig(snp_identifier='chr_pos', genome_build='hg19'))
     with caplog.at_level(logging.INFO, logger='LDSC'):

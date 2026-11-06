@@ -48,7 +48,9 @@ from ..source import REGRESSION_LD_SCORE_COLUMN
 from ..._annotation.semantics import combine_annotation_types
 from ..._refpanel.adapters import PlinkRefPanel, resolved_ref_panel
 from ..._refpanel.funnel import ANNOTATION_SNP_GRID, REFERENCE_PANEL, concat_funnels, funnel_from_records, funnel_records
-from ..._refpanel.plink_source import keep_individual_indices, read_keep_individuals, select_plink_chromosome
+from ..._refpanel.plink_source import (
+    inspect_plink_inputs, keep_individual_indices, read_keep_individuals, select_plink_chromosome,
+)
 from ..._refpanel.prepared import ChromosomeAnnotations
 from ..._refpanel.windows import WholeChromosomeWindowError
 from .atoms import (
@@ -94,7 +96,7 @@ from ..._annotation.gene_lists import (
     select_index_eligible_gene_indices,
 )
 from ..._genome.hm3 import packaged_hm3_curated_map_path
-from ..._runtime.paths import inspect_plink_inputs, split_cli_path_tokens
+from ..._runtime.paths import split_cli_path_tokens
 from .artifact import (
     IndexChromosomeData,
     StagedIndexChromosome,

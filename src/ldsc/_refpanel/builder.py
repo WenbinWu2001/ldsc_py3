@@ -59,7 +59,7 @@ from ..config import (
     DEFAULT_SNP_BATCH_SIZE, GlobalConfig, R2MatrixBuildConfig, get_global_config, print_global_config_banner,
 )
 from .._runtime.progress import report_phase, PhaseProgress
-from .._runtime.paths import ensure_output_directory, remove_output_artifacts, resolve_file_group, inspect_plink_inputs, resolve_scalar_path
+from .._runtime.paths import ensure_output_directory, remove_output_artifacts, resolve_file_group, resolve_scalar_path
 from .._runtime.workflow_logging import (
     log_inputs,
     log_outputs,
@@ -73,6 +73,7 @@ from .plink import PlinkBEDFile
 from .plink_source import (
     KeepIndividuals,
     build_plink_metadata_frame,
+    inspect_plink_inputs,
     orientation_flip_sign,
     read_keep_individuals,
     select_plink_chromosome,

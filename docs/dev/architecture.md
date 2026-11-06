@@ -89,8 +89,9 @@ Regression never reads those fragments.
 `ldsc._regression.alignment` automatically projects legacy summary-statistics text onto the regression SNPs of the already-loaded LD-score directory, once per trait per run, and owns the resulting drop audit.
 Neither compatibility path adds a legacy reader or writer to the computation modules.
 
-PLINK discovery and chromosome assignment live in `_runtime.paths.inspect_plink_inputs()`.
-It uses the low-level BIM/FAM readers for structural inspection, returns combined issue records, and supplies concrete chromosome-prefix mappings to direct LD-score preflight, gene LD-score index construction, and R²-matrix construction.
+PLINK discovery lives in `_runtime.paths.discover_plink_members()`, which finds the selected BED/BIM/FAM trios and reports missing members; the declared-input gate calls it, so it stays with path resolution.
+PLINK content checks and chromosome assignment live in `_refpanel.plink_source.inspect_plink_inputs()`, beside the PLINK chromosome selection stage.
+It uses the low-level BIM/FAM readers for structural inspection (positions, the BED header and size), assigns chromosomes from `.bim` contents, returns combined issue records in a `_runtime.paths.PlinkInputResolution`, and supplies concrete chromosome-prefix mappings to direct LD-score preflight, gene LD-score index construction, and R²-matrix construction.
 `PlinkRefPanel` consumes a supplied mapping or resolves it lazily once for direct Python use.
 The kernel no longer owns a PLINK path-token wrapper.
 

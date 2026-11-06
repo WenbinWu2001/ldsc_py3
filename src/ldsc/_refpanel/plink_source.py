@@ -1,4 +1,10 @@
-"""Select one chromosome of a PLINK reference panel, the same way in every PLINK route.
+"""Check PLINK inputs and select one chromosome of a PLINK panel, the same way in every PLINK route.
+
+``inspect_plink_inputs`` is the PLINK content check of ``ldscore``,
+``build-gene-ldscore-index``, ``build-r2-matrix`` and direct Python PLINK
+panels: it takes the trios that ``_runtime.paths.discover_plink_members``
+found, parses each ``.bim``/``.fam``, checks positions and the ``.bed`` header
+and size, and assigns chromosomes from the ``.bim`` contents.
 
 ``select_plink_chromosome`` is the single BIM-level selection stage shared by
 ``PlinkRefPanel`` (``ldscore --plink-prefix``, ``--export-ref-metadata`` and
@@ -29,7 +35,7 @@ import numpy as np
 import pandas as pd
 
 from .._core import plink_files
-from .._core.chromosomes import normalize_chromosome
+from .._core.chromosomes import STANDARD_CHROMOSOMES, chrom_sort_key, normalize_chromosome
 from .._core.coordinates import positive_int_position_series
 from .._core.snp_identity import (
     RestrictionIdentityKeys,
@@ -39,8 +45,133 @@ from .._core.snp_identity import (
     restriction_membership_mask,
 )
 from ..errors import LDSCInputError, LDSCInternalError
+from .._runtime.input_issues import input_issue
+from .._runtime.paths import PLINK_INPUT_REPAIR, PlinkInputResolution, discover_plink_members
+from .._runtime.progress import PhaseProgress
 
 LOGGER = logging.getLogger("LDSC.ref_panel")
+
+
+def inspect_plink_inputs(
+    tokens,
+    *,
+    chromosomes: Sequence[str] = STANDARD_CHROMOSOMES,
+    require_complete_suite: bool = False,
+    discovered_members: Sequence[tuple[str, str]] | None = None,
+) -> PlinkInputResolution:
+    """Discover PLINK inputs and assign chromosomes from validated BIM contents.
+
+    Parameters
+    ----------
+    tokens : str, os.PathLike, sequence of these, or None
+        Exact prefixes/member paths, plain stems, globs, or ``@`` patterns,
+        discovered with ``_runtime.paths.discover_plink_members``.
+        An exact selected trio takes precedence over stem expansion.
+    chromosomes : sequence of str, optional
+        Labels substituted into ``@`` patterns; defaults to STANDARD_CHROMOSOMES.
+        This does not filter chromosomes present in exact, plain or glob inputs.
+    require_complete_suite : bool, optional
+        If true, every declared ``@`` member must exist. Otherwise absent
+        members are skipped, preserving generic suite expansion semantics.
+        Incomplete selected trios always produce issues.
+
+    discovered_members : sequence of (prefix, chromosome) pairs, optional
+        Reuse companion discovery from a successful declaration gate. Callers
+        must have rejected its issues before passing these members.
+
+    Returns
+    -------
+    PlinkInputResolution
+        Concrete prefixes, a chromosome mapping, and all discoverable issues.
+        Validation checks BIM/FAM parsing, positive whole-number positions, BED header and
+        size, explicit ``@`` declarations, and conflicting chromosome sources.
+        Filenames never determine chromosome identity. BIM tables are read
+        once per prefix during inspection and then released. Call
+        ``require_valid`` before computation; callers own chromosome coverage
+        and autosome-only policies.
+    """
+    if discovered_members is None:
+        members, issues = discover_plink_members(
+            tokens, chromosomes=chromosomes, allow_chromosome_suite=True,
+            require_complete_suite=require_complete_suite,
+        )
+    else:
+        members, issues = discovered_members, []
+    declarations: dict[str, set[str]] = {}
+    for prefix, declared in members:
+        declarations.setdefault(prefix, set())
+        if declared:
+            declarations[prefix].add(declared)
+    mapping: dict[str, str] = {}
+    with PhaseProgress(logging.getLogger('LDSC.preflight'), 'validation', 'PLINK content', len(declarations)) as progress:
+        for prefix, declared in declarations.items():
+            progress.advance(0, object=prefix, force=True)
+            try:
+                bim, fam = plink_files.PlinkBIMFile(prefix + ".bim"), plink_files.PlinkFAMFile(prefix + ".fam")
+                chroms = {normalize_chromosome(value, context=prefix + ".bim") for value in bim.df.CHR.unique()}
+                if not chroms or len(fam.IDList) == 0:
+                    raise LDSCInputError(
+                        f"PLINK input '{prefix}' has no SNP chromosome identities or no samples. "
+                        "Supply a complete BED/BIM/FAM trio containing the SNPs and samples intended for this panel."
+                    )
+                if declared and (len(declared) != 1 or chroms != declared):
+                    raise LDSCInputError(
+                        f"PLINK input '{prefix}' selected by @ for chromosomes {sorted(declared, key=chrom_sort_key)} "
+                        f"contains chromosomes {sorted(chroms, key=chrom_sort_key)}. "
+                        "Restore the matching chromosome trio or correct the prefix template; "
+                        "renaming files does not change their SNP coordinates."
+                    )
+                _require_whole_bim_positions(bim.df, prefix)
+                with open(prefix + ".bed", "rb") as bed:
+                    if bed.read(3) != b"\x6c\x1b\x01":
+                        raise LDSCInputError(
+                            f"PLINK genotype file '{prefix}.bed' has an invalid header or uses unsupported "
+                            "non-SNP-major storage. Restore the original file if damaged, or export a "
+                            "SNP-major binary BED/BIM/FAM trio from the source dataset."
+                        )
+                    bed.seek(0, 2)
+                    if bed.tell() != 3 + len(bim.IDList) * ((len(fam.IDList) + 3) // 4):
+                        raise LDSCInputError(
+                            f"PLINK genotype file '{prefix}.bed' has a size inconsistent with its SNP (.bim) "
+                            "and sample (.fam) tables; the trio may be truncated or mixed from different datasets. "
+                            "Restore all three matching files or export a new complete trio from the source dataset."
+                        )
+                for chrom in sorted(chroms, key=chrom_sort_key):
+                    if chrom in mapping and mapping[chrom] != prefix:
+                        issues.append(input_issue("reference", prefix, chrom, "ambiguous_chromosome_input",
+                            f"Multiple PLINK trios contain chromosome {chrom}: {mapping[chrom]} and {prefix}. "
+                            "Select one complete trio per chromosome.", repair=PLINK_INPUT_REPAIR))
+                    else:
+                        mapping[chrom] = prefix
+            except (OSError, EOFError, ValueError, LDSCInputError) as exc:
+                if "Usecols do not match columns" in str(exc):
+                    exc = LDSCInputError("PLINK BIM requires six columns CHR/SNP/CM/BP/A1/A2 and FAM requires sample IDs. " + str(exc))
+                issues.append(input_issue("reference", prefix, ",".join(sorted(declared, key=chrom_sort_key)),
+                                          "invalid_required_input", exc, repair=PLINK_INPUT_REPAIR))
+            progress.advance(object=prefix)
+    return PlinkInputResolution(list(declarations), mapping, issues)
+
+
+def _require_whole_bim_positions(bim, prefix: str) -> None:
+    """Reject ``.bim`` rows whose BP is missing, non-numeric, nonpositive or not a whole number.
+
+    Truncating or dropping such a row would silently change the reference
+    SNPs, so every PLINK route stops here, before any computation, and the
+    error names the rows. Rows are numbered in SNP (BED variant) order, which
+    differs from file line numbers when the ``.bim`` contains blank lines.
+    """
+    positions = pd.to_numeric(bim.BP, errors="coerce")
+    bad = (positions.isna() | (positions <= 0) | (positions % 1 != 0)).to_numpy()
+    if not bad.any():
+        return
+    rows = bad.nonzero()[0]
+    listed = ", ".join(f"SNP row {row + 1} (SNP {bim.SNP.iat[row]}, BP {bim.BP.iat[row]})" for row in rows[:5])
+    more = f" and {len(rows) - 5:,} more" if len(rows) > 5 else ""
+    raise LDSCInputError(
+        f"PLINK SNP table '{prefix}.bim' has {len(rows):,} row{'s' if len(rows) != 1 else ''} whose BP position "
+        f"is not a positive whole number: {listed}{more}. Use a BIM table with whole-number base-pair positions "
+        "from the same dataset as its BED/FAM files."
+    )
 
 
 @dataclass(frozen=True)

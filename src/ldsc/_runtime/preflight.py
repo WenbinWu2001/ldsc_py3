@@ -15,7 +15,7 @@ import pandas as pd
 
 from ..errors import LDSCInputError, LDSCUserError
 from .input_issues import INPUT_ISSUE_COLUMNS, input_issue
-from .paths import _discover_plink_members, resolve_file_group, split_cli_path_tokens, normalize_path_tokens, resolve_exact_file, resolve_scalar_path
+from .paths import discover_plink_members, resolve_file_group, split_cli_path_tokens, normalize_path_tokens, resolve_exact_file, resolve_scalar_path
 from .progress import PhaseProgress
 
 LOGGER = logging.getLogger('LDSC.preflight')
@@ -163,7 +163,7 @@ def inspect_declared_inputs(*, files=(), scalar_files=(), plink=None, chromosome
                     progress.advance(object=str(path))
             resolved[role] = paths
         if plink is not None:
-            members, issues = _discover_plink_members(plink, chromosomes=chromosomes,
+            members, issues = discover_plink_members(plink, chromosomes=chromosomes,
                 allow_chromosome_suite=True, require_complete_suite=require_complete_suite)
             gate.issues.extend(issues)
             if issues and plink_issues_path is not None:

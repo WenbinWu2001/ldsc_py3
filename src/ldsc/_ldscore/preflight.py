@@ -15,7 +15,8 @@ import pandas as pd
 from .._core.chromosomes import AUTOSOMES, chrom_sort_key
 from ..errors import LDSCInputError, LDSCUserError
 from .._runtime.input_issues import INPUT_ISSUE_COLUMNS, input_issue
-from .._runtime.paths import inspect_plink_inputs, split_cli_path_tokens
+from .._runtime.paths import split_cli_path_tokens
+from .._refpanel.plink_source import inspect_plink_inputs
 from .._refpanel.adapters import R2MatrixRefPanel
 from .._refpanel.preflight import R2_MATRIX_REPAIR
 from .._refpanel.r2_format import r2_matrix_chromosomes, resolve_r2_build_dir

@@ -27,10 +27,14 @@ Start with [the contributor entry](code-structure.md) to locate a change; this d
   Entry points: `ldsc build-r2-matrix`, `ldsc.R2MatrixBuilder`
 - **Query R² matrices**: look up unbiased R², `sign_r`, and signed Pearson `r` for SNP pairs in package-built R² matrices.
   Entry points: `ldsc query-r2-matrix`, `ldsc.R2Matrix`, `ldsc.query_r2_matrix()`
-- **Build exact gene LD-score indexes**: precompute PLINK-backed disjoint-atom operators for one complete immutable baseline/reference/gene configuration. Entry point: `ldsc build-gene-ldscore-index`
+- **Build exact gene LD-score indexes**: precompute PLINK-backed disjoint-atom operators for one complete immutable baseline/reference/gene configuration. Entry points: `ldsc build-gene-ldscore-index`, `ldsc.build_gene_ldscore_index()`
 - **Compute LD scores**: align annotations to a live reference panel or explicitly assemble gene-list columns from a validated complete index, then emit the same canonical artifacts. Entry points: `ldsc ldscore`, `ldsc.run_ldscore()`, `ldsc.LDScoreCalculator`
+- **Convert legacy LD-score files**: turn complete chromosome 1–22 legacy reference and regression-weight LD-score suites, unpartitioned or a full baseline, into an LD-score directory.
+  Entry points: `ldsc convert-legacy-ldscores`, `ldsc.convert_legacy_ldscores()`, `ldsc.LegacyLDScoreConverter`
 - **Munge raw summary statistics**: normalize raw GWAS tables into Parquet-first munged summary statistics, with optional legacy `.sumstats.gz` output.
-  Entry points: `ldsc munge-sumstats`, `ldsc.SumstatsMunger`
+  Entry points: `ldsc munge-sumstats`, `ldsc.SumstatsMunger`, `ldsc.infer_raw_sumstats()`
+- **Inspect genome builds**: report the declared or inferred genome build of one exact file or LDSC3 artifact directory, writing nothing.
+  Entry point: `ldsc infer-genome-build` (no Python export)
 - **Run LD score regression**: consume munged summary statistics and LD-score directories to estimate SNP heritability, partitioned heritability, or genetic correlation.
   Entry points: `ldsc h2`, `ldsc partitioned-h2`, `ldsc rg`, `ldsc.run_h2()`, `ldsc.run_partitioned_h2()`, `ldsc.run_rg()`, `ldsc.RegressionRunner`
 - **Explore canonical results**: dispatch one approved figure from `h2`, `partitioned-h2`, `quantile-h2`, or `rg` result metadata without refitting.
@@ -47,10 +51,10 @@ Start with [the contributor entry](code-structure.md) to locate a change; this d
 ## Layer Structure
 
 - **CLI Layer**: public command dispatch in `ldsc.cli`
-- **Workflow And Preprocessing Layer**: public services in `ldsc._annotation.builder`, `ldsc._refpanel.builder`, `ldsc._refpanel.query`, `ldsc._ldscore.workflow`, `ldsc._ldscore.calculator`, `ldsc._sumstats.munger`, the regression workflow modules (`ldsc._regression.commands`, the `RegressionRunner` facade in `ldsc._regression.runner`, and `ldsc._regression.alignment`, `ldsc._regression.fitting`, `ldsc._regression.partitioned` and `ldsc._regression.rg`), and `ldsc._regression.quantile_h2`, plus shared normalization in `ldsc.config`, `ldsc._runtime.paths`, `ldsc._core.columns`, `ldsc._core.chromosomes`, `ldsc._genome.build_inference`, `ldsc._annotation.semantics`, and the internal `ldsc._annotation.gene_lists`
+- **Workflow And Preprocessing Layer**: public services in `ldsc._annotation.builder`, `ldsc._refpanel.builder`, `ldsc._refpanel.query`, `ldsc._ldscore.workflow`, `ldsc._ldscore.calculator`, `ldsc._ldscore.legacy_converter`, `ldsc._ldscore.gene_index.build`, `ldsc._sumstats.munger`, the regression workflow modules (`ldsc._regression.commands`, the `RegressionRunner` facade in `ldsc._regression.runner`, and `ldsc._regression.alignment`, `ldsc._regression.fitting`, `ldsc._regression.partitioned` and `ldsc._regression.rg`), and `ldsc._regression.quantile_h2`, plus shared normalization in `ldsc.config`, `ldsc._runtime.paths`, `ldsc._core.columns`, `ldsc._core.chromosomes`, `ldsc._genome.build_inference`, `ldsc._annotation.semantics`, and the internal `ldsc._annotation.gene_lists`
 - **Computation**: private file-format and numerical code inside each domain package, such as `ldsc._ldscore.compute`, `ldsc._refpanel.r2_format`, `ldsc._refpanel.plink` and `ldsc._regression.estimators`
 - **Shared Artifact Access**: LD-score directory opening, schema/identity validation, and selected-query reads in `ldsc._ldscore.source`, consumed by generation and regression
-- **Output And Derived-Result Layer**: result writing in each domain's `outputs` module (`ldsc._annotation.outputs`, `ldsc._refpanel.outputs`, `ldsc._ldscore.outputs`, `ldsc._regression.outputs`) on the shared `ldsc._runtime.artifacts` base; metadata-driven plotting in
+- **Output And Derived-Result Layer**: result writing in each domain's `outputs` module (`ldsc._annotation.outputs`, `ldsc._refpanel.outputs`, `ldsc._sumstats.outputs`, `ldsc._ldscore.outputs`, `ldsc._regression.outputs`) on the shared `ldsc._runtime.artifacts` base; metadata-driven plotting in
   `ldsc._plotting.dispatch`; post-fit scale conversion in `ldsc._regression.h2_scale`
 
 ### Ownership by layer and workflow
@@ -110,7 +114,7 @@ ldsc_py3_restructured/
 ├── src/ldsc/
 │   ├── __init__.py  __main__.py  cli.py  config.py  errors.py   # root shell
 │   ├── _core/               # chromosomes, columns, coordinates, SNP identity, regions, PLINK companion files
-│   ├── _runtime/            # paths, input preflight, workflow logging, progress, workers, keyword checks, artifact writers
+│   ├── _runtime/            # paths, input preflight, run scratch, workflow logging, progress, workers, keyword checks, artifact writers
 │   ├── _genome/             # genome-build inference and policy, build inspection, liftover, HM3 map
 │   ├── _annotation/         # annotation files, gene lists, interval projection, overlap, `ldsc annotate`
 │   ├── _refpanel/           # PLINK reader, R² matrix format, LD windows, prepared-chromosome contract, reference-SNP funnel, adapters, build and query
@@ -471,16 +475,12 @@ See [parallel execution](../reference/parallel-execution.md) for the complete co
 
 ### Result writers
 
-Each domain writes its own result directories on the shared `ldsc._runtime.artifacts` base: `ldsc._annotation.outputs` for `annotate`, `ldsc._refpanel.outputs` for `build-r2-matrix` (metadata, dropped-SNP tables and the owned-file declaration; `r2_format` writes the R² Parquet files and sidecars) and `query-r2-matrix`, `ldsc._ldscore.outputs` for LD scores and `ldsc._regression.outputs` for regression results.
+Each domain writes its own result directories on the shared `ldsc._runtime.artifacts` base: `ldsc._annotation.outputs` for `annotate`, `ldsc._refpanel.outputs` for `build-r2-matrix` (metadata, dropped-SNP tables and the owned-file declaration; `r2_format` writes the R² Parquet files and sidecars) and `query-r2-matrix`, `ldsc._sumstats.outputs` for `munge-sumstats`, `ldsc._ldscore.outputs` for LD scores and `ldsc._regression.outputs` for regression results.
 `ldsc._ldscore.outputs` owns fixed files inside `output_dir`: `metadata.json`, `ldscore.baseline.parquet`, optional single or numbered query batch files, and an optional `ldscore.overlap.parquet` (the long-form annotation overlap matrix, written only
 for runs with two or more annotation columns). Each LD-score file spans the calculated chromosomes with one row group per chromosome; root `metadata.json.query_batches` records the ordered query files, query columns, and row groups. Direct/indexed writing workflows return `LDScoreSource` without retained query tables. Older LD-score directories without the current manifest require regeneration.
-`ldsc._regression.outputs` owns the regression results: for `h2`, root `h2.tsv` plus diagnostic
-metadata. For `partitioned-h2`, it owns root `partitioned_h2.tsv` plus
-the optional diagnostic `diagnostics/query_annotations/` tree containing
-`manifest.tsv`, per-query `partitioned_h2.tsv`,
-`partitioned_h2_full.tsv`, and `metadata.json`. For `rg`, it owns `rg.tsv`,
-`rg_full.tsv`, `h2_per_trait.tsv`, and the optional diagnostic
-`diagnostics/pairs/` detail tree; `rg` tables report nominal p-values only.
+`ldsc._regression.outputs` owns the regression results: for `h2`, root `h2.tsv` plus diagnostic metadata.
+For `partitioned-h2`, it owns root `partitioned_h2.tsv` plus the optional diagnostic `diagnostics/query_annotations/` tree containing `manifest.tsv` and, per query, `partitioned_h2.tsv`, `partitioned_h2_full.tsv`, `coefficient_delete_values.parquet` and `metadata.json`; a baseline-only run keeps its `coefficient_delete_values.parquet` under `diagnostics/`.
+For `rg`, it owns `rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`, and the optional diagnostic `diagnostics/pairs/` detail tree; `rg` tables report nominal p-values only.
 For a legacy summary-statistics input, each of the three writers also writes `diagnostics/dropped_snps/legacy_sumstats.tsv.gz` before `metadata.json` and lists it in `files`.
 It
 reuses existing directories but refuses existing canonical files unless

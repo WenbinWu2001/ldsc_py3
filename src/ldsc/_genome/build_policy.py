@@ -17,6 +17,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 
 from .._core.coordinates import normalize_chr_pos_frame
+from .._core.identifiers import open_identity_table
 from .._core.columns import (
     normalize_genome_build, resolve_optional_column, resolve_required_column,
     RESTRICTION_CHRPOS_SPEC_MAP, RESTRICTION_HG19_POS_SPEC, RESTRICTION_HG38_POS_SPEC,
@@ -277,7 +278,8 @@ class GenomeBuildCheck:
         sidecar = r2_sidecar_path(path)
         if sidecar is not None and sidecar.is_file():
             try:
-                build = _text_options(sidecar)[1].get("genome_build")
+                with open_identity_table(sidecar, sep="\t") as (identity, _, _):
+                    build = identity.get("genome_build")
                 if build:
                     self.declared(role, sidecar, build, "R2 matrix sidecar build metadata")
             except _INPUT_ERRORS as exc:
@@ -370,7 +372,13 @@ def _table_frames(path, columns, parquet=False):
 
 
 def _text_options(path):
-    """Recognize supported delimiters and leading artifact metadata comments."""
+    """Recognize supported delimiters and leading artifact metadata comments.
+
+    This reads user-supplied text tables: it sniffs the delimiter, skips any
+    leading comment or blank line, and reads ``bz2`` files. Package-written
+    identity-line tables, such as R2 matrix sidecars, are read with
+    ``open_identity_table()``.
+    """
     metadata = {}
     opener = gzip.open if str(path).endswith('.gz') else bz2.open if str(path).endswith('.bz2') else open
     with opener(path, 'rt', encoding='utf-8') as stream:

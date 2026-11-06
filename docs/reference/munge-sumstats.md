@@ -1,6 +1,6 @@
 # `munge-sumstats`
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-05
 
 This document explains the public shape of `ldsc munge-sumstats`: what it does,
 what it writes, how genome builds are handled, and how to use `--infer-only`

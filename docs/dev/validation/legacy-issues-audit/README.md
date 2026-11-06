@@ -1,6 +1,6 @@
 # Legacy LDSC issues and FAQ audit
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-29
 
 This audit assesses every publicly accessible issue in [bulik/ldsc](https://github.com/bulik/ldsc/issues), including closed issues, and every entry in its [FAQ](https://github.com/bulik/ldsc/wiki/FAQ), against LDSC3.
 It is a prevention and user-experience review, not an assertion of numerical equivalence or authorization to implement its recommendations.

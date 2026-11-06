@@ -1,6 +1,6 @@
 # Python API reference
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-05
 
 The supported Python interface is the set of names exported by the `ldsc` package (`ldsc.__all__`, 84 names on 2026-11-03).
 Modules whose names start with an underscore, including the domain packages such as `ldsc._ldscore`, are private even when a name defined there is re-exported.

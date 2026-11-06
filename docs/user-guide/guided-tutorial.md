@@ -1,6 +1,6 @@
 # LDSC3 - Guided Analysis Tutorial
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-05
 
 This tutorial walks through how to use the `ldsc` package for a series of LD score-based heritability analyses.
 

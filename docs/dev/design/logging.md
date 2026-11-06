@@ -1,6 +1,6 @@
 # Logging Design
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-05
 
 This page holds the rules for writing log, warning and error messages, and the logging API boundary.
 The runtime behavior users see (log files, console routing, output preflight and failure markers) is in [logs and outputs](../../reference/logs-and-outputs.md).

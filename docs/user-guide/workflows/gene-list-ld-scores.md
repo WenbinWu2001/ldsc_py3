@@ -1,6 +1,6 @@
 # Calculate LD scores from gene lists
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-05
 
 Use gene-list mode to turn pathway, expression, proteomic, GO or other gene lists into query annotations for partitioned heritability, estimated with stratified LD score regression (S-LDSC; Finucane et al. 2015).
 LDSC3 resolves each gene list against one gene coordinate catalog, marks the SNPs inside the listed genes' intervals, and writes an ordinary, self-contained LD-score directory that `partitioned-h2` reads.

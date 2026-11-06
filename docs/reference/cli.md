@@ -1,6 +1,6 @@
 # Command-line reference
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-05
 
 LDSC3 provides one command, `ldsc`, with one subcommand per workflow; `python -m ldsc` is equivalent.
 This page lists every option of every subcommand, taken on 2026-10-28 from the parsers that `ldsc.cli._command_parser()` returns.

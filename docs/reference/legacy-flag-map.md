@@ -1,6 +1,6 @@
 # Legacy LDSC to Current CLI Flag Map
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-05
 
 This document maps changed legacy LDSC flags to the supported `ldsc` commands and records the flag-cleanup decisions.
 Legacy LDSC source links point to `bulik/ldsc` at commit `aa33296`.

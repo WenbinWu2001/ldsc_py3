@@ -1,6 +1,6 @@
 # Using LDSC3 from Python
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-05
 
 This page collects the Python API for each workflow in the user guide.
 Each section below assumes the setup described here and links back to the workflow page that explains the analysis.

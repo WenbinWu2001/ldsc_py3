@@ -1,6 +1,6 @@
 # Verification record and limits
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-29
 
 This record distinguishes source inspection, executed current behavior, and unavailable historical reproductions.
 The issue reports remain the source of their original symptoms; a synthetic boundary does not establish every historical dataset's root cause.

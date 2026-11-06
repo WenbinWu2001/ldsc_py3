@@ -1,6 +1,6 @@
 # Config Design: Immutable Config + Provenance-Carrying Results
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-05
 
 `--workers` sets the number of managed workers (default one, each with one BLAS thread); CPU budgets, limits and failure handling are in [parallel execution](../../reference/parallel-execution.md).
 

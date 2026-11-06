@@ -1,6 +1,6 @@
 # Calculate LD scores
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-05
 
 `ldsc ldscore` computes LD scores from a reference panel and writes them to an LD-score directory.
 The regression commands `h2`, `rg` and `partitioned-h2` read that directory through `--ldscore-dir` and never recompute LD scores, so one LD-score directory serves every trait you analyze with the same reference panel and annotations.

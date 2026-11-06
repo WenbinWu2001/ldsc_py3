@@ -1,6 +1,6 @@
 # Validation
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-29
 
 This page records what has been validated in LDSC3, with which evidence, and what has not.
 Each evidence page states its date, revision and limits; raw logs and probe scripts are kept outside the repository.

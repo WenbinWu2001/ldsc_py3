@@ -1,6 +1,6 @@
 # Regression Configuration Reference (Advanced)
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-05
 
 This document describes the tunable configuration of the regression module (`ldsc h2`, `ldsc rg`, `ldsc partitioned-h2`).
 **You do not need any of this for a standard run.**

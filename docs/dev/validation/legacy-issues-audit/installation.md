@@ -1,6 +1,6 @@
 # Installation and dependencies
 
-Last updated on: 2026-10-28
+Last updated on: 2026-10-29
 
 [Audit overview](README.md) · [Workflow counts and membership](workflow-index.md) · [Verification](verification.md)
 

@@ -99,7 +99,8 @@ def test_ldscore_reader_rejects_contract_defect(tmp_path, defect):
         RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(tmp_path / "hg19")),
     )
     with pytest.raises(LDSCInputError) as failure:
-        panel.build_reader("1").close()
+        chromosome = panel.open_chromosome("1")
+        chromosome.pair_reader(chromosome.sidecar(), "chr_pos_allele_aware", "hg19").close()
     _assert_contract_error(failure.value, r2, key)
 
 
@@ -159,7 +160,8 @@ def test_writer_output_satisfies_contract_and_decodes_exactly(tmp_path):
         GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19"),
         RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(root)),
     )
-    reader = panel.build_reader("1")
+    chromosome = panel.open_chromosome("1")
+    reader = chromosome.pair_reader(chromosome.sidecar(), "chr_pos_allele_aware", "hg19")
     try:
         _, _, values = next(reader.iter_all_pairs())
     finally:

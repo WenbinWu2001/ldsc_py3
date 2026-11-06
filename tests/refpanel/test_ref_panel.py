@@ -235,14 +235,6 @@ class PlinkRefPanelTest(unittest.TestCase):
         self.assertIn("MAF", metadata.columns)
         self.assertTrue((metadata["MAF"] > 0.2).all())
 
-    @unittest.skipUnless(_has_module("bitarray"), "bitarray is not installed")
-    def test_build_reader(self):
-        panel = PlinkRefPanel(
-            GlobalConfig(snp_identifier="rsid"),
-            RefPanelConfig(backend="plink", plink_prefix=str(PLINK_PREFIX)),
-        )
-        reader = panel.build_reader("22")
-        self.assertIsNotNone(reader)
 
 
 @unittest.skipUnless(_has_module("bitarray"), "bitarray is not installed")
@@ -322,6 +314,13 @@ def _r2_ref_panel(build_dir, snp_identifier="chr_pos", genome_build="hg38", **sp
     )
 
 
+def _open_pair_reader(panel, chrom):
+    """Open one chromosome's pair reader over its whole sidecar, as ``ldscore`` does, and close it."""
+    chromosome = panel.open_chromosome(chrom)
+    chromosome.pair_reader(chromosome.sidecar(), panel.global_config.snp_identifier,
+                           panel.global_config.genome_build).close()
+
+
 class ParquetRefPanelTest(unittest.TestCase):
     def test_missing_sidecar_is_a_hard_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -355,7 +354,7 @@ class ParquetRefPanelTest(unittest.TestCase):
             pq.write_table(table.replace_schema_metadata(stripped), parquet_path)
 
             with self.assertRaisesRegex(LDSCInputError, "ldsc:artifact_type is missing"):
-                _r2_ref_panel(build_dir).build_reader("1")
+                _open_pair_reader(_r2_ref_panel(build_dir), "1")
 
     def test_package_metadata_sidecar_rejects_missing_identity_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -380,14 +379,14 @@ class ParquetRefPanelTest(unittest.TestCase):
             build_dir = Path(tmpdir) / "panel" / "hg38"
             _write_r2(build_dir, snp_identifier="chr_pos")
             with self.assertRaisesRegex(ValueError, "snp_identifier mismatch"):
-                _r2_ref_panel(build_dir, snp_identifier="rsid", genome_build=None).build_reader("1")
+                _open_pair_reader(_r2_ref_panel(build_dir, snp_identifier="rsid", genome_build=None), "1")
 
     def test_concrete_build_rejects_conflicting_r2_declaration(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
             _write_r2(build_dir, genome_build="hg38")
             with self.assertRaisesRegex(LDSCInputError, "Conflicting genome-build evidence"):
-                _r2_ref_panel(build_dir, genome_build="hg19").build_reader("1")
+                _open_pair_reader(_r2_ref_panel(build_dir, genome_build="hg19"), "1")
 
     def test_r2_matrix_dir_requires_r2_for_requested_chromosome(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -520,12 +519,12 @@ class ParquetRefPanelTest(unittest.TestCase):
             with self.assertRaisesRegex(AssertionError, "workflow entry"):
                 _r2_ref_panel(build_dir, genome_build="auto").load_metadata("1")
 
-    def test_build_reader_requires_the_r2_parquet_file(self):
+    def test_opening_a_chromosome_requires_the_r2_parquet_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
             _write_r2(build_dir)[0].unlink()
             with self.assertRaisesRegex(LDSCInputError, "the R2 Parquet file .*chr1_r2.parquet' is missing"):
-                _r2_ref_panel(build_dir).build_reader("1")
+                _open_pair_reader(_r2_ref_panel(build_dir), "1")
 
     def test_plink_prefix_accepts_suite_token(self):
         with tempfile.TemporaryDirectory() as tmpdir:

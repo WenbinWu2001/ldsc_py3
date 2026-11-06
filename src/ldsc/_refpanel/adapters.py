@@ -12,7 +12,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import replace
 import logging
-from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -143,11 +142,6 @@ class RefPanel(ABC):
         Raises ``EmptyReferenceSNPs``, carrying the chromosome's
         ``reference_snp_funnel``, when those filters leave no SNP.
         """
-        raise NotImplementedError
-
-    @abstractmethod
-    def build_reader(self, chrom: str, **kwargs: Any) -> Any:
-        """Build a backend-specific reader for ``chrom``."""
         raise NotImplementedError
 
     @abstractmethod
@@ -312,7 +306,7 @@ class PlinkRefPanel(RefPanel):
             )
         return replace(source, metadata=self._validate_metadata(source.metadata, chrom)), funnel
 
-    def _load_genotypes(self, chrom, source, annotations=None, *, keep_indivs=None, maf_min=None):
+    def _load_genotypes(self, chrom, source, annotations=None):
         """Open one BED and align its retained rows to annotations without another read.
 
         The metadata gives each SNP's minor allele in the retained reference
@@ -330,13 +324,11 @@ class PlinkRefPanel(RefPanel):
         raw_keys = identifier_keys(reference, mode)
         keys = identifier_keys(aligned.metadata, mode)
         physical_rows = pd.Series(reference["_raw_index"].to_numpy(), index=raw_keys).loc[keys].tolist()
-        if keep_indivs is None:
-            keep_indivs = source.keep_indivs
-        maf_min = self.spec.maf_min if maf_min is None else maf_min
+        maf_min = self.spec.maf_min
         try:
             geno = PlinkBEDFile(
                 source.prefix + ".bed", len(source.fam.IDList), source.bim, keep_snps=physical_rows,
-                keep_indivs=keep_indivs, mafMin=maf_min,
+                keep_indivs=source.keep_indivs, mafMin=maf_min,
             )
         except EmptyReferenceSNPs as exc:
             _record_genotype_qc(funnel, exc.genotype_qc_removed, exc.maf_removed, maf_min)
@@ -369,20 +361,6 @@ class PlinkRefPanel(RefPanel):
         geno, metadata, _, _, _ = self._load_genotypes(chrom, source)
         geno.close()
         return metadata
-
-    def build_reader(self, chrom: str, keep_snps=None, keep_indivs=None, maf_min=None):
-        """Build an owned BED reader through the same preparation used for LD scores.
-
-        Configured panel restrictions apply before optional ``keep_snps`` keys,
-        sample-index overrides, and MAF overrides. The caller must close the
-        returned reader.
-        """
-        source, funnel = self._load_source(chrom)
-        if keep_snps is not None:
-            keys = identifier_keys(source.metadata, self.global_config.snp_identifier)
-            source = replace(source, metadata=source.metadata.loc[keys.isin(keep_snps)].reset_index(drop=True))
-        source = source, funnel
-        return self._load_genotypes(chrom, source, keep_indivs=keep_indivs, maf_min=maf_min)[0]
 
     def prepare_chromosome(self, chrom, annotations, config, *, genetic_map=None):
         """Prepare one genotype-filtered chromosome with aligned annotations and LD windows."""
@@ -519,19 +497,6 @@ class R2MatrixRefPanel(RefPanel):
             funnel.record(REFERENCE_PANEL, "maf_floor", before - len(metadata))
         metadata = self._validate_metadata(metadata, chromosome.chrom)
         return metadata, funnel
-
-    def build_reader(self, chrom: str, metadata: pd.DataFrame | None = None):
-        """
-        Build an owned streaming reader over one chromosome's validated R2 Parquet file.
-
-        The pairs among the SNPs in ``metadata`` (default: the restricted
-        sidecar from :meth:`load_metadata`) are streamed; values are read as
-        already unbiased. Direct callers must close the returned reader.
-        """
-        chromosome = self.open_chromosome(chrom)
-        if metadata is None:
-            metadata = self._load_reference(chromosome)[0]
-        return chromosome.pair_reader(metadata, self.global_config.snp_identifier, self.global_config.genome_build)
 
     def prepare_chromosome(self, chrom, annotations, config, *, genetic_map=None):
         """Prepare a sidecar-aligned streaming reader over a contract-validated R2 Parquet file."""

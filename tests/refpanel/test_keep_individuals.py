@@ -9,6 +9,10 @@ The expected rows come from the ``.fam`` text itself. The fixture is the
 32-SNP chromosome-22 panel with 3,202 individuals; the keep list names fifteen
 individuals near the start of the ``.fam`` and the last ten, so a repeated IID
 can push a selected row past the last individual.
+
+IIDs are text: a numeric-looking IID matches only the same text, so ``01003``
+does not match ``1003``, and a numeric keep list matches a ``.fam`` that also
+holds non-numeric IIDs.
 """
 import importlib.util
 import json
@@ -126,3 +130,26 @@ def test_gene_index_with_a_repeated_iid_matches_the_keep_file_listing_it_once(tm
         pd.testing.assert_frame_equal(indexes[name][1], indexes["once"][1], check_exact=True, obj=name)
         for key, values in indexes["once"][2].items():
             np.testing.assert_array_equal(indexes[name][2][key], values, err_msg=f"{name} {key}")
+
+
+def write_fam(path: Path, iids: list[str]) -> Path:
+    path.write_text("".join(f"F{row} {iid} 0 0 0 -9\n" for row, iid in enumerate(iids)), encoding="utf-8")
+    return path
+
+
+NUMERIC_LOOKING = {
+    # FAM IIDs, keep-file IIDs. The .fam and keep file are text: an ID matches only its exact text.
+    "mixed_fam_numeric_keep": (["1001", "A2", "1003"], ["1001", "1003"]),
+    "leading_zero": (["1003", "01003", "1004"], ["01003"]),
+    "numeric_fam_mixed_keep": (["1001", "1002"], ["1002", "B7"]),
+}
+
+
+@pytest.mark.parametrize("fam_iids, keep_iids", NUMERIC_LOOKING.values(), ids=NUMERIC_LOOKING.keys())
+def test_numeric_looking_iids_match_by_their_exact_text(tmp_path, fam_iids, keep_iids):
+    expected = [row for row, iid in enumerate(fam_iids) if iid in set(keep_iids)]
+    fam = PlinkFAMFile(str(write_fam(tmp_path / "panel.fam", fam_iids)))
+
+    selected = keep_individual_indices(read_keep_individuals(str(write_keep(tmp_path / "keep.txt", keep_iids))), fam)
+
+    assert selected == expected

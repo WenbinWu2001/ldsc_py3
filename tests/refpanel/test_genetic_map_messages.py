@@ -61,3 +61,36 @@ def test_genetic_map_troubleshooting_sections_exist(anchor):
         GENE_INDEX_DOC: "### `build-gene-ldscore-index`: a genetic map cannot be used",
     }[anchor]
     assert heading in TROUBLESHOOTING.read_text(encoding="utf-8").splitlines()
+
+
+def test_gene_index_build_rejects_a_map_without_an_index_chromosome(tmp_path, monkeypatch):
+    from ldsc._ldscore.gene_index import build as index
+    from tests.gene_index_helpers import narrow_index_chromosomes
+    from tests.ref_panel_helpers import ORIENTATION_PANEL, write_counted_plink
+
+    narrow_index_chromosomes(monkeypatch, ["1"])
+    write_counted_plink(tmp_path / "panel", ORIENTATION_PANEL)
+    rows = pd.DataFrame({"CHR": "1", "SNP": [row[0] for row in ORIENTATION_PANEL], "POS": [10, 20, 30, 40, 50]})
+    rows.assign(base=1).to_csv(tmp_path / "baseline.annot", sep="\t", index=False)
+    rows.to_csv(tmp_path / "regression.tsv", sep="\t", index=False)
+    pd.DataFrame({"gene_id": ["G1"], "gene_name": ["Gene1"], "chrom": ["1"], "start": [1], "end": [5],
+                  "genome_build": ["hg19"]}).to_csv(tmp_path / "genes.tsv", sep="\t", index=False)
+    genetic_map = tmp_path / "map_chr2.txt"
+    pd.DataFrame({"CHR": ["2", "2"], "POS": [1, 100], "CM": [0.0, 1.0]}).to_csv(genetic_map, sep=" ", index=False)
+    config = GeneLDScoreIndexBuildConfig(
+        baseline_annot_sources=(str(tmp_path / "baseline.annot"),), plink_prefix=str(tmp_path / "panel"),
+        output_dir=str(tmp_path / "index"), gene_coordinate_file=str(tmp_path / "genes.tsv"), genome_build="hg19",
+        snp_identifier="rsid", regr_snps_file=str(tmp_path / "regression.tsv"), regr_snps_exclude_regions="none",
+        gene_exclude_regions="none", ld_wind_cm=1.0)
+
+    with pytest.raises(LDSCInputError) as raised:
+        index._build(config, genetic_map_sources={"hg19": str(genetic_map), "hg38": None},
+                     overwrite=False, log_level="INFO")
+
+    message = str(raised.value)
+    assert "build-gene-ldscore-index could not use genetic map" in message
+    assert "no rows for chromosome 1" in message
+    assert GENE_INDEX_DOC in message
+    assert "ldscore could not" not in message
+    # The input gate stops the build before any chromosome task starts.
+    assert not index._chromosome_log_dir(tmp_path / "index" / ".build").exists()

@@ -562,7 +562,7 @@ Let any such build finish before building the same destination, then remove thos
 
 ### `build-gene-ldscore-index`: a genetic map cannot be used
 
-**Symptom:** `build-gene-ldscore-index could not load genetic map ...` / `...could not combine genetic map inputs...`
+**Symptom:** `build-gene-ldscore-index could not load genetic map ...` / `...could not combine genetic map inputs...` / `...could not use genetic map: it has no rows for chromosome N of the index...`
 
 The builder reads a genetic map only with `--ld-wind-cm`, and only the map for `--genome-build`.
 
@@ -580,7 +580,7 @@ The builder reads a genetic map only with `--ld-wind-cm`, and only the map for `
 2. Pass the map for `--genome-build`, covering every chromosome of the index.
 3. Use `--ld-wind-kb` or `--ld-wind-snps` and omit the map when no usable map is available; this builds a different index.
 
-**Developer reference:** `_ldscore.gene_index.build._load_builder_genetic_map()` and `_refpanel.genetic_map` · **Exception:** `LDSCInputError`
+**Developer reference:** `_ldscore.gene_index.build._load_builder_genetic_map()`, `_ldscore.gene_index.build._require_map_chromosomes()` and `_refpanel.genetic_map` · **Exception:** `LDSCInputError`
 
 ### `build-gene-ldscore-index`: required identity or build option is missing
 

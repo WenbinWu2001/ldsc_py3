@@ -80,7 +80,7 @@ from ..._runtime.workflow_logging import (
 )
 from ..._annotation.storage import AnnotationWorkspace, FrameSpool
 from ..._annotation.sources import prepare_annotation_sources
-from ..._core.chromosomes import normalize_chromosome, normalize_chromosome_series
+from ..._core.chromosomes import chrom_sort_key, normalize_chromosome, normalize_chromosome_series
 from ..._core.coordinates import positive_int_position_series
 from ..._core.columns import normalize_genome_build
 from ...config import (
@@ -111,7 +111,7 @@ from . import artifact as index_artifact
 from ..._annotation.preflight import inspect_annotation_inputs
 from ..._genome.build_policy import GenomeBuildCheck
 from ..._runtime.preflight import InputGate
-from ..._refpanel.genetic_map import GENETIC_MAP_HEADER_CHECKS, load_genetic_map_group
+from ..._refpanel.genetic_map import GENETIC_MAP_HEADER_CHECKS, GENETIC_MAP_TROUBLESHOOTING, load_genetic_map_group
 
 
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
@@ -772,7 +772,8 @@ def _run_gene_ldscore_index_build(
         regression_keys = gate.check('regression SNPs', regression_path,
             lambda: read_snp_restriction_keys(regression_path, config.snp_identifier, genome_build=config.genome_build))
         genetic_map = gate.check('genetic map', genetic_map_sources[config.genome_build],
-                                 lambda: _load_builder_genetic_map(config, genetic_map_sources))
+                                 lambda: _require_map_chromosomes(
+                                     _load_builder_genetic_map(config, genetic_map_sources), chromosomes))
         plink = inspect_plink_inputs(config.plink_prefix, chromosomes=chromosomes, require_complete_suite=True,
                                      discovered_members=declared_inputs.files['plink_members'])
         try:
@@ -1341,6 +1342,22 @@ def _load_builder_genetic_map(config: GeneLDScoreIndexBuildConfig, genetic_map_s
     check.paths("genetic map", sources)
     check.resolve()
     return load_genetic_map_group(split_cli_path_tokens(sources), command="build-gene-ldscore-index")
+
+
+def _require_map_chromosomes(genetic_map: pd.DataFrame | None, chromosomes) -> pd.DataFrame | None:
+    """Reject a loaded genetic map that has no rows for an index chromosome, before any task starts."""
+    if genetic_map is None:
+        return None
+    missing = sorted(set(chromosomes).difference(genetic_map["CHR"]), key=chrom_sort_key)
+    if missing:
+        raise LDSCInputError(
+            f"build-gene-ldscore-index could not use genetic map: it has no rows for chromosome"
+            f"{'s' if len(missing) > 1 else ''} {', '.join(missing)} of the index, so cM positions there "
+            "cannot be interpolated. Most likely the map is for the other genome build or covers only some "
+            "chromosomes. Pass a map for --genome-build that covers every index chromosome. "
+            f"Other causes & fixes: {GENETIC_MAP_TROUBLESHOOTING['build-gene-ldscore-index']}"
+        )
+    return genetic_map
 
 
 def _retained_baseline_content_sha256(

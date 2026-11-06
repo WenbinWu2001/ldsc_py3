@@ -87,7 +87,8 @@ It has no threshold, repeats the WARNING already written to the workflow log, an
 In allele-aware modes these include panel rows with missing, non-ACGT or identical alleles ([reference-panel rows without an allele-aware SNP identity](ldscore-snp-universes.md#reference-panel-rows-without-an-allele-aware-snp-identity)); in every mode they include duplicate identities, and for `build-r2-matrix` liftover drops.
 `build-gene-ldscore-index` also prints one notice naming the chromosomes that kept zero regression SNPs after the regression-SNP restriction and region exclusions: `WARNING: build-gene-ldscore-index published an index in which chromosome <n> has zero regression SNPs ...`; the build log holds one WARNING per such chromosome.
 `rg` prints one notice when aligning the traits' alleles dropped SNPs, with the A/T and C/G count and the count of SNPs whose traits list different allele pairs ([allele alignment between traits](regression-options.md#31-allele-alignment-between-traits)).
-Python entry points print no console notices; callers inspect the returned statuses and paths.
+The command-line entry point prints these notices after the run has returned; Python entry points print no console notices, and callers inspect the returned statuses and paths.
+The gene-list and BED query notices of `ldscore` and `annotate` are also written to the workflow log as WARNING lines, for command-line and Python runs alike.
 
 In `ldscore`, the successful gene-list notice distinguishes unsupported gene-list rows from queries skipped after LD-score computation.
 It reports an unsupported-row count only when that count is positive, explains each SNP-support or zero-variance outcome in words, and states that skipped queries are omitted from LD-score outputs.

@@ -154,6 +154,5 @@ def run_from_kwargs(
     entry point it calls.
     """
     args = namespace_from_kwargs(function, parser, kwargs, rejected=SAVED_INPUT_RUNTIME_OPTIONS, registered=registered)
-    args._emit_console_notices = False  # Python callers read results and logs, not stderr notices.
     with overwrite_failure_marker(args.output_dir, overwrite=args.overwrite, command=f"Python API: {function}(...)"):
         return run_from_args(args)

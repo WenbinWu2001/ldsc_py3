@@ -414,8 +414,6 @@ def run_rg_from_args(args):
         anchor_trait=args.anchor_trait, samp_prev=args.samp_prev, pop_prev=args.pop_prev,
         prevalence_manifest=args.prevalence_manifest, output_dir=args.output_dir, overwrite=args.overwrite,
         write_per_pair_detail=args.write_per_pair_detail, log_level=args.log_level,
-        # run_from_kwargs turns the notice off for Python callers; the command line prints it.
-        emit_console_notices=getattr(args, "_emit_console_notices", True),
     )
 
 
@@ -433,7 +431,6 @@ def _run_rg(
     overwrite: bool,
     write_per_pair_detail: bool,
     log_level: str,
-    emit_console_notices: bool,
 ) -> RgResultFamily:
     """Estimate genetic correlations from typed settings and write the ``rg`` result family.
 
@@ -523,16 +520,16 @@ def _run_rg(
             f"Finished rg regression for {len(result.rg)} trait pairs "
             f"and {len(result.h2_per_trait)} traits."
         )
-    if emit_console_notices:
-        _emit_rg_alignment_notice(result)
     return replace(result, output_paths=written)
 
 
-def _emit_rg_alignment_notice(result: RgResultFamily) -> None:
+def emit_rg_notices(result: RgResultFamily) -> None:
     """Print one stderr WARNING when harmonization dropped SNPs from any rg pair.
 
-    The workflow log already holds each pair's line; the notice exists because
-    batch-scheduler users rarely read logs after a successful run.
+    ``ldsc rg`` calls this after a successful run (``ldsc.cli._COMMANDS``);
+    Python callers read the counts from the result. The workflow log already
+    holds each pair's line; the notice exists because batch-scheduler users
+    rarely read logs after a successful run.
     """
     unknown = sum(result.dropped_orientation_unknown_rows or [])
     incompatible = sum(result.dropped_incompatible_allele_rows or [])

@@ -1959,7 +1959,7 @@ def test_ldscore_parser_accepts_control_gene_list_file_in_indexed_mode():
 
 
 def test_explicit_indexed_mode_dispatches_without_live_reference(monkeypatch, tmp_path):
-    sentinel = object()
+    sentinel = SimpleNamespace(query_statuses=(), gene_list_batch=None, output_paths={})
     captured = {}
 
     def fake_run(index_dir, **kwargs):

@@ -91,7 +91,7 @@ from ..errors import (
 )
 from .._annotation.query_outcomes import (
     gene_query_statuses, gene_viability_errors, all_query_annotations_skipped_message,
-    emit_bed_query_notice, emit_gene_gate_b_notice, emit_resolved_only_notice,
+    bed_query_notice, gene_gate_b_notice, log_notices, print_notices, resolved_only_notice,
 )
 from .._genome.build_policy import GenomeBuildCheck
 from .._annotation.gene_lists import GeneCatalog, GeneCatalogValidationError
@@ -444,7 +444,6 @@ class _DirectConfigs:
     ldscore_config: LDScoreConfig
     output_config: LDScoreOutputConfig
     regr_snps_exclude_regions: str
-    emit_console_notices: bool
 
     @property
     def has_queries(self) -> bool:
@@ -477,7 +476,6 @@ class _IndexedConfigs:
     output_dir: str
     overwrite: bool
     log_level: str
-    emit_console_notices: bool
 
 
 @materializing_overwrite_guard(
@@ -592,9 +590,8 @@ def _configs_from_args(args: argparse.Namespace) -> "_DirectConfigs | _IndexedCo
     explicit_options = args._explicit_cli_options
     _validate_padding_usage(args)
     _validate_gene_list_mode_args(args, explicit_options)
-    emit_console_notices = bool(getattr(args, "_emit_query_console_notices", False))
     if args.gene_ldscore_index_dir is not None:
-        return _indexed_configs(args, explicit_options, emit_console_notices)
+        return _indexed_configs(args, explicit_options)
     gene_lists = tuple(split_cli_path_tokens(args.query_annot_gene_list_sources))
     if not _has_cli_tokens(args.baseline_annot_sources) and (
         gene_lists or _has_cli_tokens(args.query_annot_sources) or _has_cli_tokens(args.query_annot_bed_sources)
@@ -663,7 +660,6 @@ def _configs_from_args(args: argparse.Namespace) -> "_DirectConfigs | _IndexedCo
         ldscore_config=ldscore_config,
         output_config=LDScoreOutputConfig(output_dir=normalize_path_token(args.output_dir), overwrite=args.overwrite),
         regr_snps_exclude_regions=args.regr_snps_exclude_regions,
-        emit_console_notices=emit_console_notices,
     )
 
 
@@ -793,11 +789,7 @@ def _run_direct_ldscore(configs: _DirectConfigs) -> "LDScoreSource":
                 skipped_funnels=skipped_funnels, deferred_queries=deferred_queries)
             log_query_outcomes(result.gene_list_batch, result.query_statuses)
             log_outputs(**result.output_paths)
-            if configs.emit_console_notices:
-                emit_gene_gate_b_notice(result.query_statuses, result.gene_list_batch, command="ldscore")
-                emit_resolved_only_notice(result.gene_list_batch)
-                emit_bed_query_notice(result.query_statuses, command="ldscore")
-                _emit_reference_snp_notices(result.output_paths)
+            log_notices(_query_notices(result))
             return dataclass_replace(result, gene_list_batch=persistent_gene_diagnostics(result.gene_list_batch,
                                                                                          result.output_paths))
 
@@ -855,7 +847,7 @@ _INDEX_OWNED_OPTIONS = frozenset({
 })
 
 
-def _indexed_configs(args: argparse.Namespace, explicit_options, emit_console_notices: bool) -> _IndexedConfigs:
+def _indexed_configs(args: argparse.Namespace, explicit_options) -> _IndexedConfigs:
     """Check the closed indexed gene-list mode: no direct-run option, gene lists, valid execution settings."""
     supplied = sorted(explicit_options & _INDEX_OWNED_OPTIONS)
     if supplied:
@@ -880,7 +872,6 @@ def _indexed_configs(args: argparse.Namespace, explicit_options, emit_console_no
         output_dir=args.output_dir,
         overwrite=args.overwrite,
         log_level=args.log_level,
-        emit_console_notices=emit_console_notices,
     )
 
 
@@ -911,14 +902,7 @@ def _run_explicit_indexed_ldscore(configs: _IndexedConfigs) -> "LDScoreSource":
             overwrite=configs.overwrite,
             main_log_open=True,
         )
-        if configs.emit_console_notices:
-            emit_gene_gate_b_notice(
-                getattr(result, "query_statuses", ()),
-                getattr(result, "gene_list_batch", None),
-                command="ldscore",
-            )
-            emit_resolved_only_notice(getattr(result, "gene_list_batch", None))
-            _emit_reference_snp_notices(getattr(result, "output_paths", None) or {})
+        log_notices(_query_notices(result))
         output_paths = getattr(result, "output_paths", None)
         if output_paths:
             log_outputs(**output_paths)
@@ -1124,7 +1108,6 @@ def run_ldscore(**kwargs) -> "LDScoreSource":
     args = namespace_from_kwargs(
         "run_ldscore", build_parser(), kwargs, rejected=GLOBAL_CONFIG_RUNTIME_OPTIONS, registered=get_global_config(),
     )
-    args._emit_query_console_notices = False
     # The outer marker scope makes a failed overwrite name this function, not run_ldscore_from_args.
     with overwrite_failure_marker(args.output_dir, overwrite=args.overwrite, command="Python API: run_ldscore(...)"):
         return run_ldscore_from_args(args)
@@ -1135,8 +1118,10 @@ def main(argv: Sequence[str] | None = None) -> LDScoreSource:
     from .._runtime.workflow_kwargs import parse_command_line
 
     args = parse_command_line(build_parser(), list(sys.argv[1:] if argv is None else argv))
-    args._emit_query_console_notices = True
-    return run_ldscore_from_args(args)
+    result = run_ldscore_from_args(args)
+    print_notices(_query_notices(result))
+    _emit_reference_snp_notices(result.output_paths)
+    return result
 
 
 def _resolve_ldscore_chr_pos_genome_build(
@@ -1225,6 +1210,13 @@ def _regression_region_intervals(
             "Pass `--genome-build hg19` or `--genome-build hg38`, or use `--regr-snps-exclude-regions none`."
         )
     return kernel_regions.load_preset_intervals(presets, build)
+
+
+def _query_notices(result) -> list[str | None]:
+    """Return a run's gene-list and BED query notices in console order, ``None`` where one does not apply."""
+    return [gene_gate_b_notice(result.query_statuses, result.gene_list_batch, command="ldscore"),
+            resolved_only_notice(result.gene_list_batch),
+            bed_query_notice(result.query_statuses, command="ldscore")]
 
 
 def _emit_reference_snp_notices(output_paths: dict) -> None:

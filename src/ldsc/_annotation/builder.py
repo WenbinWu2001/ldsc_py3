@@ -17,9 +17,10 @@ from .bundle import AnnotationBundle
 from .saved_results import AnnotationResult
 from .loading import build_annotation_shards
 from .._runtime.scratch import ScratchWorkspace
-from .._core.snp_identity import DEFAULT_SNP_IDENTIFIER, SNP_IDENTIFIER_MODES, identity_mode_family, normalize_snp_identifier_mode
+from .._core.snp_identity import DEFAULT_SNP_IDENTIFIER, SNP_IDENTIFIER_MODES, emit_dropped_snps_notice, identity_mode_family, normalize_snp_identifier_mode
 from .._runtime.workflow_logging import materializing_overwrite_guard
-from .annotate import run_annotate
+from .annotate import query_notices, run_annotate
+from .query_outcomes import print_notices
 from ..config import AnnotationBuildConfig, GlobalConfig
 from ..errors import LDSCUsageError
 from .outputs import AnnotationDirectoryWriter
@@ -291,7 +292,6 @@ def run_annotate_from_args(args: argparse.Namespace) -> AnnotationResult:
         gene_coordinate_file=getattr(args, "gene_coordinate_file", None), padding_bp=getattr(args, "padding_bp", None),
         gene_list_resolution_policy=getattr(args, "gene_list_resolution_policy", None), gene_exclude_regions=getattr(args, "gene_exclude_regions", None),
         genome_build=requested, global_config=config, overwrite=getattr(args, "overwrite", False),
-        _console_notices=True,
     )
 
 
@@ -299,6 +299,10 @@ def main(argv: Sequence[str] | None = None) -> AnnotationResult:
     """Parse annotation arguments, run projection, and return the result.
 
     Direct ``ldsc annotate`` dispatch uses it, as do script-style invocations
-    that want parser behavior plus the produced result object.
+    that want parser behavior plus the produced result object. After a
+    successful run it prints the run's notices to stderr.
     """
-    return run_annotate_from_args(parse_annotate_args(argv))
+    result = run_annotate_from_args(parse_annotate_args(argv))
+    print_notices(query_notices(result))
+    emit_dropped_snps_notice([result.output_paths['dropped_snps']], command='annotate')
+    return result

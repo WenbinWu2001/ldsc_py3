@@ -632,7 +632,9 @@ class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
         self.assertEqual(stdout.getvalue(), "")
 
     def test_cli_does_not_print_rg_table_when_output_dir_is_supplied(self):
-        expected = type("Result", (), {"rg": pd.DataFrame([{"trait_1": "a"}])})()
+        expected = type("Result", (), {"rg": pd.DataFrame([{"trait_1": "a"}]),
+                                       "dropped_orientation_unknown_rows": [0],
+                                       "dropped_incompatible_allele_rows": [0]})()
 
         stdout = io.StringIO()
         with mock.patch.object(commands, "run_rg_from_args", return_value=expected), contextlib.redirect_stdout(stdout):

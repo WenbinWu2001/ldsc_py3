@@ -55,6 +55,12 @@ class _Command:
     ``add_arguments`` fills a no-abbreviation parser and ``run`` takes the
     parsed namespace. ``read_only`` commands write nothing and open no
     workflow log, so their errors give no workflow-log advice.
+
+    A command's successful-run notices are printed to stderr by its
+    command-line side once the run has returned, never by the workflow, so
+    Python entry points print none: a module's ``main(argv)`` prints them, and
+    for a ``run`` command ``notices`` names the module function that takes
+    the returned result and prints them.
     """
 
     help: str
@@ -62,6 +68,7 @@ class _Command:
     add_arguments: str | None = None
     run: str | None = None
     read_only: bool = False
+    notices: str | None = None
 
 
 # The subcommands, in `ldsc --help` order.
@@ -90,7 +97,10 @@ _COMMANDS = {
         "Summarize fitted heritability across annotation quantiles.",
         "._regression.quantile_h2", "add_quantile_h2_arguments", "run_quantile_h2_from_args",
     ),
-    "rg": _Command("Estimate genetic correlation.", "._regression.commands", "add_rg_arguments", "run_rg_from_args"),
+    "rg": _Command(
+        "Estimate genetic correlation.", "._regression.commands", "add_rg_arguments", "run_rg_from_args",
+        notices="emit_rg_notices",
+    ),
     "query-r2-matrix": _Command("Look up R2 for SNP pairs in an R2 matrix.", "._refpanel.query"),
     "convert-h2-scale": _Command(
         "Convert a saved observed-scale SNP heritability estimate to liability scale.",
@@ -171,7 +181,10 @@ def main(argv: Sequence[str] | None = None):
         return module.main(argv[1:])
     from ._runtime.workflow_kwargs import parse_command_line
 
-    return getattr(module, command.run)(parse_command_line(_command_parser(argv[0]), argv[1:]))
+    result = getattr(module, command.run)(parse_command_line(_command_parser(argv[0]), argv[1:]))
+    if command.notices is not None:
+        getattr(module, command.notices)(result)
+    return result
 
 
 def run_cli(argv: Sequence[str] | None = None) -> int:

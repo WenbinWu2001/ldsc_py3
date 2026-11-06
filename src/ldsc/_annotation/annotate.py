@@ -18,7 +18,7 @@ from .interval_queries import prepare_bed_queries, build_query_shards, require_r
 from .sources import prepare_annotation_sources
 from .._runtime.scratch import ScratchWorkspace
 from .gene_query_storage import resolve_gene_lists_staged
-from .._core.snp_identity import emit_dropped_snps_notice, identity_mode_family
+from .._core.snp_identity import identity_mode_family
 from .._runtime.workflow_logging import workflow_logging, materializing_overwrite_guard, log_inputs, log_outputs
 from .preflight import (
     annotation_columns, gene_list_gate_a_error, inspect_annotation_inputs, require_usable_bed_query_names,
@@ -32,7 +32,7 @@ from .saved_results import annotation_result
 from .._runtime.paths import ensure_output_directory, split_cli_path_tokens
 from .query_outcomes import (
     gene_query_statuses, gene_viability_errors, all_query_annotations_skipped_message,
-    emit_bed_query_notice, emit_gene_gate_b_notice, emit_resolved_only_notice,
+    bed_query_notice, gene_gate_b_notice, log_notices, resolved_only_notice,
     log_gene_catalog_issues,
     log_gene_list_rejections,
     log_gene_list_snp_support,
@@ -87,7 +87,7 @@ class _AnnotationRowSupport:
 def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=None,
                  query_annot_bed_sources=None, query_annot_gene_list_sources=None,
                  gene_coordinate_file=None, padding_bp=None, gene_list_resolution_policy=None, gene_exclude_regions=None,
-                 genome_build=None, global_config=None, overwrite=False, _console_notices=False):
+                 genome_build=None, global_config=None, overwrite=False):
     """Write BED or gene-list query annotations and return a record of the written files.
 
     Parameters
@@ -263,11 +263,7 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
             if bundle.gene_list_batch is not None:
                 log_gene_list_snp_support(bundle.gene_list_batch)
             log_query_annotation_statuses(bundle.query_statuses)
-            if _console_notices:
-                emit_resolved_only_notice(bundle.gene_list_batch)
-                emit_gene_gate_b_notice(bundle.query_statuses, bundle.gene_list_batch, command='annotate')
-                emit_bed_query_notice(bundle.query_statuses, command='annotate')
-                emit_dropped_snps_notice([bundle.output_paths['dropped_snps']], command='annotate')
+            log_notices(query_notices(bundle))
             log_outputs(**bundle.output_paths)
             counts = prepared.snp_rows
             LOGGER.info("%s SNP rows: input=%s, output=%s, dropped=%s.",
@@ -283,3 +279,14 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
         finally:
             workspace.close()
         raise
+
+
+def query_notices(result) -> list:
+    """Return an annotate run's gene-list and BED query notices in console order, ``None`` where one does not apply.
+
+    ``result`` is the run's annotation bundle or the returned ``AnnotationResult``;
+    the workflow logs these notices and ``ldsc annotate`` also prints them.
+    """
+    return [resolved_only_notice(result.gene_list_batch),
+            gene_gate_b_notice(result.query_statuses, result.gene_list_batch, command='annotate'),
+            bed_query_notice(result.query_statuses, command='annotate')]

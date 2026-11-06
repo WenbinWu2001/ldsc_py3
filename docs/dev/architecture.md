@@ -131,6 +131,7 @@ This is the only command-line entry point.
 It parses subcommands, preserves the user-facing CLI contract, and hands control to the public workflow modules.
 The `_COMMANDS` table lists each subcommand once, with its one-line help, its workflow module, and either the module's own `build_parser()` and `main(argv)` or the `add_*_arguments` and `run_*_from_args` functions for a parser the CLI builds.
 A workflow module is imported only when its command is parsed or run, so `ldsc --help` does not import the SciPy-heavy workflows.
+Successful-run stderr notices are decided one way: the command-line side prints them from the returned result once the run has returned, the module's `main(argv)` for a module that parses its own arguments and, for a `run_*_from_args` command, the module function the `_COMMANDS` row names in `notices` (`rg`); workflows only log them, so Python entry points print none.
 Architecture invariant: CLI code should dispatch only; it should not contain numerical logic.
 
 ### `ldsc.config`, `ldsc._runtime.paths`, `ldsc._core.columns`, `ldsc._core.chromosomes`, `ldsc._genome.build_inference`
@@ -419,7 +420,7 @@ Each passes its keyword arguments and the registered `GlobalConfig` to `_runtime
 The `*_from_args()` functions remain module-level CLI dispatch targets and are not exported from `ldsc`.
 Each is a thin adapter: it turns the parsed arguments into typed settings before any output preflight and calls the command's typed body.
 `_configs_from_args(args, command)` returns the registered `GlobalConfig`, the SNP identifier fallback for an input without recorded provenance, and the `RegressionConfig`, built with the scalar prevalences for `h2` and `partitioned-h2` and without prevalences for `rg`.
-`_run_h2()`, `_run_partitioned_h2()` and `_run_rg()` take those two configs and the other options (inputs, output directory, overwrite, log level, and the command's own options such as workers, query batch size or console notices) as keyword arguments.
+`_run_h2()`, `_run_partitioned_h2()` and `_run_rg()` take those two configs and the other options (inputs, output directory, overwrite, log level, and the command's own options such as workers or query batch size) as keyword arguments.
 `run_partitioned_h2()` checks `workers` and `query_batch_size` before it calls `run_from_kwargs()`, because their argparse types check them only on the command line; like an argparse error, an invalid value then writes nothing, not even the `RUN_FAILED` marker.
 `run_h2_from_args()` returns an `H2Result`, `run_partitioned_h2_from_args()` the complete `PartitionedH2BatchResult`, and `run_rg_from_args()` the `RgResultFamily` with the paths written.
 The three typed bodies share `_inspect_regression_inputs()`, which checks the declared summary statistics, prevalence manifest and LD-score directory before any input is loaded.

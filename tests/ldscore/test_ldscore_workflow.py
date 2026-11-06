@@ -7,7 +7,6 @@ from tests.ref_panel_helpers import compute_plink, open_r2_matrix_chromosome, pl
 from contextlib import contextmanager
 from dataclasses import fields as dataclass_fields, replace as dataclass_replace
 import importlib.util
-from io import StringIO
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,7 +21,7 @@ import pytest
 
 from ldsc.config import ConfigMismatchError, GlobalConfig
 from ldsc.errors import LDSCInputError, LDSCInternalError, LDSCUsageError
-from ldsc._annotation.query_outcomes import QueryAnnotationStatus, emit_gene_gate_b_notice
+from ldsc._annotation.query_outcomes import QueryAnnotationStatus, gene_gate_b_notice
 
 from ldsc import (
     AnnotationBuildConfig,
@@ -1465,14 +1464,11 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertEqual(summary["zero_support_genes"].tolist(), [1, 1, 0])
             self.assertEqual(summary["genes_with_snp_support"].tolist(), [1, 0, 1])
 
-            stream = StringIO()
-            with mock.patch("sys.stderr", stream):
-                emit_gene_gate_b_notice(
-                    gated.query_statuses,
-                    gated.gene_list_batch,
-                    command="ldscore",
-                )
-            notice = stream.getvalue()
+            notice = gene_gate_b_notice(
+                gated.query_statuses,
+                gated.gene_list_batch,
+                command="ldscore",
+            )
             self.assertIn("2 gene-list row(s) have no retained reference-SNP support", notice)
             self.assertIn("1 query annotation(s) retained despite some genes having no retained reference-SNP support (partial_snp_support)", notice)
             self.assertIn("1 query annotation(s) skipped because they overlap no retained reference SNPs (zero_annotation_snps)", notice)

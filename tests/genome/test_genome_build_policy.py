@@ -30,7 +30,6 @@ def ldscore_configs(*, baseline_annot_sources=(), query_annot_bed_sources=(), pl
         ldscore_config=LDScoreConfig(ld_wind_kb=1.0, regr_snps_file=regr_snps_file),
         output_config=LDScoreOutputConfig(output_dir="out"),
         regr_snps_exclude_regions="none",
-        emit_console_notices=False,
     )
 
 

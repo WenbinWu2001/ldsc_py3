@@ -128,6 +128,9 @@ def test_command_lines_record_explicit_options_like_their_keyword_wrappers(monke
     from ldsc import cli
 
     parsed = []
-    monkeypatch.setattr(import_module(module), run, lambda args: parsed.append(args) or SimpleNamespace(output_paths={}))
+    # A successful result with nothing for the command line to report.
+    result = SimpleNamespace(output_paths={}, query_statuses=(), gene_list_batch=None,
+                             dropped_orientation_unknown_rows=[], dropped_incompatible_allele_rows=[])
+    monkeypatch.setattr(import_module(module), run, lambda args: parsed.append(args) or result)
     cli.main(argv)
     assert parsed[0]._explicit_cli_options == {token.split("=", 1)[0] for token in argv if token.startswith("--")}

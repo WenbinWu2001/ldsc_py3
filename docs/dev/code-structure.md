@@ -81,7 +81,7 @@ The lazily exported workflows in `ldsc/__init__.py` and the per-command modules 
 
 | Module | Responsibility |
 | --- | --- |
-| `ldsc.cli` | unified `ldsc` command; the `_COMMANDS` table maps each subcommand to its workflow module and entry functions |
+| `ldsc.cli` | unified `ldsc` command; the `_COMMANDS` table maps each subcommand to its workflow module and entry functions, including the function that prints a `run_*_from_args` command's successful-run notices (`notices`) |
 | `ldsc.config` | frozen public config dataclasses and basic validation, including the one binary-trait prevalence rule (`validate_prevalences()`, vectorized, which `normalize_prevalence_pair()`, `liability_conversion_factor()` and `convert-h2-scale` call) and the one LD-window rule that `LDScoreConfig`, `R2MatrixBuildConfig` and `GeneLDScoreIndexBuildConfig` share (`LDWindow`, returned by their `ld_window` property) |
 | `ldsc._core.chromosomes` | canonical chromosome normalization and ordering |
 | `ldsc._core.columns` | resolve header aliases and normalize identifier/build tokens |

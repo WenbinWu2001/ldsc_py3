@@ -74,6 +74,10 @@ def test_annotate_cli_names_skipped_bed_queries_and_python_api_stays_quiet(tmp_p
     run_annotate(ref_snp_annot_sources=baseline, query_annot_bed_sources=[bed, empty],
                  global_config=RSID, output_dir=tmp_path / 'api')
     assert capsys.readouterr().err == ''
+    # Both routes log the notice; only the command line prints it.
+    for run in ('cli', 'api'):
+        log = (tmp_path / run / 'diagnostics' / 'annotate.log').read_text()
+        assert '[WARNING] 1 of 2 BED query annotation(s) were skipped' in log
 
 
 def test_annotate_cli_reports_gene_list_omissions_and_support(tmp_path, capsys):

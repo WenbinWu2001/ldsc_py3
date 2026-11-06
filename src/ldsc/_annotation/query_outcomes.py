@@ -331,13 +331,13 @@ def all_query_annotations_skipped_message(statuses: Sequence[QueryAnnotationStat
     )
 
 
-def emit_resolved_only_notice(batch: Any | None) -> None:
-    """Emit the one bounded successful-run warning that must reach the console."""
+def resolved_only_notice(batch: Any | None) -> str | None:
+    """Return the bounded successful-run notice for gene-list rows that ``resolved-only`` omitted, or ``None``."""
     if batch is None or batch.resolution_policy != "resolved-only":
-        return
+        return None
     affected = batch.summary[batch.summary["rejected_rows"].fillna(0).gt(0)]
     if affected.empty:
-        return
+        return None
     total = int(batch.summary["nonblank_input_rows"].fillna(0).sum())
     rejected = int(batch.summary["rejected_rows"].fillna(0).sum())
     sources = ", ".join(
@@ -345,25 +345,23 @@ def emit_resolved_only_notice(batch: Any | None) -> None:
         for row in affected.head(MAX_CONSOLE_GENE_ISSUES).itertuples(index=False)
     )
     extra = max(0, len(affected) - MAX_CONSOLE_GENE_ISSUES)
-    message = (
-        f"WARNING: --allow-unresolved-genes completed with {rejected} of {total} "
+    return (
+        f"--allow-unresolved-genes completed with {rejected} of {total} "
         f"submitted row(s) omitted: {sources}"
         + (f", plus {extra} more affected source(s)" if extra else "")
         + ". See diagnostics/gene_list_resolution_summary.tsv and diagnostics/gene_list_audit.tsv.gz."
     )
-    LOGGER.warning(message.removeprefix("WARNING: "))
-    print(message, file=sys.stderr)
 
 
-def emit_gene_gate_b_notice(
+def gene_gate_b_notice(
     statuses: Sequence[QueryAnnotationStatus],
     batch: Any | None,
     *,
     command: str,
-) -> None:
-    """Emit one bounded successful-run notice for gene support/query viability."""
+) -> str | None:
+    """Return the bounded successful-run notice for gene support and query viability, or ``None``."""
     if batch is None:
-        return
+        return None
     unsupported_rows = sum(int(frame.disposition.eq("unsupported").sum()) for frame in batch.audit_frames())
     gate_b_reasons = {
         "partial_snp_support",
@@ -377,7 +375,7 @@ def emit_gene_gate_b_notice(
         or "zero reference-SNP support" in (status.details or "")
     ]
     if unsupported_rows == 0 and not affected:
-        return
+        return None
     checks, outputs = _NOTICE_WORDING[command]
     displayed = affected[:MAX_CONSOLE_GENE_ISSUES]
     outcomes = ", ".join(f"{status.query}={status.reason}" for status in displayed)
@@ -393,8 +391,8 @@ def emit_gene_gate_b_notice(
         count = sum(status.reason == reason for status in affected)
         if count:
             summaries.append(f"{count} query annotation(s) {explanation} ({reason})")
-    message = (
-        f"WARNING: {checks}"
+    return (
+        f"{checks}"
         + (": " + "; ".join(summaries) if summaries else "")
         + "."
         + (f" Skipped queries are omitted from {outputs}." if any(status.status == "skipped" for status in affected) else "")
@@ -404,27 +402,46 @@ def emit_gene_gate_b_notice(
         + " See diagnostics/query_annotation_status.tsv, diagnostics/gene_list_resolution_summary.tsv, "
         "and diagnostics/gene_list_audit.tsv.gz."
     )
-    LOGGER.warning(message.removeprefix("WARNING: "))
-    print(message, file=sys.stderr)
 
 
-def emit_bed_query_notice(statuses: Sequence[QueryAnnotationStatus], *, command: str) -> None:
-    """Emit one bounded successful-run notice for skipped BED queries."""
+def bed_query_notice(statuses: Sequence[QueryAnnotationStatus], *, command: str) -> str | None:
+    """Return the bounded successful-run notice for skipped BED queries, or ``None``."""
     bed = [status for status in statuses if status.input_type == "bed"]
     skipped = [status for status in bed if status.status == "skipped"]
     if not skipped:
-        return
+        return None
     outcomes = ", ".join(f"{status.query}={status.reason}" for status in skipped[:MAX_CONSOLE_GENE_ISSUES])
     extra = max(0, len(skipped) - MAX_CONSOLE_GENE_ISSUES)
     reasons = "; ".join(
         f"{reason}: {_QUERY_REASON_EXPLANATIONS.get(reason, 'the recorded query check did not pass')}"
         for reason in dict.fromkeys(status.reason for status in skipped)
     )
-    message = (
-        f"WARNING: {len(skipped)} of {len(bed)} BED query annotation(s) were skipped and are omitted from "
+    return (
+        f"{len(skipped)} of {len(bed)} BED query annotation(s) were skipped and are omitted from "
         f"{_NOTICE_WORDING[command][1]}: {outcomes}"
         + (f", plus {extra} more" if extra else "")
         + f". Reasons: {reasons}. See diagnostics/query_annotation_status.tsv."
     )
-    LOGGER.warning(message.removeprefix("WARNING: "))
-    print(message, file=sys.stderr)
+
+
+def log_notices(notices: Sequence[str | None]) -> None:
+    """Write each successful-run notice to the workflow log as one WARNING; ``None`` entries are skipped.
+
+    Workflows call this for every run, command line or Python.
+    """
+    for message in notices:
+        if message is not None:
+            LOGGER.warning(message)
+
+
+def print_notices(notices: Sequence[str | None]) -> None:
+    """Print each successful-run notice to stderr as ``WARNING: <message>``; ``None`` entries are skipped.
+
+    Only a command's command-line entry point calls this, after the run
+    returned, so Python entry points print nothing. The workflow log already
+    holds each notice; it reaches the console because batch-scheduler users
+    rarely read logs after a successful run.
+    """
+    for message in notices:
+        if message is not None:
+            print(f"WARNING: {message}", file=sys.stderr)

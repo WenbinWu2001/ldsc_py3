@@ -1,8 +1,9 @@
 # Derived from legacy LDSC ldscore/regressions.py.
 # GPLv3 (LICENSE). Modified 2024 for Python 3; 2026 for package layering,
 # regression outputs, liability-scale calculations, and naming the failed rg
-# component; 2026-11 removed the unused slow-jackknife option. The allele-matching tables from ldscore/sumstats.py that this
-# module held moved to ldsc._core.snp_identity in 2026.
+# component. The allele-matching tables from ldscore/sumstats.py that this
+# module held moved to ldsc._core.snp_identity in 2026. 2026-11: removed
+# the unused slow-jackknife option and fit attributes that nothing read.
 # See NOTICE for attribution and dated modifications.
 
 '''
@@ -350,11 +351,6 @@ class LD_Score_Regression(object):
         self.jknife = jknife
         self.tot_delete_values = self._delete_vals_tot(jknife, Nbar, M)
         self.part_delete_values = self._delete_vals_part(jknife, Nbar, M)
-        if not self.constrain_intercept:
-            self.intercept_delete_values = jknife.delete_values[
-                :, self.n_annot]
-
-        self.M = M
 
     @classmethod
     def aggregate(cls, y, x, N, M, intercept=None):
@@ -643,8 +639,6 @@ class Gencov(LD_Score_Regression):
 
         LD_Score_Regression.__init__(self, y, x, w, np.sqrt(N1 * N2), M, n_blocks,
                                      intercept=intercept_gencov, step1_ii=step1_ii)
-        self.p, self.z = p_z_norm(self.tot, self.tot_se)
-        self.mean_z1z2 = np.mean(np.multiply(z1, z2))
 
     def _update_func(self, x, ref_ld_tot, w_ld, N, M, Nbar, intercept=None, ii=None):
         '''

@@ -499,9 +499,14 @@ def stage_partitioned_h2_fit(directory, category_table, delete_values, metadata)
     atomic_write_dataframe(_select_columns(category_table, PARTITIONED_H2_COLUMNS, label="full partitioned-h2 summary"),
                             artifacts.full, na_rep="NaN")
     delete_values.to_parquet(artifacts.delete_values, index=False)
-    atomic_write_json({**metadata, "coefficient_delete_block_count": int(len(delete_values)),
-                       "retained_ld_columns": [c for c in delete_values if c != "delete_block"]}, artifacts.metadata)
+    atomic_write_json({**metadata, **_delete_value_metadata(delete_values)}, artifacts.metadata)
     return artifacts
+
+
+def _delete_value_metadata(delete_values: pd.DataFrame) -> dict[str, object]:
+    """Record the block count and fitted annotation order of a coefficient delete-value table."""
+    return {"coefficient_delete_block_count": int(len(delete_values)),
+            "retained_ld_columns": [column for column in delete_values.columns if column != "delete_block"]}
 
 
 def _query_records(summary: pd.DataFrame) -> list[dict[str, object]]:
@@ -711,10 +716,7 @@ class PartitionedH2DirectoryWriter:
         paths = {name: str(path) for name, path in family.paths.items() if name != "query_annotations"}
         metadata_payload = dict(metadata or {})
         if coefficient_delete_values is not None:
-            metadata_payload["coefficient_delete_block_count"] = int(len(coefficient_delete_values))
-            metadata_payload["retained_ld_columns"] = [
-                column for column in coefficient_delete_values.columns if column != "delete_block"
-            ]
+            metadata_payload.update(_delete_value_metadata(coefficient_delete_values))
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
         if query_status is not None:
             self.write_query_status(output_dir, query_status)
@@ -730,28 +732,20 @@ class PartitionedH2DirectoryWriter:
                 metadata_path,
             )
 
-        if not output_config.write_per_query_results:
-            write_root_files()
-            remove_output_artifacts(stale_paths)
-            return paths
-
-        query_records = _query_records(summary)
-        root_summary["query_result_dir"] = [f"{QUERY_RESULT_ROOT}/{record['folder']}" for record in query_records]
-
-        def populate(staging_dir):
-            manifest_rows = self._write_staged_query_tree(
-                staging_dir,
-                query_records,
-                summary,
-                per_query_artifacts or {},
+        if output_config.write_per_query_results:
+            query_records = _query_records(summary)
+            root_summary["query_result_dir"] = [f"{QUERY_RESULT_ROOT}/{record['folder']}" for record in query_records]
+            paths["per_query_root"], paths["per_query_manifest"] = _publish_staged_tree(
+                query_root,
+                lambda staging_dir: self._write_staged_query_tree(
+                    staging_dir, query_records, summary, per_query_artifacts or {},
+                ),
+                write_root_files,
+                overwrite=output_config.overwrite,
             )
-            atomic_write_dataframe(pd.DataFrame(manifest_rows), staging_dir / "manifest.tsv", na_rep="NaN")
+        else:
             write_root_files()
-
-        _publish_staged_tree(query_root, populate, overwrite=output_config.overwrite)
         remove_output_artifacts(stale_paths)
-        paths["per_query_root"] = str(query_root)
-        paths["per_query_manifest"] = str(query_root / "manifest.tsv")
         return paths
 
     def _validate_summary(self, summary: pd.DataFrame) -> None:
@@ -945,22 +939,17 @@ class RgDirectoryWriter:
                 _write_legacy_sumstats_audit(legacy_drops, family.paths["legacy_sumstats_drops"])
             atomic_write_json(_rg_root_metadata(result, files=family.metadata_files()), metadata_path)
 
-        if not output_config.write_per_pair_detail:
+        if output_config.write_per_pair_detail:
+            pair_records = self._pair_records(rg_full, per_pair_metadata)
+            paths["pairs_root"], paths["pairs_manifest"] = _publish_staged_tree(
+                pairs_root,
+                lambda staging_dir: self._write_staged_pair_tree(staging_dir, pair_records, rg_full),
+                write_root_files,
+                overwrite=output_config.overwrite,
+            )
+        else:
             write_root_files()
-            remove_output_artifacts(stale_paths)
-            return paths
-
-        pair_records = self._pair_records(rg_full, per_pair_metadata)
-
-        def populate(staging_dir):
-            manifest_rows = self._write_staged_pair_tree(staging_dir, pair_records, rg_full)
-            atomic_write_dataframe(pd.DataFrame(manifest_rows), staging_dir / "manifest.tsv", na_rep="NaN")
-            write_root_files()
-
-        _publish_staged_tree(pairs_root, populate, overwrite=output_config.overwrite)
         remove_output_artifacts(stale_paths)
-        paths["pairs_root"] = str(pairs_root)
-        paths["pairs_manifest"] = str(pairs_root / "manifest.tsv")
         return paths
 
     def _pair_records(self, rg_full: pd.DataFrame, per_pair_metadata: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -1072,20 +1061,23 @@ def _rg_root_metadata(result: RgResultFamily, *, files: dict[str, str]) -> dict[
     return payload
 
 
-def _publish_staged_tree(final_root: Path, populate, *, overwrite: bool) -> None:
-    """Populate a staged sibling of ``final_root``, then swap it into place.
+def _publish_staged_tree(final_root: Path, write_tree, write_root_files, *, overwrite: bool) -> tuple[str, str]:
+    """Stage a detail tree beside ``final_root``, write the root files, then swap the tree into place.
 
-    ``populate(staging_dir)`` writes the tree and may write root files of the
-    result; a failure there leaves the previous tree in place. With
+    ``write_tree(staging_dir)`` writes the tree and returns its manifest rows,
+    saved as ``manifest.tsv``; ``write_root_files()`` then writes the result's
+    root files. A failure in either leaves the previous tree in place. With
     ``overwrite``, the previous tree moves to a backup that is restored only
     when the final tree is missing after a failure, and removed after success.
     Staging and backup directories are hidden siblings in the same parent.
+    Returns the published tree and manifest paths.
     """
     parent, name = final_root.parent, final_root.name
     staging_dir = Path(tempfile.mkdtemp(prefix=f".{name}.tmp.", dir=str(parent)))
     backup_dir: Path | None = None
     try:
-        populate(staging_dir)
+        atomic_write_dataframe(pd.DataFrame(write_tree(staging_dir)), staging_dir / "manifest.tsv", na_rep="NaN")
+        write_root_files()
         if overwrite and final_root.exists():
             backup_dir = Path(tempfile.mkdtemp(prefix=f".{name}.backup.", dir=str(parent)))
             backup_dir.rmdir()
@@ -1100,6 +1092,7 @@ def _publish_staged_tree(final_root: Path, populate, *, overwrite: bool) -> None
     else:
         if backup_dir is not None and backup_dir.exists():
             shutil.rmtree(backup_dir, ignore_errors=True)
+    return str(final_root), str(final_root / "manifest.tsv")
 
 
 def _ordinal_folder(ordinal: int, count: int, slug: str) -> str:

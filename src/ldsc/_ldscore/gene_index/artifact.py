@@ -39,16 +39,9 @@ from ..._runtime.preflight import InputGate, check_readable
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
 
 
-# Version 6: baseline counts and overlaps accumulate in float64, as in direct
-# ldscore, and root metadata stores the annotation_types classification of the
-# baseline columns and the snp_universe_policy that indexed output records.
-# Version 5: row A1 is the minor
-# allele in the retained reference individuals, not the .bim A1; index_id
-# hashes only the inputs, so the version marks the change. Version 4: each
-# chromosome stores its reference-SNP funnel, which indexed scoring reports.
-# Version 3 made PLINK LD windows exact; version 2 operators used legacy
-# LDSC's chunk-rounded windows, which depended on --snp-batch-size.
-_INDEX_FORMAT_VERSION = 6
+# Format of every index file this package writes and reads. index_id hashes
+# only the inputs, so a change to the stored payload needs a new version.
+_INDEX_FORMAT_VERSION = 1
 # Chromosomes every published index covers. Callers read it through this
 # module when they run, so small test indexes can narrow it.
 INDEX_CHROMOSOMES = AUTOSOMES
@@ -269,23 +262,18 @@ def _read_json(path: Path, label: str) -> dict:
 
 
 def require_current_index_format(root: dict) -> None:
-    """Reject root metadata of an index written in an earlier format, asking for a rebuild.
+    """Reject root metadata of an index in another format, asking for a rebuild.
 
     Both the loader and the declaration preflight of indexed ``ldscore`` call
-    this before any component check: components of an earlier index carry
-    the same earlier version, which a component check would report as a
+    this before any component check: components of such an index carry the
+    same other version, which a component check would report as a
     mismatched restore instead.
     """
     if root.get("format_version") != _INDEX_FORMAT_VERSION:
         raise LDSCInputError(
             f"Unsupported gene LD-score index format version {root.get('format_version')!r} "
             f"(this package reads version {_INDEX_FORMAT_VERSION}). Rebuild the complete index with the "
-            "current package; earlier indexes cannot be reused or migrated. Version 6 sums baseline "
-            "annotation counts in float64, as direct ldscore does, and stores the annotation_types and "
-            "snp_universe_policy that indexed ldscore output records; version 5 gives each SNP's "
-            "minor allele as A1, as other PLINK-derived files do; version 4 stores each "
-            "chromosome's reference-SNP funnel, which indexed scoring reports; version 3 made PLINK LD "
-            "windows exact, and earlier indexes' LD scores differ slightly from current direct ldscore runs."
+            "current package; an index in another format cannot be reused or migrated."
         )
 
 
@@ -891,9 +879,10 @@ def load_gene_ldscore_index(
     Parameters
     ----------
     index_dir : path-like
-        Directory containing one complete format-version-6 index covering
-        autosomes 1 through 22. Earlier formats require a complete rebuild;
-        no profile discovery or compatibility migration is performed.
+        Directory containing one complete index of the current format
+        (``format_version`` 1) covering autosomes 1 through 22. An index of
+        another format requires a complete rebuild; no profile discovery or
+        compatibility migration is performed.
 
     Returns
     -------

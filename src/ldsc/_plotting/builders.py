@@ -35,6 +35,20 @@ _RG_CMAP = LinearSegmentedColormap.from_list(
     ],
 )
 
+# Repair sentences shared by the errors of one plot input.
+_H2_BINS_REPAIR = (" Restore the saved h2 result tables from the same run, or regenerate the result with ldsc h2; do "
+                   "not invent missing values.")
+_RG_METADATA_REPAIR = " Restore matching rg metadata and tables from one run, or regenerate the result with ldsc rg."
+_H2_PER_TRAIT_REPAIR = (" Restore the original single-trait SNP heritability table from this rg run. "
+                        "See docs/user-guide/troubleshooting.md#plot-rg-heritability-source-is-invalid.")
+_RG_TABLE_REPAIR = " Restore the saved rg table and metadata from the same run, or regenerate the result with ldsc rg."
+_ANCHOR_REPAIR = (" Restore the saved anchor-rg table and matching metadata from one run, or regenerate that anchor "
+                  "analysis with ldsc rg.")
+_QUERY_P_REPAIR = (" Restore the original partitioned-h2 coefficient, z-score, and p-value fields from the same "
+                   "fitted query results.")
+_QUANTILE_REPAIR = (" Restore the original quantile_h2.tsv table and metadata, or regenerate quantile-h2 with the "
+                    "intended inputs.")
+
 
 def build_plot(
     kind: str, table: pd.DataFrame, metadata: dict[str, Any], *, h2_per_trait: pd.DataFrame | None = None
@@ -81,34 +95,20 @@ def _plot_h2_bins(table: pd.DataFrame, *, trait_name: str):
     }
     _require_columns(table, required, label="ld_score_regression_bins.tsv")
     if table.empty:
-        raise LDSCInputError(
-            "ld_score_regression_bins.tsv contains no bins."
-            " Restore the saved h2 result tables from the same run, or regenerate the result with ldsc h2; do "
-            "not invent missing values."
-        )
+        raise LDSCInputError("ld_score_regression_bins.tsv contains no bins." + _H2_BINS_REPAIR)
     working = table.copy()
     for column in required:
         working[column] = pd.to_numeric(working[column], errors="coerce")
     if working["bin"].isna().any() or working["bin"].duplicated().any():
-        raise LDSCInputError(
-            "ld_score_regression_bins.tsv must contain unique numeric bin values."
-            " Restore the saved h2 result tables from the same run, or regenerate the result with ldsc h2; do "
-            "not invent missing values."
-        )
+        raise LDSCInputError("ld_score_regression_bins.tsv must contain unique numeric bin values." + _H2_BINS_REPAIR)
     working = working.sort_values("bin", kind="stable")
     numeric = working[["mean_ld_score", "mean_chi_square", "mean_fitted_chi_square"]].to_numpy(float)
     if not np.all(np.isfinite(numeric)):
-        raise LDSCInputError(
-            "Every h2 regression bin requires finite observed and fitted means."
-            " Restore the saved h2 result tables from the same run, or regenerate the result with ldsc h2; do "
-            "not invent missing values."
-        )
+        raise LDSCInputError("Every h2 regression bin requires finite observed and fitted means." + _H2_BINS_REPAIR)
     weights = working["mean_regression_weight"].to_numpy(float)
     if np.any(~np.isfinite(weights)) or np.any(weights <= 0):
         raise LDSCInputError(
-            "Every h2 regression bin requires a finite positive mean_regression_weight."
-            " Restore the saved h2 result tables from the same run, or regenerate the result with ldsc h2; do "
-            "not invent missing values."
+            "Every h2 regression bin requires a finite positive mean_regression_weight." + _H2_BINS_REPAIR
         )
     relative_weights = weights / np.max(weights)
     x = working["mean_ld_score"].to_numpy(float)
@@ -144,21 +144,14 @@ def _trait_order(metadata: dict[str, Any], table: pd.DataFrame) -> list[str]:
     _require_columns(table, {"trait_1", "trait_2", "rg", "rg_se"}, label="rg.tsv")
     names = metadata.get("trait_names")
     if not isinstance(names, list) or not names or any(not isinstance(value, str) for value in names):
-        raise LDSCInputError(
-            "rg plotting metadata must declare a nonempty trait_names list."
-            " Restore matching rg metadata and tables from one run, or regenerate the result with ldsc rg."
-        )
+        raise LDSCInputError("rg plotting metadata must declare a nonempty trait_names list." + _RG_METADATA_REPAIR)
     if len(names) != len(set(names)):
-        raise LDSCInputError(
-            "rg plotting metadata trait_names must be unique."
-            " Restore matching rg metadata and tables from one run, or regenerate the result with ldsc rg."
-        )
+        raise LDSCInputError("rg plotting metadata trait_names must be unique." + _RG_METADATA_REPAIR)
     pair_names = set(table["trait_1"].astype(str)) | set(table["trait_2"].astype(str))
     missing = sorted(pair_names.difference(names))
     if missing:
         raise LDSCInputError(
-            "rg metadata trait_names omits table traits: " + ", ".join(missing) + ". "
-            "Restore matching rg metadata and tables from one run, or regenerate the result with ldsc rg."
+            "rg metadata trait_names omits table traits: " + ", ".join(missing) + "." + _RG_METADATA_REPAIR
         )
     return names
 
@@ -179,18 +172,11 @@ def _trait_h2_labels(
     _require_columns(table, {"trait_name", "total_h2_obs", "total_h2_obs_se"}, label="h2_per_trait.tsv")
     names = table["trait_name"].astype(str)
     if table["trait_name"].isna().any() or names.str.strip().eq("").any():
-        raise LDSCInputError(
-            "h2_per_trait.tsv requires a nonempty trait_name for every row."
-            " Restore the original single-trait SNP heritability table from this rg run. See "
-            "docs/user-guide/troubleshooting.md#plot-rg-heritability-source-is-invalid."
-        )
+        raise LDSCInputError("h2_per_trait.tsv requires a nonempty trait_name for every row." + _H2_PER_TRAIT_REPAIR)
     duplicates = names[names.duplicated()].unique().tolist()
     if duplicates:
-        raise LDSCInputError(
-            "h2_per_trait.tsv contains duplicate trait rows: " + ", ".join(duplicates) + ". "
-            "Restore the original single-trait SNP heritability table from this rg run. "
-            "See docs/user-guide/troubleshooting.md#plot-rg-heritability-source-is-invalid."
-        )
+        raise LDSCInputError("h2_per_trait.tsv contains duplicate trait rows: " + ", ".join(duplicates) + "."
+                             + _H2_PER_TRAIT_REPAIR)
     for name, estimate, standard_error in zip(names, table["total_h2_obs"], table["total_h2_obs_se"]):
         if name not in labels:
             continue
@@ -211,27 +197,18 @@ def _plot_rg_heatmap(table: pd.DataFrame, trait_names: list[str], h2_labels: dic
         first = index[str(row["trait_1"])]
         second = index[str(row["trait_2"])]
         if first == second:
-            raise LDSCInputError(
-                "rg.tsv must not contain self-pairs for the lower-triangular plot."
-                " Restore the saved rg table and metadata from the same run, or regenerate the result with "
-                "ldsc rg."
-            )
+            raise LDSCInputError("rg.tsv must not contain self-pairs for the lower-triangular plot." + _RG_TABLE_REPAIR)
         location = (max(first, second), min(first, second))
         if location in seen:
             raise LDSCInputError(
-                f"rg.tsv contains pair {row['trait_1']!r} and {row['trait_2']!r} more than once."
-                " Restore the saved rg table and metadata from the same run, or regenerate the result with "
-                "ldsc rg."
+                f"rg.tsv contains pair {row['trait_1']!r} and {row['trait_2']!r} more than once." + _RG_TABLE_REPAIR
             )
         seen.add(location)
         estimate = _optional_float(row["rg"])
         standard_error = _optional_float(row["rg_se"])
         if math.isfinite(estimate) and (not math.isfinite(standard_error) or standard_error < 0):
-            raise LDSCInputError(
-                "Every available genetic-correlation estimate requires a non-negative rg_se."
-                " Restore the saved rg table and metadata from the same run, or regenerate the result with "
-                "ldsc rg."
-            )
+            raise LDSCInputError("Every available genetic-correlation estimate requires a non-negative rg_se."
+                                 + _RG_TABLE_REPAIR)
         estimates[location] = estimate
         standard_errors[location] = standard_error
 
@@ -305,27 +282,16 @@ def _plot_rg_anchor_forest(table: pd.DataFrame, trait_names: list[str], h2_label
     """Draw anchor genetic correlations +/- one SE with a separate SNP heritability text column and subtitle."""
     anchors = table["trait_1"].astype(str).unique().tolist()
     if len(anchors) != 1:
-        raise LDSCInputError(
-            "An anchor rg result must contain one common trait_1 across every pair."
-            " Restore the saved anchor-rg table and matching metadata from one run, or regenerate that anchor "
-            "analysis with ldsc rg."
-        )
+        raise LDSCInputError("An anchor rg result must contain one common trait_1 across every pair." + _ANCHOR_REPAIR)
     anchor = anchors[0]
     if anchor not in trait_names:
-        raise LDSCInputError(
-            f"Anchor trait {anchor!r} is absent from metadata trait_names."
-            " Restore the saved anchor-rg table and matching metadata from one run, or regenerate that anchor "
-            "analysis with ldsc rg."
-        )
+        raise LDSCInputError(f"Anchor trait {anchor!r} is absent from metadata trait_names." + _ANCHOR_REPAIR)
     partners = [name for name in trait_names if name != anchor]
     indexed = table.assign(trait_2=table["trait_2"].astype(str)).set_index("trait_2", verify_integrity=True)
     unexpected = sorted(set(indexed.index).difference(partners))
     if unexpected:
-        raise LDSCInputError(
-            "Anchor rg table contains unexpected partners: " + ", ".join(unexpected) + ". "
-            "Restore the saved anchor-rg table and matching metadata from one run, "
-            "or regenerate that anchor analysis with ldsc rg."
-        )
+        raise LDSCInputError("Anchor rg table contains unexpected partners: " + ", ".join(unexpected) + "."
+                             + _ANCHOR_REPAIR)
     figure, axes = plt.subplots(
         figsize=(9.4, max(3.6, 0.48 * len(partners) + 2.1)), constrained_layout=True
     )
@@ -342,11 +308,8 @@ def _plot_rg_anchor_forest(table: pd.DataFrame, trait_names: list[str], h2_label
             labels.append((position, 0.0, "failed", False))
             continue
         if not math.isfinite(standard_error) or standard_error < 0:
-            raise LDSCInputError(
-                "Every available anchor genetic correlation requires a non-negative rg_se."
-                " Restore the saved anchor-rg table and matching metadata from one run, or regenerate that "
-                "anchor analysis with ldsc rg."
-            )
+            raise LDSCInputError("Every available anchor genetic correlation requires a non-negative rg_se."
+                                 + _ANCHOR_REPAIR)
         axes.errorbar(
             estimate,
             position,
@@ -469,11 +432,7 @@ def _plot_query_pvalues(table: pd.DataFrame):
     finite = np.isfinite(working["coefficient_p"])
     invalid = finite & ~working["coefficient_p"].between(0, 1, inclusive="both")
     if invalid.any():
-        raise LDSCInputError(
-            "Every available coefficient_p must lie in [0, 1]."
-            " Restore the original partitioned-h2 coefficient, z-score, and p-value fields from the same "
-            "fitted query results."
-        )
+        raise LDSCInputError("Every available coefficient_p must lie in [0, 1]." + _QUERY_P_REPAIR)
     scores = pd.Series(np.nan, index=working.index, dtype=float)
     positive = finite & (working["coefficient_p"] > 0)
     scores.loc[positive] = -np.log10(working.loc[positive, "coefficient_p"])
@@ -481,17 +440,11 @@ def _plot_query_pvalues(table: pd.DataFrame):
     if underflowed.any():
         if "coefficient_z" not in working:
             raise LDSCInputError(
-                "coefficient_p=0 requires coefficient_z to recover the one-sided tail probability."
-                " Restore the original partitioned-h2 coefficient, z-score, and p-value fields from the same "
-                "fitted query results."
+                "coefficient_p=0 requires coefficient_z to recover the one-sided tail probability." + _QUERY_P_REPAIR
             )
         z_scores = pd.to_numeric(working["coefficient_z"], errors="coerce")
         if (underflowed & ~np.isfinite(z_scores)).any():
-            raise LDSCInputError(
-                "Queries with coefficient_p=0 require a finite coefficient_z."
-                " Restore the original partitioned-h2 coefficient, z-score, and p-value fields from the same "
-                "fitted query results."
-            )
+            raise LDSCInputError("Queries with coefficient_p=0 require a finite coefficient_z." + _QUERY_P_REPAIR)
         scores.loc[underflowed] = -log_ndtr(-z_scores.loc[underflowed]) / np.log(10)
     working["neg_log10_p"] = scores
     working = working.sort_values("neg_log10_p", ascending=False, kind="stable", na_position="last")
@@ -522,29 +475,17 @@ def _plot_quantile_profile(table: pd.DataFrame, *, target_annotation: str):
     required = {"quantile", "target_value_lower", "target_value_upper", "enrichment", "enrichment_se"}
     _require_columns(table, required, label="quantile_h2.tsv")
     if table.empty:
-        raise LDSCInputError(
-            "quantile_h2.tsv contains no quantile rows."
-            " Restore the original quantile_h2.tsv table and metadata, or regenerate quantile-h2 with the "
-            "intended inputs."
-        )
+        raise LDSCInputError("quantile_h2.tsv contains no quantile rows." + _QUANTILE_REPAIR)
     working = table.copy()
     for column in required:
         working[column] = pd.to_numeric(working[column], errors="coerce")
     if working["quantile"].isna().any() or working["quantile"].duplicated().any():
-        raise LDSCInputError(
-            "quantile_h2.tsv must contain unique numeric quantile labels."
-            " Restore the original quantile_h2.tsv table and metadata, or regenerate quantile-h2 with the "
-            "intended inputs."
-        )
+        raise LDSCInputError("quantile_h2.tsv must contain unique numeric quantile labels." + _QUANTILE_REPAIR)
     working = working.sort_values("quantile", kind="stable")
     lower = working["target_value_lower"].to_numpy(float)
     upper = working["target_value_upper"].to_numpy(float)
     if np.any(~np.isfinite(lower)) or np.any(~np.isfinite(upper)) or np.any(lower > upper):
-        raise LDSCInputError(
-            "Every quantile requires finite ordered target-value bounds."
-            " Restore the original quantile_h2.tsv table and metadata, or regenerate quantile-h2 with the "
-            "intended inputs."
-        )
+        raise LDSCInputError("Every quantile requires finite ordered target-value bounds." + _QUANTILE_REPAIR)
     tick_labels = [
         f"Q{_format_quantile(quantile)}  [{low:g}, {high:g}]"
         for quantile, low, high in zip(working["quantile"], lower, upper)

@@ -2,8 +2,9 @@
 # Upstream authors and Python 3 port credit are in NOTICE. Modified 2026-06:
 # extracted readers and added selective streaming; 2026-09: reader lifetime;
 # 2026-10: exact LD windows independent of the chunk size; LD-score block
-# sums moved to _ldscore/compute.py; 2026-11: rewind(), and the keep-index
-# bounds checks reject negative indices and index n and m.
+# sums moved to _ldscore/compute.py; 2026-11: rewind(), the keep-index
+# bounds checks reject negative indices and index n and m, and the
+# in-memory base class is merged into PlinkBEDFile.
 # See NOTICE for attribution and dated modifications.
 
 """PLINK genotype reader.
@@ -26,78 +27,13 @@ except ImportError:  # pragma: no cover - optional dependency
 from ..errors import EmptyReferenceSNPs, LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError
 
 
-class __GenotypeArrayInMemory__(object):
-    """Parent class for in-memory genotype matrices."""
-
-    def __init__(self, fname, n, snp_list, keep_snps=None, keep_indivs=None, mafMin=None):
-        """Load, filter, and normalize one in-memory genotype matrix."""
-        self.m = len(snp_list.IDList)
-        self.n = n
-        self.genotype_qc_removed = 0
-        self.maf_removed = 0
-        self.mafMin = mafMin if mafMin is not None else 0
-        self._currentSNP = 0
-        self.nru = self.__read__(fname, self.m, n)
-        if keep_indivs is not None:
-            keep_indivs = np.array(keep_indivs, dtype="int")
-            if np.any((keep_indivs < 0) | (keep_indivs >= self.n)):
-                raise LDSCInputError(
-                    "PLINK BED loading could not apply the individual keep list: at least "
-                    "one keep_indivs index is outside the `.fam` sample range. Most likely "
-                    "the keep list was built from a different PLINK sample set. Use a keep "
-                    "file from the same `.fam` file."
-                )
-            self.n = self.__filter_indivs__(keep_indivs)
-            if self.n <= 0:
-                raise LDSCInputError(
-                    "PLINK BED loading retained no individuals after sample filtering. "
-                    "Most likely the keep list IDs do not match the `.fam` file. Check "
-                    "FID/IID values and use a keep file from the same PLINK sample set."
-                )
-        if keep_snps is not None:
-            keep_snps = np.array(keep_snps, dtype="int")
-            if np.any((keep_snps < 0) | (keep_snps >= self.m)):
-                raise LDSCInputError(
-                    "PLINK BED loading could not apply the SNP keep list: at least one "
-                    "keep_snps index is outside the `.bim` SNP range. Most likely SNP "
-                    "indices were built from a different PLINK prefix. Rebuild the keep "
-                    "list from the same `.bim` file."
-                )
-        (self.geno, self.m, self.kept_snps, self.freq) = self.__filter_snps_maf__(
-            self.m, self.n, self.mafMin, keep_snps
-        )
-        if self.m <= 0:
-            error = EmptyReferenceSNPs(
-                "PLINK BED loading retained no SNPs after SNP/MAF filtering. Most likely "
-                "the SNP restriction, chromosome selection, or MAF threshold removed every "
-                "variant. Check the selected SNP list, MAF threshold, and reference panel for a usable intersection. "
-                "Change intended filters only if the resulting SNP population is appropriate for the analysis."
-            )
-            # The reader is never returned, so its removal counts travel with the error.
-            error.genotype_qc_removed, error.maf_removed = self.genotype_qc_removed, self.maf_removed
-            raise error
-        self.maf = np.minimum(self.freq, np.ones(self.m) - self.freq)
-
-    def rewind(self):
-        """Restart ``nextSNPs`` at the first retained SNP for another traversal."""
-        self._currentSNP = 0
-
-    def __read__(self, fname, m, n):
-        """Read the backend-specific genotype representation into memory."""
-        raise NotImplementedError
-
-    def __filter_indivs__(self, keep_indivs):
-        """Apply backend-specific sample filtering to the genotype matrix."""
-        raise NotImplementedError
-
-
 if ba is not None:
-    class PlinkBEDFile(__GenotypeArrayInMemory__):
+    class PlinkBEDFile:
         """Interface for PLINK .bed format."""
 
         def __init__(self, fname, n, snp_list, keep_snps=None, keep_indivs=None, mafMin=None,
                      streaming=False):
-            """Initialize the PLINK reader and configure BED bit-pattern decoding.
+            """Load, filter, and normalize one PLINK BED genotype matrix.
 
             When ``streaming`` is true the retained genotype bitarray is never
             materialized; ``nextSNPs`` decodes each batch directly from disk. Only
@@ -113,15 +49,61 @@ if ba is not None:
                 0: ba.bitarray("00"),
             }
             try:
-                __GenotypeArrayInMemory__.__init__(
-                    self, fname, n, snp_list, keep_snps=keep_snps,
-                    keep_indivs=keep_indivs, mafMin=mafMin,
+                self.m = len(snp_list.IDList)
+                self.n = n
+                self.genotype_qc_removed = 0
+                self.maf_removed = 0
+                self.mafMin = mafMin if mafMin is not None else 0
+                self._currentSNP = 0
+                self.nru = self.__read__(fname, self.m, n)
+                if keep_indivs is not None:
+                    keep_indivs = np.array(keep_indivs, dtype="int")
+                    if np.any((keep_indivs < 0) | (keep_indivs >= self.n)):
+                        raise LDSCInputError(
+                            "PLINK BED loading could not apply the individual keep list: at least "
+                            "one keep_indivs index is outside the `.fam` sample range. Most likely "
+                            "the keep list was built from a different PLINK sample set. Use a keep "
+                            "file from the same `.fam` file."
+                        )
+                    self.n = self.__filter_indivs__(keep_indivs)
+                    if self.n <= 0:
+                        raise LDSCInputError(
+                            "PLINK BED loading retained no individuals after sample filtering. "
+                            "Most likely the keep list IDs do not match the `.fam` file. Check "
+                            "FID/IID values and use a keep file from the same PLINK sample set."
+                        )
+                if keep_snps is not None:
+                    keep_snps = np.array(keep_snps, dtype="int")
+                    if np.any((keep_snps < 0) | (keep_snps >= self.m)):
+                        raise LDSCInputError(
+                            "PLINK BED loading could not apply the SNP keep list: at least one "
+                            "keep_snps index is outside the `.bim` SNP range. Most likely SNP "
+                            "indices were built from a different PLINK prefix. Rebuild the keep "
+                            "list from the same `.bim` file."
+                        )
+                (self.geno, self.m, self.kept_snps, self.freq) = self.__filter_snps_maf__(
+                    self.m, self.n, self.mafMin, keep_snps
                 )
+                if self.m <= 0:
+                    error = EmptyReferenceSNPs(
+                        "PLINK BED loading retained no SNPs after SNP/MAF filtering. Most likely "
+                        "the SNP restriction, chromosome selection, or MAF threshold removed every "
+                        "variant. Check the selected SNP list, MAF threshold, and reference panel for a usable intersection. "
+                        "Change intended filters only if the resulting SNP population is appropriate for the analysis."
+                    )
+                    # The reader is never returned, so its removal counts travel with the error.
+                    error.genotype_qc_removed, error.maf_removed = self.genotype_qc_removed, self.maf_removed
+                    raise error
+                self.maf = np.minimum(self.freq, np.ones(self.m) - self.freq)
             except BaseException:
                 self.close()
                 raise
             if not self._streaming:
                 self.close()
+
+        def rewind(self):
+            """Restart ``nextSNPs`` at the first retained SNP for another traversal."""
+            self._currentSNP = 0
 
         def close(self):
             """Close the BED file; in-memory genotype batches remain usable."""

@@ -63,14 +63,14 @@ def test_accessor_reads_only_query_batches_and_bounded_contributor_tiles():
 
 @pytest.mark.parametrize('batch_size', [1, 2, 1000])
 def test_plink_projection_reuses_genotype_traversal(batch_size):
-    from ldsc._refpanel.plink import __GenotypeArrayInMemory__
+    from ldsc._refpanel.plink import PlinkBEDFile
     from ldsc._ldscore.compute import ld_scores_from_genotypes
     from ldsc._refpanel.prepared import ArrayAnnotations
 
     genotypes = np.array([[0,1,2,0], [1,2,0,1], [2,0,1,0], [0,0,2,2], [1,1,0,2]], dtype=float)
     genotypes = (genotypes-genotypes.mean(axis=0))/genotypes.std(axis=0)
     annotations = np.array([[1,0,2,3], [1,4,0,2], [1,1,-1,0], [1,0,3,1]], dtype=np.float32)
-    reader = object.__new__(__GenotypeArrayInMemory__)
+    reader = object.__new__(PlinkBEDFile)
     reader.m, reader.n = 4, 5
     seen = []
     def next_snps(count):
@@ -114,7 +114,7 @@ def test_plink_ld_scores_use_the_exact_window_for_every_chunk_size(window, chunk
     from ldsc._refpanel.windows import get_block_lefts
     from ldsc._ldscore.compute import ld_scores_from_genotypes
     from ldsc._refpanel.prepared import ArrayAnnotations
-    from ldsc._refpanel.plink import __GenotypeArrayInMemory__
+    from ldsc._refpanel.plink import PlinkBEDFile
 
     rng = np.random.default_rng(20261027)
     n, m = 40, 23
@@ -126,7 +126,7 @@ def test_plink_ld_scores_use_the_exact_window_for_every_chunk_size(window, chunk
     coords, max_dist = _window_coordinates(window, m)
     block_left = get_block_lefts(coords, max_dist)
 
-    reader = object.__new__(__GenotypeArrayInMemory__)
+    reader = object.__new__(PlinkBEDFile)
     reader.m, reader.n = m, n
     cursor = [0]
     def next_snps(count):

@@ -49,6 +49,12 @@ from ..config import AnnotationBuildConfig, get_global_config
 
 
 LOGGER = logging.getLogger("LDSC.quantile_h2")
+# Shared remedy of every error about a damaged or incomplete saved fit.
+_RESTORE_FIT_HINT = (
+    " Restore the original fitted summary, coefficient-delete table, and metadata from the same "
+    "partitioned-h2 fit, or rerun that fit. LD scores do not need to be recomputed solely to "
+    "regenerate fitted-result files."
+)
 
 
 @serial_calculation
@@ -333,26 +339,17 @@ def load_fitted_partitioned_model(result_dir: str | Path) -> FittedPartitionedMo
         )
     if not summary_path.is_file():
         raise LDSCInputError(
-            f"quantile-h2 fitted model is missing summary table '{summary_path}'."
-            " Restore the original fitted summary, coefficient-delete table, and metadata from the same "
-            "partitioned-h2 fit, or rerun that fit. LD scores do not need to be recomputed solely to "
-            "regenerate fitted-result files."
+            f"quantile-h2 fitted model is missing summary table '{summary_path}'." + _RESTORE_FIT_HINT
         )
     delete_frame = pd.read_parquet(delete_path)
     if "delete_block" not in delete_frame.columns:
         raise LDSCInputError(
-            "quantile-h2 coefficient delete artifact lacks the required delete_block column."
-            " Restore the original fitted summary, coefficient-delete table, and metadata from the same "
-            "partitioned-h2 fit, or rerun that fit. LD scores do not need to be recomputed solely to "
-            "regenerate fitted-result files."
+            "quantile-h2 coefficient delete artifact lacks the required delete_block column." + _RESTORE_FIT_HINT
         )
     annotation_names = [str(column) for column in delete_frame.columns if column != "delete_block"]
     if "retained_ld_columns" not in metadata:
         raise LDSCInputError(
-            "quantile-h2 fitted-model metadata is missing retained_ld_columns, the coefficient order."
-            " Restore the original fitted summary, coefficient-delete table, and metadata from the same "
-            "partitioned-h2 fit, or rerun that fit. LD scores do not need to be recomputed solely to "
-            "regenerate fitted-result files."
+            "quantile-h2 fitted-model metadata is missing retained_ld_columns, the coefficient order." + _RESTORE_FIT_HINT
         )
     retained = [str(name) for name in metadata["retained_ld_columns"]]
     if retained != annotation_names:
@@ -365,19 +362,13 @@ def load_fitted_partitioned_model(result_dir: str | Path) -> FittedPartitionedMo
     missing = [name for name in annotation_names if name not in indexed.index]
     if missing:
         raise LDSCInputError(
-            f"quantile-h2 fitted summary is missing retained annotation row(s): {missing}."
-            " Restore the original fitted summary, coefficient-delete table, and metadata from the same "
-            "partitioned-h2 fit, or rerun that fit. LD scores do not need to be recomputed solely to "
-            "regenerate fitted-result files."
+            f"quantile-h2 fitted summary is missing retained annotation row(s): {missing}." + _RESTORE_FIT_HINT
         )
     ordered = indexed.loc[annotation_names].reset_index(drop=True)
     ldscore_value = metadata.get("ldscore_dir")
     if not ldscore_value:
         raise LDSCInputError(
-            "quantile-h2 fitted-model metadata is missing ldscore_dir provenance."
-            " Restore the original fitted summary, coefficient-delete table, and metadata from the same "
-            "partitioned-h2 fit, or rerun that fit. LD scores do not need to be recomputed solely to "
-            "regenerate fitted-result files."
+            "quantile-h2 fitted-model metadata is missing ldscore_dir provenance." + _RESTORE_FIT_HINT
         )
     ldscore_dir = Path(str(ldscore_value))
     if not ldscore_dir.is_absolute():
@@ -413,10 +404,7 @@ def _read_fitted_metadata(path: Path) -> dict:
     if not isinstance(metadata, dict):
         detail = f": {metadata}" if isinstance(metadata, Exception) else ": it is not a JSON object"
         raise LDSCInputError(
-            f"quantile-h2 could not read fitted-model metadata '{path}'{detail}."
-            " Restore the original fitted summary, coefficient-delete table, and metadata from the same "
-            "partitioned-h2 fit, or rerun that fit. LD scores do not need to be recomputed solely to "
-            "regenerate fitted-result files."
+            f"quantile-h2 could not read fitted-model metadata '{path}'{detail}." + _RESTORE_FIT_HINT
         )
     return metadata
 

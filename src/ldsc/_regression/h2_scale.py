@@ -43,6 +43,15 @@ _TABLE_NAME = "h2_scale_conversion.tsv"
 _PLOT_NAME = "h2_prevalence_sensitivity.png"
 _METADATA_NAME = "diagnostics/metadata.json"
 _LOG_NAME = "diagnostics/convert-h2-scale.log"
+# Shared remedies of the errors about an unreadable source h2 result.
+_RESTORE_METADATA_HINT = (
+    " Restore the original h2 metadata and summary table from the same run, or regenerate the source "
+    "result with ldsc h2."
+)
+_RESTORE_SUMMARY_HINT = (
+    " Restore the original h2 summary from the same run, or regenerate it with ldsc h2; do not "
+    "substitute fitted values or uncertainties from another analysis."
+)
 _TABLE_COLUMNS = [
     "trait_name",
     "samp_prev",
@@ -349,27 +358,19 @@ def _require_directory(path: str | os.PathLike[str], *, label: str) -> Path:
 def _read_json(path: Path) -> dict:
     if not path.is_file():
         raise LDSCInputError(
-            f"Required canonical metadata file is missing: '{path}'."
-            " Restore the original h2 metadata and summary table from the same run, or regenerate the source "
-            "result with ldsc h2."
+            f"Required canonical metadata file is missing: '{path}'." + _RESTORE_METADATA_HINT
         )
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise LDSCInputError(
-            f"Could not read canonical metadata JSON at '{path}': {exc}."
-            " Restore the original h2 metadata and summary table from the same run, or regenerate the source "
-            "result with ldsc h2."
+            f"Could not read canonical metadata JSON at '{path}': {exc}." + _RESTORE_METADATA_HINT
         ) from exc
     if not isinstance(value, dict):
         raise LDSCInputError(
-            f"Canonical metadata at '{path}' must contain a JSON object."
-            " Restore the original h2 metadata and summary table from the same run, or regenerate the source "
-            "result with ldsc h2."
+            f"Canonical metadata at '{path}' must contain a JSON object." + _RESTORE_METADATA_HINT
         )
     return value
-
-
 
 
 def _read_observed_h2(path: Path) -> dict[str, object]:
@@ -377,32 +378,24 @@ def _read_observed_h2(path: Path) -> dict[str, object]:
         table = pd.read_csv(path, sep="\t")
     except (OSError, pd.errors.ParserError) as exc:
         raise LDSCInputError(
-            f"Could not read h2 summary '{path}': {exc}."
-            " Restore the original h2 summary from the same run, or regenerate it with ldsc h2; do not "
-            "substitute fitted values or uncertainties from another analysis."
+            f"Could not read h2 summary '{path}': {exc}." + _RESTORE_SUMMARY_HINT
         ) from exc
     required = {"trait_name", "total_h2_obs", "total_h2_obs_se"}
     missing = sorted(required.difference(table.columns))
     if missing:
         raise LDSCInputError(
-            f"H2 summary '{path}' is missing required columns: {', '.join(missing)}."
-            " Restore the original h2 summary from the same run, or regenerate it with ldsc h2; do not "
-            "substitute fitted values or uncertainties from another analysis."
+            f"H2 summary '{path}' is missing required columns: {', '.join(missing)}." + _RESTORE_SUMMARY_HINT
         )
     if len(table) != 1:
         raise LDSCInputError(
-            f"H2 summary '{path}' must contain exactly one row; found {len(table)}."
-            " Restore the original h2 summary from the same run, or regenerate it with ldsc h2; do not "
-            "substitute fitted values or uncertainties from another analysis."
+            f"H2 summary '{path}' must contain exactly one row; found {len(table)}." + _RESTORE_SUMMARY_HINT
         )
     row = table.iloc[0]
     estimate = _finite_float(row["total_h2_obs"], "total_h2_obs")
     standard_error = _finite_float(row["total_h2_obs_se"], "total_h2_obs_se")
     if standard_error < 0:
         raise LDSCInputError(
-            "total_h2_obs_se must be non-negative."
-            " Restore the original h2 summary from the same run, or regenerate it with ldsc h2; do not "
-            "substitute fitted values or uncertainties from another analysis."
+            "total_h2_obs_se must be non-negative." + _RESTORE_SUMMARY_HINT
         )
     return {
         "trait_name": str(row["trait_name"]),

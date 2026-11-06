@@ -29,7 +29,6 @@ from .._core.snp_identity import (
     validate_identity_artifact_metadata,
 )
 from .._runtime.paths import normalize_path_token
-from .._runtime.result_files import declared_result_file
 
 _QUERY_BATCH_FILE_RE = re.compile(r"ldscore\.query\.batch\d{5}\.parquet")
 
@@ -492,11 +491,8 @@ def read_ldscore_manifest(ldscore_dir) -> LDScoreManifest:
             f"Regenerate it with the current `ldsc ldscore`. Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
         )
     # Only the data files this reader opens must exist; the others are checked for containment.
-    context = f"LD-score directory '{root}'"
-    for key in files:
-        declared_result_file(root.resolve(), metadata, key, context=context,
-                             allow_missing=key not in {"baseline", "overlap"})
-    declared = {key: root / value for key, value in files.items()}
+    declared = {key: _declared_file(root, key, value, required=key in {"baseline", "overlap"})
+                for key, value in files.items()}
     _validate_row_groups(
         declared["baseline"], metadata.get("baseline_row_groups"),
         f"LD-score baseline file {baseline_rel} has inconsistent row-group metadata: metadata.json does not "
@@ -536,6 +532,33 @@ def read_ldscore_manifest(ldscore_dir) -> LDScoreManifest:
         overlap_config=metadata.get("overlap_config") or None,
         annotation_types={str(key): str(value) for key, value in (metadata.get("annotation_types") or {}).items()},
     )
+
+
+def _declared_file(root: Path, key: str, value, *, required: bool) -> Path:
+    """Return the declared file ``root / value``, raising ``LDSCInputError`` when it cannot be one of ``root``'s files.
+
+    Containment is checked on the declared name, not on its resolved target:
+    a declared file or folder may be a symbolic link, for example to a large
+    table on shared storage. ``required`` files must exist as regular files.
+    """
+    token = Path(value) if isinstance(value, str) and value.strip() else None
+    if token is None or token.is_absolute() or ".." in token.parts:
+        problem = "is not a file name" if token is None else "points outside the directory"
+        raise LDSCInputError(
+            f"Could not load LD-score directory '{root}': `files.{key}`={value!r} {problem}: declared files are "
+            "named relative to the directory, without `..`. Most likely metadata.json was edited by hand or "
+            "copied from another run. Restore the complete LD-score directory from the same run, or regenerate it "
+            f"with `ldsc ldscore`. Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
+        )
+    path = root / token
+    if (required or path.exists()) and not path.is_file():
+        raise LDSCInputError(
+            f"Could not load LD-score directory '{root}': `files.{key}`={value!r} declares '{path}', which is "
+            "missing or is not a regular file. Most likely the file was deleted or not copied with metadata.json. "
+            "Restore the complete LD-score directory from the same run, or regenerate it with `ldsc ldscore`. "
+            f"Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
+        )
+    return path
 
 
 def _parquet_footer(path, read):

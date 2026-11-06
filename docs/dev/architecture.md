@@ -364,7 +364,7 @@ It supplies `ResolvedMungeInput` to `_sumstats.munge_kernel.munge_sumstats()`, w
 
 ### `ldsc._ldscore.source`
 
-`read_ldscore_manifest()` reads and checks `metadata.json` without LD-score values and returns an `LDScoreManifest`: identity, declared files resolved inside the directory, baseline and query row groups and schemas from Parquet footers, counts, `count_config` and its agreement with `overlap_config`, and a lazy `load_overlap()`; read and decoding failures become `LDSCInputError`.
+`read_ldscore_manifest()` reads and checks `metadata.json` without LD-score values and returns an `LDScoreManifest`: identity, declared files named inside the directory (symbolic links allowed), baseline and query row groups and schemas from Parquet footers, counts, `count_config` and its agreement with `overlap_config`, and a lazy `load_overlap()`; read and decoding failures become `LDSCInputError`.
 `load_ldscore_from_dir()` calls it and opens an `LDScoreSource`, retaining baseline values, identities, counts, and overlap while leaving query LD-score values on disk.
 This module owns manifest/schema checks, count/overlap consistency, and table/identity validation shared by materialized and staged output.
 It also declares the schema facts that the direct and indexed LD-score producers, the legacy converter and the readers share: the weight column `REGRESSION_LD_SCORE_COLUMN`, the count-record fields `ALL_COUNT_FIELD` and `COMMON_COUNT_FIELD` with the one record constructor `count_record()` (an unavailable all-SNP count is recorded as `null`, an unavailable common-SNP count is left out), and the index provenance fields `INDEX_PROVENANCE_FIELDS`.

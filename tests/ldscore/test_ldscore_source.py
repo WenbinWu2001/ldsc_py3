@@ -173,19 +173,42 @@ def test_a_missing_declared_table_is_an_input_error(tmp_path, name):
     root = _quantile_ldscores(tmp_path)
     (root / name).unlink()
 
-    with pytest.raises(LDSCInputError, match=f"{name}.*missing"):
+    with pytest.raises(LDSCInputError, match=f"^Could not load LD-score directory .*{name}.*missing.*troubleshooting"):
         load_ldscore_from_dir(str(root))
 
 
-def test_a_declared_table_outside_the_directory_is_rejected(tmp_path):
+@pytest.mark.parametrize("token", ["../ldscore.overlap.parquet", "absolute"])
+def test_a_declared_table_outside_the_directory_is_rejected(tmp_path, token):
     from ldsc import load_ldscore_from_dir
 
     root = _quantile_ldscores(tmp_path)
     (root / "ldscore.overlap.parquet").rename(tmp_path / "ldscore.overlap.parquet")
-    _edit_metadata(root, lambda metadata: metadata["files"].update(overlap="../ldscore.overlap.parquet"))
+    token = str(tmp_path / "ldscore.overlap.parquet") if token == "absolute" else token
+    _edit_metadata(root, lambda metadata: metadata["files"].update(overlap=token))
 
-    with pytest.raises(LDSCInputError, match="escapes"):
+    with pytest.raises(LDSCInputError, match="^Could not load LD-score directory .*files.overlap`=.* points outside the directory.*troubleshooting"):
         load_ldscore_from_dir(str(root))
+
+
+def test_declared_files_may_be_symbolic_links_to_shared_storage(tmp_path):
+    # Large tables linked from shared storage are inside the directory by name, as before the manifest read.
+    from ldsc import load_ldscore_from_dir
+
+    root = _quantile_ldscores(tmp_path)
+    expected = load_ldscore_from_dir(str(root))
+    shared = tmp_path / "shared"
+    (shared / "diagnostics").mkdir(parents=True)
+    for name in ("ldscore.baseline.parquet", "ldscore.overlap.parquet"):
+        (root / name).rename(shared / name)
+        (root / name).symlink_to(shared / name)
+    (shared / "diagnostics" / "notes.tsv").write_text("x\n", encoding="utf-8")
+    (root / "diagnostics").symlink_to(shared / "diagnostics", target_is_directory=True)
+    _edit_metadata(root, lambda metadata: metadata["files"].update(notes="diagnostics/notes.tsv"))
+
+    loaded = load_ldscore_from_dir(str(root))
+
+    pd.testing.assert_frame_equal(loaded.baseline_table, expected.baseline_table)
+    pd.testing.assert_frame_equal(loaded.overlap.baseline_block_all, expected.overlap.baseline_block_all)
 
 
 def test_an_unreadable_parquet_footer_is_an_input_error(tmp_path):

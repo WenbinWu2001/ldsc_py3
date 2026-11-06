@@ -108,13 +108,6 @@ class LiabilityConversionTest(unittest.TestCase):
         with self.assertRaises(Exception):
             reg.liability_conversion_factor(0.5, float("nan"))
 
-    def test_h2_obs_to_liab_matches_primitive(self):
-        self.assertAlmostEqual(
-            reg.h2_obs_to_liab(0.3, 0.5, 0.01),
-            0.3 * reg.liability_conversion_factor(0.5, 0.01),
-            places=12,
-        )
-
     def test_gencov_obs_to_liab_uses_sqrt_product(self):
         g = reg.gencov_obs_to_liab(0.1, 0.5, 0.5, 0.01, 0.02)
         expected = (

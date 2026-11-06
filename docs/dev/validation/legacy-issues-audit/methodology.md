@@ -1,6 +1,6 @@
 # Methodology and interpretation
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-06
 
 [Audit overview](README.md) · [Workflow counts and membership](workflow-index.md) · [Verification](verification.md)
 
@@ -1909,7 +1909,7 @@ Check sample-size convention, denominator and prevalence before assigning a biol
 **Recommended prevention.** Do not clip estimates as a repair; present their SE and investigate scaling, model fit and input provenance.
 
 **Evidence and verification.** Source-inspected; relevant executed checks are identified in verification.md.
-[src/ldsc/_regression/estimators.py:Hsq](<../../../../src/ldsc/_regression/estimators.py>); [src/ldsc/_regression/estimators.py:h2_obs_to_liab](<../../../../src/ldsc/_regression/estimators.py>); [docs/reference/regression-options.md](<../../../reference/regression-options.md>).
+[src/ldsc/_regression/estimators.py:Hsq](<../../../../src/ldsc/_regression/estimators.py>); [src/ldsc/_regression/estimators.py:liability_conversion_factor](<../../../../src/ldsc/_regression/estimators.py>); [docs/reference/regression-options.md](<../../../reference/regression-options.md>).
 
 <a id="faq-18"></a>
 
@@ -2329,7 +2329,7 @@ Genetic correlation is invariant to these positive rescalings; covariance and he
 **Recommended prevention.** Require appropriate prevalence inputs and compare the same estimand and scale across studies.
 
 **Evidence and verification.** Source-inspected; relevant executed checks are identified in verification.md.
-[src/ldsc/_regression/estimators.py:h2_obs_to_liab](<../../../../src/ldsc/_regression/estimators.py>); [src/ldsc/_regression/runner.py:_summarize_rg_pair](<../../../../src/ldsc/_regression/runner.py>); [tests/regression/test_prevalence.py](<../../../../tests/regression/test_prevalence.py>).
+[src/ldsc/_regression/estimators.py:liability_conversion_factor](<../../../../src/ldsc/_regression/estimators.py>); [src/ldsc/_regression/runner.py:_summarize_rg_pair](<../../../../src/ldsc/_regression/runner.py>); [tests/regression/test_prevalence.py](<../../../../tests/regression/test_prevalence.py>).
 
 <a id="faq-19"></a>
 

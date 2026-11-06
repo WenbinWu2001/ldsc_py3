@@ -49,7 +49,6 @@ def overlap_aware_category_table(hsq, overlap_matrix, m_annot, m_tot, category_n
         overlap_matrix,
         np.asarray(m_annot, dtype=np.float64).reshape(1, -1),
         float(m_tot),
-        True,
     ).reset_index(drop=True)).rename(columns=_LEGACY_OVERLAP_COLUMNS)
     coef = np.ravel(hsq.coef).astype(np.float64)
     coef_se = np.ravel(hsq.coef_se).astype(np.float64)

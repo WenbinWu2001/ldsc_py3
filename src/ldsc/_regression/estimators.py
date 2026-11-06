@@ -3,7 +3,8 @@
 # regression outputs, liability-scale calculations, and naming the failed rg
 # component. The allele-matching tables from ldscore/sumstats.py that this
 # module held moved to ldsc._core.snp_identity in 2026. 2026-11: removed
-# the unused slow-jackknife option and fit attributes that nothing read.
+# the unused slow-jackknife option, fit attributes that nothing read,
+# h2_obs_to_liab and unused weight and overlap-table parameters.
 # See NOTICE for attribution and dated modifications.
 
 '''
@@ -180,35 +181,11 @@ def gencov_obs_to_liab(gencov_obs, P1, P2, K1, K2):
     c1 = 1
     c2 = 1
     if P1 is not None and K1 is not None:
-        c1 = np.sqrt(h2_obs_to_liab(1, P1, K1))
+        c1 = np.sqrt(liability_conversion_factor(P1, K1))
     if P2 is not None and K2 is not None:
-        c2 = np.sqrt(h2_obs_to_liab(1, P2, K2))
+        c2 = np.sqrt(liability_conversion_factor(P2, K2))
 
     return gencov_obs * c1 * c2
-
-
-def h2_obs_to_liab(h2_obs, P, K):
-    """Convert observed-scale heritability to the liability scale.
-
-    Thin wrapper over :func:`liability_conversion_factor` preserving the legacy
-    LDSC signature: ``h2_liab = h2_obs * c(P, K)``. When both ``P`` and ``K`` are
-    NaN the observed value is returned unchanged (the factor is ``1.0``).
-
-    Parameters
-    ----------
-    h2_obs : float
-        Observed-scale heritability in an ascertained sample.
-    P : float in (0, 1)
-        Sample (case) prevalence, or NaN for a quantitative trait.
-    K : float in (0, 1)
-        Population prevalence, or NaN for a quantitative trait.
-
-    Returns
-    -------
-    float
-        Liability-scale heritability.
-    """
-    return h2_obs * liability_conversion_factor(P, K)
 
 
 class LD_Score_Regression(object):
@@ -269,23 +246,19 @@ class LD_Score_Regression(object):
             design[:, self.n_annot] = 1.0
             x, x_tot = design, append_intercept(x_tot)
             yp = y
-        elif not self.constrain_intercept:
+        else:
             # Multiplication owns this buffer; division must still promote integers.
             x = np.multiply(N, x)
             if np.issubdtype(x.dtype, np.inexact):
                 np.divide(x, Nbar, out=x)
             else:
                 x = x / Nbar
-            x, x_tot = append_intercept(x), append_intercept(x_tot)
-            yp = y
-        else:
-            x = np.multiply(N, x)
-            if np.issubdtype(x.dtype, np.inexact):
-                np.divide(x, Nbar, out=x)
+            if self.constrain_intercept:
+                yp = y - intercept
+                self.intercept_se = 'NA'
             else:
-                x = x / Nbar
-            yp = y - intercept
-            self.intercept_se = 'NA'
+                x, x_tot = append_intercept(x), append_intercept(x_tot)
+                yp = y
         del y
         self.twostep_filtered = None
         if step1_ii is not None and self.constrain_intercept:
@@ -498,7 +471,7 @@ class Hsq(LD_Score_Regression):
                 )
 
         ld = ref_ld_tot[:, 0].reshape(w_ld.shape)  # remove intercept
-        w = self.weights(ld, w_ld, N, M, hsq, intercept, ii)
+        w = self.weights(ld, w_ld, N, M, hsq, intercept)
         return w
 
     def _summarize_chisq(self, chisq):
@@ -519,7 +492,7 @@ class Hsq(LD_Score_Regression):
 
         return ratio, ratio_se
 
-    def _overlap_output(self, category_names, overlap_matrix, M_annot, M_tot, print_coefficients):
+    def _overlap_output(self, category_names, overlap_matrix, M_annot, M_tot):
         '''LD score regression summary for overlapping annotations.'''
         overlap_matrix_prop = np.zeros([self.n_annot,self.n_annot])
         for i in range(self.n_annot):
@@ -559,25 +532,18 @@ class Hsq(LD_Score_Regression):
             'Coefficient_std_error': self.coef_se,
             'Coefficient_z-score': one_d_convert(self.coef) / one_d_convert(self.coef_se)
         })
-        if print_coefficients:
-            df = df[['Category', 'Prop._SNPs', 'Prop._h2', 'Prop._h2_std_error',
-                    'Enrichment','Enrichment_std_error', 'Enrichment_p',
-                     'Coefficient', 'Coefficient_std_error','Coefficient_z-score']]
-        else:
-            df = df[['Category', 'Prop._SNPs', 'Prop._h2', 'Prop._h2_std_error',
-                    'Enrichment','Enrichment_std_error', 'Enrichment_p']]
         return df
 
 
-    def _update_weights(self, ld, w_ld, N, M, hsq, intercept, ii=None):
+    def _update_weights(self, ld, w_ld, N, M, hsq, intercept):
         """Adapt the shared weight-update signature to the heritability model."""
         if intercept is None:
             intercept = self.__null_intercept__
 
-        return self.weights(ld, w_ld, N, M, hsq, intercept, ii)
+        return self.weights(ld, w_ld, N, M, hsq, intercept)
 
     @classmethod
-    def weights(cls, ld, w_ld, N, M, hsq, intercept=None, ii=None):
+    def weights(cls, ld, w_ld, N, M, hsq, intercept=None):
         '''
         Regression weights.
 
@@ -663,9 +629,9 @@ class Gencov(LD_Score_Regression):
             N2 = self.N2
 
         return self.weights(ld, w_ld, N1, N2, np.sum(M), self.hsq1, self.hsq2, rho_g,
-                         intercept, self.intercept_hsq1, self.intercept_hsq2, ii)
+                         intercept, self.intercept_hsq1, self.intercept_hsq2)
 
-    def _update_weights(self, ld, w_ld, sqrt_n1n2, M, rho_g, intercept, ii=None):
+    def _update_weights(self, ld, w_ld, sqrt_n1n2, M, rho_g, intercept):
         '''Weight function with the same signature for Hsq and Gencov.'''
         w = self.weights(ld, w_ld, self.N1, self.N2, M, self.hsq1, self.hsq2, rho_g,
                          intercept, self.intercept_hsq1, self.intercept_hsq2)
@@ -673,7 +639,7 @@ class Gencov(LD_Score_Regression):
 
     @classmethod
     def weights(cls, ld, w_ld, N1, N2, M, h1, h2, rho_g, intercept_gencov=None,
-                intercept_hsq1=None, intercept_hsq2=None, ii=None):
+                intercept_hsq1=None, intercept_hsq2=None):
         '''
         Regression weights.
 

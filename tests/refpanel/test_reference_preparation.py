@@ -124,7 +124,7 @@ def test_parquet_preparation_releases_reader_on_calculation_failure(tmp_path, mo
     panel = R2MatrixRefPanel(config, RefPanelConfig(backend="r2_matrix", r2_matrix_dir=tmp_path))
     bundle = ChromosomeAnnotations(metadata, pd.DataFrame({"base": [1, 1]}), ["base"], [])
 
-    def fail_decode(self, table, row_group_index):
+    def fail_decode(self, table):
         raise LDSCInputError("injected decode failure")
 
     monkeypatch.setattr(SortedR2BlockReader, "_decode_index_batch", fail_decode)

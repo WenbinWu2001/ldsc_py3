@@ -533,17 +533,6 @@ class R2MatrixChromosome:
         return SortedR2BlockReader(self, metadata, identifier_mode, genome_build)
 
 
-# Parquet R2 adapter.
-@dataclass(frozen=True)
-class _DecodedR2RowGroup:
-    """Decoded index-format parquet row group as retained-matrix index arrays."""
-
-    row_group_index: int
-    i: np.ndarray
-    j: np.ndarray
-    r2: np.ndarray
-
-
 class SortedR2BlockReader:
     """
     Stream retained R2 pairs from one chromosome's R2 Parquet file.
@@ -597,8 +586,8 @@ class SortedR2BlockReader:
         """R2 matrix sidecar row of each retained SNP, in retained order."""
         return self._retained_build_idx
 
-    def _decode_index_batch(self, table, row_group_index: int) -> _DecodedR2RowGroup:
-        """Dequantize and remap one bounded Arrow batch of stored pairs."""
+    def _decode_index_batch(self, table) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Dequantize and remap one bounded Arrow batch of stored pairs to retained ``(i, j, r2)``."""
         idx1 = _arrow_to_numpy(table.column("IDX_1")).astype(np.int64, copy=False)
         idx2 = _arrow_to_numpy(table.column("IDX_2")).astype(np.int64, copy=False)
         stored = _arrow_to_numpy(table.column("R2")).astype(np.float32, copy=False)
@@ -606,12 +595,8 @@ class SortedR2BlockReader:
         i = self._remap[idx1]
         j = self._remap[idx2]
         keep = (i >= 0) & (j >= 0)
-        return _DecodedR2RowGroup(
-            row_group_index=int(row_group_index),
-            i=i[keep].astype(np.int32, copy=False),
-            j=j[keep].astype(np.int32, copy=False),
-            r2=r2[keep].astype(np.float32, copy=False),
-        )
+        return (i[keep].astype(np.int32, copy=False), j[keep].astype(np.int32, copy=False),
+                r2[keep].astype(np.float32, copy=False))
 
     def iter_all_pairs(self, *, batch_rows=65_536):
         """Yield each pair once in bounded batches, including oversized row groups.
@@ -622,9 +607,9 @@ class SortedR2BlockReader:
         for rg_index in range(self._pf.metadata.num_row_groups):
             for table in self._pf.iter_batches(batch_size=batch_rows,
                     row_groups=[rg_index], columns=["IDX_1", "IDX_2", "R2"]):
-                group = self._decode_index_batch(table, rg_index)
-                if group.i.size:
-                    yield group.i, group.j, group.r2
+                i, j, r2 = self._decode_index_batch(table)
+                if i.size:
+                    yield i, j, r2
 
 
 # Text format of float columns (CM, MAF) in every reference-metadata sidecar.
@@ -687,12 +672,6 @@ def build_runtime_metadata_table(
         "MAF": pd.to_numeric(metadata["MAF"], errors="coerce").astype(float),
     }
     return pd.DataFrame(values).reset_index(drop=True)
-
-
-def _ensure_parent_dir(path: str | PathLike[str]) -> None:
-    """Create the parent directory for ``path`` if it does not already exist."""
-    parent = Path(path).parent
-    parent.mkdir(parents=True, exist_ok=True)
 
 
 def _standard_r2_index_table(pa, schema, *, i, j, r2, sign):
@@ -759,7 +738,7 @@ def write_r2_parquet(
     in the footer and auto-detected on read.
     """
 
-    _ensure_parent_dir(path)
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
     import pyarrow as pa
     import pyarrow.parquet as pq
 
@@ -885,7 +864,7 @@ def write_runtime_metadata_sidecar(
 ) -> str:
     """Write one gzip-compressed LDSC3 runtime metadata sidecar."""
 
-    _ensure_parent_dir(path)
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
     identity_metadata = identity_artifact_metadata(
         artifact_type="ref_panel_metadata",
         snp_identifier=snp_identifier,
@@ -904,12 +883,7 @@ def write_runtime_metadata_sidecar(
 _RANDOM_STRATEGY_MAX_PAIRS = 50_000
 
 
-def _idx1_column_index(parquet_file) -> int:
-    """Return the parquet column index of ``IDX_1`` (for footer statistics)."""
-    return parquet_file.schema_arrow.names.index("IDX_1")
-
-
-def _prune_row_groups(parquet_file, left_sorted: np.ndarray, idx1_col: int):
+def _prune_row_groups(parquet_file, left_sorted: np.ndarray):
     """Return row groups whose ``IDX_1`` [min,max] covers a needed left index.
 
     ``left_sorted`` is the sorted unique set of canonical left indices queried.
@@ -917,6 +891,7 @@ def _prune_row_groups(parquet_file, left_sorted: np.ndarray, idx1_col: int):
     ``IDX_1`` footer range. Groups without usable statistics are kept (safe).
     """
     md = parquet_file.metadata
+    idx1_col = parquet_file.schema_arrow.names.index("IDX_1")
     keep: list[int] = []
     for rg in range(md.num_row_groups):
         stats = md.row_group(rg).column(idx1_col).statistics
@@ -961,11 +936,8 @@ def lookup_pairs_in_parquet(
 
     # Auto strategy: prune+random-access row groups for small queries, full
     # sequential scan once the query is large enough to touch most groups anyway.
-    chosen = "random" if n <= _RANDOM_STRATEGY_MAX_PAIRS else "stream"
-
-    idx1_col = _idx1_column_index(parquet_file)
-    if chosen == "random":
-        row_groups = _prune_row_groups(parquet_file, np.unique(i), idx1_col)
+    if n <= _RANDOM_STRATEGY_MAX_PAIRS:
+        row_groups = _prune_row_groups(parquet_file, np.unique(i))
     else:
         row_groups = range(parquet_file.metadata.num_row_groups)
 

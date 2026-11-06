@@ -82,7 +82,10 @@ def test_message_states_a_repair_shared_by_consecutive_defects_once(tmp_path):
     ("catalog.tsv.gz", b"not a gzip stream", "catalog_unparseable"),
     ("catalog.tsv", b"gene_id\xff\n", "catalog_unparseable"),
     ("catalog.tsv", None, "catalog_unreadable"),
-], ids=["gzip", "utf8", "unreadable"])
+    # A space-separated header is one column, so every required column is missing.
+    ("catalog.tsv", b"gene_id gene_name chrom start end genome_build\nG1 ONE 1 5 6 hg19\n",
+     "missing_required_column"),
+], ids=["gzip", "utf8", "unreadable", "missing-columns"])
 def test_file_level_failures_point_to_the_troubleshooting_section(tmp_path, name, payload, reason):
     catalog = tmp_path / name
     if payload is None:
@@ -124,6 +127,20 @@ def test_embedded_catalog_message_names_its_defects():
     message = str(caught.value)
     assert "is not canonical: found 1 defect(s): line 2" in message
     assert caught.value.issues["reason"].iloc[0] in message
+
+
+@pytest.mark.parametrize(("frame", "reason"), [
+    (pd.DataFrame({"gene_id": ["G1"]}), "missing_required_column"),
+    (pd.DataFrame(columns=["gene_id", "gene_name", "chrom", "start", "end", "genome_build", "catalog_line"]),
+     "catalog_unparseable"),
+], ids=["missing-columns", "empty"])
+def test_embedded_catalog_failures_point_to_the_troubleshooting_section(frame, reason):
+    with pytest.raises(GeneCatalogValidationError) as caught:
+        GeneCatalog.from_embedded_frame(frame)
+
+    assert str(caught.value).startswith("Embedded gene coordinate catalog 'gene_catalog.parquet' ")
+    assert str(caught.value).endswith(f"Other causes & fixes: {ANCHOR}")
+    assert caught.value.issues["reason"].iloc[0] == reason
 
 
 def test_ldscore_cli_names_the_defects_and_writes_the_catalog_table(tmp_path, inputs):  # noqa: F811

@@ -178,8 +178,13 @@ class GeneCatalog:
         frame, parse_issues = _parse_catalog_text(text, source)
         if frame is None:
             if parse_issues["reason"].eq("missing_required_column").any():
+                # One list of columns reads better than catalog_defect_message's one defect and repair per column.
                 missing = ", ".join(parse_issues.loc[parse_issues["reason"].eq("missing_required_column"), "field"])
-                message = f"Gene coordinate catalog '{source}' is missing required columns: {missing}."
+                message = (
+                    f"Gene coordinate catalog '{source}' is missing required columns: {missing}. Repair: Give the "
+                    "catalog a tab-separated header that names every required column; the rows are checked only "
+                    f"after that. Other causes & fixes: {_CATALOG_TROUBLESHOOTING}"
+                )
             else:
                 message = catalog_defect_message(
                     f"Gene coordinate catalog '{source}' is structurally unusable", parse_issues
@@ -236,7 +241,10 @@ class GeneCatalog:
                 columns=CATALOG_ISSUE_COLUMNS,
             )
             raise GeneCatalogValidationError(
-                f"Embedded gene coordinate catalog is missing required columns: {missing}.", issues
+                f"Embedded gene coordinate catalog '{source}' is missing required columns: {', '.join(missing)}. "
+                "Repair: Rebuild the gene LD-score index from a canonical gene coordinate catalog. "
+                f"Other causes & fixes: {_CATALOG_TROUBLESHOOTING}",
+                issues,
             )
         if frame.empty:
             issues = _single_catalog_issue(
@@ -247,7 +255,7 @@ class GeneCatalog:
                 repair="Rebuild the index from a nonempty canonical gene coordinate catalog.",
             )
             raise GeneCatalogValidationError(
-                f"Embedded gene coordinate catalog '{source}' is empty.", issues
+                catalog_defect_message(f"Embedded gene coordinate catalog '{source}' is empty", issues), issues
             )
         catalog_lines = pd.to_numeric(frame["catalog_line"], errors="coerce")
         invalid_lines = (

@@ -280,11 +280,13 @@ All four also write each affected file to `diagnostics/input_issues.tsv` in the 
 
 ### Common: gene coordinate catalog is not valid
 
-**Symptom:** `Gene coordinate catalog '<file>' is not structurally valid: found <n> defect(s): line <L>, <field>: <reason> ...`, or, for a file that cannot be read as text, `Could not read gene coordinate catalog '<file>': ...`, `... is not a readable gzip TSV: ...` or `... is not valid UTF-8: ...`
+**Symptom:** `Gene coordinate catalog '<file>' is not structurally valid: found <n> defect(s): line <L>, <field>: <reason> ...` or `... is structurally unusable: found <n> defect(s): ...`; for a header without every required column, `Gene coordinate catalog '<file>' is missing required columns: <columns>. ...`; for a file that cannot be read as text, `Could not read gene coordinate catalog '<file>': ...`, `... is not a readable gzip TSV: ...` or `... is not valid UTF-8: ...`; for the catalog stored in a gene LD-score index, the same kinds of message starting with `Embedded gene coordinate catalog 'gene_catalog.parquet'`, such as `... is empty: ...` or `... is not canonical: ...`
 
 Gene-list runs of `annotate`, `ldscore` and `quantile-h2`, and the Python `AnnotationBuilder`, check the whole gene coordinate catalog before any gene list is resolved.
 A defect that leaves the catalog without one usable genome build or without parseable rows stops the run; the message names the first five defects with their catalog line, field, reason, value and repair, and counts the rest.
+A header without every required column stops the run with a message that lists all the missing columns instead.
 `build-gene-ldscore-index` stops on every catalog defect, with `is not canonical` in the message.
+A gene LD-score index whose stored catalog fails these checks gives an `Embedded gene coordinate catalog` message; rebuild the index with `build-gene-ldscore-index` from a valid catalog.
 `annotate`, `ldscore` and `quantile-h2`, and their Python functions `run_annotate()`, `run_ldscore()` and `run_quantile_h2()`, write every defect to `diagnostics/gene_catalog_issues.tsv` in the output directory; `build-gene-ldscore-index` writes them to `<index-dir>/.build/gene_coordinate_catalog_issues.tsv.gz`.
 The Python `AnnotationBuilder` writes no table; the exception's `issues` attribute holds the same rows.
 
@@ -297,6 +299,7 @@ The Python `AnnotationBuilder` writes no table; the exception's `issues` attribu
 | 3 | The catalog mixes hg19 and hg38 rows (reason `conflicting_genome_build`) | Count the distinct `genome_build` values in the catalog |
 | 4 | A row has a different number of fields than the header, often a space instead of a tab (reason `malformed_catalog_row`) | The `details` column gives the expected and found field counts |
 | 5 | The file is not a readable, UTF-8, tab-separated table, or is empty (reasons `catalog_unreadable`, `catalog_unparseable`) | Open the file named in the message; a `.gz` name must hold a gzip stream |
+| 6 | The header lacks a required column, or separates its column names with spaces instead of tabs (reason `missing_required_column`) | Compare the header with the required columns `gene_id`, `gene_name`, `chrom`, `start`, `end` and `genome_build`; if the message lists all six, check the delimiter |
 
 **Remedies:**
 
@@ -306,7 +309,7 @@ The Python `AnnotationBuilder` writes no table; the exception's `issues` attribu
 
 See [gene-list formats](../reference/formats/gene-lists.md) for the catalog columns.
 
-**Developer reference:** `_annotation.gene_lists.GeneCatalog.load()` and `catalog_defect_message()` · **Exception:** `GeneCatalogValidationError` (an `LDSCInputError`)
+**Developer reference:** `_annotation.gene_lists.GeneCatalog.load()`, `GeneCatalog.from_embedded_frame()` and `catalog_defect_message()` · **Exception:** `GeneCatalogValidationError` (an `LDSCInputError`)
 
 ## `munge-sumstats`
 

@@ -90,7 +90,7 @@ rows secretly mix builds cannot be detected reliably; generate it from one
 authoritative single-build source.
 
 A catalog without one usable genome build or without parseable rows stops every gene-list workflow before any list is resolved.
-The error names the first five defects (catalog line, field, reason, value and repair) and counts the rest.
+The error names the first five defects (catalog line, field, reason, value and repair) and counts the rest; for a header without every required column, it lists all the missing columns instead.
 `annotate`, `ldscore` and `quantile-h2` write all of them to `diagnostics/gene_catalog_issues.tsv`; see [Troubleshooting](../../user-guide/troubleshooting.md#common-gene-coordinate-catalog-is-not-valid).
 
 ## Strict and exploratory resolution

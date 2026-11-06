@@ -1,6 +1,6 @@
 # Data Flow
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-06
 
 Examples below use the munged file names written without a trait label (`sumstats.parquet`, `sumstats.gz`); naming rules are in [artifact metadata](../reference/formats/artifact-metadata.md).
 
@@ -29,7 +29,7 @@ flowchart LR
     C1[Dispatch subcommands]
   end
 
-  subgraph WF[Workflow Layer (public)<br/>src/ldsc/*.py]
+  subgraph WF[Workflow Layer (public)<br/>workflow modules in the domain packages]
     W1[Build annotations]
     W2[Build R² matrix]
     W2b[Query R² pairs]
@@ -216,7 +216,7 @@ flowchart LR
 | --- | --- | --- |
 | build-specific R² Parquet file | `hg38/chr22_r2.parquet` with 4 columns: `IDX_1`, `IDX_2` (int32 sidecar-row indices), `R2` (int16 quantized unbiased R², divided by `ldsc:r2_scale`=32767 on read), `SIGN_R` (bool, Pearson r ≥ 0 between the `A1`/minor allele dosages of the pair) | one row per unordered SNP pair inside the LD window; row groups sorted by `IDX_1` (equivalent to `POS_1` order since sidecar is position-sorted); schema metadata records the identity keys plus `ldsc:n_samples`, `ldsc:r2_bias`, `ldsc:r2_encoding`, `ldsc:r2_scale`, `ldsc:r2_min`, `ldsc:ld_window_mode`/`ldsc:ld_window_value`, `ldsc:n_snps`, and `ldsc:sidecar_identity_sha256` ([contract](../reference/formats/r2-matrices.md#25-parquet-schema-metadata)); paired sidecar is mandatory |
 | build-specific runtime sidecar | `hg38/chr22_meta.tsv.gz` with leading `# ldsc:*` identity-provenance comments and `CHR POS SNP CM MAF A1 A2` columns | mandatory authoritative list of the R² matrix SNPs for the matching R² Parquet file; defines the index space referenced by `IDX_1`/`IDX_2`; `A1` is the **minor allele** and `MAF = freq(A1) ≤ 0.5` (canonical orientation); current package-written sidecars carry `artifact_type`, `snp_identifier`, and `genome_build` |
-| dropped-SNP audit sidecar | `diagnostics/dropped_snps/chr22_dropped.tsv.gz` with `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written for each processed chromosome; header-only when no rows were dropped; identity reasons include `missing_allele`, `invalid_allele`, `strand_ambiguous_allele`, `multi_allelic_base_key`, and `duplicate_identity`; liftover reasons include `unmapped_liftover`, `cross_chromosome_liftover`, and `target_collision`; same-position source rows are already removed by identity cleanup as `duplicate_identity` or `multi_allelic_base_key` |
+| dropped-SNP audit sidecar | `diagnostics/dropped_snps/chr22_dropped.tsv.gz` with `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written for each processed chromosome; header-only when no rows were dropped; identity reasons include `missing_allele`, `invalid_allele`, `multi_allelic_base_key`, and `duplicate_identity`; liftover reasons include `unmapped_liftover`, `cross_chromosome_liftover`, and `target_collision`; same-position source rows are already removed by identity cleanup as `duplicate_identity` or `multi_allelic_base_key` |
 | diagnostic metadata | JSON provenance | `diagnostics/metadata.json` for full-suite runs or `diagnostics/metadata.chr<chrom>.json` for concrete single-chromosome runs; not consumed downstream |
 | workflow log | plain-text lifecycle and package records | `diagnostics/build-r2-matrix.log` for full-suite runs or `diagnostics/build-r2-matrix.chr<chrom>.log` for concrete single-chromosome runs; not included in `R2MatrixBuildResult.output_paths` |
 
@@ -231,7 +231,7 @@ See [allele orientation](../reference/formats/column-schema.md#allele-orientatio
 
 - Preprocessing: `ldsc.config`, `ldsc._runtime.paths`
 - Workflow: `ldsc._refpanel.builder`, with PLINK chromosome selection in `ldsc._refpanel.plink_source`
-- Kernel: `ldsc._refpanel.genetic_map`, `ldsc._refpanel.build_kernel`, `ldsc._ldscore.compute`, `ldsc._core.plink_files`
+- Kernel: `ldsc._refpanel.genetic_map`, `ldsc._refpanel.build_kernel`, `ldsc._refpanel.plink`, `ldsc._refpanel.windows`, `ldsc._core.plink_files`
 - Postprocessing: R² Parquet and sidecar writers in `ldsc._refpanel.r2_format`; metadata, dropped-SNP tables and owned-file declarations in `ldsc._refpanel.outputs.R2MatrixBuildDirectoryWriter`
 
 ## 3. `query-r2-matrix`: R² Matrix To Pair Lookup Table
@@ -528,7 +528,7 @@ flowchart LR
 | munged summary statistics | `SNP CHR POS A1 A2 Z N`<br/>`rs3131969 1 754182 A G 0.74 829249.58` | written as `sumstats.parquet` by default under `output_dir`; `--output-format tsv.gz` writes legacy `sumstats.gz`, and `both` writes both; `CHR`/`POS` are present and may be missing when absent from raw input; optional `FRQ` may also be present |
 | log file | plain-text lifecycle, QC log, coordinate provenance, readable liftover reports, HM3 provenance, output bookkeeping, and count-level drop summaries | workflow-owned `diagnostics/sumstats.log` under `output_dir`, populated from package logger messages emitted during workflow orchestration and kernel QC; excluded from `MungeRunSummary.output_paths` |
 | embedded identity metadata | discrete footer keys `ldsc:artifact_type`, `ldsc:snp_identifier`, `ldsc:genome_build`, and optional `ldsc:trait_name`, plus `ldsc:qc_info_min` and `ldsc:qc_maf_min` when the run's QC thresholds are known (provenance only, not read) | written into the `sumstats.parquet` footer (no `metadata.json` sidecar); used by `load_sumstats()` to reconstruct config provenance and trait labels. Footerless Parquet is rejected; legacy text is marked explicitly. |
-| dropped-SNP audit sidecar | `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written as `diagnostics/dropped_snps/dropped.tsv.gz`; header-only when no rows were dropped; reasons may include identity drops (`missing_allele`, `invalid_allele`, `strand_ambiguous_allele`, `multi_allelic_base_key`, `duplicate_identity`) and liftover drops (`missing_coordinate`, `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, `target_collision`) |
+| dropped-SNP audit sidecar | `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written as `diagnostics/dropped_snps/dropped.tsv.gz`; header-only when no rows were dropped; reasons may include identity drops (`missing_allele`, `invalid_allele`, `multi_allelic_base_key`, `duplicate_identity`) and liftover drops (`missing_coordinate`, `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, `target_collision`) |
 
 ### Modules used
 
@@ -631,10 +631,8 @@ flowchart LR
 The required `output_dir` also receives the matching
 workflow log. The log is not part of any returned result `output_paths` mapping.
 
-Query-mode `partitioned-h2` writes `diagnostics/query_annotations/manifest.tsv`
-plus one ordinal-prefixed
-sanitized folder per query annotation. Each query folder contains
-`partitioned_h2.tsv`, `partitioned_h2_full.tsv`, and `metadata.json`.
+Query-mode `partitioned-h2` writes `diagnostics/query_annotations/manifest.tsv` plus one ordinal-prefixed sanitized folder per query annotation.
+Each query folder contains `partitioned_h2.tsv`, `partitioned_h2_full.tsv`, `coefficient_delete_values.parquet` and `metadata.json`.
 For column definitions and interpretation, see
 [`partitioned-h2.md`](../reference/results/partitioned-h2.md).
 

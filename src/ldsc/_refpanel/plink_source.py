@@ -258,8 +258,8 @@ def select_plink_chromosome(
     Raises
     ------
     ldsc.errors.LDSCInputError
-        The ``.bim`` has no row on ``chrom``, or the keep list matches no
-        ``.fam`` individual.
+        The ``.bim`` has no row on ``chrom``, the keep list matches no
+        ``.fam`` individual, or a listed IID names more than one ``.fam`` row.
     """
     chrom = normalize_chromosome(chrom)
     bim = plink_files.PlinkBIMFile(prefix + ".bim")

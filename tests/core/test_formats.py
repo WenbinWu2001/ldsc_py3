@@ -16,7 +16,7 @@ PLINK_FIXTURES = FIXTURES / "plink"
 class PlinkFilesTest(unittest.TestCase):
     def test_fam(self):
         fam = ps.PlinkFAMFile(str(PLINK_FIXTURES / "plink.fam"))
-        self.assertEqual(fam.n, 5)
+        self.assertEqual(len(fam.df), 5)
         correct = np.array(["per0", "per1", "per2", "per3", "per4"])
         assert_array_equal(fam.IDList.values.reshape((5,)), correct)
 
@@ -26,7 +26,7 @@ class PlinkFilesTest(unittest.TestCase):
 
     def test_bim(self):
         bim = ps.PlinkBIMFile(str(PLINK_FIXTURES / "plink.bim"))
-        self.assertEqual(bim.n, 8)
+        self.assertEqual(len(bim.df), 8)
         correct = np.array([f"rs_{i}" for i in range(8)])
         assert_array_equal(bim.IDList.values.reshape(8), correct)
 

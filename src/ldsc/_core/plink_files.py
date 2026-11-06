@@ -4,6 +4,8 @@
 # and 2026-08 for the reduced parser surface. Notice restored 2026-09-10.
 # 2026-11: loj selects rows by membership, so a repeated ID counts once;
 # .fam and keep-file IDs are read as exact text, without missing values.
+# 2026-11-06: the reader class factory became one function returning a
+# dataclass; the unused row count ``n`` was dropped.
 # See NOTICE for attribution and dated modifications.
 
 """
@@ -24,6 +26,9 @@ Design Notes
 - The explicit converter, ``ldsc._ldscore.legacy_converter``, owns those compatibility formats.
 """
 
+from dataclasses import dataclass
+from functools import partial
+
 import numpy as np
 import pandas as pd
 
@@ -42,65 +47,52 @@ def get_compression(fh):
     return compression
 
 
-def __ID_List_Factory__(colnames, keepcol, fname_end, header=None, usecols=None, as_text=False):
-    """
-    Build a small file-reader class for one legacy LDSC identifier-list format.
+@dataclass(frozen=True, eq=False)
+class IdentifierTable:
+    """One identifier-list file, read as legacy LDSC ``parse.py`` read it.
 
-    The returned class mirrors the historical ``parse.py`` behavior used by the
-    LD kernel: it reads one file into ``self.df`` and, when requested, exposes
-    a one-column ``IDList`` table that can be matched against an external
-    list to obtain retained row indices. ``as_text=True`` keeps identifiers as
-    their exact text, so ``01003`` and ``1003`` stay distinct and words such as
-    ``NA`` or ``nan`` stay identifiers rather than missing values.
+    ``fname`` is the path read, ``df`` holds the selected columns under their
+    names and ``IDList`` holds the identifier column as a one-column object
+    table, which :meth:`loj` matches against an external list.
     """
 
-    class IDContainer(object):
-        """Container that loads one identifier-list table and optional `IDList` view."""
+    fname: str
+    df: pd.DataFrame
+    IDList: pd.DataFrame
 
-        def __init__(self, fname):
-            """Store parser settings and load the requested identifier list."""
-            self.__usecols__ = usecols
-            self.__colnames__ = colnames
-            self.__keepcol__ = keepcol
-            self.__fname_end__ = fname_end
-            self.__header__ = header
-            self.__as_text__ = as_text
-            self.fname = fname
-            self.__read__(fname)
-            self.n = len(self.df)
+    def loj(self, externalDf):
+        '''Returns indices of those elements of self.IDList that appear in externalDf.
 
-        def __read__(self, fname):
-            """Read one identifier-list file into ``self.df`` and ``self.IDList``."""
-            end = self.__fname_end__
-            if end and not fname.endswith(end):
-                raise LDSCInputError(
-                    f"Legacy LDSC identifier-list reader could not open '{fname}' because the filename does "
-                    f"not end with '{end}'. Most likely the wrong file type was passed to this loader. "
-                    f"Pass a file whose name ends with '{end}'."
-                )
-
-            comp = get_compression(fname)
-            text = {'dtype': str, 'na_filter': False} if self.__as_text__ else {}
-            self.df = pd.read_csv(fname, header=self.__header__, usecols=self.__usecols__,
-                                  sep=r'\s+', compression=comp, **text)
-
-            if self.__colnames__:
-                self.df.columns = self.__colnames__
-
-            if self.__keepcol__ is not None:
-                self.IDList = self.df.iloc[:, [self.__keepcol__]].astype('object')
-
-        def loj(self, externalDf):
-            '''Returns indices of those elements of self.IDList that appear in externalDf.
-
-            Rows are selected by membership, in ``self.IDList`` order, so an ID
-            listed more than once in ``externalDf`` selects its rows once.
-            '''
-            return np.flatnonzero(self.IDList.iloc[:, 0].isin(externalDf.iloc[:, 0]).to_numpy())
-
-    return IDContainer
+        Rows are selected by membership, in ``self.IDList`` order, so an ID
+        listed more than once in ``externalDf`` selects its rows once.
+        '''
+        return np.flatnonzero(self.IDList.iloc[:, 0].isin(externalDf.iloc[:, 0]).to_numpy())
 
 
-PlinkBIMFile = __ID_List_Factory__(['CHR', 'SNP', 'CM', 'BP', 'A1', 'A2'], 1, '.bim', usecols=[0, 1, 2, 3, 4, 5])
-PlinkFAMFile = __ID_List_Factory__(['IID'], 0, '.fam', usecols=[1], as_text=True)
-FilterFile = __ID_List_Factory__(['ID'], 0, None, usecols=[0], as_text=True)
+def read_identifier_table(fname, *, colnames, keepcol, fname_end, usecols, as_text=False) -> IdentifierTable:
+    """
+    Read one whitespace-delimited, headerless identifier-list file.
+
+    ``usecols`` selects the file's columns, which are named ``colnames``;
+    column ``keepcol`` of the result is the identifier column. A non-empty
+    ``fname_end`` is the required filename suffix. ``as_text=True`` keeps
+    identifiers as their exact text, so ``01003`` and ``1003`` stay distinct
+    and words such as ``NA`` or ``nan`` stay identifiers rather than missing
+    values.
+    """
+    if fname_end and not fname.endswith(fname_end):
+        raise LDSCInputError(
+            f"Legacy LDSC identifier-list reader could not open '{fname}' because the filename does "
+            f"not end with '{fname_end}'. Most likely the wrong file type was passed to this loader. "
+            f"Pass a file whose name ends with '{fname_end}'."
+        )
+    text = {'dtype': str, 'na_filter': False} if as_text else {}
+    df = pd.read_csv(fname, header=None, usecols=usecols, sep=r'\s+', compression=get_compression(fname), **text)
+    df.columns = colnames
+    return IdentifierTable(fname, df, df.iloc[:, [keepcol]].astype('object'))
+
+
+PlinkBIMFile = partial(read_identifier_table, colnames=['CHR', 'SNP', 'CM', 'BP', 'A1', 'A2'], keepcol=1,
+                       fname_end='.bim', usecols=[0, 1, 2, 3, 4, 5])
+PlinkFAMFile = partial(read_identifier_table, colnames=['IID'], keepcol=0, fname_end='.fam', usecols=[1], as_text=True)
+FilterFile = partial(read_identifier_table, colnames=['ID'], keepcol=0, fname_end=None, usecols=[0], as_text=True)

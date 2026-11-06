@@ -18,7 +18,6 @@ import pyarrow.parquet as pq
 from ldsc.config import GlobalConfig, LDWindow, RefPanelConfig
 from ldsc.errors import LDSCInputError
 from ldsc._refpanel.preflight import inspect_r2_headers
-from ldsc._refpanel import build_kernel as kb
 from ldsc._refpanel.r2_format import write_r2_parquet, write_runtime_metadata_sidecar
 from ldsc._refpanel.adapters import R2MatrixRefPanel
 from ldsc._core.snp_identity import sidecar_identity_sha256

@@ -2864,7 +2864,6 @@ class R2MatrixBuilderParityTest(unittest.TestCase):
 
 class R2QuantizationTest(unittest.TestCase):
     def test_quantize_r2_endpoint_is_exact(self):
-        from ldsc._refpanel import build_kernel as kb
         from ldsc._refpanel.r2_format import R2_QUANT_SCALE, _quantize_r2
         q = _quantize_r2(np.array([1.0, 1.000010, 0.0, -0.0003], dtype=np.float32))
         self.assertEqual(q.dtype, np.int16)
@@ -2876,7 +2875,6 @@ class R2QuantizationTest(unittest.TestCase):
         self.assertEqual(float(np.float32(32767) / np.float32(R2_QUANT_SCALE)), 1.0)
 
     def test_quantize_r2_precision_within_half_step(self):
-        from ldsc._refpanel import build_kernel as kb
         from ldsc._refpanel.r2_format import R2_QUANT_SCALE, _quantize_r2
         r2 = np.linspace(-0.0003, 1.0, 5000).astype(np.float32)
         decoded = _quantize_r2(r2).astype(np.float32) / np.float32(R2_QUANT_SCALE)
@@ -2885,7 +2883,6 @@ class R2QuantizationTest(unittest.TestCase):
     def test_write_r2_parquet_stores_int16_with_bss_and_scale_metadata(self):
         import pyarrow as pa
         import pyarrow.parquet as pq
-        from ldsc._refpanel import build_kernel as kb
         from ldsc._refpanel import r2_format
         if not pa.Codec.is_available("zstd"):
             self.skipTest("zstd unavailable")
@@ -2917,7 +2914,6 @@ class IndexWriterTest(unittest.TestCase):
 
     def test_writes_four_columns_and_binding_metadata(self):
         import pyarrow.parquet as pq
-        from ldsc._refpanel import build_kernel as kb
         from ldsc._refpanel import r2_format
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -2936,7 +2932,6 @@ class IndexWriterTest(unittest.TestCase):
             self.assertEqual(meta["ldsc:sorted_by_build"], "hg19")
 
     def test_asserts_idx1_sort_invariant(self):
-        from ldsc._refpanel import build_kernel as kb
         from ldsc._refpanel import r2_format
 
         bad = [{"i": 2, "j": 3, "R2": 0.5, "sign": "+"},
@@ -2955,7 +2950,6 @@ class IndexWriterTest(unittest.TestCase):
 class IndexArrowTableTest(unittest.TestCase):
     def test_index_arrow_table_has_four_columns(self):
         import pyarrow as pa
-        from ldsc._refpanel import build_kernel as kb
         from ldsc._refpanel.r2_format import _standard_r2_index_table
 
         schema = pa.schema([("IDX_1", pa.int32()), ("IDX_2", pa.int32()),

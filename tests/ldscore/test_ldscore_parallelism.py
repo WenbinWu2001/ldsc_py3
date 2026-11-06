@@ -63,7 +63,6 @@ def _write_index_panel(
     n_samples: int = 200,
 ) -> None:
     """Write canonical index R2 parquet + sidecar for each chromosome."""
-    from ldsc._refpanel import build_kernel as kb
     from ldsc._core.snp_identity import sidecar_identity_sha256
     from ldsc._refpanel.r2_format import (
         build_runtime_metadata_table,

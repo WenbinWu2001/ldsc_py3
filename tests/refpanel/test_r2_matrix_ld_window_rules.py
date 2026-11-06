@@ -104,7 +104,6 @@ def test_snp_count_window_counts_panel_rows_when_the_run_keeps_fewer_snps(tmp_pa
 
 def _tied_snp_panel(build_dir):
     """A 4-SNP rsID panel whose rows 1 and 2 (rs3, then rs2) share position 200."""
-    from ldsc._refpanel import build_kernel as kb
     from ldsc._core.snp_identity import sidecar_identity_sha256
     from ldsc._refpanel.r2_format import (
         build_runtime_metadata_table,

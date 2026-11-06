@@ -294,7 +294,7 @@ class PlinkRefPanel(RefPanel):
         ``LDSCInputError`` stops the run.
         """
         source = select_plink_chromosome(
-            self._bim_prefixes(chrom)[0], chrom, self.global_config.snp_identifier,
+            self._bim_prefix(chrom), chrom, self.global_config.snp_identifier,
             restriction=self._restriction(), keep_individuals=self._kept_individuals(),
             stage="plink_reference_identity_cleanup",
         )
@@ -420,15 +420,13 @@ class PlinkRefPanel(RefPanel):
             geno.close()
             raise
 
-    def _bim_prefixes(self, chrom: str | None) -> list[str]:
-        """Resolve source prefixes without retaining BIM tables."""
+    def _bim_prefix(self, chrom: str) -> str:
+        """Return the validated PLINK prefix holding ``chrom`` without retaining BIM tables."""
         prefixes = self._resolved_prefixes()
-        if chrom is None:
-            return list(dict.fromkeys(prefixes.values()))
         chrom = normalize_chromosome(chrom)
         if chrom not in prefixes:
             raise LDSCInputError(f"No validated PLINK trio contains chromosome {chrom}.")
-        return [prefixes[chrom]]
+        return prefixes[chrom]
 
 
 class R2MatrixRefPanel(RefPanel):
@@ -617,12 +615,12 @@ class RefPanelLoader:
         )
 
 
-def _infer_restricted_ref_panel_build(ref_panel_spec: RefPanelConfig, requested="auto") -> str:
+def _infer_restricted_ref_panel_build(ref_panel_spec: RefPanelConfig, requested) -> str:
     """Resolve all panel shards and coordinate restrictions before filtering."""
     check = GenomeBuildCheck(requested, context='reference-panel loading', logger=LOGGER)
     if ref_panel_spec.backend == 'plink':
         check.plink('--plink-prefix', ref_panel_spec.plink_prefix)
-    elif ref_panel_spec.r2_matrix_dir is not None:
+    else:
         check.r2('--r2-matrix-dir', ref_panel_spec.r2_matrix_dir)
     check.paths('--ref-panel-snps-file', ref_panel_spec.ref_panel_snps_file, restriction_mode='chr_pos')
     return check.resolve()

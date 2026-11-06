@@ -256,9 +256,10 @@ The lock, the live log, issue tables, earlier failed attempts and the index bein
   Only such a `.build/` is cleaned for the next attempt.
   An empty `.build/`, which a successful build can leave on a shared filesystem, is reused, but it does not make index components beside it the builder's.
 - Index components beside a `.build/` left by an earlier attempt, without a loadable index, are the remains of an interrupted build or publication; rebuilding over them needs `--overwrite`.
-- Any other content fails before the build creates, locks or removes anything, including with `--overwrite`: unrelated files or directories, a symlink, a marker that is not a regular file, a nonempty `.build/` without the lock or log file, or index component names without a `.build/` left by an earlier attempt.
+- Any other content fails, including with `--overwrite`, before the build creates, locks or removes anything apart from the failure marker of an authorized overwrite: unrelated files or directories, a symlink, a marker that is not a regular file, a nonempty `.build/` without the lock or log file, or index component names without a `.build/` left by an earlier attempt.
 - Preflight reads the destination before the build lock creates `.build/`, so a refused attempt leaves no `.build/` behind and never makes a directory look like an interrupted index.
-- A `.build/` that is a symlink or not a directory, or that holds a symlink, fails before anything is created, locked or removed; the builder never follows a link out of the index directory.
+  It opens no log either: the error message is the only report of a refused destination.
+- A `.build/` that is a symlink or not a directory, or that holds a symlink, fails before anything apart from that failure marker is created, locked or removed; the builder never follows a link out of the index directory.
 - Two builders cannot target the same directory concurrently.
 - Publication checks the destination again, under the lock and before it replaces anything: if the directory gained a top-level entry that preflight did not accept, such as an index another builder published meanwhile or a file a user added, the build fails and publishes nothing.
   A regular `RUN_FAILED.txt` that appeared meanwhile is not such an entry: a concurrent `--overwrite` attempt refused by the lock writes it, and the running build's success removes it.

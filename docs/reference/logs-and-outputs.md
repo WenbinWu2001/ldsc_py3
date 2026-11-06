@@ -310,7 +310,7 @@ header is written and final work before the footer is written.
 | `annotate` | `<output_dir>/diagnostics/annotate.log` |
 | `ldscore` | `<output_dir>/diagnostics/ldscore.log` |
 | `build-r2-matrix` | `<output_dir>/diagnostics/build-r2-matrix.log`, or `<output_dir>/diagnostics/build-r2-matrix.chr<chrom>.log` for concrete single-chromosome PLINK-prefix runs |
-| `build-gene-ldscore-index` | completed success: `<index_dir>/diagnostics/build-gene-ldscore-index.log` and `<index_dir>/diagnostics/chromosome-logs/chrN.log`; running/failed: `<index_dir>/.build/build-gene-ldscore-index.log` and `<index_dir>/.build/chromosome-logs/chrN.log`; prior failed attempts move to `.build/history/` |
+| `build-gene-ldscore-index` | completed success: `<index_dir>/diagnostics/build-gene-ldscore-index.log` and `<index_dir>/diagnostics/chromosome-logs/chrN.log`; running/failed: `<index_dir>/.build/build-gene-ldscore-index.log` and `<index_dir>/.build/chromosome-logs/chrN.log`; prior failed attempts move to `.build/history/`; a destination refused by the output check before the build opens no log, and its error message is the only report |
 | `convert-legacy-ldscores` | `<output_dir>/diagnostics/convert-legacy-ldscores.log` |
 | `h2` | `<output_dir>/diagnostics/h2.log` |
 | `partitioned-h2` | `<output_dir>/diagnostics/partitioned-h2.log` |

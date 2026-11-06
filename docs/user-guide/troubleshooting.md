@@ -551,7 +551,7 @@ A valid existing index still requires `--overwrite`.
 
 ### `build-gene-ldscore-index`: the build directory cannot be used
 
-**Symptom:** the build stops before it creates, locks or removes anything and reports that `<index-dir>/.build` is a symlink, is not a directory, or holds a symlink.
+**Symptom:** the build stops before it creates, locks or removes anything, apart from the failure marker of an authorized overwrite, and reports that `<index-dir>/.build` is a symlink, is not a directory, or holds a symlink.
 
 The builder keeps its lock, live log, issue tables and staged index in the hidden `.build/` directory of the index directory, and it never follows a link out of that directory.
 A `.build` link to scratch space, a regular file named `.build`, or a link placed inside `.build/` is therefore refused, and the link target is left unchanged.

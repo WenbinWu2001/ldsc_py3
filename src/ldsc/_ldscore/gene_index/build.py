@@ -396,8 +396,11 @@ def build_gene_ldscore_index(
         intersection is empty after identity cleanup, build or SNP declarations
         conflict, a whole-chromosome window is requested, or staged validation fails.
     FileExistsError
-        If a valid index exists and ``overwrite`` is false, or a nonempty
-        unrecognized directory occupies the destination.
+        If a valid index exists and ``overwrite`` is false, a nonempty
+        unrecognized directory occupies the destination, the destination's
+        ``.build`` entry is a symlink, is not a directory or holds a symlink,
+        or the destination gained an entry the output check did not accept
+        while the build ran.
 
     Notes
     -----

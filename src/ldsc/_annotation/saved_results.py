@@ -12,7 +12,11 @@ from ..config import GlobalConfig
 
 @dataclass(frozen=True)
 class SavedAnnotationShard:
-    """Persistent query file and known dimensions, without loaded values."""
+    """Persistent query file and known dimensions, without loaded values.
+
+    ``columns`` are the query annotation columns of the file at ``path``,
+    which holds the SNP metadata and no baseline column.
+    """
 
     path: Path
     n_rows: int
@@ -49,7 +53,7 @@ class AnnotationResult:
     Attributes
     ----------
     shards : dict of str to SavedAnnotationShard
-        Exported query file, row count and columns of each chromosome.
+        Exported query file, row count and query columns of each chromosome.
     baseline_columns, query_columns : list of str
         Ordered annotation names; a BIM grid has no baseline columns.
     query_statuses : tuple of QueryAnnotationStatus
@@ -124,7 +128,7 @@ class AnnotationResult:
 def annotation_result(bundle):
     """Record a completed standalone run, then release its construction scratch."""
     paths = {chrom: Path(path).resolve() for chrom, path in zip(bundle.chromosomes, bundle.output_paths['query_annotations'])}
-    columns = tuple(bundle.baseline_columns + bundle.query_columns)
+    columns = tuple(bundle.query_columns)
     result = AnnotationResult(
         shards={chrom: SavedAnnotationShard(paths[chrom], shard.n_rows, columns) for chrom, shard in bundle.shards.items()},
         baseline_columns=list(bundle.baseline_columns), query_columns=list(bundle.query_columns),

@@ -14,7 +14,7 @@ import numpy as np
 
 from .._annotation.bundle import AnnotationBundle
 from .._runtime.preflight import input_issue
-from .._annotation.interval_queries import build_query_shards, prepare_bed_queries, query_source_statuses, ProjectedQueries
+from .._annotation.interval_queries import DeferredQueries, build_query_shards, prepare_bed_queries, query_source_statuses
 from .._annotation.sources import prepare_annotation_sources
 from .._annotation.storage import AnnotationShard, ColumnStore
 from .preflight import validate_direct_scope
@@ -25,11 +25,18 @@ LOGGER = logging.getLogger("LDSC.ldscore_calculator")
 
 def prepare_direct_annotations(spec, config, workspace, output_config, *, declared_inputs, reference_inputs, batch=None,
                                gene_catalog_build=None):
-    """Validate, construct, and return one complete shard-backed dataset.
+    """Validate and construct one shard-backed dataset and its deferred queries.
 
     ``spec`` is the run's ``AnnotationBuildConfig`` and ``config`` its
     ``GlobalConfig`` with the resolved genome build; ``gene_catalog_build``
     is the gene-list projection build the run resolved for ``batch``.
+
+    Returns the bundle, a ``DeferredQueries`` record or ``None``, and the
+    validated chromosome scope. For BED or gene-list queries the bundle
+    declares the query columns and statuses while its shards hold only the
+    baseline (and gene control) columns: the LD-score producer projects the
+    queries one batch at a time from the ``DeferredQueries`` record. Without
+    such queries the record is ``None`` and the shards hold every column.
     """
     if batch is not None and batch.catalog.genome_build != gene_catalog_build:
         raise LDSCInputError(f"Gene coordinate catalog build does not match the resolved analysis build: catalog={batch.catalog.genome_build}, analysis={gene_catalog_build}. Use a matching catalog; no implicit liftover is performed.")
@@ -63,16 +70,17 @@ def prepare_direct_annotations(spec, config, workspace, output_config, *, declar
             'gene_exclude_regions':spec.gene_exclude_regions,'gene_list_resolution_policy':spec.gene_list_resolution_policy,
             'padding_bp':spec.padding_bp,'chromosome_scope':scope,
         })
-    if batch is not None or bed_sources:
-        statuses = query_source_statuses(bed_sources, batch)
-        if batch is not None and any(item['input_role'] == 'control' for item in batch.declarations):
-            bundle = build_query_shards(bundle, gene_batch=batch, padding_bp=spec.padding_bp,
-                                        evaluate_support=False, query_columns=[])
-        bundle = replace(bundle, query_preparation=ProjectedQueries(tuple(bed_sources), spec.padding_bp),
-                         query_statuses=statuses,
-                         query_columns=[item.query for item in statuses if item.status in {'ok', 'warning'}])
+    if batch is None and not bed_sources:
+        bundle.validate()
+        return bundle, None, scope
+    statuses = query_source_statuses(bed_sources, batch)
+    if batch is not None and any(item['input_role'] == 'control' for item in batch.declarations):
+        bundle = build_query_shards(bundle, gene_batch=batch, padding_bp=spec.padding_bp,
+                                    evaluate_support=False, query_columns=[])
     bundle.validate()
-    return bundle, scope
+    bundle = replace(bundle, query_statuses=statuses,
+                     query_columns=[item.query for item in statuses if item.status in {'ok', 'warning'}])
+    return bundle, DeferredQueries(tuple(bed_sources), spec.padding_bp), scope
 
 
 def prepare_synthetic_base(panel, config, workspace):

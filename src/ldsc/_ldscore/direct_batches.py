@@ -70,6 +70,7 @@ def compute_direct_chromosome(
     include_baseline: bool = True,
     fragment_dir: str | None = None,
     export_dir: str | None = None,
+    source_drops: DiagnosticRows | None = None,
 ) -> ChromLDScoreResult | DirectChromosomeFragment:
     """Compute one chromosome's LD scores from the reference panel.
 
@@ -81,7 +82,9 @@ def compute_direct_chromosome(
     ``fragment_dir``. ``include_baseline=False`` (later query batches of a
     writing run) computes only the query scores and statistics, stages no
     identity drops, and needs ``fragment_dir``. With ``export_dir`` the
-    chromosome's reference metadata is written there. Raises
+    chromosome's reference metadata is written there. ``source_drops`` are
+    the annotation identity-cleanup drops; this chromosome's rows of them
+    precede its reference-stage drops in the staged identity drops. Raises
     ``EmptyReferenceSNPs`` when preparation leaves no reference SNP, and
     ``LDSCInternalError`` for ``include_baseline=False`` without
     ``fragment_dir``.
@@ -111,7 +114,7 @@ def compute_direct_chromosome(
         )
         if export_dir is not None:
             _write_one_ref_metadata_sidecar(prepared.metadata, chrom, export_dir)
-    drops = (_stage_chromosome_drops(annotation_bundle, chrom, computed.identity_drops)
+    drops = (_stage_chromosome_drops(annotation_bundle, chrom, source_drops, computed.identity_drops)
              if include_baseline else None)
     result = _chromosome_record(computed, global_config, include_baseline=include_baseline, identity_drops=drops,
                                 reference_snp_funnel=funnel, fragment_dir=fragment_dir)
@@ -362,7 +365,11 @@ def _count_records_from_totals(
 
 @dataclass(frozen=True)
 class _DirectBatch:
-    """One direct query batch: its prepared annotations and private fragment directory."""
+    """One direct query batch: its prepared annotations and private fragment directory.
+
+    ``source_drops`` maps each chromosome to its annotation identity-cleanup
+    drops; only the first batch carries them.
+    """
 
     bundle: Any
     source_drops: dict
@@ -390,13 +397,16 @@ class _DirectProducer:
     direct provenance. The no-output path reuses ``prepare``, the tasks, and
     ``reduce`` for its single materialized batch. ``skipped_funnels`` belong to
     chromosomes skipped before the bundle was built, which have no task.
+    ``deferred_queries`` (``DeferredQueries``) projects the BED or gene-list
+    queries of each batch; ``None`` means the bundle already holds them.
     """
 
     batch_name, phase, task = "batch", "LD-score calculation", "LD-score computation"
 
     def __init__(self, annotation_bundle, ref_panel, ldscore_config, global_config, regression_regions, log_paths,
-                 *, output_dir=None, export_dir=None, skipped_funnels=()):
+                 *, output_dir=None, export_dir=None, skipped_funnels=(), deferred_queries=None):
         self.annotation_bundle = annotation_bundle
+        self.deferred_queries = deferred_queries
         self.ref_panel = ref_panel
         self.ldscore_config = ldscore_config
         self.global_config = global_config
@@ -427,13 +437,13 @@ class _DirectProducer:
             )
         # Identity drops are published from the first batch only.
         source_drops = _partition_annotation_drops(bundle) if ordinal == 0 else {}
-        return _DirectBatch(replace(bundle, chromosome_identity_drops=source_drops), source_drops,
-                            ordinal, fragment_dir)
+        return _DirectBatch(bundle, source_drops, ordinal, fragment_dir)
 
     @contextmanager
     def open_batch(self, ordinal, query_columns, statuses, scratch):
         """Project the batch's BED or gene-list queries and release them after consumption."""
-        with execution_query_bundle(self.annotation_bundle, query_columns, statuses, self.output_dir) as active:
+        with execution_query_bundle(self.annotation_bundle, self.deferred_queries, query_columns, statuses,
+                                    self.output_dir) as active:
             yield self.prepare(active, ordinal=ordinal, fragment_dir=str(scratch))
 
     def submit(self, pool, chrom, batch, label):
@@ -449,6 +459,7 @@ class _DirectProducer:
                            self.task_panel, self.ldscore_config, self.global_config,
                            include_baseline=first or batch.fragment_dir is None, fragment_dir=batch.fragment_dir,
                            export_dir=self.export_dir if first else None,
+                           source_drops=batch.source_drops.get(str(chrom)),
                            log_path=self.log_paths.get(chrom), batch_label=label)
 
     def reduce(self, outcomes, batch):
@@ -619,11 +630,9 @@ def _write_one_ref_metadata_sidecar(metadata: pd.DataFrame, chrom: str, output_d
 
 
 def _slice_annotation_bundle(annotation_bundle, chrom: str):
-    """Borrow one chromosome descriptor without copying annotation payloads."""
-    drops = (annotation_bundle.identity_drops if annotation_bundle.chromosome_identity_drops is None
-             else annotation_bundle.chromosome_identity_drops.get(str(chrom)))
+    """Borrow one chromosome descriptor without copying annotation payloads or diagnostics."""
     return replace(annotation_bundle, shards={str(chrom): annotation_bundle.shard(chrom)},
-                   gene_list_batch=None, identity_drops=drops, chromosome_identity_drops=None)
+                   gene_list_batch=None, identity_drops=None)
 
 
 def _partition_annotation_drops(bundle):
@@ -648,18 +657,22 @@ def _partition_annotation_drops(bundle):
     return artifacts
 
 
-def _stage_chromosome_drops(bundle, chrom, reference_drops):
-    """Stream source cleanup followed by reference-stage drops into one artifact."""
+def _stage_chromosome_drops(bundle, chrom, source_drops, reference_drops):
+    """Stream the chromosome's ``source_drops`` rows, then its reference-stage drops, into one artifact.
+
+    The artifact stays in memory for an in-memory bundle and is otherwise
+    staged in the bundle's scratch workspace.
+    """
     if bundle.diagnostics_in_memory:
-        frames = [frame.loc[frame.CHR.astype(str).eq(str(chrom))] for frame in bundle.identity_drops.frames()] if bundle.identity_drops is not None else []
+        frames = [frame.loc[frame.CHR.astype(str).eq(str(chrom))] for frame in source_drops.frames()] if source_drops is not None else []
         frames.append(coerce_identity_drop_frame(reference_drops))
         return MemoryDiagnostics(coerce_identity_drop_frame(pd.concat(frames, ignore_index=True)))
 
     path = bundle.workspace.path / f"ldscore-drops-{chrom}-{uuid4().hex}.tsv.gz"
     with gzip.open(path, "wt") as stream:
         pd.DataFrame(columns=IDENTITY_DROP_COLUMNS).to_csv(stream, sep="\t", index=False)
-        if bundle.identity_drops is not None:
-            for frame in bundle.identity_drops.frames():
+        if source_drops is not None:
+            for frame in source_drops.frames():
                 frame = frame.loc[frame.CHR.astype(str).eq(str(chrom))]
                 if not frame.empty:
                     frame.to_csv(stream, sep="\t", index=False, header=False, na_rep="", chunksize=65536)
@@ -693,6 +706,7 @@ def _compute_one_chromosome(
     include_baseline: bool = True,
     fragment_dir: str | None = None,
     export_dir: str | None = None,
+    source_drops: DiagnosticRows | None = None,
     regression_snps=_WORKER_UNSET,
     regression_regions=_WORKER_UNSET,
     log_path=None,
@@ -719,6 +733,7 @@ def _compute_one_chromosome(
             return compute_direct_chromosome(
                 chrom, chrom_bundle, ref_panel, ldscore_config, global_config, regression_snps, regression_regions,
                 include_baseline=include_baseline, fragment_dir=fragment_dir, export_dir=export_dir,
+                source_drops=source_drops,
             )
         except EmptyReferenceSNPs as exc:
             return _SkippedChromosome(str(exc), getattr(exc, "reference_snp_funnel", None))

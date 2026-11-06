@@ -114,23 +114,34 @@ def query_source_statuses(bed_sources=(), gene_batch=None):
 
 
 @dataclass(frozen=True)
-class ProjectedQueries:
-    """Resolved interval sources whose packed SNP values exist only per batch."""
+class DeferredQueries:
+    """BED or gene-list queries of an LD-score run, projected one query batch at a time.
+
+    ``bed_sources`` are the parsed BED sources (empty for gene lists, whose
+    selections the bundle's ``gene_list_batch`` holds) and ``padding_bp`` the
+    interval padding. The direct LD-score producer holds this record; the
+    bundle declares the queries' columns and statuses, but no shard holds
+    their values until ``execution_query_bundle`` projects a batch.
+    """
 
     bed_sources: tuple
     padding_bp: int
 
 
 @contextmanager
-def execution_query_bundle(bundle, columns, statuses, output_dir):
-    """Borrow the fixed baseline SNP rows and own one query preparation batch."""
+def execution_query_bundle(bundle, deferred, columns, statuses, output_dir):
+    """Borrow the fixed baseline SNP rows and own one query preparation batch.
+
+    ``deferred`` (``DeferredQueries``) projects the batch's ``columns`` into
+    the batch's own scratch workspace; ``None`` means the bundle's shards
+    already hold every query column (prebuilt query annotations).
+    """
     active = replace(bundle, query_columns=list(columns), query_statuses=statuses)
-    preparation = bundle.query_preparation
     with ScratchWorkspace(output_dir) as workspace:
-        active = replace(active, workspace=workspace, query_preparation=None)
-        if preparation is not None:
-            active = build_query_shards(active, bed_sources=preparation.bed_sources, gene_batch=bundle.gene_list_batch,
-                                        padding_bp=preparation.padding_bp, evaluate_support=False,
+        active = replace(active, workspace=workspace)
+        if deferred is not None:
+            active = build_query_shards(active, bed_sources=deferred.bed_sources, gene_batch=bundle.gene_list_batch,
+                                        padding_bp=deferred.padding_bp, evaluate_support=False,
                                         query_columns=columns, include_control=False, statuses=statuses)
         yield replace(active, query_statuses=statuses)
 

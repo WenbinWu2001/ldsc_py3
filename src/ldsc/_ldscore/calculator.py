@@ -149,8 +149,8 @@ class LDScoreCalculator:
         ------
         LDSCUsageError
             Output is omitted for multiple batches or an annotation result
-            (``AnnotationResult``), annotations still need disk preparation, or
-            reference-metadata export is requested without an output directory.
+            (``AnnotationResult``), or reference-metadata export is requested
+            without an output directory.
         LDSCInputError
             An R2 matrix has an invalid chromosome footer or sidecar.
             Every chromosome is checked before any is computed, and one error
@@ -180,17 +180,20 @@ class LDScoreCalculator:
 
     @report_phase(LOGGER, "computation", "LD-score calculation")
     def _run(self, annotation_bundle, ldscore_config, output_config=None, regression_snps=None,
-             regression_regions=None, *, context, skipped_funnels=()):
+             regression_regions=None, *, context, skipped_funnels=(), deferred_queries=None):
         """Implement :meth:`run`; ``context`` (``_RunContext``) says what the caller already settled.
 
         An annotation result (``AnnotationResult``) is prepared inside this
         run's output directory, so the annotate output directory, an input
         here, is never written; the preparation is removed when the run ends.
         ``skipped_funnels`` are the reference-SNP funnels of chromosomes the
-        synthetic ``base`` preparation already skipped.
+        synthetic ``base`` preparation already skipped. ``deferred_queries``
+        (``DeferredQueries``), which only the ``ldscore`` workflow passes with
+        an output directory, projects the bundle's BED or gene-list queries
+        one query batch at a time.
         """
         arguments = (ldscore_config, output_config, regression_snps, regression_regions)
-        options = dict(context=context, skipped_funnels=skipped_funnels)
+        options = dict(context=context, skipped_funnels=skipped_funnels, deferred_queries=deferred_queries)
         if not isinstance(annotation_bundle, AnnotationResult):
             return self._run_prepared(annotation_bundle, *arguments, **options)
         if output_config is None:
@@ -200,7 +203,7 @@ class LDScoreCalculator:
             return self._run_prepared(bundle, *arguments, **options)
 
     def _run_prepared(self, annotation_bundle, ldscore_config, output_config, regression_snps, regression_regions,
-                      *, context, skipped_funnels):
+                      *, context, skipped_funnels, deferred_queries):
         """Run the LD-score calculation for an annotation bundle that needs no further preparation.
 
         Resolves the genome build, checks the R2 matrix and opens the workflow
@@ -242,12 +245,10 @@ class LDScoreCalculator:
                         cm_source, maf_source)
             producer = _DirectProducer(annotation_bundle, ref_panel, ldscore_config, global_config, regression_regions,
                                        log_paths, output_dir=output_dir, export_dir=export_root,
-                                       skipped_funnels=skipped_funnels)
+                                       skipped_funnels=skipped_funnels, deferred_queries=deferred_queries)
             if output_config is None:
                 if len(annotation_bundle.query_columns) > ldscore_config.query_batch_size:
                     raise LDSCUsageError("Multiple query execution batches require output_config with an output directory. Use one batch for a small in-memory calculation.")
-                if annotation_bundle.query_preparation is not None:
-                    raise LDSCUsageError("In-memory LD-score calculation requires already-prepared annotations. Use AnnotationBundle.from_frames() to prepare without disk staging.")
                 batch = producer.prepare(dataclass_replace(annotation_bundle, diagnostics_in_memory=True))
                 outcomes = run_chromosome_batch(producer, pool, worker_count, batch, "batch 1/1")
                 result, _ = producer.reduce(outcomes, batch)
@@ -293,7 +294,8 @@ class LDScoreCalculator:
         if isinstance(annotation_bundle, AnnotationResult):
             raise LDSCUsageError(_annotation_result_message("compute_chromosome()"))
         return compute_direct_chromosome(chrom, annotation_bundle, ref_panel, ldscore_config, global_config,
-                                         regression_snps, regression_regions, export_dir=export_dir)
+                                         regression_snps, regression_regions, export_dir=export_dir,
+                                         source_drops=annotation_bundle.identity_drops)
 
 
 def _format_ldscore_start_message(annotation_bundle, n_chromosomes: int) -> str:

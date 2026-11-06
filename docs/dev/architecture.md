@@ -266,6 +266,8 @@ This module holds the public calculation service `LDScoreCalculator` and the `_R
 `LDScoreCalculator._run_prepared()` resolves the build of prepared inputs (`_resolve_calculator_build()`), checks the reference files (`RefPanel.check_reference()`) and opens the workflow log only where the context says the caller has not.
 It then opens the chromosome logs and the chromosome pool, logs the reference-panel CM and MAF sources that `RefPanel.reference_metadata_sources()` reports, and runs the direct LD-score producer.
 The direct LD-score producer, `_DirectProducer` in `_ldscore/direct_batches.py`, mirrors `_IndexedProducer` in `_ldscore/gene_index/batches.py`: each task computes one chromosome from the reference panel.
+For BED and gene-list queries, `prepare_direct_annotations()` returns the bundle with the query columns and statuses declared but not projected, plus a `DeferredQueries` record (`_annotation/interval_queries.py`) that `LDScoreCalculator._run()` hands to the producer; each batch projects its own columns through `execution_query_bundle()`.
+The producer passes each chromosome's annotation identity-cleanup drops to its first-batch task explicitly, so the bundle carries no LD-score execution state.
 Every task, in the first and in later query batches, runs `compute_direct_chromosome()`, which prepares the chromosome, projects the batch's annotations with the kernel once, and builds one record from the kernel's `ChromComputationResult`.
 The no-output path receives a `ChromLDScoreResult`; a writing run's task stages its post-kernel float32 query scores in a private Parquet fragment and returns a `DirectChromosomeFragment` with baseline data (first batch only), scientific statistics, diagnostic descriptors, and exact variation summaries.
 A chromosome whose reference preparation leaves no SNP returns a `_SkippedChromosome` instead.
@@ -490,7 +492,7 @@ The writer stores run metadata once, and `_regression.quantile_h2.load_fitted_pa
 | Module and symbol | Responsibility |
 | --- | --- |
 | `_annotation.in_memory.bundle_from_frames` | Small prepared annotations and complete diagnostics in RAM, without filesystem staging |
-| `_annotation.interval_queries.execution_query_bundle` | Project and release the active direct BED/gene batch while sharing baseline/control and global preflight state |
+| `_annotation.interval_queries.execution_query_bundle`, `DeferredQueries` | Project and release the active direct BED/gene batch from the producer's `DeferredQueries` record while sharing baseline/control and global preflight state |
 | `_ldscore.batch_execution.run_query_batches`, `run_chromosome_batch`, `finalize_batch` | One active query batch at a time for either LD-score producer through the caller's persistent pool: per-batch statuses and scratch, bounded chromosome tasks, failure reporting, pool shutdown before scratch removal, and query-status finalization |
 | `LDScoreCalculator.run` | Own the direct run's persistent worker pool and logs; the writing path runs `_DirectProducer` batches through `run_query_batches`, and owned fragment workspace remains live through consumption or worker shutdown |
 | `_ldscore.direct_batches.compute_direct_chromosome`, `_DirectProducer` | One chromosome task of any direct query batch: compute once from the reference panel, stage post-kernel float32 query scores, and return baseline plus scientific/diagnostic summaries instead of query matrices; the producer combines them into one batch |

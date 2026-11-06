@@ -754,9 +754,9 @@ def _run_direct_ldscore(configs: _DirectConfigs) -> "LDScoreSource":
                         global_config, gene_catalog_build, configs.genome_build)))
                 gate.finish()
             chromosome_prefixes = reference_inputs.scope.get("reference_prefixes_by_chrom")
-            scope, skipped_funnels = {}, []
+            scope, skipped_funnels, deferred_queries = {}, [], None
             if annotation_config.baseline_annot_sources:
-                annotation_bundle, scope = prepare_direct_annotations(
+                annotation_bundle, deferred_queries, scope = prepare_direct_annotations(
                     annotation_config, global_config, workspace, output_config, batch=batch,
                     gene_catalog_build=gene_catalog_build, declared_inputs=declared_inputs,
                     reference_inputs=reference_inputs)
@@ -787,7 +787,7 @@ def _run_direct_ldscore(configs: _DirectConfigs) -> "LDScoreSource":
                                   reference_checked=True)
             result = LDScoreCalculator()._run(annotation_bundle, ldscore_config, output_config=output_config,
                 regression_snps=regression_snps, regression_regions=regression_regions, context=context,
-                skipped_funnels=skipped_funnels)
+                skipped_funnels=skipped_funnels, deferred_queries=deferred_queries)
             log_query_outcomes(result.gene_list_batch, result.query_statuses)
             log_outputs(**result.output_paths)
             if configs.emit_console_notices:

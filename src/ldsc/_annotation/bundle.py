@@ -16,7 +16,6 @@ from ..errors import LDSCInternalError
 if TYPE_CHECKING:
     from .gene_query_storage import GeneListDiagnostics, StagedGeneListBatch
     from .in_memory import MemoryOwner
-    from .interval_queries import ProjectedQueries
 
 
 @dataclass(frozen=True)
@@ -56,10 +55,8 @@ class AnnotationBundle:
     query_statuses: tuple = ()
     gene_list_batch: StagedGeneListBatch | GeneListDiagnostics | None = None
     identity_drops: DiagnosticRows | None = None
-    chromosome_identity_drops: dict | None = None
     output_paths: dict = field(default_factory=dict)
     diagnostics_in_memory: bool = False
-    query_preparation: ProjectedQueries | None = field(default=None, repr=False)
 
     @classmethod
     def from_frames(cls, metadata, baseline_annotations, query_annotations=None, *, config_snapshot=None):
@@ -169,7 +166,7 @@ class AnnotationBundle:
         """Validate annotation names and the declared columns of every shard."""
         self._require_open()
         require_unique_annotation_names(self.baseline_columns, self.query_columns)
-        columns = set(self.baseline_columns + ([] if self.query_preparation is not None else self.query_columns))
+        columns = set(self.baseline_columns + self.query_columns)
         for chrom, shard in self.shards.items():
             if not columns.issubset(shard.columns):
                 raise LDSCInternalError(f"Annotation shard {chrom} is missing declared annotation columns.")

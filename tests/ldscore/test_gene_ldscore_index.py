@@ -1770,15 +1770,15 @@ def test_post_publication_cleanup_failure_warns_but_published_index_succeeds(tmp
     replacement_identity = {**identity, "padding_bp": 0}
     monkeypatch.setattr(gene_ldscore_index, "_builder_index_identity", lambda *_a, **_k: replacement_identity)
     args.overwrite = True
-    real_rmtree = shutil.rmtree
+    real_rmdir = Path.rmdir
 
-    def fail_build_directory_cleanup(path, *args, **kwargs):
-        if Path(path) == output / ".build":
+    def fail_build_directory_cleanup(path):
+        if path == output / ".build":
             raise OSError(16, "injected device or resource busy", str(path))
-        return real_rmtree(path, *args, **kwargs)
+        return real_rmdir(path)
 
     with monkeypatch.context() as patcher:
-        patcher.setattr(gene_ldscore_index.shutil, "rmtree", fail_build_directory_cleanup)
+        patcher.setattr(Path, "rmdir", fail_build_directory_cleanup)
         with pytest.warns(UserWarning, match="build directory could not be removed"):
             published = gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
 

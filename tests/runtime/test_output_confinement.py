@@ -7,6 +7,7 @@ where an authorized overwrite can replace or remove the user's own files.
 from __future__ import annotations
 
 import gzip
+import os
 from pathlib import Path
 
 import pytest
@@ -264,6 +265,35 @@ def test_an_empty_build_directory_is_reused_but_owns_nothing_beside_it(tmp_path,
         assert (index / "chromosomes" / "my_notes.txt").read_text() == "precious\n"
         return
     _build_index(index_inputs, index, monkeypatch, overwrite=beside == "complete-index")
+    assert not (index / ".build").exists()
+    load_gene_ldscore_index(index)
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="directory permissions do not bind the superuser")
+def test_a_build_directory_a_successful_build_removed_partway_is_removed_by_the_next_build(
+    tmp_path, index_inputs, monkeypatch,
+):
+    from ldsc._ldscore.gene_index.artifact import load_gene_ldscore_index
+
+    index = tmp_path / "parent" / "index"
+    with pytest.raises(LDSCInputError):
+        _build_index(index_inputs, index, monkeypatch, prefix="missing-panel")
+    # An entry the successful build cannot remove (on a cluster, typically "Device or resource busy").
+    busy = index / ".build" / "history" / "busy"
+    busy.mkdir(parents=True)
+    (busy / "held.txt").write_text("held\n")
+    busy.chmod(0o500)
+    try:
+        with pytest.warns(UserWarning, match="build directory could not be removed"):
+            _build_index(index_inputs, index, monkeypatch)
+        load_gene_ldscore_index(index)
+        # Whatever the removal reached, the lock file that marks .build/ as the builder's is left.
+        assert (index / ".build" / "build-gene-ldscore-index.lock").is_file()
+    finally:
+        busy.chmod(0o700)
+
+    # As the warning says, the next build of this index removes the directory.
+    _build_index(index_inputs, index, monkeypatch, overwrite=True)
     assert not (index / ".build").exists()
     load_gene_ldscore_index(index)
 

@@ -1244,6 +1244,8 @@ def _finalize_gene_index_log(live_log_path: Path, published_path: Path) -> Path:
     log into ``diagnostics/chromosome-logs``. Failure is warning-only because the
     scientific index has already been published and reload-validated; the live
     logs and their build directory then remain for inspection and later manual movement.
+    The build directory is emptied with its lock file last, so a removal that
+    stops partway leaves a directory the next build recognizes and removes.
     """
     final_log_path = published_path / "diagnostics" / live_log_path.name
     try:
@@ -1276,12 +1278,19 @@ def _finalize_gene_index_log(live_log_path: Path, published_path: Path) -> Path:
             stacklevel=2,
         )
         return final_log_path
+    build_dir = live_log_path.parent
     try:
-        shutil.rmtree(live_log_path.parent)
+        # The lock file goes last, so a removal stopped partway leaves the evidence
+        # by which the next build recognizes the build directory as its own.
+        for entry in build_dir.iterdir():
+            if entry.name != _LOCK_FILE:
+                _remove_published_entry(entry)
+        (build_dir / _LOCK_FILE).unlink(missing_ok=True)
+        build_dir.rmdir()
     except OSError as exc:
         warnings.warn(
             "The gene LD-score index was published and reload-validated, but its build directory "
-            f"could not be removed ({type(exc).__name__}: {exc}): {live_log_path.parent}. The published "
+            f"could not be removed ({type(exc).__name__}: {exc}): {build_dir}. The published "
             "index remains valid; the next build of this index removes the directory.",
             UserWarning,
             stacklevel=2,

@@ -77,10 +77,10 @@ def test_interval_rows_merge_adjacent():
 
 
 def _bed_rows(text: str) -> list[tuple[str, int, int]]:
-    return [(row.chrom, row.start, row.end) for row in regions.parse_bed_text(text, "user.bed")]
+    return [(row.chrom, row.start, row.end) for row in regions.iter_bed_rows(text.splitlines(), "user.bed")]
 
 
-def test_parse_bed_text_skips_non_interval_lines_and_standard_header():
+def test_iter_bed_rows_skips_non_interval_lines_and_standard_header():
     text = (
         "\n# comment line\ntrack name=\"regions\"\nbrowser position chr1:1-1000\n"
         "chrom\tstart\tend\tname\nchr1\t100\t200\tregion_a\n"
@@ -89,32 +89,32 @@ def test_parse_bed_text_skips_non_interval_lines_and_standard_header():
     assert _bed_rows(text) == [("chr1", 100, 200)]
 
 
-def test_parse_bed_text_skips_chrom_start_end_header_variant():
+def test_iter_bed_rows_skips_chrom_start_end_header_variant():
     assert _bed_rows("chrom\tchromStart\tchromEnd\nchr2\t10\t20\n") == [("chr2", 10, 20)]
 
 
-def test_parse_bed_text_malformed_row_names_the_source():
+def test_iter_bed_rows_malformed_row_names_the_source():
     with pytest.raises(LDSCInputError, match="bad.bed"):
-        regions.parse_bed_text("1\t100\n", "bad.bed")
+        list(regions.iter_bed_rows(["1\t100"], "bad.bed"))
 
 
-def test_parse_bed_text_rejects_non_integer_coordinates():
+def test_iter_bed_rows_rejects_non_integer_coordinates():
     with pytest.raises(LDSCInputError, match="start/end are not integer coordinates"):
         _bed_rows("chr1\tstart\tend\tfeature\n")
 
 
-def test_parse_bed_text_rejects_header_after_data():
+def test_iter_bed_rows_rejects_header_after_data():
     with pytest.raises(LDSCInputError, match="header"):
         _bed_rows("chr1\t100\t200\nchrom\tstart\tend\n")
 
 
-def test_parse_bed_text_rejects_multiple_leading_headers():
+def test_iter_bed_rows_rejects_multiple_leading_headers():
     with pytest.raises(LDSCInputError, match="header"):
         _bed_rows("chrom\tstart\tend\nchrom\tchromStart\tchromEnd\nchr1\t100\t200\n")
 
 
 @pytest.mark.parametrize("content", ["chr1\t-1\t200\n", "chr1\t200\t200\n", "chr1\t200\t100\n"])
-def test_parse_bed_text_rejects_invalid_standard_bed_bounds(content):
+def test_iter_bed_rows_rejects_invalid_standard_bed_bounds(content):
     with pytest.raises(LDSCInputError, match="start"):
         _bed_rows(content)
 

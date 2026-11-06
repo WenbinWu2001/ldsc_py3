@@ -112,11 +112,6 @@ def _is_bed_header(fields: Sequence[str]) -> bool:
     return first_three in {("chrom", "start", "end"), ("chrom", "chromstart", "chromend")}
 
 
-def parse_bed_text(text: str, label: str) -> list[BedIntervalRow]:
-    """Parse standard BED3+ text into interval rows."""
-    return list(iter_bed_rows(text.splitlines(), label))
-
-
 def iter_bed_rows(lines, label):
     """Validate and yield BED rows from a text stream, preserving line state."""
     seen_data = False
@@ -172,11 +167,6 @@ def iter_bed_rows(lines, label):
         seen_data = True
 
 
-def _parse_bed_text(text: str, label: str) -> list[tuple[str, int, int]]:
-    """Parse standard BED text into ``(chrom, start, end)`` rows."""
-    return [(row.chrom, row.start, row.end) for row in parse_bed_text(text, label)]
-
-
 def load_preset_intervals(names: Sequence[str], build: str) -> RegionIntervals:
     """Read packaged preset BEDs for ``names`` in genome ``build``.
 
@@ -215,7 +205,7 @@ def load_preset_intervals(names: Sequence[str], build: str) -> RegionIntervals:
                 "Most likely the package data was not installed. Reinstall the package or "
                 "report the traceback."
             ) from exc
-        rows.extend(_parse_bed_text(text, label=f"{name}.{build}.bed"))
+        rows.extend((row.chrom, row.start, row.end) for row in iter_bed_rows(text.splitlines(), f"{name}.{build}.bed"))
         labels.append(f"preset:{name}[{build}]")
     return RegionIntervals(intervals=_intervals_from_rows(rows), source_labels=tuple(labels))
 

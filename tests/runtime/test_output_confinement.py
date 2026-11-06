@@ -242,6 +242,32 @@ def test_a_build_directory_without_the_builders_files_is_never_treated_as_owned(
     assert after == before
 
 
+@pytest.mark.parametrize("beside", ["nothing", "complete-index", "component-names"])
+def test_an_empty_build_directory_is_reused_but_owns_nothing_beside_it(tmp_path, index_inputs, monkeypatch, beside):
+    from ldsc._ldscore.gene_index.artifact import load_gene_ldscore_index
+
+    # On a shared filesystem a successful build can fail to remove its build directory: the lock it
+    # still holds open is renamed to a temporary file that disappears later, leaving .build/ empty.
+    index = tmp_path / "parent" / "index"
+    if beside == "complete-index":
+        _build_index(index_inputs, index, monkeypatch)
+    elif beside == "component-names":
+        (index / "chromosomes").mkdir(parents=True)
+        (index / "chromosomes" / "my_notes.txt").write_text("precious\n")
+    (index / ".build").mkdir(parents=True)
+
+    if beside == "component-names":
+        # An empty .build/ holds no record of an earlier attempt, so the component names stay the user's.
+        for overwrite in (False, True):
+            with pytest.raises(FileExistsError, match="nonempty but invalid"):
+                _build_index(index_inputs, index, monkeypatch, overwrite=overwrite)
+        assert (index / "chromosomes" / "my_notes.txt").read_text() == "precious\n"
+        return
+    _build_index(index_inputs, index, monkeypatch, overwrite=beside == "complete-index")
+    assert not (index / ".build").exists()
+    load_gene_ldscore_index(index)
+
+
 def _snapshot(root: Path) -> dict[str, bytes | None]:
     """Map every entry under ``root`` to its bytes (``None`` for a directory)."""
     return {path.relative_to(root).as_posix(): path.read_bytes() if path.is_file() else None

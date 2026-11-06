@@ -1079,17 +1079,20 @@ def _preflight_gene_index_output(
     """Validate the publication destination without changing anything in it.
 
     This runs before the build lock creates the build directory, so a build
-    directory it sees was left by an earlier attempt, and it is the
-    builder's only if it holds the lock or log file that every attempt writes
-    there first. That build directory and a failure marker are the builder's
-    own; a directory holding nothing else is reused. Only a successful build
-    removes the build directory, so index components beside it without a
-    loadable index are the remains of an interrupted build or publication and
-    need ``overwrite``. Any other content is refused, including component
+    directory it sees was there before this run. It records an earlier
+    attempt only if it holds the lock or log file that every attempt writes
+    there first; an empty one, which a successful build can leave on a shared
+    filesystem, is harmless; any other is refused. The build directory and a
+    failure marker are the builder's own, and a directory holding nothing
+    else is reused. Only a successful build removes the build directory, so
+    index components beside one that records an earlier attempt, without a
+    loadable index, are the remains of an interrupted build or publication
+    and need ``overwrite``. Any other content is refused, including component
     names without such a build directory.
 
     Returns the names of the top-level entries it accepted, which publication
-    checks again; ``.build`` is among them only when an earlier attempt left it.
+    checks again; ``.build`` is among them only when it is empty or records an
+    earlier attempt.
     """
     if index_path.exists() and not index_path.is_dir():
         raise FileExistsError(f"Gene LD-score index output is not a directory: {index_path}")
@@ -1101,14 +1104,16 @@ def _preflight_gene_index_output(
         f"Gene LD-score index output directory is nonempty but invalid: {index_path}. "
         "Choose an empty directory; --overwrite does not replace unrecognized contents."
     )
-    if _BUILD_DIR in entries and not _holds_build_evidence(index_path / _BUILD_DIR):
+    build_dir = index_path / _BUILD_DIR
+    earlier_attempt = _BUILD_DIR in entries and _holds_build_evidence(build_dir)
+    if _BUILD_DIR in entries and not earlier_attempt and any(build_dir.iterdir()):
         raise unrecognized
     if _is_build_leftover_only(index_path):
         return entries
     try:
         load_gene_ldscore_index(index_path)
     except Exception as exc:
-        if _BUILD_DIR in entries and all(map(_is_owned_index_entry, index_path.iterdir())):
+        if earlier_attempt and all(map(_is_owned_index_entry, index_path.iterdir())):
             if overwrite:
                 return entries
             raise FileExistsError(
@@ -1183,8 +1188,9 @@ def _prepare_gene_index_log(index_path: Path, *, earlier_attempt: bool) -> Path:
 
     Only a failed or interrupted attempt leaves a build directory; its staged
     index and workspaces are never reused. ``earlier_attempt`` is the
-    preflight's finding that such a build directory was there before this
-    run; without it nothing in the build directory is archived or removed.
+    preflight's finding that a build directory, empty or recording an earlier
+    attempt, was there before this run; without it nothing in the build
+    directory is archived or removed.
     """
     build_dir = _gene_index_build_dir(index_path)
     build_dir.mkdir(parents=True, exist_ok=True)
@@ -1286,7 +1292,7 @@ def _finalize_gene_index_log(live_log_path: Path, published_path: Path) -> Path:
 def _is_owned_index_entry(entry: Path) -> bool:
     """Return whether one top-level entry is the builder's: build directory, marker file, or index component.
 
-    The preflight has already refused a build directory without the builder's lock or log file.
+    The preflight has already refused a nonempty build directory without the builder's lock or log file.
     """
     if entry.is_symlink():
         return False
@@ -1300,7 +1306,7 @@ def _is_owned_index_entry(entry: Path) -> bool:
 def _is_build_leftover_only(path: Path) -> bool:
     """Recognize a failed build's destination: only the build directory and a regular ``RUN_FAILED.txt``.
 
-    The preflight has already refused a build directory without the builder's lock or log file.
+    The preflight has already refused a nonempty build directory without the builder's lock or log file.
     """
     if not path.is_dir():
         return False

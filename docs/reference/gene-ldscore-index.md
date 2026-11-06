@@ -254,8 +254,9 @@ The lock, the live log, issue tables, earlier failed attempts and the index bein
   Preflight leaves the marker in place; a successful build removes it.
 - A `.build/` counts as left by an earlier attempt only when it holds `build-gene-ldscore-index.lock` or `build-gene-ldscore-index.log`, which every attempt writes there first.
   Only such a `.build/` is cleaned for the next attempt.
+  An empty `.build/`, which a successful build can leave on a shared filesystem, is reused, but it does not make index components beside it the builder's.
 - Index components beside a `.build/` left by an earlier attempt, without a loadable index, are the remains of an interrupted build or publication; rebuilding over them needs `--overwrite`.
-- Any other content fails before the build creates, locks or removes anything, including with `--overwrite`: unrelated files or directories, a symlink, a marker that is not a regular file, a `.build/` without the lock or log file, or index component names without a `.build/` left by an earlier attempt.
+- Any other content fails before the build creates, locks or removes anything, including with `--overwrite`: unrelated files or directories, a symlink, a marker that is not a regular file, a nonempty `.build/` without the lock or log file, or index component names without a `.build/` left by an earlier attempt.
 - Preflight reads the destination before the build lock creates `.build/`, so a refused attempt leaves no `.build/` behind and never makes a directory look like an interrupted index.
 - A `.build/` that is a symlink or not a directory, or that holds a symlink, fails before anything is created, locked or removed; the builder never follows a link out of the index directory.
 - Two builders cannot target the same directory concurrently.

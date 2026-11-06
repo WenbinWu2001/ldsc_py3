@@ -544,7 +544,7 @@ Preflight preserves the marker, and a successful build removes it.
 Versions before this retry fix incorrectly rejected marker-only directories even with `--overwrite`; update the package rather than deleting the directory.
 
 If the current version still reports this error, the directory contains unrecognized contents: unrelated files or directories, a symlink, or index component names (`metadata.json`, `gene_catalog.parquet`, `chromosomes/`, `diagnostics/`) without a loadable index and without the hidden `.build/` directory that an interrupted build leaves.
-A `.build/` counts as the builder's only when it holds `build-gene-ldscore-index.lock` or `build-gene-ldscore-index.log`, which every build attempt writes there first; any other `.build/` is unrecognized content too.
+A `.build/` counts as the builder's only when it holds `build-gene-ldscore-index.lock` or `build-gene-ldscore-index.log`, which every build attempt writes there first; any other nonempty `.build/` is unrecognized content too, and an empty one does not make index component names beside it the builder's.
 The marker does not grant permission to replace those contents, and neither does `--overwrite`.
 Preserve them for inspection and choose a fresh output directory, or explicitly resolve the conflicting files.
 A valid existing index still requires `--overwrite`.

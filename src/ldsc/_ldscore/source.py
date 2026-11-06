@@ -584,7 +584,12 @@ def _is_number(value) -> bool:
 
 
 def _read_ldscore_parquet(path, read):
-    """Return ``read(path)`` for a Parquet footer or table reader, raising ``LDSCInputError`` when the file is unreadable."""
+    """Return ``read(path)`` for a Parquet footer or table reader, raising ``LDSCInputError`` when the file is unreadable.
+
+    The error names the file. A missing file's ``FileNotFoundError`` is not
+    chained: an input gate reads that cause as a failed path resolution and
+    would replace this message with its generic wording.
+    """
     try:
         return read(path)
     except (OSError, pa.ArrowException) as exc:
@@ -593,7 +598,7 @@ def _read_ldscore_parquet(path, read):
             "Parquet file, or metadata.json and the data files come from different runs. Restore the complete "
             "LD-score directory from the same run, or regenerate it with `ldsc ldscore`. "
             f"Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
-        ) from exc
+        ) from (None if isinstance(exc, FileNotFoundError) else exc)
 
 
 def load_ldscore_from_dir(

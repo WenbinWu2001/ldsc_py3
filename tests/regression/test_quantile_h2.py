@@ -18,6 +18,7 @@ from ldsc._regression.quantile_h2 import (
     load_fitted_partitioned_model,
     run_quantile_h2_from_args,
 )
+from tests.ldscore_helpers import write_ldscore_dir
 from tests.quantile_fixtures import write_quantile_inputs, write_quantile_ldscores
 
 
@@ -513,23 +514,35 @@ def test_ldscore_directories_the_loader_rejects_stop_before_computation(tmp_path
         run_quantile_h2_from_args(args)
 
 
-@pytest.mark.parametrize("damage", ["missing overlap", "corrupt metadata"])
+@pytest.mark.parametrize("damage", ["missing overlap", "missing query batch", "corrupt metadata"])
 def test_a_damaged_ldscore_directory_fails_in_the_preflight(tmp_path, damage):
     args = write_quantile_inputs(tmp_path)
-    if damage == "missing overlap":
-        (tmp_path / "ldscores" / "ldscore.overlap.parquet").unlink()
+    ldscore_dir = tmp_path / "ldscores"
+    missing = {"missing overlap": ("overlap", "ldscore.overlap.parquet"),
+               "missing query batch": ("query", "ldscore.query.parquet")}.get(damage)
+    if damage == "missing query batch":
+        # Rewrite the LD scores with one query batch beside the fitted baseline annotations.
+        baseline = pd.read_parquet(ldscore_dir / "ldscore.baseline.parquet")
+        write_ldscore_dir(ldscore_dir, baseline, baseline_columns=["base", "cont"],
+                          query=baseline.loc[:, ["CHR", "SNP", "POS", "A1", "A2"]].assign(extra=1.0),
+                          query_columns=["extra"], counts={"base": (4.0, 4.0), "cont": (6.0, 6.0), "extra": (4.0, 4.0)},
+                          snp_identifier="rsid", overwrite=True)
+    if missing is not None:
+        (ldscore_dir / missing[1]).unlink()
     else:
-        (tmp_path / "ldscores" / "metadata.json").write_text("{not json", encoding="utf-8")
+        (ldscore_dir / "metadata.json").write_text("{not json", encoding="utf-8")
 
     with pytest.raises(LDSCInputError, match="Input preflight.*LD scores"):
         run_quantile_h2_from_args(args)
 
     issues = pd.read_csv(Path(args.output_dir) / "diagnostics" / "input_issues.tsv", sep="\t")
-    if damage == "missing overlap":
+    if missing is not None:
         # The manifest check and the declared-file check each name the missing file.
-        assert issues["input_role"].tolist() == ["LD scores", "overlap"]
-        assert issues["source"].tolist() == [str(tmp_path / "ldscores"),
-                                             str(tmp_path / "ldscores" / "ldscore.overlap.parquet")]
+        role, name = missing
+        assert issues["input_role"].tolist() == ["LD scores", role]
+        assert issues["source"].tolist() == [str(ldscore_dir), str(ldscore_dir / name)]
+        assert issues["details"].iloc[0].startswith("LDSCInputError: Could not ")
+        assert name in issues["details"].iloc[0]
     else:
         # Undecodable metadata is reported once; the declared files cannot be listed.
         assert issues["input_role"].tolist() == ["LD scores"]

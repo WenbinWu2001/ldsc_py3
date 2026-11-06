@@ -24,8 +24,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Sequence
 
-from .._runtime.cli_help import CLIHelpFormatter, SCALAR_PATH_HELP, output_directory_argument
-from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
+from .._runtime.cli_help import CLIHelpFormatter, SCALAR_PATH_HELP, add_output_dir_argument, add_log_level_argument
+from .._runtime.workflow_logging import args_output_scope
 from ..config import GlobalConfig, RegressionConfig, get_global_config, print_global_config_banner
 from .._runtime.paths import ensure_output_directory, normalize_path_token
 from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
@@ -95,10 +95,7 @@ def add_h2_arguments(parser) -> None:
     _add_regression_output_arguments(sections.output)
     _add_scalar_prevalence_arguments(sections.scale)
     _add_regression_model_arguments(sections, include_h2_intercept=True)
-    sections.logs.add_argument(
-        '--log-level', default='INFO', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'),
-        help=LOG_LEVEL_HELP,
-    )
+    add_log_level_argument(sections.logs)
 
 
 def add_partitioned_h2_arguments(parser) -> None:
@@ -145,10 +142,7 @@ def add_partitioned_h2_arguments(parser) -> None:
             'shared baseline. Default: 100; a smaller positive value reduces memory and caps active query workers.'
         ),
     )
-    sections.logs.add_argument(
-        '--log-level', default='INFO', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'),
-        help=LOG_LEVEL_HELP,
-    )
+    add_log_level_argument(sections.logs)
 
 
 def add_rg_arguments(parser) -> None:
@@ -197,10 +191,7 @@ def add_rg_arguments(parser) -> None:
         ),
     )
     _add_regression_model_arguments(sections, include_h2_intercept=False)
-    sections.logs.add_argument(
-        '--log-level', default='INFO', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'),
-        help=LOG_LEVEL_HELP,
-    )
+    add_log_level_argument(sections.logs)
 
 
 @materializing_overwrite_guard(
@@ -780,8 +771,8 @@ def _add_regression_sections(parser, include_h2_intercept: bool) -> SimpleNamesp
 
 def _add_regression_output_arguments(output) -> None:
     """Add the regression output directory and overwrite policy."""
-    output.add_argument(
-        '--output-dir', required=True, metavar='DIR', type=output_directory_argument,
+    add_output_dir_argument(
+        output,
         help=(
             'Required destination for regression estimates and diagnostics.'
         ),

@@ -20,7 +20,7 @@ import pyarrow.parquet as pq
 
 from .._annotation.semantics import require_unique_annotation_names
 from ..config import ConfigMismatchError, GlobalConfig
-from .._core.snp_identity import normalize_snp_identifier_mode
+from .._core.snp_identity import DEFAULT_SNP_IDENTIFIER, normalize_snp_identifier_mode
 from ..errors import LDSCInputError, LDSCInternalError
 from .._core.row_alignment import assert_same_snp_rows, first_identity_mismatch
 from .._core.snp_identity import (
@@ -290,7 +290,7 @@ class LDScoreSource:
     identity_drops_by_chrom: dict = field(default_factory=dict)
     index_provenance: dict | None = None
     legacy_ldscore_conversion: dict | None = None
-    snp_identifier: str = "chr_pos_allele_aware"
+    snp_identifier: str = DEFAULT_SNP_IDENTIFIER
 
     def read_queries(self, columns):
         """Load named query columns across saved files without caching values.

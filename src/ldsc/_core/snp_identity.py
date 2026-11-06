@@ -40,6 +40,7 @@ from .coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 
 SNP_IDENTIFIER_MODES = ("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware")
+DEFAULT_SNP_IDENTIFIER = "chr_pos_allele_aware"
 RSID_FAMILY_MODES = ("rsid", "rsid_allele_aware")
 ALLELE_AWARE_MODES = ("rsid_allele_aware", "chr_pos_allele_aware")
 ARTIFACT_TYPES = frozenset({"sumstats", "r2_matrix", "ref_panel_metadata", "ldscore"})

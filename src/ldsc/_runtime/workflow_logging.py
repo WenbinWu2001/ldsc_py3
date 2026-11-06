@@ -40,7 +40,7 @@ from os import PathLike
 from types import TracebackType
 from typing import Any, Callable
 
-from ..errors import LDSCUsageError
+from ..errors import LDSCConfigError
 from .paths import output_directory_path
 
 
@@ -48,6 +48,7 @@ _LDSC_LOGGER_NAME = "LDSC"
 _CURRENT: threading.local = threading.local()
 _BORDER = "=" * 51
 
+LOG_LEVEL_CHOICES = ("DEBUG", "INFO", "WARNING", "ERROR")
 LOG_LEVEL_HELP = (
     "Set detail in the workflow log. DEBUG includes troubleshooting details. "
     "INFO includes progress and summaries. WARNING includes warnings and errors. "
@@ -381,20 +382,25 @@ def _active_context() -> "_WorkflowLoggingContext | None":
     return getattr(_CURRENT, "context", None)
 
 
-def _level_number(level: str) -> int:
+def normalize_log_level(level: str, *, context: str) -> str:
+    """Return ``level`` in upper case, raising ``LDSCConfigError`` unless it is one of ``LOG_LEVEL_CHOICES``.
+
+    The one log-level check, for ``GlobalConfig`` and workflow logging alike.
+    ``context`` starts the error message, for example ``"Could not construct
+    GlobalConfig"``.
+    """
     normalized = str(level).upper()
-    value = logging.getLevelName(normalized)
-    if not isinstance(value, int):
-        raise LDSCUsageError(
-            f"Workflow logging could not use log_level={level!r}. Most likely the command or API call passed "
-            "an unsupported logging level. Use one of DEBUG, INFO, WARNING, or ERROR."
+    if normalized not in LOG_LEVEL_CHOICES:
+        raise LDSCConfigError(
+            f"{context}: log_level={level!r} is invalid. "
+            "Most likely the log level name is misspelled. "
+            f"Use one of {', '.join(LOG_LEVEL_CHOICES)}."
         )
-    if normalized not in {"DEBUG", "INFO", "WARNING", "ERROR"}:
-        raise LDSCUsageError(
-            f"Workflow logging could not use log_level={level!r}. Most likely the command or API call passed "
-            "an unsupported logging level. Use one of DEBUG, INFO, WARNING, or ERROR."
-        )
-    return value
+    return normalized
+
+
+def _level_number(level: str) -> int:
+    return logging.getLevelName(normalize_log_level(level, context="Could not start workflow logging"))
 
 
 class _WorkflowLoggingContext:

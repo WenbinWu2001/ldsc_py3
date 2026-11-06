@@ -34,7 +34,9 @@ from .._annotation.overlap import sum_overlap_contributions
 from .._annotation.semantics import combine_annotation_types
 from .._core.chromosomes import chrom_sort_key
 from .._core.row_alignment import concat_chromosome_tables, sort_frame_by_genomic_position
-from .._core.snp_identity import coerce_identity_drop_frame, IDENTITY_DROP_COLUMNS, is_allele_aware_mode
+from .._core.snp_identity import (
+    DEFAULT_SNP_IDENTIFIER, coerce_identity_drop_frame, IDENTITY_DROP_COLUMNS, is_allele_aware_mode,
+)
 from .._refpanel.adapters import PlinkRefPanel, resolved_ref_panel
 from .._refpanel.funnel import REFERENCE_PANEL, annotation_snp_grid_emptied, concat_funnels, funnel_summary
 from .._refpanel.prepared import ChromosomeAnnotations, MappedAnnotations
@@ -190,7 +192,7 @@ def _split_ldscore_table(
     *,
     baseline_columns: list[str] | None,
     query_columns: list[str],
-    snp_identifier: str = "chr_pos_allele_aware",
+    snp_identifier: str = DEFAULT_SNP_IDENTIFIER,
 ) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
     """Split a merged LD-score table into optional baseline and query tables.
 

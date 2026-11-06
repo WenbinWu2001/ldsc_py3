@@ -66,6 +66,20 @@ class GlobalConfigTest(unittest.TestCase):
         ):
             GlobalConfig(snp_identifier="rsid", log_level="trace")
 
+    def test_workflow_logging_rejects_a_log_level_as_global_config_does(self):
+        from ldsc._runtime.workflow_logging import workflow_logging
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "run.log"
+            with self.assertRaisesRegex(
+                ldsc.LDSCConfigError,
+                "Could not start workflow logging: log_level='trace' is invalid.*"
+                "Use one of DEBUG, INFO, WARNING, ERROR",
+            ):
+                with workflow_logging("annotate", log_path, log_level="trace"):
+                    pass
+            self.assertFalse(log_path.exists())
+
     def test_normalizes_genome_build_aliases(self):
         self.assertEqual(GlobalConfig(snp_identifier="chr_pos", genome_build="hg37").genome_build, "hg19")
         self.assertEqual(GlobalConfig(snp_identifier="chr_pos", genome_build="GRCh37").genome_build, "hg19")

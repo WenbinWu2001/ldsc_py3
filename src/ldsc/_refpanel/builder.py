@@ -43,9 +43,10 @@ import numpy as np
 import pandas as pd
 
 from .._runtime.serial_calculation import serial_calculation
-from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP, output_directory_argument
-from .._runtime.workflow_logging import LOG_LEVEL_HELP
+from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP, add_output_dir_argument, add_log_level_argument
 from .._core.snp_identity import (
+    DEFAULT_SNP_IDENTIFIER,
+    SNP_IDENTIFIER_MODES,
     RestrictionIdentityKeys,
     coerce_identity_drop_frame,
     concat_identity_drop_frames,
@@ -1159,7 +1160,7 @@ def build_parser() -> argparse.ArgumentParser:
     logs = parser.add_argument_group('Logging')
 
     identity.add_argument(
-        '--snp-identifier', default='chr_pos_allele_aware', choices=('rsid', 'rsid_allele_aware', 'chr_pos', 'chr_pos_allele_aware'),
+        '--snp-identifier', default=DEFAULT_SNP_IDENTIFIER, choices=SNP_IDENTIFIER_MODES,
         help=(
             'Match SNPs by rsID (rsid) or chromosome and position (chr_pos); allele-aware variants also use '
             'A1/A2. Default: chr_pos_allele_aware; usable alleles are required. Controls duplicate removal, '
@@ -1263,8 +1264,8 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    output.add_argument(
-        '--output-dir', required=True, metavar='DIR', type=output_directory_argument,
+    add_output_dir_argument(
+        output,
         help=(
             'Required destination for R2 Parquet files, chromosome SNP metadata, and diagnostics.'
         ),
@@ -1295,10 +1296,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    logs.add_argument(
-        '--log-level', default='INFO', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'),
-        help=LOG_LEVEL_HELP,
-    )
+    add_log_level_argument(logs)
     return parser
 
 

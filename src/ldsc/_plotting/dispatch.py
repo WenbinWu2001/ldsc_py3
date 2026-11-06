@@ -18,8 +18,7 @@ explicit in the figure; no estimate is refitted or converted by plotting.
 
 from __future__ import annotations
 
-from .._runtime.cli_help import CLIHelpFormatter, output_directory_argument
-from .._runtime.workflow_logging import LOG_LEVEL_HELP
+from .._runtime.cli_help import CLIHelpFormatter, output_directory_argument, add_log_level_argument
 from .._runtime.artifacts import atomic_write_json
 from .._runtime.result_files import declared_result_file
 
@@ -251,10 +250,7 @@ def add_plot_arguments(parser: argparse.ArgumentParser) -> None:
         ),
     )
 
-    logs.add_argument(
-        '--log-level', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'), default='INFO',
-        help=LOG_LEVEL_HELP,
-    )
+    add_log_level_argument(logs)
 
 
 def run_plot_from_args(args: argparse.Namespace) -> PlotArtifact:

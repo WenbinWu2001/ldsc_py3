@@ -1,6 +1,6 @@
 # CLI flag descriptions and ordering
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-06
 
 These are the agreed rules for writing flag descriptions and organizing `--help` across all public `ldsc` commands. A user should be able to identify the inputs they need, understand what an option changes, and choose a valid combination without knowing the package implementation.
 
@@ -181,4 +181,7 @@ Naming decisions to keep:
 - Rendered `ldsc COMMAND --help` and `python -m ldsc COMMAND --help` remain readable, show the correct command, and preserve the intended grouping and ordering.
 - Help-only changes preserve accepted flags, parser destinations, defaults, choices, dependencies, and scientific behavior. Relevant parser/CLI checks establish this; prose edits alone do not require numerical test suites.
 
-The description contents and the step-ordered layout are approved; the layout replaced the earlier inputs-and-outputs-first ordering on 2026-10-28. All public command parsers use explicit help groups and descriptions, with shared wrapping in [`CLIHelpFormatter`](../../../src/ldsc/_runtime/cli_help.py) and consistent log-level wording in [`LOG_LEVEL_HELP`](../../../src/ldsc/_runtime/workflow_logging.py). No guidance decisions remain open.
+The description contents and the step-ordered layout are approved; the layout replaced the earlier inputs-and-outputs-first ordering on 2026-10-28. All public command parsers use explicit help groups and descriptions, with shared wrapping in [`CLIHelpFormatter`](../../../src/ldsc/_runtime/cli_help.py) and consistent log-level wording in [`LOG_LEVEL_HELP`](../../../src/ldsc/_runtime/workflow_logging.py).
+Parsers add `--log-level`, and `--output-dir` where the command takes one, with `add_log_level_argument()` and `add_output_dir_argument()` from `cli_help.py`, which state the option's type, choices and default once; each command passes its own help text.
+The commands with an optional four-mode `--snp-identifier` take its choices and default from `SNP_IDENTIFIER_MODES` and `DEFAULT_SNP_IDENTIFIER` in `_core/snp_identity.py`.
+No guidance decisions remain open.

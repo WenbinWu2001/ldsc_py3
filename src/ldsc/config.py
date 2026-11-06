@@ -31,10 +31,11 @@ import warnings
 
 import numpy as np
 
-from ._core.snp_identity import identity_mode_family, normalize_snp_identifier_mode
+from ._core.snp_identity import DEFAULT_SNP_IDENTIFIER, identity_mode_family, normalize_snp_identifier_mode
 from ._core.columns import normalize_genome_build
 from .errors import LDSCConfigError
 from ._runtime.parallelism import validate_workers
+from ._runtime.workflow_logging import normalize_log_level
 from ._runtime.paths import (
     normalize_optional_path_token, normalize_path_token, normalize_path_tokens, split_cli_path_tokens,
 )
@@ -50,7 +51,6 @@ DEFAULT_SNP_BATCH_SIZE = 512
 SNPIdentifierMode = Literal["rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"]
 GenomeBuildInput = Literal["auto", "hg19", "hg37", "hg38", "GRCh37", "GRCh38"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
-LOG_LEVEL_CHOICES: tuple[LogLevel, ...] = ("DEBUG", "INFO", "WARNING", "ERROR")
 RefPanelBackend = Literal["plink", "r2_matrix"]
 
 
@@ -95,19 +95,6 @@ def normalize_trait_name(value: str | None) -> str | None:
             "Use a non-empty trait name or omit trait_name to derive it from the input."
         )
     return normalized
-
-
-def _normalize_log_level(level: str) -> LogLevel:
-    """Normalize a logging level string to the supported uppercase literal."""
-    normalized = level.upper()
-    allowed = set(LOG_LEVEL_CHOICES)
-    if normalized not in allowed:
-        raise LDSCConfigError(
-            f"Could not construct GlobalConfig: log_level={level!r} is invalid. "
-            "Most likely the log level name is misspelled. "
-            f"Use one of {', '.join(LOG_LEVEL_CHOICES)}."
-        )
-    return normalized  # type: ignore[return-value]
 
 
 def _invalid_choice_message(config_name: str, field_name: str, value, choices: str) -> str:
@@ -226,13 +213,13 @@ class GlobalConfig:
     Per-run SNP restriction controls such as ``ref_panel_snps_file`` and
     ``regr_snps_file`` now live on workflow-specific configs.
     """
-    snp_identifier: SNPIdentifierMode = "chr_pos_allele_aware"
+    snp_identifier: SNPIdentifierMode = DEFAULT_SNP_IDENTIFIER
     genome_build: GenomeBuildInput | None = "auto"
     log_level: LogLevel = "INFO"
 
     def __init__(
         self,
-        snp_identifier: SNPIdentifierMode = "chr_pos_allele_aware",
+        snp_identifier: SNPIdentifierMode = DEFAULT_SNP_IDENTIFIER,
         genome_build: GenomeBuildInput | None | object = _GENOME_BUILD_UNSET,
         log_level: LogLevel = "INFO",
     ) -> None:
@@ -266,7 +253,7 @@ class GlobalConfig:
                 "Use 'auto', 'hg19', 'hg38', 'GRCh37', or 'GRCh38'."
             ) from exc
         object.__setattr__(self, "genome_build", genome_build)
-        object.__setattr__(self, "log_level", _normalize_log_level(self.log_level))
+        object.__setattr__(self, "log_level", normalize_log_level(self.log_level, context="Could not construct GlobalConfig"))
         if family == "chr_pos" and self.genome_build is None:
             raise LDSCConfigError(
                 "Could not construct GlobalConfig: genome_build is required for chr_pos-family "

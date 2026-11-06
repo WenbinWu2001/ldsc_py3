@@ -18,8 +18,8 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 
-from .._runtime.cli_help import CLIHelpFormatter, output_directory_argument
-from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
+from .._runtime.cli_help import CLIHelpFormatter, add_output_dir_argument, add_log_level_argument
+from .._runtime.workflow_logging import args_output_scope
 from .r2_format import R2MatrixChromosome, lookup_pairs_in_parquet, r2_matrix_chromosomes, resolve_r2_build_dir
 from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from .outputs import QueryR2MatrixDirectoryWriter, QueryR2MatrixOutputConfig
@@ -580,8 +580,8 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    output.add_argument(
-        '--output-dir', required=True, metavar='DIR', type=output_directory_argument,
+    add_output_dir_argument(
+        output,
         help=(
             'Required destination for query_r2_matrix.tsv (r2, sign_r, r, status plus input columns) '
             'and diagnostics. sign_r and r use query allele orientation.'
@@ -595,10 +595,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    logs.add_argument(
-        '--log-level', default='INFO', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'),
-        help=LOG_LEVEL_HELP,
-    )
+    add_log_level_argument(logs)
     return parser
 
 

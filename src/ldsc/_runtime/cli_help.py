@@ -4,10 +4,15 @@ Keep option names and paths intact when descriptions wrap so users can read
 and copy dependencies without reconstructing tokens split across lines.
 Shared path descriptions distinguish chromosome suites from ordinary globs;
 workflow parsers use only the descriptions supported by their input readers.
+The options every materializing command shares, ``--output-dir`` and
+``--log-level``, are added by one helper each, so their type, choices and
+default are stated once; each command supplies its own help text.
 """
 
 import argparse
 import textwrap
+
+from .workflow_logging import LOG_LEVEL_CHOICES, LOG_LEVEL_HELP
 
 
 CHROMOSOME_PATH_HELP = (
@@ -28,6 +33,18 @@ def output_directory_argument(value: str) -> str:
             "(pass '.' to use the working directory on purpose)"
         )
     return value
+
+
+def add_output_dir_argument(group, *, help: str) -> None:
+    """Add the required ``--output-dir DIR`` option, which rejects a blank directory, with ``help``."""
+    group.add_argument('--output-dir', required=True, metavar='DIR', type=output_directory_argument, help=help)
+
+
+def add_log_level_argument(group, *, help: str = LOG_LEVEL_HELP) -> None:
+    """Add the ``--log-level`` option (default ``INFO``) with the shared level choices."""
+    group.add_argument('--log-level', default='INFO', choices=LOG_LEVEL_CHOICES, help=help)
+
+
 class CLIHelpFormatter(argparse.HelpFormatter):
     """Wrap help at spaces without splitting option names or file paths."""
 

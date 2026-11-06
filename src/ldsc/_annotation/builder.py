@@ -11,13 +11,13 @@ from __future__ import annotations
 import argparse
 from typing import Sequence
 
-from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, output_directory_argument
-from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
+from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, add_output_dir_argument, add_log_level_argument
+from .._runtime.workflow_logging import args_output_scope
 from .bundle import AnnotationBundle
 from .saved_results import AnnotationResult
 from .loading import build_annotation_shards
 from .._runtime.scratch import ScratchWorkspace
-from .._core.snp_identity import identity_mode_family, normalize_snp_identifier_mode
+from .._core.snp_identity import DEFAULT_SNP_IDENTIFIER, SNP_IDENTIFIER_MODES, identity_mode_family, normalize_snp_identifier_mode
 from .._runtime.workflow_logging import materializing_overwrite_guard
 from .annotate import run_annotate
 from ..config import AnnotationBuildConfig, GlobalConfig
@@ -116,7 +116,7 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
     logs = parser.add_argument_group('Logging')
 
     identity.add_argument(
-        '--snp-identifier', default='chr_pos_allele_aware', choices=('rsid', 'rsid_allele_aware', 'chr_pos', 'chr_pos_allele_aware'),
+        '--snp-identifier', default=DEFAULT_SNP_IDENTIFIER, choices=SNP_IDENTIFIER_MODES,
         help=(
             'Match SNPs by rsID (rsid) or chromosome and position (chr_pos); allele-aware variants also use '
             'A1/A2. Default: chr_pos_allele_aware; usable alleles are required. Coordinate-family modes require '
@@ -203,8 +203,8 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
         ),
     )
 
-    output.add_argument(
-        '--output-dir', required=True, metavar='DIR', type=output_directory_argument,
+    add_output_dir_argument(
+        output,
         help=(
             'Required destination for chromosome .annot.gz files and diagnostics.'
         ),
@@ -217,10 +217,7 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
         ),
     )
 
-    logs.add_argument(
-        '--log-level', default='INFO', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'),
-        help=LOG_LEVEL_HELP,
-    )
+    add_log_level_argument(logs)
 
 
 def build_parser() -> argparse.ArgumentParser:

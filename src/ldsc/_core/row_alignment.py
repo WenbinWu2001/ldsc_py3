@@ -9,7 +9,7 @@ from .coordinates import positive_int_position_series
 from .chromosomes import chrom_sort_key
 from .snp_identity import identity_key_series, identity_mode_family, is_allele_aware_mode
 from .columns import POS_COLUMN_SPEC, resolve_optional_column
-from .snp_identity import normalize_snp_identifier_mode
+from .snp_identity import DEFAULT_SNP_IDENTIFIER, normalize_snp_identifier_mode
 from ..errors import LDSCInputError, LDSCInternalError
 
 
@@ -22,7 +22,7 @@ def assert_same_snp_rows(
     right: pd.DataFrame,
     *,
     context: str,
-    snp_identifier: str = "chr_pos_allele_aware",
+    snp_identifier: str = DEFAULT_SNP_IDENTIFIER,
 ) -> None:
     """Raise if two normalized tables do not share identical SNP rows."""
     mode = normalize_snp_identifier_mode(snp_identifier)

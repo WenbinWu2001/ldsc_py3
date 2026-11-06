@@ -37,15 +37,15 @@ from .diagnostics import (
     log_query_outcomes,
 )
 from .direct_batches import _chromosome_annotations, _grid_emptied_message, _slice_annotation_bundle
-from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP, output_directory_argument
-from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
+from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP, add_output_dir_argument, add_log_level_argument
+from .._runtime.workflow_logging import args_output_scope
 from .._runtime.parallelism import (
     WORKERS_HELP, parse_query_batch_size, parse_workers, validate_query_batch_size, validate_workers,
 )
 from .._runtime.progress import report_phase, PhaseProgress
 from .._runtime.scratch import ScratchWorkspace
 from .source import LDScoreSource
-from .._core.snp_identity import identity_mode_family
+from .._core.snp_identity import DEFAULT_SNP_IDENTIFIER, SNP_IDENTIFIER_MODES, identity_mode_family
 from .._core.columns import normalize_genome_build
 from .._core.snp_identity import emit_dropped_snps_notice, normalize_snp_identifier_mode
 from ..config import (
@@ -151,7 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
     logs = parser.add_argument_group('Logging')
 
     identity.add_argument(
-        '--snp-identifier', default='chr_pos_allele_aware', choices=('rsid', 'rsid_allele_aware', 'chr_pos', 'chr_pos_allele_aware'),
+        '--snp-identifier', default=DEFAULT_SNP_IDENTIFIER, choices=SNP_IDENTIFIER_MODES,
         help=(
             'Match SNPs by rsID (rsid) or chromosome and position (chr_pos); allele-aware variants also use '
             'A1/A2. Default: chr_pos_allele_aware; usable alleles are required. With '
@@ -337,8 +337,8 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    output.add_argument(
-        '--output-dir', required=True, metavar='DIR', type=output_directory_argument,
+    add_output_dir_argument(
+        output,
         help=(
             'Required destination for LD-score tables, SNP counts, and diagnostics.'
         ),
@@ -422,10 +422,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    logs.add_argument(
-        '--log-level', default='INFO', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'),
-        help=LOG_LEVEL_HELP,
-    )
+    add_log_level_argument(logs)
     return parser
 
 

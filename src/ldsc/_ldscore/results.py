@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 from .._core.row_alignment import assert_same_snp_rows
+from .._core.snp_identity import DEFAULT_SNP_IDENTIFIER
 from ..errors import LDSCInputError
 from .source import validate_ldscore_schemas
 
@@ -193,7 +194,7 @@ class LDScoreResult:
                 self.baseline_table,
                 self.query_table,
                 context="query rows must match baseline rows on CHR/SNP/POS",
-                snp_identifier=getattr(self.config_snapshot, "snp_identifier", "chr_pos_allele_aware"),
+                snp_identifier=getattr(self.config_snapshot, "snp_identifier", DEFAULT_SNP_IDENTIFIER),
             )
 
     def select_queries(self, retained: Sequence[str]) -> "LDScoreResult":

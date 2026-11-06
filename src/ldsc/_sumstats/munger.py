@@ -49,7 +49,7 @@ from typing import Any
 
 import pandas as pd
 
-from .._runtime.cli_help import CLIHelpFormatter, SCALAR_PATH_HELP, output_directory_argument
+from .._runtime.cli_help import CLIHelpFormatter, SCALAR_PATH_HELP, add_output_dir_argument, add_log_level_argument
 from .._core.columns import normalize_genome_build
 from ..config import GlobalConfig, MungeConfig, get_global_config
 from ..errors import (
@@ -68,6 +68,8 @@ from .._runtime.workflow_logging import (
     workflow_logging,
 )
 from .._core.snp_identity import (
+    DEFAULT_SNP_IDENTIFIER,
+    SNP_IDENTIFIER_MODES,
     concat_identity_drop_frames,
     identity_mode_family,
     normalize_snp_identifier_mode,
@@ -576,7 +578,7 @@ def _resolve_main_global_config(args: argparse.Namespace) -> GlobalConfig:
     the run and ``--infer-only`` alike.
     """
     return GlobalConfig(
-        snp_identifier=normalize_snp_identifier_mode(getattr(args, "snp_identifier", "chr_pos_allele_aware")),
+        snp_identifier=normalize_snp_identifier_mode(getattr(args, "snp_identifier", DEFAULT_SNP_IDENTIFIER)),
         log_level=getattr(args, "log_level", "INFO"),
     )
 
@@ -666,7 +668,7 @@ def build_parser() -> argparse.ArgumentParser:
     logs = public.add_argument_group('Logging')
 
     identity.add_argument(
-        '--snp-identifier', default='chr_pos_allele_aware', choices=('rsid', 'rsid_allele_aware', 'chr_pos', 'chr_pos_allele_aware'),
+        '--snp-identifier', default=DEFAULT_SNP_IDENTIFIER, choices=SNP_IDENTIFIER_MODES,
         help=(
             'Match SNPs by rsID (rsid) or chromosome and position (chr_pos); allele-aware variants also use '
             'A1/A2. Default: chr_pos_allele_aware; usable alleles are required. Coordinate-family modes also '
@@ -776,8 +778,8 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    output.add_argument(
-        '--output-dir', required=True, metavar='DIR', type=output_directory_argument,
+    add_output_dir_argument(
+        output,
         help=(
             'Required destination for munged summary statistics and diagnostics. Still required with '
             '--infer-only, which creates no files or directories.'
@@ -967,8 +969,8 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    logs.add_argument(
-        '--log-level', default='INFO', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'),
+    add_log_level_argument(
+        logs,
         help=(LOG_LEVEL_HELP + ' The selected liftover method and mapping/drop summary are always recorded '
               'in diagnostics/sumstats.log and printed to stdout after a successful run.'),
     )

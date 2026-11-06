@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
+from .._core.snp_identity import DEFAULT_SNP_IDENTIFIER
 from ..config import GlobalConfig
 from ..errors import LDSCInternalError
 
@@ -48,7 +49,7 @@ class RegressionDataset:
     dropped_zero_variance_ld_columns: list[str]
     trait_names: list[str]
     config_snapshot: GlobalConfig | None = None
-    effective_snp_identifier: str = "chr_pos_allele_aware"
+    effective_snp_identifier: str = DEFAULT_SNP_IDENTIFIER
     identity_downgrade_applied: bool = False
     ldscore_overlap: "LDScoreOverlap | None" = None
     dropped_orientation_unknown_rows: int = 0

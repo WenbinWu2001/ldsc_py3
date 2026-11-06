@@ -20,8 +20,8 @@ import pandas as pd
 from scipy import stats
 
 from .._runtime.serial_calculation import serial_calculation
-from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, output_directory_argument
-from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
+from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, add_output_dir_argument, add_log_level_argument
+from .._runtime.workflow_logging import args_output_scope
 from ..errors import LDSCInputError
 from .._annotation.gene_lists import GeneCatalogValidationError
 from .._annotation.outputs import AnnotationDirectoryWriter
@@ -578,8 +578,8 @@ def add_quantile_h2_arguments(parser: argparse.ArgumentParser) -> None:
         ),
     )
 
-    output.add_argument(
-        '--output-dir', required=True, metavar='DIR', type=output_directory_argument,
+    add_output_dir_argument(
+        output,
         help=(
             'Required destination for quantile heritability, standardized coefficients, and diagnostics.'
         ),
@@ -592,10 +592,7 @@ def add_quantile_h2_arguments(parser: argparse.ArgumentParser) -> None:
         ),
     )
 
-    logs.add_argument(
-        '--log-level', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'), default='INFO',
-        help=LOG_LEVEL_HELP,
-    )
+    add_log_level_argument(logs)
 
 
 def build_parser() -> argparse.ArgumentParser:

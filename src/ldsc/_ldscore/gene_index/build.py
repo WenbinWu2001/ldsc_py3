@@ -12,7 +12,7 @@ lists with an index in ``ldsc._ldscore.gene_index.scoring``.
 from __future__ import annotations
 
 import argparse
-from contextlib import closing, contextmanager
+from contextlib import ExitStack, closing, contextmanager
 from datetime import datetime, timezone
 import fcntl
 import gzip
@@ -1853,30 +1853,37 @@ def _check_baseline_plink_chromosome(baseline_rows: pd.DataFrame, plink_rows: pd
 def _validate_baseline_plink_inputs(sources, prefixes, config, chromosomes, build_dir) -> dict[str, int]:
     """Collect metadata conflicts across chromosomes before starting LD workers.
 
-    Returns each chromosome's count of matched positions whose baseline and
-    PLINK ``SNP`` labels differ (``chr_pos``-family modes; 0 otherwise).
+    Each chromosome's PLINK rows are selected, and their identity cleanup
+    logged, once; in rsID-family modes the same rows also feed the
+    cross-chromosome rsID join. Returns each chromosome's count of matched
+    positions whose baseline and PLINK ``SNP`` labels differ
+    (``chr_pos``-family modes; 0 otherwise).
     """
     issues = []
     causes = []
     label_discordant = {}
-    for chrom in chromosomes:
-        metadata = sources.shards[chrom].metadata()
-        try:
-            label_discordant[chrom] = _check_baseline_plink_chromosome(
-                metadata, _selected_plink_rows(prefixes[chrom], chrom, config.snp_identifier),
-                snp_identifier=config.snp_identifier, chrom=chrom)
-        except LDSCInputError as exc:
-            causes.append(exc)
-            records = getattr(exc, "input_issues", pd.DataFrame([{"chrom": chrom, "reason": "invalid_intersection",
-                                                                  "details": str(exc)}]))
-            issues.append(records.assign(baseline_sources=",".join(config.baseline_annot_sources),
-                                         plink_source=str(prefixes[chrom]) + ".bim"))
-    if identity_mode_family(config.snp_identifier) == "rsid":
-        cross_chromosome = _cross_chromosome_rsid_issues(sources, prefixes, config, chromosomes, build_dir)
-        if not cross_chromosome.empty:
-            issues.append(cross_chromosome.assign(baseline_sources=",".join(config.baseline_annot_sources),
-                                                  reason="cross_chromosome_coordinate_mismatch"))
-            causes.append(LDSCInputError("Shared baseline/PLINK rsIDs declare different chromosomes."))
+    rsid_family = identity_mode_family(config.snp_identifier) == "rsid"
+    with ExitStack() as stack:
+        coordinates = stack.enter_context(_rsid_coordinate_database(build_dir)) if rsid_family else None
+        for chrom in chromosomes:
+            metadata = sources.shards[chrom].metadata()
+            try:
+                plink_rows = _selected_plink_rows(prefixes[chrom], chrom, config.snp_identifier)
+                if coordinates is not None:
+                    _add_rsid_coordinates(coordinates, metadata, plink_rows)
+                label_discordant[chrom] = _check_baseline_plink_chromosome(
+                    metadata, plink_rows, snp_identifier=config.snp_identifier, chrom=chrom)
+            except LDSCInputError as exc:
+                causes.append(exc)
+                records = getattr(exc, "input_issues", pd.DataFrame([{"chrom": chrom, "reason": "invalid_intersection",
+                                                                      "details": str(exc)}]))
+                issues.append(records.assign(baseline_sources=",".join(config.baseline_annot_sources),
+                                             plink_source=str(prefixes[chrom]) + ".bim"))
+        cross_chromosome = None if coordinates is None else _cross_chromosome_rsid_issues(coordinates, prefixes)
+    if cross_chromosome is not None and not cross_chromosome.empty:
+        issues.append(cross_chromosome.assign(baseline_sources=",".join(config.baseline_annot_sources),
+                                              reason="cross_chromosome_coordinate_mismatch"))
+        causes.append(LDSCInputError("Shared baseline/PLINK rsIDs declare different chromosomes."))
     path = build_dir / "baseline_plink_issues.tsv"
     if issues:
         frame = pd.concat(issues, ignore_index=True)
@@ -1893,8 +1900,9 @@ def _validate_baseline_plink_inputs(sources, prefixes, config, chromosomes, buil
     return label_discordant
 
 
-def _cross_chromosome_rsid_issues(sources, prefixes, config, chromosomes, build_dir):
-    """Join chromosome declarations on disk without retaining genome-wide metadata.
+@contextmanager
+def _rsid_coordinate_database(build_dir):
+    """Hold the on-disk database that joins chromosome declarations without retaining genome-wide metadata.
 
     The database is in the build directory. Each table's ``SNP`` index exists
     before its rows are inserted, so SQLite maintains it as rows arrive and
@@ -1906,16 +1914,22 @@ def _cross_chromosome_rsid_issues(sources, prefixes, config, chromosomes, build_
             for table in ("baseline", "plink"):
                 database.execute(f"CREATE TABLE {table} (SNP TEXT, CHR TEXT, POS INTEGER)")
                 database.execute(f"CREATE INDEX {table}_snp ON {table} (SNP)")
-            for chrom in chromosomes:
-                baseline = sources.shards[chrom].metadata()
-                plink = _selected_plink_rows(prefixes[chrom], chrom, config.snp_identifier)
-                for table, frame in (("baseline", baseline), ("plink", plink)):
-                    frame.loc[:, ["SNP", "CHR", "POS"]].astype({"CHR": str}).to_sql(
-                        table, database, if_exists="append", index=False, chunksize=1000)
-            issues = pd.read_sql_query(
-                "SELECT b.SNP AS base_key, b.CHR AS CHR_baseline, b.POS AS POS_baseline, "
-                "p.CHR AS CHR_plink, p.POS AS POS_plink FROM baseline b JOIN plink p ON b.SNP=p.SNP "
-                "WHERE b.CHR != p.CHR", database)
+            yield database
+
+
+def _add_rsid_coordinates(database, baseline, plink):
+    """Append one chromosome's baseline and cleaned PLINK coordinates to the rsID join."""
+    for table, frame in (("baseline", baseline), ("plink", plink)):
+        frame.loc[:, ["SNP", "CHR", "POS"]].astype({"CHR": str}).to_sql(
+            table, database, if_exists="append", index=False, chunksize=1000)
+
+
+def _cross_chromosome_rsid_issues(database, prefixes):
+    """Return shared baseline/PLINK rsIDs whose declared chromosomes differ."""
+    issues = pd.read_sql_query(
+        "SELECT b.SNP AS base_key, b.CHR AS CHR_baseline, b.POS AS POS_baseline, "
+        "p.CHR AS CHR_plink, p.POS AS POS_plink FROM baseline b JOIN plink p ON b.SNP=p.SNP "
+        "WHERE b.CHR != p.CHR", database)
     if not issues.empty:
         issues["plink_source"] = issues.CHR_plink.map(lambda chrom: str(prefixes[chrom]) + ".bim")
     return issues

@@ -174,3 +174,21 @@ def test_failed_gene_index_build_can_retry_with_its_failure_marker(tmp_path, mon
     index = load_gene_ldscore_index(output)
     assert index.chromosomes == ("21", "22")
     np.testing.assert_array_equal(index.gene_support, [4, 4])
+
+
+def test_gene_index_logs_each_plink_identity_cleanup_once(tmp_path, monkeypatch):
+    # In an rsID-family build the gate checks each chromosome and joins rsIDs across chromosomes;
+    # the PLINK rows it cleans once must report their dropped rows once in the build log.
+    write_inputs(tmp_path)
+    bim = tmp_path / "1000G.EUR.QC.22.bim"
+    bim.write_text(bim.read_text().replace("rs22_1", "rs22_2"))
+    args = index_args(tmp_path, str(tmp_path / "1000G.EUR.QC.@"), tmp_path / "index", monkeypatch)
+    args.snp_identifier = "rsid"
+
+    output = gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
+
+    log = (output / "diagnostics" / "build-gene-ldscore-index.log").read_text(encoding="utf-8")
+    dropped = [line for line in log.splitlines() if "Dropped 2 SNP identity rows" in line]
+    assert len(dropped) == 1, dropped
+    assert "PLINK reference panel chromosome 22" in dropped[0]
+    assert pd.read_csv(output / "diagnostics" / "dropped_snps" / "chr22_dropped.tsv.gz", sep="\t").shape[0] == 2

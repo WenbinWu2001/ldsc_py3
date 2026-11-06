@@ -210,9 +210,9 @@ def test_cross_chromosome_rsid_join_indexes_before_inserting_and_needs_no_tempor
     monkeypatch.setattr(index.sqlite3, 'connect', traced_connect)
     config = Namespace(snp_identifier='rsid', baseline_annot_sources=('baseline',))
 
-    issues = index._cross_chromosome_rsid_issues(sources, {'1': '1', '2': '2'}, config, ('1', '2'), tmp_path)
+    index._validate_baseline_plink_inputs(sources, {'1': '1', '2': '2'}, config, ('1', '2'), tmp_path)
 
-    assert issues.empty
+    assert not (tmp_path / 'baseline_plink_issues.tsv').exists()
     assert databases and all(tmp_path in path.parents for path in databases)
     first_insert = next(i for i, sql in enumerate(statements) if sql.lstrip().upper().startswith('INSERT'))
     index_creations = [i for i, sql in enumerate(statements) if sql.lstrip().upper().startswith('CREATE INDEX')]

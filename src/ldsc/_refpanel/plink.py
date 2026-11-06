@@ -37,7 +37,7 @@ class __GenotypeArrayInMemory__(object):
         self.maf_removed = 0
         self.mafMin = mafMin if mafMin is not None else 0
         self._currentSNP = 0
-        (self.nru, self.geno) = self.__read__(fname, self.m, n)
+        self.nru = self.__read__(fname, self.m, n)
         if keep_indivs is not None:
             keep_indivs = np.array(keep_indivs, dtype="int")
             if np.any((keep_indivs < 0) | (keep_indivs >= self.n)):
@@ -47,7 +47,7 @@ class __GenotypeArrayInMemory__(object):
                     "the keep list was built from a different PLINK sample set. Use a keep "
                     "file from the same `.fam` file."
                 )
-            (self.geno, self.m, self.n) = self.__filter_indivs__(self.geno, keep_indivs, self.m, self.n)
+            self.n = self.__filter_indivs__(keep_indivs)
             if self.n <= 0:
                 raise LDSCInputError(
                     "PLINK BED loading retained no individuals after sample filtering. "
@@ -63,8 +63,8 @@ class __GenotypeArrayInMemory__(object):
                     "indices were built from a different PLINK prefix. Rebuild the keep "
                     "list from the same `.bim` file."
                 )
-        (self.geno, self.m, self.n, self.kept_snps, self.freq) = self.__filter_snps_maf__(
-            self.geno, self.m, self.n, self.mafMin, keep_snps
+        (self.geno, self.m, self.kept_snps, self.freq) = self.__filter_snps_maf__(
+            self.m, self.n, self.mafMin, keep_snps
         )
         if self.m <= 0:
             error = EmptyReferenceSNPs(
@@ -86,7 +86,7 @@ class __GenotypeArrayInMemory__(object):
         """Read the backend-specific genotype representation into memory."""
         raise NotImplementedError
 
-    def __filter_indivs__(geno, keep_indivs, m, n):
+    def __filter_indivs__(self, keep_indivs):
         """Apply backend-specific sample filtering to the genotype matrix."""
         raise NotImplementedError
 
@@ -176,7 +176,7 @@ if ba is not None:
                     "set or the BED file is truncated. Use a consistent PLINK prefix and "
                     "regenerate the binary files if needed."
                 )
-            return (nru, None)
+            return nru
 
         def _source_snp_bits(self, source_index):
             """Return one SNP's bits, individual-subset when keep_indivs is active.
@@ -200,7 +200,7 @@ if ba is not None:
                 z[2 * e + 1::2 * self.nru] = raw[2 * i + 1::2 * nru_src]
             return z
 
-        def __filter_indivs__(self, geno, keep_indivs, m, n):
+        def __filter_indivs__(self, keep_indivs):
             """Record the individual filter and compute kept-sample geometry.
 
             No genotype copy is made; individuals are subset per SNP during the
@@ -211,9 +211,9 @@ if ba is not None:
             n_new = len(self._pending_keep_indivs)
             e = (4 - n_new % 4) if n_new % 4 != 0 else 0
             self.nru = n_new + e
-            return (geno, m, n_new)
+            return n_new
 
-        def __filter_snps_maf__(self, geno, m, n, mafMin, keep_snps):
+        def __filter_snps_maf__(self, m, n, mafMin, keep_snps):
             """Select SNPs by keep list and MAF, reading each SNP from disk.
 
             Each candidate SNP is read from source (and individual-subset) on
@@ -222,7 +222,6 @@ if ba is not None:
             bookkeeping is built and the genotypes stay on disk. Either way the
             whole-chromosome payload is never held in memory.
             """
-            n_eff = n
             if keep_snps is None:
                 keep_snps = range(m)
             m_poly = 0
@@ -239,13 +238,13 @@ if ba is not None:
                 b = B.count()
                 c = (A & B).count()
                 major_ct = b + c
-                n_nomiss = n_eff - a + c
+                n_nomiss = n - a + c
                 f = major_ct / (2 * n_nomiss) if n_nomiss > 0 else 0
                 het_miss_ct = a + b - 2 * c
                 maf = np.minimum(f, 1 - f)
                 # Drop monomorphic/missing SNPs as genotype QC, then apply the
                 # user MAF floor inclusively (MAF >= mafMin).
-                if maf <= 0 or het_miss_ct >= n_eff:
+                if maf <= 0 or het_miss_ct >= n:
                     genotype_qc_removed += 1
                 elif maf < mafMin:
                     maf_removed += 1
@@ -257,7 +256,7 @@ if ba is not None:
                     kept_snps.append(int(j))
             self.genotype_qc_removed = genotype_qc_removed
             self.maf_removed = maf_removed
-            return (y, m_poly, n_eff, kept_snps, freq)
+            return (y, m_poly, kept_snps, freq)
 
         def nextSNPs(self, b, dtype=np.float64):
             """Return the next ``b`` standardized SNP columns from the BED stream.

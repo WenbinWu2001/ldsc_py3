@@ -24,6 +24,7 @@ from .identity_cleanup import DiskIdentityIndex, IdentityDropSpool
 from .parsing import annotation_parse_error_message, normalize_annotation_chunk, validate_annotation_values
 from .._core.chromosomes import AUTOSOMES
 from .._runtime.preflight import INPUT_ISSUE_COLUMNS, input_issue
+from .bundle import AnnotationBundle
 from .storage import AnnotationShard, ColumnStore
 from .._runtime.scratch import FrameSpool
 from .._core.snp_identity import identity_base_mode, is_allele_aware_mode
@@ -48,9 +49,21 @@ class PreparedAnnotationSources:
     input_chromosomes: tuple = ()
     snp_rows: dict = field(default_factory=dict)
 
+    def bundle(self, workspace, config_snapshot, **fields):
+        """Return these sources as an ``AnnotationBundle`` owned by ``workspace``.
+
+        The bundle takes the shards, the baseline and query columns and the
+        identity-cleanup drops; ``fields`` set its other attributes, such as
+        ``source_summary`` or ``gene_list_batch``.
+        """
+        return AnnotationBundle(self.shards, list(self.baseline_columns), list(self.query_columns), workspace,
+                                config_snapshot=config_snapshot, identity_drops=self.drops, **fields)
+
 
 @dataclass
-class _Source:
+class ScannedSource:
+    """One input file after its metadata scan: the staged metadata and its column facts."""
+
     path: Path
     spool: FrameSpool
     columns: tuple[str, ...]
@@ -91,7 +104,7 @@ def _scan(path, directory, mode, chunk_rows, *, source_progress=None):
         raise LDSCInputError(annotation_parse_error_message(path, details=str(exc))) from exc
     if not chromosomes:
         raise LDSCInputError(f"Annotation file '{path}' has no SNP rows. Supply a nonempty annotation SNP grid.")
-    return _Source(Path(path), spool, columns, metadata_columns, chromosomes, width,
+    return ScannedSource(Path(path), spool, columns, metadata_columns, chromosomes, width,
                    tuple(name for name in columns if name not in quantitative))
 
 
@@ -110,7 +123,7 @@ def _layout(sources, label):
     return result
 
 
-def _shard_path(workspace, chrom, filename="metadata.parquet"):
+def shard_path(workspace, chrom, filename="metadata.parquet"):
     """Return one file of a chromosome's prepared annotation shard in the scratch workspace."""
     return workspace.path / f"chrom-{chrom}" / filename
 
@@ -182,7 +195,7 @@ def _select_rows(groups, group_rows, workspace, identity, drops, mode, *, input_
                 for label, rows in retained.groupby("CHR", sort=False):
                     table = pa.Table.from_pandas(rows, preserve_index=False)
                     if label not in writers:
-                        path = _shard_path(workspace, label)
+                        path = shard_path(workspace, label)
                         path.parent.mkdir()
                         writers[label] = stack.enter_context(pq.ParquetWriter(path, table.schema))
                     writers[label].write_table(table)
@@ -201,6 +214,46 @@ def _snp_row_counts(input_counts, output_counts):
                for key in ("input", "output", "dropped")}, "by_chromosome": by_chromosome}
 
 
+@dataclass
+class RetainedRows:
+    """SNP rows kept by global identity cleanup, staged as per-chromosome metadata.
+
+    ``selections`` hold one row-locator spool per source group, ``counts``
+    the retained rows of each chromosome in the order they were first seen,
+    ``drops`` the cleanup records, and ``snp_rows`` the input, output and
+    dropped row counts.
+    """
+
+    selections: list[FrameSpool]
+    counts: dict[str, int]
+    drops: IdentityDropSpool
+    snp_rows: dict
+
+
+def stage_retained_rows(workspace, groups, group_rows, *, mode, identity_mode=None):
+    """Run global SNP identity cleanup over aligned source groups.
+
+    ``groups`` lists the row-aligned sources (``ScannedSource``) of each
+    group and ``group_rows`` its chunk size. Rows are aligned across a
+    group's files under ``mode`` and keyed for cleanup under
+    ``identity_mode`` (default ``mode``). Each chromosome's retained
+    metadata is written to ``shard_path(workspace, chrom)``; the temporary
+    identity index is removed before returning ``RetainedRows``.
+    """
+    drops = IdentityDropSpool(workspace.path / "identity-drops")
+    input_counts = {}
+    index_path = workspace.path / "identity.sqlite"
+    with DiskIdentityIndex(index_path, identity_mode or mode) as identity:
+        for group, rows in zip(groups, group_rows):
+            for metadata in _aligned_metadata(group, mode, rows):
+                advance(len(metadata), object=f'annotation group ({len(group)} files)')
+                identity.add(metadata)
+        selections, counts = _select_rows(groups, group_rows, workspace, identity, drops, mode,
+                                         input_counts=input_counts)
+    index_path.unlink()
+    return RetainedRows(selections, counts, drops, _snp_row_counts(input_counts, counts))
+
+
 @report_phase(LOGGER, 'staging', 'retained annotation values')
 def _write_values(groups, selections, group_rows, counts, workspace, columns):
     """Reread input tiles directly into final stores using retained row locators."""
@@ -210,7 +263,7 @@ def _write_values(groups, selections, group_rows, counts, workspace, columns):
             quantitative.update(set(source.columns).difference(source.binary_columns))
     layouts = [(np.dtype(bool), "binary.npy", tuple(name for name in columns if name not in quantitative)),
                (np.dtype(np.float32), "continuous.npy", tuple(name for name in columns if name in quantitative))]
-    stores = {chrom: {dtype: ColumnStore.create(_shard_path(workspace, chrom, filename), count, names, dtype=dtype)
+    stores = {chrom: {dtype: ColumnStore.create(shard_path(workspace, chrom, filename), count, names, dtype=dtype)
                       for dtype, filename, names in layouts if names} for chrom, count in counts.items()}
     for group, selection, chunk_rows in zip(groups, selections, group_rows):
         for source in group:
@@ -246,7 +299,7 @@ def _write_values(groups, selections, group_rows, counts, workspace, columns):
             shutil.rmtree(source.spool.path.parent)
         if selection.n_rows:
             shutil.rmtree(selection.path)
-    return {label: AnnotationShard(_shard_path(workspace, label), tuple(stores[label].values()), counts[label])
+    return {label: AnnotationShard(shard_path(workspace, label), tuple(stores[label].values()), counts[label])
             for label in sorted(stores, key=chrom_sort_key)}
 
 
@@ -334,7 +387,6 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
         query_columns = tuple(c for s in queries for c in s.columns)
     require_unique_annotation_names(baseline_columns, query_columns)
     columns = baseline_columns + query_columns
-    drops = IdentityDropSpool(workspace.path / "identity-drops")
     group_rows = [chunk_rows if chunk_rows is not None else _chunk_size(sum(source.width for source in group)) for group in groups]
     effective_mode = mode
     if is_allele_aware_mode(mode) and not any("A1" in s.metadata_columns for s in sources):
@@ -344,24 +396,17 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
         LOGGER.info(f"No annotation file has A1/A2 columns, so annotation SNPs are matched by {effective_mode}, "
                     f"the base mode of {mode}, without checking alleles: {listed}.")
     LOGGER.info("Checking SNP identities and preparing chromosome annotations.")
-    input_counts = {}
-    with DiskIdentityIndex(workspace.path / "identity.sqlite", effective_mode) as identity:
-        for group, rows in zip(groups, group_rows):
-            for metadata in _aligned_metadata(group, mode, rows):
-                advance(len(metadata), object=f'annotation group ({len(group)} files)')
-                identity.add(metadata)
-        selections, counts = _select_rows(groups, group_rows, workspace, identity, drops, mode,
-                                         input_counts=input_counts)
-    (workspace.path / "identity.sqlite").unlink()
-    shards = _write_values(groups, selections, group_rows, counts, workspace, columns)
+    retained = stage_retained_rows(workspace, groups, group_rows, mode=mode, identity_mode=effective_mode)
+    counts = retained.counts
+    shards = _write_values(groups, retained.selections, group_rows, counts, workspace, columns)
     if not shards:
         error = LDSCInputError("annotate retained no annotation rows after SNP identity cleanup. Supply valid, unique SNP identities. Other causes & fixes: docs/user-guide/troubleshooting.md#annotate-no-annotation-snp-rows-remain")
-        error.annotation_drops = drops
+        error.annotation_drops = retained.drops
         raise error
     scope = tuple(sorted(set().union(*(s.chromosomes for s in baselines)), key=chrom_sort_key))
-    prepared = PreparedAnnotationSources(shards, baseline_columns, query_columns, drops, scope,
+    prepared = PreparedAnnotationSources(shards, baseline_columns, query_columns, retained.drops, scope,
         tuple((str(s.path), "baseline" if s in baselines else "query", tuple(s.chromosomes)) for s in sources),
-        snp_rows=_snp_row_counts(input_counts, counts))
+        snp_rows=retained.snp_rows)
     binary_count = sum(len(store.columns) for store in next(iter(shards.values())).stores if store.bitorder)
     LOGGER.info("Annotation storage: binary=%d packed-bit columns, continuous=%d float32 columns; value files=%s bytes.",
                 binary_count, len(columns) - binary_count,

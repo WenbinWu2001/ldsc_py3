@@ -2,7 +2,6 @@
 
 from dataclasses import replace
 
-from .bundle import AnnotationBundle
 from .gene_lists import GeneCatalog
 from .interval_queries import build_query_shards, prepare_bed_queries, require_readable_bed_sources
 from .preflight import (
@@ -63,8 +62,7 @@ def build_annotation_shards(spec, config, workspace, *, projection_genome_build=
                               gene_catalog_build=catalog.genome_build, projection_genome_build=projection_build)
     elif spec.query_annot_bed_sources:
         source_summary['query_annot_bed_sources'] = declared.files['BED']
-    bundle = AnnotationBundle(prepared.shards, list(prepared.baseline_columns), list(prepared.query_columns), workspace,
-                              config_snapshot=config, identity_drops=prepared.drops, source_summary=source_summary)
+    bundle = prepared.bundle(workspace, config, source_summary=source_summary)
     if batch is not None:
         bundle = replace(build_query_shards(bundle, gene_batch=batch, padding_bp=spec.padding_bp),
                          gene_list_batch=batch)

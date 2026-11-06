@@ -12,11 +12,8 @@ import numpy as np
 import pandas as pd
 
 from .._core.chromosomes import AUTOSOMES
-from .identity_cleanup import DiskIdentityIndex, IdentityDropSpool
 from .preflight import resolve_annotation_inputs
-from .sources import (
-    PreparedAnnotationSources, _Source, _metadata_chunks, _select_rows, _shard_path, _snp_row_counts,
-)
+from .sources import PreparedAnnotationSources, ScannedSource, shard_path, stage_retained_rows
 from .storage import AnnotationShard
 from .._runtime.scratch import FrameSpool
 from .._runtime.preflight import InputGate
@@ -72,36 +69,25 @@ def prepare_bim_grid(workspace, paths, declared, *, mode, autosomes_only=False, 
                 spool.append(metadata)
             if not spool.n_rows:
                 raise LDSCInputError(f"BIM grid '{path}' has no SNP rows.")
-            return _Source(Path(path), spool, (), columns, chromosomes, 6, ())
+            return ScannedSource(Path(path), spool, (), columns, chromosomes, 6, ())
         source = gate.check("BIM grid", path, scan, chrom=declared.get(path, ""))
         if source is not None:
             sources.append(source)
     gate.finish()
-    groups = [[source] for source in sources]
-    drops = IdentityDropSpool(workspace.path / "identity-drops")
-    input_counts = {}
-    index_path = workspace.path / "identity.sqlite"
-    with DiskIdentityIndex(index_path, mode) as identity:
-        for source in sources:
-            for metadata in _metadata_chunks(source, chunk_rows):
-                identity.add(metadata)
-        selections, counts = _select_rows(
-            groups, [chunk_rows] * len(groups), workspace, identity, drops, mode,
-            input_counts=input_counts,
-        )
-    index_path.unlink()
-    for spool in [*(source.spool for source in sources), *selections]:
+    # Each BIM file is its own group: no annotation values are aligned across files.
+    retained = stage_retained_rows(workspace, [[source] for source in sources], [chunk_rows] * len(sources), mode=mode)
+    for spool in [*(source.spool for source in sources), *retained.selections]:
         if spool.path.exists():
             shutil.rmtree(spool.path)
-    if not counts:
+    if not retained.counts:
         error = LDSCInputError("annotate retained no BIM SNP rows after identity cleanup. Supply valid, unique SNP identities.")
-        error.annotation_drops = drops
+        error.annotation_drops = retained.drops
         raise error
-    shards = {chrom: AnnotationShard(_shard_path(workspace, chrom), (), count)
-              for chrom, count in counts.items()}
+    shards = {chrom: AnnotationShard(shard_path(workspace, chrom), (), count)
+              for chrom, count in retained.counts.items()}
     return PreparedAnnotationSources(
-        shards, (), (), drops, tuple(sorted(input_counts, key=chrom_sort_key)),
-        snp_rows=_snp_row_counts(input_counts, counts),
+        shards, (), (), retained.drops, tuple(sorted(retained.snp_rows['by_chromosome'], key=chrom_sort_key)),
+        snp_rows=retained.snp_rows,
     )
 
 

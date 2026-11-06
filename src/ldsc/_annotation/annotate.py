@@ -13,7 +13,6 @@ from dataclasses import replace
 import numpy as np
 import pandas as pd
 
-from .bundle import AnnotationBundle
 from .bim_grid import resolve_bim_grid_inputs, prepare_bim_grid
 from .interval_queries import prepare_bed_queries, build_query_shards, require_readable_bed_sources
 from .sources import prepare_annotation_sources
@@ -228,8 +227,7 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
             if prepared is None:
                 prepared = prepare_annotation_sources(workspace, paths, [], mode=config.snp_identifier, declared_chromosomes=declared,
                                                        autosomes_only=bool(genes), header_widths=declared_inputs.widths)
-            bundle = AnnotationBundle(prepared.shards, list(prepared.baseline_columns), [], workspace,
-                                      config_snapshot=resolved_config, identity_drops=prepared.drops, gene_list_batch=batch)
+            bundle = prepared.bundle(workspace, resolved_config, gene_list_batch=batch)
             scope = {'chromosomes': list(prepared.scope_chromosomes), 'grid_kind': 'bim' if bim else 'annotation',
                      'requires_all_autosomes': bool(declared), 'selection': 'validated_input_contents', 'validation_status': 'passed'}
             if baseline:

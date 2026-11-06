@@ -58,8 +58,7 @@ def prepare_direct_annotations(spec, config, workspace, output_config, *, declar
     if has_queries:
         batch, scope = validate_direct_scope(spec,batch,output_config,
             annotation_sources=prepared,bed_sources=bed_sources,reference_inputs=reference_inputs)
-    bundle = AnnotationBundle(prepared.shards,list(prepared.baseline_columns),list(prepared.query_columns),workspace,
-        config_snapshot=config,identity_drops=prepared.drops,gene_list_batch=batch,
+    bundle = prepared.bundle(workspace, config, gene_list_batch=batch,
         source_summary={
             'baseline_annot_sources':list(spec.baseline_annot_sources),
             'query_annot_sources':list(spec.query_annot_sources),

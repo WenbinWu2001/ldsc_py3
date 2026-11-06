@@ -21,7 +21,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
-from os import PathLike
 from typing import Any, Sequence
 
 import numpy as np
@@ -33,7 +32,6 @@ from .._core.snp_identity import (
     concat_identity_drop_frames,
     empty_identity_drop_frame,
 )
-from .._genome.hm3 import _load_hm3_curated_map_from_path
 from .._genome.liftover import (
     LiftOverTranslator,
     duplicate_coordinate_drop_result,
@@ -132,17 +130,6 @@ def _liftover_drop_frame(
     return coerce_identity_drop_frame(output, default_stage="liftover")
 
 
-def load_hm3_map_file(path: str | PathLike[str], *, alleles: bool = False) -> pd.DataFrame:
-    """Load a curated dual-build HM3 map file into canonical columns.
-
-    The frame has ``CHR``, ``hg19_POS``, ``hg38_POS`` and ``SNP``.
-    ``alleles=True`` also requires ``A1``/``A2``, returns them uppercase and
-    keeps the file's other columns. Unlike ``ldsc.load_hm3_curated_map``,
-    which loads the packaged map, this reads any map file.
-    """
-    return _load_hm3_curated_map_from_path(path, preserve_extra_columns=alleles)
-
-
 def apply_sumstats_liftover(
     frame: pd.DataFrame,
     request: SumstatsLiftoverRequest,
@@ -166,8 +153,10 @@ def apply_sumstats_liftover(
     ``ldsc._core.snp_identity.coerce_identity_drop_frame``, with stage
     ``liftover``; clean/no-op runs return the same schema with zero rows.
     HM3 quick liftover maps positions through ``hm3_map``, the dual-build map
-    from :func:`load_hm3_map_file`; the munging workflow loads it once and
-    derives the packaged keep-list from the same frame.
+    with canonical ``CHR``, ``hg19_POS``, ``hg38_POS`` and ``SNP`` columns
+    that ``ldsc._genome.hm3._load_hm3_curated_map_from_path`` loads; the
+    munging workflow loads it once and derives the packaged keep-list from
+    the same frame.
     """
     logger = LOGGER if logger is None else logger
     source = source_build

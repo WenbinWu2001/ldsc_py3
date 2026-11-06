@@ -206,7 +206,7 @@ def test_python_api_records_summary_without_console_output(inputs, tmp_path, cap
 @pytest.mark.parametrize("mode", ["chr_pos", "chr_pos_allele_aware"])
 @pytest.mark.parametrize("target,parses", [("hg38", {"map": 1, "keep_list": 0}), ("hg19", {"map": 0, "keep_list": 1})])
 def test_packaged_map_is_parsed_once_per_run(tmp_path, monkeypatch, mode, target, parses):
-    from ldsc._sumstats import liftover, munge_kernel
+    from ldsc._sumstats import munge_kernel
 
     hm3 = tmp_path / "hm3.tsv"
     hm3.write_text("CHR\thg19_POS\thg38_POS\tSNP\tA1\tA2\n1\t100\t1000\tkeep\tA\tG\n1\t200\t2000\tother\tA\tC\n")
@@ -221,8 +221,8 @@ def test_packaged_map_is_parsed_once_per_run(tmp_path, monkeypatch, mode, target
             return function(*args, **kwargs)
         return wrapper
 
-    monkeypatch.setattr(liftover, "_load_hm3_curated_map_from_path",
-                        counted("map", liftover._load_hm3_curated_map_from_path))
+    monkeypatch.setattr(munge_input, "_load_hm3_curated_map_from_path",
+                        counted("map", munge_input._load_hm3_curated_map_from_path))
     for name in ("read_global_chr_pos_restriction_key_set", "read_snp_restriction_keys"):
         monkeypatch.setattr(munge_kernel, name, counted("keep_list", getattr(munge_kernel, name)))
     munger = SumstatsMunger()
@@ -244,7 +244,7 @@ def test_packaged_map_is_parsed_once_per_run(tmp_path, monkeypatch, mode, target
 @pytest.mark.parametrize("build", ["hg19", "hg38"])
 @pytest.mark.parametrize("alleles", [True, False])
 def test_keep_list_from_the_loaded_map_equals_the_file_readers(tmp_path, mode, build, alleles):
-    from ldsc._sumstats.liftover import load_hm3_map_file
+    from ldsc._genome.hm3 import _load_hm3_curated_map_from_path
     from ldsc._sumstats.munge_kernel import prepare_sumstats_restriction
 
     hm3 = tmp_path / "hm3.tsv"
@@ -256,7 +256,7 @@ def test_keep_list_from_the_loaded_map_equals_the_file_readers(tmp_path, mode, b
     hm3.write_text("\n".join([header, *rows]) + "\n")
 
     from_file = prepare_sumstats_restriction(str(hm3), mode, build)
-    loaded = load_hm3_map_file(hm3, alleles=alleles and mode == "chr_pos_allele_aware")
+    loaded = _load_hm3_curated_map_from_path(hm3, preserve_extra_columns=alleles and mode == "chr_pos_allele_aware")
     from_map = prepare_sumstats_restriction(str(hm3), mode, build, hm3_map=loaded)
 
     assert from_map.identifiers == from_file.identifiers

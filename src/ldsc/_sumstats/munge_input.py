@@ -35,7 +35,7 @@ from .._core.columns import (
 from ..config import GlobalConfig, MungeConfig
 from ..errors import LDSCInputError, LDSCUsageError, LDSCUserError
 from .._core.identifiers import restriction_file_has_allele_columns
-from .liftover import SumstatsLiftoverRequest, load_hm3_map_file
+from .liftover import SumstatsLiftoverRequest
 from .._core.snp_identity import (
     identity_base_mode,
     identity_mode_family,
@@ -50,7 +50,7 @@ from .munge_kernel import (
     read_raw_sumstats,
 )
 from .._genome.build_policy import GenomeBuildCheck
-from .._genome.hm3 import packaged_hm3_curated_map_path
+from .._genome.hm3 import _load_hm3_curated_map_from_path, packaged_hm3_curated_map_path
 from .._runtime.paths import resolve_scalar_path
 
 LOGGER = logging.getLogger('LDSC.sumstats_munger')
@@ -1074,7 +1074,7 @@ def prepare_munge_input(plan: MungePlan) -> ResolvedMungeInput:
     if liftover.method == 'hm3_curated':
         liftover = replace(liftover, hm3_map_file=restriction_path)
         alleles = is_allele_aware_mode(mode) and restriction_file_has_allele_columns(restriction_path)
-        hm3_map = load_hm3_map_file(restriction_path, alleles=alleles)
+        hm3_map = _load_hm3_curated_map_from_path(restriction_path, preserve_extra_columns=alleles)
     restriction = prepare_sumstats_restriction(restriction_path, mode, coordinate_metadata['genome_build'], hm3_map=hm3_map)
     info_lists = {clean_header(column) for column in config.info_list_columns}
     return ResolvedMungeInput(

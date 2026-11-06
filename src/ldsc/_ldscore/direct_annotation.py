@@ -31,6 +31,8 @@ def prepare_direct_annotations(spec, config, workspace, output_config, *, declar
     ``spec`` is the run's ``AnnotationBuildConfig`` and ``config`` its
     ``GlobalConfig`` with the resolved genome build; ``gene_catalog_build``
     is the gene-list projection build the run resolved for ``batch``.
+    ``declared_inputs`` is the run's ``AnnotationInputs`` from the
+    declared-input gate.
 
     Returns the bundle, a ``DeferredQueries`` record or ``None``, and the
     validated chromosome scope. For BED or gene-list queries the bundle
@@ -43,7 +45,7 @@ def prepare_direct_annotations(spec, config, workspace, output_config, *, declar
         raise LDSCInputError(f"Gene coordinate catalog build does not match the resolved analysis build: catalog={batch.catalog.genome_build}, analysis={gene_catalog_build}. Use a matching catalog; no implicit liftover is performed.")
     baseline, queries = declared_inputs.baseline, declared_inputs.query
     declarations, issues = declared_inputs.declarations, []
-    bed_sources = prepare_bed_queries(declared_inputs.files['query_annot_bed_sources'],workspace) if spec.query_annot_bed_sources else []
+    bed_sources = prepare_bed_queries(declared_inputs.inputs.files['query_annot_bed_sources'],workspace) if spec.query_annot_bed_sources else []
     has_queries = bool(spec.query_annot_sources or spec.query_annot_bed_sources or spec.query_annot_gene_list_sources)
     try:
         prepared = prepare_annotation_sources(workspace,baseline,queries,mode=config.snp_identifier,

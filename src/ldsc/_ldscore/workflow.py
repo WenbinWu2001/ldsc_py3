@@ -724,7 +724,7 @@ def _run_direct_ldscore(configs: _DirectConfigs) -> "LDScoreSource":
                 checks=[("reference", r2_matrix_dir, lambda: inspect_r2_headers(
                     r2_matrix_dir, configs.genome_build, command="ldscore", ld_window=ldscore_config.ld_window))]
                        if r2_matrix_dir else ())
-            require_usable_bed_query_names(declared_inputs.files["query_annot_bed_sources"],
+            require_usable_bed_query_names(declared_inputs.inputs.files["query_annot_bed_sources"],
                                            annotation_columns(declared_inputs), issues_path)
             batch = catalog = None
             if configs.has_gene_lists:
@@ -741,7 +741,7 @@ def _run_direct_ldscore(configs: _DirectConfigs) -> "LDScoreSource":
             with PhaseProgress(LOGGER, "validation", "reference content and compatibility"):
                 reference_inputs = inspect_reference_inputs(
                     panel_config, global_config, require_autosomes=configs.has_queries,
-                    plink_members=declared_inputs.files.get("plink_members"))
+                    plink_members=declared_inputs.inputs.plink_members)
                 gate = InputGate("Reference/control content validation", issues_path,
                                  reference_inputs.issues.to_dict("records"))
                 regression_path = _regr_snps_file_from_config(ldscore_config)

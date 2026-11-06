@@ -734,7 +734,7 @@ def _run_quantile_h2(
             ldscores = inspect_declared_inputs(
                 checks=[('LD scores', str(model.ldscore_dir), lambda: read_ldscore_manifest(model.ldscore_dir)),
                         ('LD-score files', str(model.ldscore_dir), lambda: _inspect_ldscore_files(model.ldscore_dir))],
-                issues_path=input_issues_path).files['LD scores']
+                issues_path=input_issues_path).checks['LD scores']
             try:
                 inputs = prepare_quantile_statistics(
                     annotation_config, target, ref_metadata_sources, model, ldscores, workspace, diagnostics,

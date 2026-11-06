@@ -208,16 +208,16 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                     raise gene_list_gate_a_error(batch)
             else:
                 # Names and BED contents are cheap to check; both must pass before the grid is read.
-                require_usable_bed_query_names(declared_inputs.files['BED'], annotation_columns(declared_inputs),
+                require_usable_bed_query_names(declared_inputs.inputs.files['BED'], annotation_columns(declared_inputs),
                                                output/'diagnostics/input_issues.tsv')
-                bed_sources = prepare_bed_queries(declared_inputs.files['BED'], workspace)
+                bed_sources = prepare_bed_queries(declared_inputs.inputs.files['BED'], workspace)
                 require_readable_bed_sources(bed_sources, output/'diagnostics/input_issues.tsv')
             projection_build = resolve_projection_build(
                 requested, config.snp_identifier, catalog, context='annotate', baseline_option='--ref-snp-annot-sources',
                 baseline_tokens=baseline, bim_tokens=bim, bed_tokens=bed)
             prepared = None
             if bim:
-                paths, declared = declared_inputs.files['BIM grid']
+                paths, declared = declared_inputs.inputs.checks['BIM grid']
                 prepared = prepare_bim_grid(workspace, paths, declared, mode=config.snp_identifier, autosomes_only=bool(genes))
             else:
                 paths, declared = declared_inputs.baseline, declared_inputs.declarations

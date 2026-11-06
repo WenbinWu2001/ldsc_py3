@@ -7,7 +7,7 @@ checks and product steps.
 
 import logging
 from collections import Counter
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pandas as pd
@@ -19,7 +19,7 @@ from .._core.columns import normalize_genome_build
 from .._core.snp_identity import identity_mode_family
 from .._genome.build_policy import GenomeBuildCheck
 from .._runtime.input_issues import input_issue
-from .._runtime.preflight import InputGate, inspect_declared_inputs
+from .._runtime.preflight import DeclaredInputs, InputGate, inspect_declared_inputs
 from .._runtime.paths import (
     expand_chromosome_suite, normalize_path_token, normalize_path_tokens, resolve_file_group, split_cli_path_tokens,
 )
@@ -49,16 +49,37 @@ def resolve_annotation_inputs(tokens, *, role='baseline'):
     return paths, declared, issues
 
 
+@dataclass(frozen=True)
+class AnnotationInputs:
+    """The declared-input gate result plus the annotation files it checked first.
+
+    ``inputs`` is the ``DeclaredInputs`` of the other declared files.
+    ``baseline`` and ``query`` are the resolved annotation paths;
+    ``declarations`` maps each path an ``@`` token selected to its declared
+    chromosome, ``widths`` each readable path to its header width, and
+    ``columns`` each to its annotation column names.
+    """
+
+    inputs: DeclaredInputs
+    baseline: list
+    query: list
+    declarations: dict
+    widths: dict
+    columns: dict
+
+
 def inspect_annotation_inputs(*, baseline=(), query=(), mode='rsid', strict_annotations=True, **kwargs):
     """Run the declared-input gate with baseline and query annotation checks first.
 
     Annotation ``@`` completeness remains a workflow-specific policy. Reading
     one annotation row verifies headers and records width without a full scan.
-    The other keyword arguments go to ``inspect_declared_inputs``, whose result
-    gains the annotation ``declarations``, ``widths`` and ``columns``.
+    The other keyword arguments go to ``inspect_declared_inputs``; returns an
+    ``AnnotationInputs`` that wraps its result.
     """
-    def check(gate, progress, resolved):
-        declarations, widths, columns = {}, {}, {}
+    found = dict(baseline=[], query=[], declarations={}, widths={}, columns={})
+
+    def check(gate, progress):
+        declarations, widths, columns = found['declarations'], found['widths'], found['columns']
         for role, tokens in (('baseline', baseline), ('query', query)):
             if strict_annotations:
                 paths, declared, issues = resolve_annotation_inputs(tokens, role=role)
@@ -69,7 +90,7 @@ def inspect_annotation_inputs(*, baseline=(), query=(), mode='rsid', strict_anno
                 for token in split_cli_path_tokens(normalize_path_tokens(tokens)):
                     matches = gate.check(role, token, lambda token=token: resolve_file_group([token], allow_chromosome_suite=True))
                     paths.extend(matches or [])
-            resolved[role] = paths
+            found[role] = paths
             for path in paths:
                 def header():
                     frame = pd.read_csv(path, sep=r'\s+', nrows=1)
@@ -98,9 +119,9 @@ def inspect_annotation_inputs(*, baseline=(), query=(), mode='rsid', strict_anno
                         gate.issues.append(input_issue(role, path, declarations[path], 'invalid_required_input',
                             'Annotation columns differ across declared chromosomes. Use the same annotation header for every shard.',
                             repair=ANNOTATION_INPUT_REPAIR))
-        return dict(declarations=declarations, widths=widths, columns=columns)
 
-    return inspect_declared_inputs(declaration_check=check, **kwargs)
+    inputs = inspect_declared_inputs(declaration_check=check, **kwargs)
+    return AnnotationInputs(inputs, **found)
 
 
 # SNP metadata columns and the gene-list control column; a query with one of

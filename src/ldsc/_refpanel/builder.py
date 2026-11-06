@@ -262,7 +262,7 @@ class R2MatrixBuilder:
             scalar_files=[(name, getattr(config, name, None)) for name in ('keep_indivs_file', 'ref_panel_snps_file')],
             issues_path=output_dir/'diagnostics/input_issues.tsv',
             plink_issues_path=output_dir/'diagnostics/plink_input_issues.tsv', remove_on_pass=False)
-        plink = inspect_plink_inputs(config.plink_prefix, discovered_members=declared_inputs.files['plink_members'])
+        plink = inspect_plink_inputs(config.plink_prefix, discovered_members=declared_inputs.plink_members)
         issues_path = output_dir / "diagnostics" / "plink_input_issues.tsv"
         try:
             plink.require_valid()

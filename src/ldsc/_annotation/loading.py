@@ -32,7 +32,7 @@ def build_annotation_shards(spec, config, workspace, *, projection_genome_build=
         scalar_files=[('gene catalog', spec.gene_coordinate_file), ('control genes', spec.control_gene_list_file)],
         mode=config.snp_identifier, strict_annotations=False)
     baseline, query = declared.baseline, declared.query
-    require_usable_bed_query_names(declared.files['BED'], annotation_columns(declared), issues_path)
+    require_usable_bed_query_names(declared.inputs.files['BED'], annotation_columns(declared), issues_path)
 
     catalog = GeneCatalog.load(spec.gene_coordinate_file) if spec.query_annot_gene_list_sources else None
     requested = projection_genome_build or config.genome_build
@@ -52,7 +52,7 @@ def build_annotation_shards(spec, config, workspace, *, projection_genome_build=
             raise gene_list_gate_a_error(batch)
     else:
         batch = None
-    beds = prepare_bed_queries(declared.files['BED'], workspace) if spec.query_annot_bed_sources else []
+    beds = prepare_bed_queries(declared.inputs.files['BED'], workspace) if spec.query_annot_bed_sources else []
     require_readable_bed_sources(beds)
     prepared = prepare_annotation_sources(workspace, baseline, query, mode=config.snp_identifier,
                                           header_widths=declared.widths)
@@ -61,7 +61,7 @@ def build_annotation_shards(spec, config, workspace, *, projection_genome_build=
         source_summary.update(query_annot_gene_list_sources=list(spec.query_annot_gene_list_sources),
                               gene_catalog_build=catalog.genome_build, projection_genome_build=projection_build)
     elif spec.query_annot_bed_sources:
-        source_summary['query_annot_bed_sources'] = declared.files['BED']
+        source_summary['query_annot_bed_sources'] = declared.inputs.files['BED']
     bundle = prepared.bundle(workspace, config, source_summary=source_summary)
     if batch is not None:
         bundle = replace(build_query_shards(bundle, gene_batch=batch, padding_bp=spec.padding_bp),

@@ -7,7 +7,6 @@ remain in their workflow owners. Results retain concrete paths and widths.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from types import SimpleNamespace
 import gzip
 import logging
 
@@ -121,6 +120,22 @@ def _inspect_file_header(role, path, header_checks):
     return str(path)
 
 
+@dataclass(frozen=True)
+class DeclaredInputs:
+    """The inputs :func:`inspect_declared_inputs` resolved, by input role.
+
+    ``files`` maps each ``files`` and ``scalar_files`` role to its resolved
+    paths, and ``checks`` each ``checks`` role to the value its check
+    returned. ``plink_members`` holds the discovered PLINK
+    ``(prefix, declared chromosome)`` pairs, or is ``None`` without a PLINK
+    declaration.
+    """
+
+    files: dict
+    checks: dict
+    plink_members: list | None = None
+
+
 def inspect_declared_inputs(*, files=(), scalar_files=(), plink=None, chromosomes=tuple(map(str, range(1, 23))),
                             require_complete_suite=False, issues_path=None, initial_issues=(), plink_issues_path=None,
                             checks=(), declaration_check=None, header_checks=None, remove_on_pass=True):
@@ -128,22 +143,22 @@ def inspect_declared_inputs(*, files=(), scalar_files=(), plink=None, chromosome
 
     ``files`` contains (role, tokens) pairs using the existing group resolver;
     ``scalar_files`` uses the existing exact-one resolver instead.
-    ``declaration_check(gate, progress, resolved)`` runs first so a domain can
-    record its own declarations, such as annotation headers, on the same gate;
-    it fills ``resolved`` and returns extra result fields. ``header_checks``
-    maps a file role to a header check that runs once the file is readable.
+    ``declaration_check(gate, progress)`` runs first so a domain can record
+    its own declarations, such as annotation headers, on the same gate; the
+    domain keeps what it resolves. ``header_checks`` maps a file role to a
+    header check that runs once the file is readable.
     ``remove_on_pass`` is passed to the gate; see ``InputGate``.
     PLINK inspection here checks companion presence only; BIM/FAM and BED-size
     validation is the next content gate. No numeric reference data are loaded.
+    Returns a :class:`DeclaredInputs`.
     """
     gate = InputGate('Input preflight (declarations and headers)', issues_path, list(initial_issues),
                      remove_on_pass=remove_on_pass)
-    resolved = {'baseline': [], 'query': []}
-    extra = dict(declarations={}, widths={}, columns={})
+    resolved, checked, plink_members = {}, {}, None
     header_checks = header_checks or {}
     with PhaseProgress(LOGGER, 'validation', 'input declarations and headers') as progress:
         if declaration_check is not None:
-            extra.update(declaration_check(gate, progress, resolved))
+            declaration_check(gate, progress)
         for role, tokens, scalar in [*((role, tokens, False) for role, tokens in files),
                                      *((role, tokens, True) for role, tokens in scalar_files)]:
             paths = []
@@ -169,16 +184,16 @@ def inspect_declared_inputs(*, files=(), scalar_files=(), plink=None, chromosome
             if issues and plink_issues_path is not None:
                 plink_issues_path.parent.mkdir(parents=True, exist_ok=True)
                 pd.DataFrame(issues, columns=INPUT_ISSUE_COLUMNS).to_csv(plink_issues_path, sep='\t', index=False)
-            resolved['plink_members'] = members
+            plink_members = members
             progress.advance(object='PLINK companion files')
         for role, source, operation in checks:
-            resolved[role] = gate.check(role, source, operation)
+            checked[role] = gate.check(role, source, operation)
         if gate.issues:
             progress.outcomes['failed_inputs'] = len({
                 (issue['input_role'], issue['source'], issue['chrom']) for issue in gate.issues
             })
         gate.finish()
-    return SimpleNamespace(baseline=resolved['baseline'], query=resolved['query'], files=resolved, **extra)
+    return DeclaredInputs(resolved, checked, plink_members)
 
 
 def inspect_artifact_paths(directory, *, metadata_file="metadata.json"):

@@ -778,7 +778,7 @@ def _run_gene_ldscore_index_build(
                                  lambda: _require_map_chromosomes(
                                      _load_builder_genetic_map(config, genetic_map_sources), chromosomes))
         plink = inspect_plink_inputs(config.plink_prefix, chromosomes=chromosomes, require_complete_suite=True,
-                                     discovered_members=declared_inputs.files['plink_members'])
+                                     discovered_members=declared_inputs.inputs.plink_members)
         try:
             plink.require_valid(required_chromosomes=chromosomes)
         except LDSCInputError:

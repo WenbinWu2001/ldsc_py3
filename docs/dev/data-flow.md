@@ -382,6 +382,8 @@ flowchart LR
 | query status | `query source input_type status reason n_annotation_snps details` | `diagnostics/query_annotation_status.tsv`; written for BED/gene-list runs, including skipped inputs |
 | gene-list audit | every nonblank query/control row and its disposition | `diagnostics/gene_list_audit.tsv.gz` |
 | gene-list source summary | submitted/resolved/rejected/support counts for every source | `diagnostics/gene_list_resolution_summary.tsv` |
+| gene coordinate catalog issues | one row per catalog defect with its catalog line, field, reason, observed value, and repair | `diagnostics/gene_catalog_issues.tsv`; written for direct gene-list runs whose catalog has defects, with every defect when a structurally invalid catalog stops the run before any LD score is computed |
+| reference-SNP funnel | `funnel chrom backend step_index step removed remaining` | `diagnostics/reference_snp_funnel.tsv`; every chromosome's funnel, including skipped chromosomes; indexed `ldscore` copies the funnel stored in the index |
 
 ### Modules used
 

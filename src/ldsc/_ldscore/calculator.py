@@ -212,7 +212,7 @@ class LDScoreCalculator:
                 "LDScoreCalculator.run() requires output_config when export_ref_metadata=True. "
                 "Reference metadata is a filesystem artifact, so pass LDScoreOutputConfig(output_dir=...)."
             )
-        if ldscore_config.export_ref_metadata and _reference_metadata_sources(ref_panel)[0] == "parquet_sidecar":
+        if ldscore_config.export_ref_metadata and ref_panel.reference_metadata_sources(ldscore_config)[0] == "parquet_sidecar":
             raise LDSCUsageError(
                 "ldscore cannot export reference metadata from an R2 matrix: --export-ref-metadata "
                 "(LDScoreConfig.export_ref_metadata) applies to a PLINK reference panel (--plink-prefix). "
@@ -237,7 +237,7 @@ class LDScoreCalculator:
                 worker_count, operation="ldscore chromosome computation", initializer=_init_worker,
                 initargs=(regression_snps, regression_regions, global_config.log_level)))
             LOGGER.info(_format_ldscore_start_message(annotation_bundle, len(annotation_bundle.chromosomes)))
-            cm_source, maf_source = _reference_metadata_sources(ref_panel)
+            cm_source, maf_source = ref_panel.reference_metadata_sources(ldscore_config)
             LOGGER.info("Reference-panel CM source: %s; MAF source: %s (annotation CM/MAF are ignored).",
                         cm_source, maf_source)
             producer = _DirectProducer(annotation_bundle, ref_panel, ldscore_config, global_config, regression_regions,
@@ -314,16 +314,6 @@ def _format_ldscore_start_message(annotation_bundle, n_chromosomes: int) -> str:
         f"with {len(annotation_bundle.baseline_columns)} baseline columns "
         f"and {len(annotation_bundle.query_columns)} query columns."
     )
-
-
-def _reference_metadata_sources(ref_panel) -> tuple[str, str]:
-    """Return ``(cm_source, maf_source)`` provenance labels for the reference panel."""
-    spec = getattr(ref_panel, "spec", None)
-    backend = getattr(spec, "backend", None)
-    if backend == "r2_matrix":
-        return "parquet_sidecar", "parquet_sidecar"
-    has_map = bool(getattr(spec, "genetic_map_hg19_sources", None) or getattr(spec, "genetic_map_hg38_sources", None))
-    return ("genetic_map" if has_map else "plink_bim"), "plink_genotypes"
 
 
 def _resolve_calculator_build(annotation_bundle, ref_panel, global_config: GlobalConfig):

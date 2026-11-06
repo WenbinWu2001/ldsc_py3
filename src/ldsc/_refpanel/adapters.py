@@ -145,6 +145,15 @@ class RefPanel(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def reference_metadata_sources(self, config: LDScoreConfig) -> tuple[str, str]:
+        """Return the ``(CM, MAF)`` source labels of the metadata ``prepare_chromosome`` gives under ``config``.
+
+        PLINK panels give ``genetic_map`` or ``plink_bim`` for CM and
+        ``plink_genotypes`` for MAF; R2 matrices give ``parquet_sidecar`` for both.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     def prepare_chromosome(
         self, chrom: str, annotations: ChromosomeAnnotations,
         config: LDScoreConfig, *, genetic_map: pd.DataFrame | None = None,
@@ -362,6 +371,11 @@ class PlinkRefPanel(RefPanel):
         geno.close()
         return metadata
 
+    def reference_metadata_sources(self, config):
+        """CM comes from the genetic map only for ``--ld-wind-cm``; kb and SNP windows keep the ``.bim`` CM."""
+        has_map = bool(self.spec.genetic_map_hg19_sources or self.spec.genetic_map_hg38_sources)
+        return ("genetic_map" if has_map and config.ld_wind_cm is not None else "plink_bim"), "plink_genotypes"
+
     def prepare_chromosome(self, chrom, annotations, config, *, genetic_map=None):
         """Prepare one genotype-filtered chromosome with aligned annotations and LD windows."""
         source = self._load_source(chrom)
@@ -497,6 +511,10 @@ class R2MatrixRefPanel(RefPanel):
             funnel.record(REFERENCE_PANEL, "maf_floor", before - len(metadata))
         metadata = self._validate_metadata(metadata, chromosome.chrom)
         return metadata, funnel
+
+    def reference_metadata_sources(self, config):
+        """The sidecar is authoritative for CM and MAF under every LD window."""
+        return "parquet_sidecar", "parquet_sidecar"
 
     def prepare_chromosome(self, chrom, annotations, config, *, genetic_map=None):
         """Prepare a sidecar-aligned streaming reader over a contract-validated R2 Parquet file."""

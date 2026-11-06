@@ -1155,7 +1155,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
             source_summary={},
             config_snapshot=GlobalConfig(genome_build="hg19", snp_identifier="chr_pos"),
         )
-        ref_panel = SimpleNamespace(spec=SimpleNamespace(genome_build="hg19", backend="plink"))
+        ref_panel = SimpleNamespace(spec=SimpleNamespace(genome_build="hg19", backend="plink"),
+                                    reference_metadata_sources=lambda config: ("plink_bim", "plink_genotypes"))
 
         with mock.patch.object(direct_batches, "compute_direct_chromosome") as patched_compute:
             with self.assertRaisesRegex(ConfigMismatchError, "AnnotationBundle and LDScoreCalculator runtime config"):
@@ -2560,3 +2561,27 @@ def test_genome_build_alias_selects_its_child_of_a_two_build_r2_matrix(tmp_path,
     # LD score of rs1 = its own R2 of 1 plus the hg19 child's R2 with rs2 (0.1 in the hg38 child);
     # the R2 matrix stores R2 at reduced precision.
     assert result.baseline_table["base"].tolist() == pytest.approx([1.5, 1.5, 1.0], abs=1e-4)
+
+
+@pytest.mark.parametrize(("window", "cm_source"), [(["--ld-wind-kb", "1000"], "plink_bim"),
+                                                   (["--ld-wind-snps", "5"], "plink_bim"),
+                                                   (["--ld-wind-cm", "1"], "genetic_map")])
+def test_cm_source_log_names_the_genetic_map_only_for_cm_windows(tmp_path, window, cm_source):
+    # A genetic map gives CM only to --ld-wind-cm; kb and SNP windows keep the .bim CM (all 0 here).
+    from ldsc import cli
+
+    fixtures = Path(__file__).resolve().parents[1] / "fixtures" / "minimal_external_resources"
+    bim = pd.read_csv(fixtures / "plink/hm3_chr22_subset.bim", sep=r"\s+", header=None,
+                      names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+    bim.loc[:, ["SNP", "CHR", "POS"]].to_csv(tmp_path / "regr.tsv", sep="\t", index=False)
+    out = tmp_path / "out"
+    cli.main(["ldscore", "--plink-prefix", str(fixtures / "plink/hm3_chr22_subset"), "--genome-build", "hg38",
+              "--snp-identifier", "chr_pos_allele_aware", *window, "--export-ref-metadata",
+              "--genetic-map-hg38-sources", str(fixtures / "genetic_maps/genetic_map_hg38_chr22_subset.txt"),
+              "--regr-snps-file", str(tmp_path / "regr.tsv"), "--regr-snps-exclude-regions", "none",
+              "--output-dir", str(out)])
+
+    log = (out / "diagnostics/ldscore.log").read_text(encoding="utf-8")
+    assert f"Reference-panel CM source: {cm_source}; MAF source: plink_genotypes" in log
+    exported_cm = pd.read_csv(out / "ref_metadata/chr22_meta.tsv.gz", sep="\t", comment="#")["CM"]
+    assert (exported_cm.nunique() > 1) == (cm_source == "genetic_map")

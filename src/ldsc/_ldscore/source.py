@@ -72,6 +72,15 @@ def is_numbered_query_batch_file(name: str) -> bool:
 
 LOGGER = logging.getLogger("LDSC.ldscore_source")
 _LDSCORE_SCHEMA_DOC = "docs/user-guide/troubleshooting.md#common-ldsc3-artifact-schema-or-provenance-is-incompatible"
+# Repair advice closing the reader's errors about a damaged or mixed LD-score directory.
+_RESTORE_LDSCORE_DIR = (
+    "Restore the complete LD-score directory from the same run, or regenerate it with `ldsc ldscore`. "
+    f"Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
+)
+_RESTORE_QUERY_BATCHES = (
+    " Restore the complete LD-score directory with metadata and query files from the same run, or "
+    "regenerate it with ldsc ldscore. Do not mix query batches from different runs."
+)
 
 
 def load_query_manifest(root, metadata, baseline_columns, baseline_schema):
@@ -90,17 +99,13 @@ def load_query_manifest(root, metadata, baseline_columns, baseline_schema):
         path = root / entry["file"]
         if path in paths:
             raise LDSCInputError(
-                f"LD-score query_batches repeats file {entry['file']!r}."
-                " Restore the complete LD-score directory with metadata and query files from the same run, or "
-                "regenerate it with ldsc ldscore. Do not mix query batches from different runs."
+                f"LD-score query_batches repeats file {entry['file']!r}." + _RESTORE_QUERY_BATCHES
             )
         paths.add(path)
         schema = _read_ldscore_parquet(path, pq.read_schema).names
         _validate_row_groups(
             path, entry["row_groups"],
-            f"LD-score query batch {entry['file']} has inconsistent row-group metadata."
-            " Restore the complete LD-score directory with metadata and query files from the same run, or "
-            "regenerate it with ldsc ldscore. Do not mix query batches from different runs.",
+            f"LD-score query batch {entry['file']} has inconsistent row-group metadata." + _RESTORE_QUERY_BATCHES,
         )
         validate_ldscore_schemas(baseline_columns, entry["query_columns"], baseline_schema, schema)
         columns.extend(entry["query_columns"])
@@ -439,9 +444,8 @@ class LDScoreManifest:
             raise LDSCInputError(
                 f"Could not read LD-score file '{path}': the overlap table lacks the column(s) "
                 f"{', '.join(f'`{column}`' for column in missing)}. Most likely the file was edited by hand or "
-                "written by another tool, or metadata.json and the data files come from different runs. Restore "
-                "the complete LD-score directory from the same run, or regenerate it with `ldsc ldscore`. "
-                f"Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
+                "written by another tool, or metadata.json and the data files come from different runs. "
+                + _RESTORE_LDSCORE_DIR
             )
         return overlap_from_long_frame(
             frame,
@@ -501,8 +505,7 @@ def read_ldscore_manifest(ldscore_dir) -> LDScoreManifest:
         raise LDSCInputError(
             f"Could not load LD-score directory '{root}': `metadata.json` is not a JSON object with a `files` "
             f"mapping{detail}. Most likely it was truncated, edited by hand or copied from another artifact. "
-            "Restore the complete LD-score directory from the same run, or regenerate it with `ldsc ldscore`. "
-            f"Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
+            + _RESTORE_LDSCORE_DIR
         )
     config_snapshot = _global_config_from_metadata(metadata)
     files = metadata.get("files", {})
@@ -544,9 +547,8 @@ def read_ldscore_manifest(ldscore_dir) -> LDScoreManifest:
         raise LDSCInputError(
             f"Could not load LD-score directory '{root}': metadata records `index_id` but no value for "
             f"{', '.join(f'`{key}`' for key in missing_provenance)}, the rest of its gene LD-score index "
-            "provenance. Most likely metadata.json was edited by hand or copied from another run. Restore the "
-            "complete LD-score directory from the same run, or regenerate it with `ldsc ldscore`. "
-            f"Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
+            "provenance. Most likely metadata.json was edited by hand or copied from another run. "
+            + _RESTORE_LDSCORE_DIR
         )
     return LDScoreManifest(
         root=root,
@@ -580,15 +582,13 @@ def _declared_file(root: Path, key: str, value, *, required: bool) -> Path:
         raise LDSCInputError(
             f"Could not load LD-score directory '{root}': `files.{key}`={value!r} {problem}: declared files are "
             "named relative to the directory, without `..`. Most likely metadata.json was edited by hand or "
-            "copied from another run. Restore the complete LD-score directory from the same run, or regenerate it "
-            f"with `ldsc ldscore`. Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
+            "copied from another run. " + _RESTORE_LDSCORE_DIR
         )
     if (required or path.exists()) and not path.is_file():
         raise LDSCInputError(
             f"Could not load LD-score directory '{root}': `files.{key}`={value!r} declares '{path}', which is "
             "missing or is not a regular file. Most likely the file was deleted or not copied with metadata.json. "
-            "Restore the complete LD-score directory from the same run, or regenerate it with `ldsc ldscore`. "
-            f"Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
+            + _RESTORE_LDSCORE_DIR
         )
     return path
 
@@ -624,8 +624,7 @@ def _missing_overlap_totals_error(root) -> LDSCInputError:
         f"Could not load LD-score directory '{root}': `files.overlap` is declared, but metadata has no usable "
         "`overlap_config` with the overlap's reference-SNP totals: a positive number `total_all_reference_snps` "
         "and a `total_common_reference_snps` that is null or a number from 0 to `total_all_reference_snps`. "
-        "Most likely metadata.json was edited by hand or copied from another run. Restore the complete LD-score "
-        f"directory from the same run, or regenerate it with `ldsc ldscore`. Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
+        "Most likely metadata.json was edited by hand or copied from another run. " + _RESTORE_LDSCORE_DIR
     )
 
 
@@ -641,9 +640,7 @@ def _read_ldscore_parquet(path, read):
     except (OSError, pa.ArrowException) as exc:
         raise LDSCInputError(
             f"Could not read LD-score file '{path}': {exc}. Most likely it is missing, truncated or not a "
-            "Parquet file, or metadata.json and the data files come from different runs. Restore the complete "
-            "LD-score directory from the same run, or regenerate it with `ldsc ldscore`. "
-            f"Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
+            "Parquet file, or metadata.json and the data files come from different runs. " + _RESTORE_LDSCORE_DIR
         ) from (None if isinstance(exc, FileNotFoundError) else exc)
 
 
@@ -777,9 +774,8 @@ def _validate_count_overlap_config(metadata: dict[str, Any], root: Path, *, has_
     if overlap_config is not None and not isinstance(overlap_config, dict):
         raise LDSCInputError(
             f"Could not load LD-score directory '{root}': metadata `overlap_config` is {overlap_config!r}, not a "
-            "JSON object or null. Most likely metadata.json was edited by hand or copied from another run. Restore "
-            "the complete LD-score directory from the same run, or regenerate it with `ldsc ldscore`. "
-            f"Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
+            "JSON object or null. Most likely metadata.json was edited by hand or copied from another run. "
+            + _RESTORE_LDSCORE_DIR
         )
     if not overlap_config:
         return

@@ -427,7 +427,11 @@ def test_publication_refuses_a_destination_that_changed_during_the_build(
     from ldsc._ldscore.gene_index.artifact import load_gene_ldscore_index
 
     index = tmp_path / "parent" / "index"
-    if overwrite:
+    if intruder == "another-index":
+        # A failed attempt's leftovers, so every component of the other index is a new name.
+        with pytest.raises(LDSCInputError):
+            _build_index(index_inputs, index, monkeypatch, prefix="missing-panel", overwrite=overwrite)
+    elif overwrite:
         _build_index(index_inputs, index, monkeypatch)
     other = tmp_path / "other"
     _build_index(index_inputs, other, monkeypatch)
@@ -440,10 +444,9 @@ def test_publication_refuses_a_destination_that_changed_during_the_build(
         if intruder == "user-file":
             (index / "results.txt").write_text("written during the build\n")
         else:
+            # Index components alone, no other new name, must stop publication.
             for entry in other.iterdir():
-                if not (index / entry.name).exists():
-                    shutil.copytree(entry, index / entry.name) if entry.is_dir() else shutil.copy2(entry, index)
-            (index / "results.txt").write_text("another builder's notes\n")
+                shutil.copytree(entry, index / entry.name) if entry.is_dir() else shutil.copy2(entry, index)
         return staged
 
     monkeypatch.setattr(gene_index_build, "_create_gene_index_stage", stage_while_the_destination_changes)
@@ -460,10 +463,13 @@ def test_publication_refuses_a_destination_that_changed_during_the_build(
         _build_index(index_inputs, index, monkeypatch, overwrite=overwrite)
 
     # Nothing outside this run's own build directory was replaced or removed.
-    after = {name: data for name, data in _snapshot(index).items() if not name.startswith(".build")}
-    after.pop("RUN_FAILED.txt", None)
-    assert after == {name: data for name, data in before.items() if not name.startswith(".build")}
-    assert (index / "results.txt").is_file()
+    def outside_the_build(snapshot):
+        return {name: data for name, data in snapshot.items()
+                if not name.startswith(".build") and name != "RUN_FAILED.txt"}
+
+    assert outside_the_build(_snapshot(index)) == outside_the_build(before)
+    if intruder == "user-file":
+        assert (index / "results.txt").is_file()
     if intruder == "another-index" or overwrite:
         load_gene_ldscore_index(index)
 

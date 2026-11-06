@@ -57,55 +57,6 @@ class TestJackknife(unittest.TestCase):
             jk.Jackknife.delete_values_to_pseudovalues(delete_values, est.T)
 
 
-class TestLstsqJackknifeSlow(unittest.TestCase):
-    def test_delete_values_1d(self):
-        func = lambda x, y: np.atleast_2d(np.sum(x + y))
-        s = [0, 5, 10]
-        x = np.atleast_2d(np.arange(10)).T
-        y = np.atleast_2d(np.arange(10)).T
-        p = jk.LstsqJackknifeSlow.delete_values(x, y, func, s)
-        assert_array_equal(p.shape, (2, 1))
-        assert_array_almost_equal(p, [[70], [20]])
-
-    def test_delete_values_2d_1(self):
-        func = lambda x, y: np.atleast_2d(np.sum(x + y, axis=0))
-        s = [0, 2, 4, 6, 8, 10]
-        x = np.vstack([np.arange(10), 2 * np.arange(10)]).T
-        y = np.atleast_2d(np.arange(10)).T
-        p = jk.LstsqJackknifeSlow.delete_values(x, y, func, s)
-        assert_array_equal(p.shape, (5, 2))
-        assert_array_almost_equal(p, [[88, 132], [80, 120], [72, 108], [64, 96], [56, 84]])
-
-    def test_delete_values_2d_2(self):
-        func = lambda x, y: np.atleast_2d(np.sum(x + y, axis=0))
-        s = [0, 5, 10]
-        x = np.vstack([np.arange(10), 2 * np.arange(10), 3 * np.arange(10)]).T
-        y = np.atleast_2d(np.arange(10)).T
-        p = jk.LstsqJackknifeSlow.delete_values(x, y, func, s)
-        assert_array_equal(p.shape, (2, 3))
-        assert_array_almost_equal(p, [[70, 105, 140], [20, 30, 40]])
-
-    def test_lstsqjackknifeslow(self):
-        x = np.atleast_2d(np.arange(10)).T
-        y = np.atleast_2d(2 * np.arange(10)).T
-        reg = jk.LstsqJackknifeSlow(x, y, n_blocks=10)
-        regnn = jk.LstsqJackknifeSlow(x, y, n_blocks=10, nn=True)
-        assert_array_almost_equal(reg.est, [[2.0]])
-        assert_array_almost_equal(regnn.est, [[2.0]])
-
-    def test_bad_data(self):
-        x = np.arange(10)
-        y = 2 * np.arange(9)
-        with self.assertRaises(LDSCInternalError):
-            jk.LstsqJackknifeSlow(x, y, 10)
-
-    def test_too_many_blocks(self):
-        x = np.arange(10)
-        y = 2 * np.arange(10)
-        with self.assertRaises(LDSCInternalError):
-            jk.LstsqJackknifeSlow(x, y, 11)
-
-
 class TestLstsqJackknifeFast(unittest.TestCase):
     def test_block_values_1d(self):
         x = np.arange(6).reshape((6, 1))
@@ -173,13 +124,20 @@ class TestLstsqJackknifeFast(unittest.TestCase):
             assert_array_equal(delete.shape, (len(s) - 1, 2))
             assert_array_almost_equal(delete, np.ones_like(delete))
 
-    def test_eq_slow(self):
+    def test_matches_direct_delete_one_block_lstsq(self):
+        # Independent reference: refit least squares with each block removed.
         x = np.atleast_2d(np.random.normal(size=(100, 2)))
         y = np.atleast_2d(np.random.normal(size=(100, 1)))
         for n_blocks in range(2, 49):
-            b1 = jk.LstsqJackknifeFast(x, y, n_blocks=n_blocks).est
-            b2 = jk.LstsqJackknifeSlow(x, y, n_blocks=n_blocks).est
-            assert_array_almost_equal(b1, b2)
+            fast = jk.LstsqJackknifeFast(x, y, n_blocks=n_blocks)
+            s = fast.separators
+            deletes = [
+                np.linalg.lstsq(np.vstack([x[:s[i]], x[s[i + 1]:]]), np.vstack([y[:s[i]], y[s[i + 1]:]])[:, 0],
+                                rcond=None)[0]
+                for i in range(n_blocks)
+            ]
+            assert_array_almost_equal(fast.est, np.atleast_2d(np.linalg.lstsq(x, y[:, 0], rcond=None)[0]))
+            assert_array_almost_equal(fast.delete_values, np.vstack(deletes))
 
     def test_bad_data(self):
         x = np.arange(6).reshape((1, 6))

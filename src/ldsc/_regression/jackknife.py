@@ -1,5 +1,6 @@
 # Derived from legacy LDSC ldscore/jackknife.py; GPLv3 (LICENSE).
-# Modified 2024 for Python 3; 2026 for package imports, validation errors and failure descriptions.
+# Modified 2024 for Python 3; 2026 for package imports, validation errors and failure descriptions;
+# 2026-11 removed the unused slow jackknife.
 # See NOTICE for attribution and dated modifications.
 
 '''
@@ -17,7 +18,6 @@ of the data.
 '''
 
 import numpy as np
-from scipy.optimize import nnls
 
 from ..errors import LDSCInternalError
 
@@ -282,99 +282,6 @@ class Jackknife(object):
     def get_separators(cls, N, n_blocks):
         '''Define evenly-spaced block boundaries.'''
         return np.floor(np.linspace(0, N, n_blocks + 1)).astype(int)
-
-
-class LstsqJackknifeSlow(Jackknife):
-
-    '''
-    Slow linear-regression block jackknife. This class computes delete values directly,
-    rather than forming delete values from block values. Useful for testing and for
-    non-negative least squares (which as far as I am aware does not admit a fast block
-    jackknife algorithm).
-
-    Inherits from Jackknife class.
-
-    Parameters
-    ----------
-    x : np.matrix with shape (n, p)
-        Independent variable.
-    y : np.matrix with shape (n, 1)
-        Dependent variable.
-    n_blocks : int
-        Number of jackknife blocks
-    nn: bool
-        Non-negative least-squares?
-
-    Attributes
-    ----------
-    est : np.matrix with shape (1, p)
-        FWLS estimate.
-    jknife_est : np.matrix with shape (1, p)
-        Jackknifed estimate.
-    jknife_var : np.matrix with shape (1, p)
-        Variance of jackknifed estimate.
-    jknife_se : np.matrix with shape (1, p)
-        Standard error of jackknifed estimate, equal to sqrt(jknife_var).
-    jknife_cov : np.matrix with shape (p, p)
-        Covariance matrix of jackknifed estimate.
-    delete_vals : np.matrix with shape (n_blocks, p)
-        Jackknife delete values.
-
-    Methods
-    -------
-    delete_values(x, y, func, s):
-        Compute delete values of func(x, y) the slow way, with blocks defined by s.
-
-    '''
-
-    def __init__(self, x, y, n_blocks=None, nn=False, separators=None):
-        """Run the slow delete-one-block jackknife for least-squares regression."""
-        Jackknife.__init__(self, x, y, n_blocks, separators)
-        if nn:  # non-negative least squares
-            func = lambda x, y: np.atleast_2d(nnls(x, np.array(y).T[0])[0])
-        else:
-            func = lambda x, y: np.atleast_2d(
-                np.linalg.lstsq(x, np.array(y).T[0], rcond=None)[0])
-
-        self.est = func(x, y)
-        self.delete_values = self.delete_values(x, y, func, self.separators)
-        self.pseudovalues = self.delete_values_to_pseudovalues(
-            self.delete_values, self.est)
-        (self.jknife_est, self.jknife_var, self.jknife_se, self.jknife_cov) =\
-            self.jknife(self.pseudovalues)
-
-    @classmethod
-    def delete_values(cls, x, y, func, s):
-        '''
-        Compute delete values by deleting one block at a time.
-
-        Parameters
-        ----------
-        x : np.matrix with shape (n, p)
-            Independent variable.
-        y : np.matrix with shape (n, 1)
-            Dependent variable.
-        func : function (n, p) , (n, 1) --> (1, p)
-            Function of x and y to be jackknived.
-        s : list of ints
-            Block separators.
-
-        Returns
-        -------
-        delete_values : np.matrix with shape (n_blocks, p)
-            Delete block values (with n_blocks blocks defined by parameter s).
-
-        Raises
-        ------
-        ValueError :
-            If x.shape[0] does not equal y.shape[0] or x and y are not 2D.
-
-        '''
-        _check_shape(x, y)
-        d = [func(np.vstack([x[0:s[i], ...], x[s[i + 1]:, ...]]), np.vstack([y[0:s[i], ...], y[s[i + 1]:, ...]]))
-             for i in range(len(s) - 1)]
-
-        return np.concatenate(d, axis=0)
 
 
 class LstsqJackknifeFast(Jackknife):

@@ -1,5 +1,6 @@
 # Derived from legacy LDSC ldscore/irwls.py; licensed under GPLv3 (LICENSE).
-# Modified 2024 for Python 3; 2026 for package imports and error reporting.
+# Modified 2024 for Python 3; 2026 for package imports and error reporting;
+# 2026-11 removed the unused slow-jackknife option.
 # See NOTICE for attribution and dated modifications.
 
 '''
@@ -32,8 +33,6 @@ class IRWLS(object):
     w : np.matrix with shape (n, 1)
         Initial regression weights (default is the identity matrix). These should be on the
         inverse CVF scale.
-    slow : bool
-        Use slow block jackknife? (Mostly for testing)
 
     Attributes
     ----------
@@ -59,7 +58,7 @@ class IRWLS(object):
 
     '''
 
-    def __init__(self, x, y, update_func, n_blocks, w=None, slow=False, separators=None):
+    def __init__(self, x, y, update_func, n_blocks, w=None, separators=None):
         """Run IRWLS immediately and store the fitted estimate and jackknife outputs."""
         n, p = jk._check_shape(x, y)
         if w is None:
@@ -72,7 +71,7 @@ class IRWLS(object):
             )
 
         jknife = self.irwls(
-            x, y, update_func, n_blocks, w, slow=slow, separators=separators)
+            x, y, update_func, n_blocks, w, separators=separators)
         self.est = jknife.est
         self.jknife_se = jknife.jknife_se
         self.jknife_est = jknife.jknife_est
@@ -82,7 +81,7 @@ class IRWLS(object):
         self.separators = jknife.separators
 
     @classmethod
-    def irwls(cls, x, y, update_func, n_blocks, w, slow=False, separators=None):
+    def irwls(cls, x, y, update_func, n_blocks, w, separators=None):
         '''
         Iteratively re-weighted least squares (IRWLS).
 
@@ -98,8 +97,6 @@ class IRWLS(object):
             Number of jackknife blocks (for estimating SE via block jackknife).
         w : np.matrix with shape (n, 1)
             Initial regression weights.
-        slow : bool
-            Use slow block jackknife? (Mostly for testing)
         separators : list or None
             Block jackknife block boundaries (optional).
 
@@ -137,14 +134,7 @@ class IRWLS(object):
 
         x = cls._weight(x, w)
         y = cls._weight(y, w)
-        if slow:
-            jknife = jk.LstsqJackknifeSlow(
-                x, y, n_blocks, separators=separators)
-        else:
-            jknife = jk.LstsqJackknifeFast(
-                x, y, n_blocks, separators=separators)
-
-        return jknife
+        return jk.LstsqJackknifeFast(x, y, n_blocks, separators=separators)
 
     @classmethod
     def wls(cls, x, y, w):

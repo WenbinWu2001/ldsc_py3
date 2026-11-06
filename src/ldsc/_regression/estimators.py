@@ -1,7 +1,7 @@
 # Derived from legacy LDSC ldscore/regressions.py.
 # GPLv3 (LICENSE). Modified 2024 for Python 3; 2026 for package layering,
 # regression outputs, liability-scale calculations, and naming the failed rg
-# component. The allele-matching tables from ldscore/sumstats.py that this
+# component; 2026-11 removed the unused slow-jackknife option. The allele-matching tables from ldscore/sumstats.py that this
 # module held moved to ldsc._core.snp_identity in 2026.
 # See NOTICE for attribution and dated modifications.
 
@@ -218,7 +218,7 @@ class LD_Score_Regression(object):
     are shared by heritability and covariance estimators.
     """
 
-    def __init__(self, y, x, w, N, M, n_blocks, intercept=None, slow=False, step1_ii=None, old_weights=False):
+    def __init__(self, y, x, w, N, M, n_blocks, intercept=None, step1_ii=None, old_weights=False):
         """Fit the shared LDSC regression core and derive jackknife summaries."""
         for i in [y, x, w, M, N]:
             try:
@@ -308,7 +308,7 @@ class LD_Score_Regression(object):
             update_func1 = lambda a: self._update_func(
                 a, x1, w1, N1, M_tot, Nbar, ii=step1_ii)
             step1_jknife = IRWLS(
-                x1, yp1, update_func1, n_blocks, slow=slow, w=initial_w1)
+                x1, yp1, update_func1, n_blocks, w=initial_w1)
             step1_int, _ = self._intercept(step1_jknife)
             yp = yp - step1_int
             x = remove_intercept(x)
@@ -317,7 +317,7 @@ class LD_Score_Regression(object):
                 a, x_tot, w, N, M_tot, Nbar, step1_int)
             s = update_separators(step1_jknife.separators, step1_ii)
             step2_jknife = IRWLS(
-                x, yp, update_func2, n_blocks, slow=slow, w=initial_w, separators=s)
+                x, yp, update_func2, n_blocks, w=initial_w, separators=s)
             c = np.sum(np.multiply(initial_w, x)) / \
                 np.sum(np.multiply(initial_w, np.square(x)))
             jknife = self._combine_twostep_jknives(
@@ -332,7 +332,7 @@ class LD_Score_Regression(object):
             update_func = lambda a: self._update_func(
                 a, x_tot, w, N, M_tot, Nbar, intercept)
             jknife = IRWLS(
-                x, yp, update_func, n_blocks, slow=slow, w=initial_w)
+                x, yp, update_func, n_blocks, w=initial_w)
 
         self.coef, self.coef_cov, self.coef_se = self._coef(jknife, Nbar)
         self.cat, self.cat_cov, self.cat_se =\
@@ -463,7 +463,7 @@ class Hsq(LD_Score_Regression):
 
     __null_intercept__ = 1
 
-    def __init__(self, y, x, w, N, M, n_blocks=200, intercept=None, slow=False, twostep=None, old_weights=False):
+    def __init__(self, y, x, w, N, M, n_blocks=200, intercept=None, twostep=None, old_weights=False):
         """Fit the single-trait LDSC heritability estimator."""
         step1_ii = None
         if twostep is not None:
@@ -472,7 +472,7 @@ class Hsq(LD_Score_Regression):
             step1_ii = y <= twostep
 
         LD_Score_Regression.__init__(self, y, x, w, N, M, n_blocks, intercept=intercept,
-                                     slow=slow, step1_ii=step1_ii, old_weights=old_weights)
+                                     step1_ii=step1_ii, old_weights=old_weights)
         self.mean_chisq, self.lambda_gc = self._summarize_chisq(y)
         if not self.constrain_intercept:
             self.ratio, self.ratio_se = self._ratio(
@@ -626,7 +626,7 @@ class Gencov(LD_Score_Regression):
     __null_intercept__ = 0
 
     def __init__(self, z1, z2, x, w, N1, N2, M, hsq1, hsq2, intercept_hsq1, intercept_hsq2,
-                 n_blocks=200, intercept_gencov=None, slow=False, twostep=None):
+                 n_blocks=200, intercept_gencov=None, twostep=None):
         """Fit the cross-trait genetic covariance estimator."""
         self.intercept_hsq1 = intercept_hsq1
         self.intercept_hsq2 = intercept_hsq2
@@ -642,7 +642,7 @@ class Gencov(LD_Score_Regression):
             step1_ii = np.logical_and(z1**2 <= twostep, z2**2 <= twostep)
 
         LD_Score_Regression.__init__(self, y, x, w, np.sqrt(N1 * N2), M, n_blocks,
-                                     intercept=intercept_gencov, slow=slow, step1_ii=step1_ii)
+                                     intercept=intercept_gencov, step1_ii=step1_ii)
         self.p, self.z = p_z_norm(self.tot, self.tot_se)
         self.mean_z1z2 = np.mean(np.multiply(z1, z2))
 
@@ -756,20 +756,20 @@ class RG(object):
     """Combine two heritability fits and one covariance fit into ``r_g``."""
 
     def __init__(self, z1, z2, x, w, N1, N2, M, intercept_hsq1=None, intercept_hsq2=None,
-                 intercept_gencov=None, n_blocks=200, slow=False, twostep=None):
+                 intercept_gencov=None, n_blocks=200, twostep=None):
         """Fit heritability and covariance models, then derive genetic correlation."""
         self.intercept_gencov = intercept_gencov
         self._negative_hsq = None
         n_snp, n_annot = x.shape
         with _failing_component("trait_1_h2"):
             hsq1 = Hsq(np.square(z1), x, w, N1, M, n_blocks=n_blocks, intercept=intercept_hsq1,
-                       slow=slow, twostep=twostep)
+                       twostep=twostep)
         with _failing_component("trait_2_h2"):
             hsq2 = Hsq(np.square(z2), x, w, N2, M, n_blocks=n_blocks, intercept=intercept_hsq2,
-                       slow=slow, twostep=twostep)
+                       twostep=twostep)
         with _failing_component("genetic_covariance"):
             gencov = Gencov(z1, z2, x, w, N1, N2, M, hsq1.tot, hsq2.tot, hsq1.intercept,
-                            hsq2.intercept, n_blocks, intercept_gencov=intercept_gencov, slow=slow,
+                            hsq2.intercept, n_blocks, intercept_gencov=intercept_gencov,
                             twostep=twostep)
         gencov.N1 = None  # save memory
         gencov.N2 = None

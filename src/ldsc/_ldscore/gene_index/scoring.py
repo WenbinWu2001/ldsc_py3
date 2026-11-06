@@ -18,7 +18,6 @@ from ..._annotation.gene_lists import GeneCatalog
 from ..._runtime.scratch import ScratchWorkspace
 from ..outputs import INPUT_ISSUES_FILE, LDScoreDirectoryWriter, QueryDiagnostics, LDScoreOutputConfig
 from .artifact import inspect_index_paths, load_gene_ldscore_index
-from ..._runtime.parallelism import validate_query_batch_size, validate_workers
 from ..._runtime.paths import output_directory_path
 from ...errors import LDSCInputError
 from ..._runtime.input_issues import INPUT_ISSUE_COLUMNS, input_issue
@@ -50,7 +49,6 @@ def run_indexed_ldscore(
     workers: int = 1,
     output_dir: str | Path,
     overwrite: bool = False,
-    main_log_open: bool = False,
 ):
     """Assemble exact gene-list LD scores from one explicit index directory.
 
@@ -81,25 +79,14 @@ def run_indexed_ldscore(
         Chromosome operators are reloaded for each batch in a persistent pool.
         Each pathway remains a separate annotation and regression model.
     workers : int, optional
-        Maximum concurrent workers, default 1, including on HPC.
-        Use joblib.cpu_count() as the detected available CPU budget.
-        Positive requests above that budget fail before capping by task
-        count; negative -k uses max(1, budget + 1 - k). Zero, booleans,
-        and non-integers are invalid. Even one worker runs in its own process.
-        Every worker uses 1 BLAS thread in serial and parallel execution.
-        Numerical OpenMP and Arrow CPU/I/O limits are also one; unsupported
-        numerical limits are logged as unverified and computation continues.
-        This does not detect idle CPUs, guarantee scheduler allocation
-        compliance, or ensure sufficient memory.
+        Maximum concurrent chromosome workers, default 1; a negative ``-k``
+        uses ``max(1, budget + 1 - k)`` of the detected CPU budget. See
+        ``docs/reference/parallel-execution.md``.
     output_dir : path-like
         Destination for the canonical self-contained LD-score directory.
         User and environment tokens are expanded for both scratch and results.
     overwrite : bool, optional
         Replace workflow-owned output artifacts. Default is ``False``.
-    main_log_open : bool, optional
-        ``True`` when the calling command already preflighted the outputs and
-        opened ``diagnostics/ldscore.log``. Default ``False``: this function
-        opens that log itself while chromosomes are computed.
 
     Returns
     -------
@@ -114,14 +101,14 @@ def run_indexed_ldscore(
         If the index is invalid, a control is unusable, or every requested
         query is skipped. The all-skipped case writes diagnostics but no
         scientific LD-score tables.
-    ValueError
-        Query batch width is not a positive integer or the worker request is
-        not a nonzero integer.
     FileExistsError
         An owned output artifact exists and overwrite is disabled.
 
     Notes
     -----
+    The ``ldscore`` command calls this after checking ``query_batch_size``
+    and ``workers``, preflighting the outputs and opening
+    ``diagnostics/ldscore.log``.
     Overlapping, nested, duplicated, and alias-selected genes are combined by
     Boolean union. A persistent worker pool processes one active query batch;
     each chromosome task reloads its operator and releases it after projection.
@@ -133,10 +120,7 @@ def run_indexed_ldscore(
     numbered names in the required ``query_batches`` manifest. This API writes
     outputs even for a single batch; batch resumption is not supported.
     """
-    validate_query_batch_size(query_batch_size)
-    validate_workers(workers)
     output_dir = str(output_directory_path(output_dir))
-    LDScoreDirectoryWriter.artifact_family(output_dir).preflight(overwrite=overwrite)
     try:
         inspect_declared_inputs(files=[('query genes', query_gene_list_sources), ('control genes', control_gene_list_file)],
             checks=[('index', index_dir, lambda: inspect_index_paths(index_dir))],
@@ -146,90 +130,73 @@ def run_indexed_ldscore(
             QueryDiagnostics(_FAILED_INDEX_SCOPE, input_issues=exc.input_issues), output_dir)
         raise
     with ScratchWorkspace(output_dir) as workspace:
-        return _run_indexed_ldscore_in_workspace(
-            index_dir, query_gene_list_sources=query_gene_list_sources,
-            control_gene_list_file=control_gene_list_file,
-            gene_list_resolution_policy=gene_list_resolution_policy,
-            query_batch_size=query_batch_size, workers=workers, output_dir=output_dir,
-            overwrite=overwrite, workspace=workspace, main_log_open=main_log_open,
+        try:
+            index = load_gene_ldscore_index(index_dir)
+        except (OSError, ValueError, LDSCInputError) as exc:
+            issues = getattr(exc, "input_issues", pd.DataFrame([input_issue(
+                "index", index_dir, "", "invalid_required_input", exc,
+                repair="Restore or rebuild the complete immutable autosomes 1-22 index.",
+            )], columns=INPUT_ISSUE_COLUMNS))
+            LDScoreDirectoryWriter().write_query_diagnostics(
+                QueryDiagnostics(_FAILED_INDEX_SCOPE, input_issues=issues),
+                LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite))
+            raise
+        projection_build = str(index.index_identity.get("projection_build"))
+        gene_policy = str(index.index_identity.get("gene_exclude_regions", "none"))
+        catalog = GeneCatalog.from_embedded_frame(index.gene_catalog)
+        if catalog.genome_build != projection_build:
+            raise LDSCInputError("Embedded gene coordinate catalog build disagrees with the index projection build.")
+        batch = resolve_gene_lists_staged(
+            query_gene_list_sources,
+            catalog,
+            workspace,
+            existing_columns=index.baseline_columns,
+            control_path=control_gene_list_file,
+            resolution_policy=gene_list_resolution_policy,
+            gene_exclude_regions=gene_policy,
         )
+        output_config = LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite)
+        if batch.has_fatal_gate_a_issues:
+            fail_gene_list_resolution(batch, output_config)
+        batch, coverage_errors = batch.with_coverage(index.chromosomes)
+        scope = {"chromosomes": list(index.chromosomes), "analysis_chromosomes": list(index.chromosomes),
+                 "selection": "validated_immutable_index", "index_id": index.index_id,
+                 "validation_status": "passed"}
+        LOGGER.info("Chromosomes resolved and entering the analysis: %s.", ", ".join(index.chromosomes))
+        coverage_errors.extend(gene_control_errors(batch))
+        if coverage_errors:
+            LDScoreDirectoryWriter().write_query_diagnostics(QueryDiagnostics(
+                {**scope, "validation_status": "failed", "analysis_chromosomes": []},
+                query_statuses=gene_query_statuses(batch), gene_list_batch=batch), output_config)
+            raise LDSCInputError("; ".join(coverage_errors))
+        batch = batch.with_snp_support(index.gene_support)
+        statuses = gene_query_statuses(batch)
+        usable = [
+            declaration
+            for declaration, status in zip(
+                (item for item in batch.declarations if item['input_role'] == "focal"),
+                statuses,
+                strict=True,
+            )
+            if status.status in {"ok", "warning"}
+        ]
+        control_resolution = batch.selection("control", 0) if control_gene_list_file is not None else None
+        control_errors = gene_viability_errors(batch, statuses)
+        if control_errors:
+            fail_unusable_queries(QueryDiagnostics(scope, query_statuses=statuses, gene_list_batch=batch),
+                                  "; ".join(control_errors), output_config)
+        if "gene_control" in index.baseline_columns:
+            raise LDSCInputError(
+                "Index supplied baseline columns contain reserved name 'gene_control'. "
+                "Rebuild the index with a distinct baseline annotation name; gene_control is reserved for the requested gene control."
+            )
+        from .batches import indexed_results
 
-
-def _run_indexed_ldscore_in_workspace(
-    index_dir, *, query_gene_list_sources, control_gene_list_file,
-    gene_list_resolution_policy, query_batch_size, workers, output_dir, overwrite,
-    workspace, main_log_open=False,
-):
-    """Own staged gene selections until the canonical result has been written."""
-    try:
-        index = load_gene_ldscore_index(index_dir)
-    except (OSError, ValueError, LDSCInputError) as exc:
-        issues = getattr(exc, "input_issues", pd.DataFrame([input_issue(
-            "index", index_dir, "", "invalid_required_input", exc,
-            repair="Restore or rebuild the complete immutable autosomes 1-22 index.",
-        )], columns=INPUT_ISSUE_COLUMNS))
-        LDScoreDirectoryWriter().write_query_diagnostics(
-            QueryDiagnostics(_FAILED_INDEX_SCOPE, input_issues=issues),
-            LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite))
-        raise
-    projection_build = str(index.index_identity.get("projection_build"))
-    gene_policy = str(index.index_identity.get("gene_exclude_regions", "none"))
-    catalog = GeneCatalog.from_embedded_frame(index.gene_catalog)
-    if catalog.genome_build != projection_build:
-        raise LDSCInputError("Embedded gene coordinate catalog build disagrees with the index projection build.")
-    batch = resolve_gene_lists_staged(
-        query_gene_list_sources,
-        catalog,
-        workspace,
-        existing_columns=index.baseline_columns,
-        control_path=control_gene_list_file,
-        resolution_policy=gene_list_resolution_policy,
-        gene_exclude_regions=gene_policy,
-    )
-    output_config = LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite)
-    if batch.has_fatal_gate_a_issues:
-        fail_gene_list_resolution(batch, output_config)
-    batch, coverage_errors = batch.with_coverage(index.chromosomes)
-    scope = {"chromosomes": list(index.chromosomes), "analysis_chromosomes": list(index.chromosomes),
-             "selection": "validated_immutable_index", "index_id": index.index_id,
-             "validation_status": "passed"}
-    LOGGER.info("Chromosomes resolved and entering the analysis: %s.", ", ".join(index.chromosomes))
-    coverage_errors.extend(gene_control_errors(batch))
-    if coverage_errors:
-        LDScoreDirectoryWriter().write_query_diagnostics(QueryDiagnostics(
-            {**scope, "validation_status": "failed", "analysis_chromosomes": []},
-            query_statuses=gene_query_statuses(batch), gene_list_batch=batch), output_config)
-        raise LDSCInputError("; ".join(coverage_errors))
-    batch = batch.with_snp_support(index.gene_support)
-    statuses = gene_query_statuses(batch)
-    usable = [
-        declaration
-        for declaration, status in zip(
-            (item for item in batch.declarations if item['input_role'] == "focal"),
-            statuses,
-            strict=True,
-        )
-        if status.status in {"ok", "warning"}
-    ]
-    control_resolution = batch.selection("control", 0) if control_gene_list_file is not None else None
-    control_errors = gene_viability_errors(batch, statuses)
-    if control_errors:
-        fail_unusable_queries(QueryDiagnostics(scope, query_statuses=statuses, gene_list_batch=batch),
-                              "; ".join(control_errors), output_config)
-    if "gene_control" in index.baseline_columns:
-        raise LDSCInputError(
-            "Index supplied baseline columns contain reserved name 'gene_control'. "
-            "Rebuild the index with a distinct baseline annotation name; gene_control is reserved for the requested gene control."
-        )
-    from .batches import indexed_results
-
-    with ldscore_logs(output_dir, index.chromosomes, overwrite=overwrite,
-                      log_level=logging.getLevelName(LOGGER.getEffectiveLevel()),
-                      main_log_open=main_log_open) as log_paths:
-        results = indexed_results(index, batch, usable, control_resolution, query_batch_size,
-                                  workspace.path, workers, statuses, scope, log_paths)
-        result = LDScoreDirectoryWriter().write_batches(
-            results, output_config, query_status_order=[status.query for status in statuses])
-        log_reference_snp_funnel_warning(index.reference_snp_funnel, result.output_paths["reference_snp_funnel"])
-        log_query_outcomes(result.gene_list_batch, result.query_statuses)
-        return result
+        with ldscore_logs(output_dir, index.chromosomes, overwrite=overwrite, main_log_open=True) as log_paths:
+            results = indexed_results(index, batch, usable, control_resolution, query_batch_size,
+                                      workspace.path, workers, statuses, scope, log_paths)
+            result = LDScoreDirectoryWriter().write_batches(
+                results, output_config, query_status_order=[status.query for status in statuses])
+            log_reference_snp_funnel_warning(index.reference_snp_funnel, result.output_paths["reference_snp_funnel"])
+            log_query_outcomes(result.gene_list_batch, result.query_statuses)
+            return result

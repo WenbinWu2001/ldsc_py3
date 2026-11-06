@@ -49,9 +49,8 @@ def test_progress_counts_outcomes_and_retains_object_only_at_debug(caplog, monke
 
 @pytest.mark.parametrize("indexed", [False, True])
 def test_ldscore_batches_log_boundaries_and_one_global_status(tmp_path, inputs, indexed):
-    from ldsc._runtime.workflow_logging import workflow_logging
+    from ldsc import run_ldscore
     from ldsc._ldscore.workflow import run_ldscore_from_args
-    from ldsc._ldscore.gene_index.scoring import run_indexed_ldscore
 
     sources = [tmp_path / f"{name}.txt" for name in ("first", "second", "third")]
     for source, gene in zip(sources, ("G1", "G2", "G1")):
@@ -59,10 +58,8 @@ def test_ldscore_batches_log_boundaries_and_one_global_status(tmp_path, inputs, 
     if indexed:
         index = build_index(tmp_path, inputs)
         output = tmp_path / "indexed"
-        log_path = output / "diagnostics/ldscore.log"
-        with workflow_logging("ldscore", log_path):
-            result = run_indexed_ldscore(index, query_gene_list_sources=sources, query_batch_size=2,
-                                        output_dir=output, main_log_open=True)
+        result = run_ldscore(gene_ldscore_index_dir=str(index), query_annot_gene_list_sources=",".join(map(str, sources)),
+                             query_batch_size=2, output_dir=str(output))
         label = "indexed LD-score assembly"
     else:
         output = tmp_path / "direct"

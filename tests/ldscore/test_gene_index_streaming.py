@@ -168,7 +168,8 @@ def test_parallel_index_batches_preserve_union_scores_and_counts(tmp_path, worke
 
 @pytest.mark.parametrize("batch_size", [0, -1, 1.5, True])
 def test_index_batch_size_validation_precedes_io(tmp_path, batch_size):
+    from ldsc import run_ldscore
     with pytest.raises(ValueError, match="query_batch_size"):
-        run_indexed_ldscore(tmp_path / "missing", query_gene_list_sources=[],
-                            output_dir=tmp_path / "out", query_batch_size=batch_size)
+        run_ldscore(gene_ldscore_index_dir=str(tmp_path / "missing"), query_annot_gene_list_sources="genes.txt",
+                    output_dir=str(tmp_path / "out"), query_batch_size=batch_size)
     assert not (tmp_path / "out").exists()

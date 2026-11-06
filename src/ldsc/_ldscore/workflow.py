@@ -904,7 +904,6 @@ def _run_explicit_indexed_ldscore(configs: _IndexedConfigs) -> "LDScoreSource":
             workers=configs.workers,
             output_dir=str(output_dir),
             overwrite=configs.overwrite,
-            main_log_open=True,
         )
         log_notices(_query_notices(result))
         output_paths = getattr(result, "output_paths", None)

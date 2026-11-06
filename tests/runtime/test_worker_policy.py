@@ -6,14 +6,14 @@ import pytest
 
 from ldsc.config import LDScoreConfig, GeneLDScoreIndexBuildConfig
 from ldsc.errors import LDSCConfigError
-from ldsc._ldscore.gene_index.scoring import run_indexed_ldscore
+from ldsc import run_ldscore
 from ldsc._runtime.workflow_kwargs import parse_command_line
 
 
 @pytest.mark.parametrize("workers", [0, True, False, 1.5, 1.0, "2", None])
 @pytest.mark.parametrize("workflow", ["direct", "build", "indexed", "partitioned"])
 def test_invalid_workers_rejected_before_io(tmp_path, workers, workflow):
-    error = ValueError if workflow in {"indexed", "partitioned"} else LDSCConfigError
+    error = ValueError if workflow == "partitioned" else LDSCConfigError
     with pytest.raises(error, match="workers"):
         if workflow == "direct":
             LDScoreConfig(ld_wind_cm=1, workers=workers)
@@ -24,8 +24,8 @@ def test_invalid_workers_rejected_before_io(tmp_path, workers, workflow):
                 genome_build="hg19", snp_identifier="rsid", workers=workers,
             )
         elif workflow == "indexed":
-            run_indexed_ldscore("missing", query_gene_list_sources=[],
-                                output_dir=tmp_path / "out", workers=workers)
+            run_ldscore(gene_ldscore_index_dir="missing", query_annot_gene_list_sources="genes.txt",
+                        output_dir=str(tmp_path / "out"), workers=workers)
         else:
             from ldsc import RegressionRunner
             RegressionRunner().estimate_partitioned_h2_batch(
@@ -37,8 +37,8 @@ def test_invalid_workers_rejected_before_io(tmp_path, workers, workflow):
 @pytest.mark.parametrize("query_batch_size", [0, -1, True, 1.5, 1.0, "2", None])
 def test_invalid_indexed_query_batch_size_rejected_before_io(tmp_path, query_batch_size):
     with pytest.raises(ValueError, match="query_batch_size must be a positive integer"):
-        run_indexed_ldscore("missing", query_gene_list_sources=[], output_dir=tmp_path / "out",
-                            query_batch_size=query_batch_size)
+        run_ldscore(gene_ldscore_index_dir="missing", query_annot_gene_list_sources="genes.txt",
+                    output_dir=str(tmp_path / "out"), query_batch_size=query_batch_size)
     assert not (tmp_path / "out").exists()
 
 

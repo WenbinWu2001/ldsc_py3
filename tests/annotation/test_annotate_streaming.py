@@ -121,7 +121,6 @@ def test_bed_projection_padding_and_headers_without_optional_backend(tmp_path, m
             assert bundle.read(chrom, columns=bundle.query_columns)[:, 0].tolist() == values
 
 
-
 @pytest.mark.parametrize('sharded', [False, True])
 def test_saved_shard_columns_are_the_query_file_columns(tmp_path, sharded):
     """Each saved shard describes its query file, which holds no baseline column."""
@@ -136,6 +135,7 @@ def test_saved_shard_columns_are_the_query_file_columns(tmp_path, sharded):
         assert shard.path.name == f'query.{chrom}.annot.gz'
         assert header[-1:] == ['pathway'] and 'base' not in header
         assert shard.columns == ('pathway',)
+
 
 def test_returned_annotation_uses_persistent_outputs_after_build_scratch_is_released(tmp_path):
     from ldsc import run_annotate

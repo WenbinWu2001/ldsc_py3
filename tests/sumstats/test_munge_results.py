@@ -207,6 +207,7 @@ def test_coordinate_liftover_and_identity_counts_are_exclusive(tmp_path, monkeyp
             return LiftOverMappingResult(
                 translated_positions=np.array([1300, 1400]), keep_mask=np.array([False, True, True]),
                 unmapped_count=1, cross_chrom_count=0,
+                unmapped_mask=np.array([True, False, False]), cross_chrom_mask=np.array([False, False, False]),
             )
 
     monkeypatch.setattr(liftover, "LiftOverTranslator", Translator)

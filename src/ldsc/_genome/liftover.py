@@ -29,7 +29,7 @@ class LiftOverMappingResult:
     """Partial 1-based liftover result for one chromosome.
 
     ``translated_positions`` contains only retained same-chromosome mappings,
-    while ``keep_mask`` and the optional reason masks are aligned to the input
+    while ``keep_mask`` and the two reason masks are aligned to the input
     position sequence. Chain hits keep the first same-chromosome candidate and
     treat all-cross-chromosome hits as drops.
     """
@@ -38,8 +38,8 @@ class LiftOverMappingResult:
     keep_mask: np.ndarray
     unmapped_count: int
     cross_chrom_count: int
-    unmapped_mask: np.ndarray | None = None
-    cross_chrom_mask: np.ndarray | None = None
+    unmapped_mask: np.ndarray
+    cross_chrom_mask: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -234,24 +234,6 @@ def log_liftover_drop_report(
     )
     if report.examples:
         logger.debug(f"{workflow_label} example dropped ({report.reason}): {report.examples}")
-
-
-def mapping_reason_masks(result: LiftOverMappingResult) -> tuple[np.ndarray, np.ndarray]:
-    """Return unmapped and cross-chromosome masks aligned to a mapping input."""
-    dropped_mask = ~np.asarray(result.keep_mask, dtype=bool)
-    if result.unmapped_mask is not None:
-        unmapped_mask = np.asarray(result.unmapped_mask, dtype=bool)
-    elif result.unmapped_count == int(dropped_mask.sum()) and result.cross_chrom_count == 0:
-        unmapped_mask = dropped_mask
-    else:
-        unmapped_mask = np.zeros_like(dropped_mask, dtype=bool)
-    if result.cross_chrom_mask is not None:
-        cross_chrom_mask = np.asarray(result.cross_chrom_mask, dtype=bool)
-    elif result.cross_chrom_count == int(dropped_mask.sum()) and result.unmapped_count == 0:
-        cross_chrom_mask = dropped_mask
-    else:
-        cross_chrom_mask = np.zeros_like(dropped_mask, dtype=bool)
-    return unmapped_mask, cross_chrom_mask
 
 
 def _drop_examples(

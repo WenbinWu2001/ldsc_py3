@@ -150,6 +150,8 @@ class SumstatsLiftoverTest(unittest.TestCase):
             keep_mask=np.asarray([True, False, True], dtype=bool),
             unmapped_count=0,
             cross_chrom_count=1,
+            unmapped_mask=np.asarray([False, False, False], dtype=bool),
+            cross_chrom_mask=np.asarray([False, True, False], dtype=bool),
         )
         with mock.patch("ldsc._sumstats.liftover.LiftOverTranslator", return_value=fake_translator):
             lifted, report, drop_frame = apply_sumstats_liftover(
@@ -188,6 +190,8 @@ class SumstatsLiftoverTest(unittest.TestCase):
                 keep_mask=np.asarray([True], dtype=bool),
                 unmapped_count=0,
                 cross_chrom_count=0,
+                unmapped_mask=np.asarray([False], dtype=bool),
+                cross_chrom_mask=np.asarray([False], dtype=bool),
             )
 
         fake_translator.map_positions.side_effect = fake_map
@@ -224,6 +228,8 @@ class SumstatsLiftoverTest(unittest.TestCase):
             keep_mask=np.asarray([True, True, True], dtype=bool),
             unmapped_count=0,
             cross_chrom_count=0,
+            unmapped_mask=np.zeros(3, dtype=bool),
+            cross_chrom_mask=np.zeros(3, dtype=bool),
         )
 
         with mock.patch("ldsc._sumstats.liftover.LiftOverTranslator", return_value=fake_translator):
@@ -259,6 +265,8 @@ class SumstatsLiftoverTest(unittest.TestCase):
             keep_mask=np.asarray([True, True, True], dtype=bool),
             unmapped_count=0,
             cross_chrom_count=0,
+            unmapped_mask=np.zeros(3, dtype=bool),
+            cross_chrom_mask=np.zeros(3, dtype=bool),
         )
 
         with mock.patch("ldsc._sumstats.liftover.LiftOverTranslator", return_value=fake_translator):

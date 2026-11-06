@@ -39,7 +39,6 @@ from .._genome.liftover import (
     duplicate_coordinate_drop_result,
     liftover_drop_report,
     log_liftover_drop_report,
-    mapping_reason_masks,
 )
 from ..errors import LDSCInputError, LDSCInternalError
 
@@ -433,7 +432,7 @@ def _apply_chain_liftover(
         result = translator.map_positions(str(chrom), group["POS"].to_numpy(dtype=np.int64))
         unmapped_count += int(result.unmapped_count)
         cross_chrom_count += int(result.cross_chrom_count)
-        unmapped_mask, cross_chrom_mask = mapping_reason_masks(result)
+        unmapped_mask, cross_chrom_mask = result.unmapped_mask, result.cross_chrom_mask
         drop_frames.append(
             _liftover_drop_frame(
                 group,

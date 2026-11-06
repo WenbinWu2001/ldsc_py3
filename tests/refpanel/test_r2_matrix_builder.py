@@ -2447,6 +2447,8 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
             keep_mask=np.array([True], dtype=bool),
             unmapped_count=0,
             cross_chrom_count=0,
+            unmapped_mask=np.array([False], dtype=bool),
+            cross_chrom_mask=np.array([False], dtype=bool),
         )
 
         with mock.patch.object(r2_matrix_builder, "LiftOverTranslator") as patched:

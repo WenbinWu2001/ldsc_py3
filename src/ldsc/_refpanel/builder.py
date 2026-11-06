@@ -96,7 +96,6 @@ from .._genome.liftover import (
     duplicate_coordinate_drop_result,
     liftover_drop_report,
     log_liftover_drop_report,
-    mapping_reason_masks,
 )
 from .._runtime.input_issues import input_issue
 from .._runtime.preflight import inspect_declared_inputs, InputGate
@@ -854,7 +853,7 @@ class R2MatrixBuilder:
                 },
                 index=keep_snps,
             )
-            unmapped_mask, cross_chrom_mask = mapping_reason_masks(mapping)
+            unmapped_mask, cross_chrom_mask = mapping.unmapped_mask, mapping.cross_chrom_mask
             liftover_drop_frame = concat_identity_drop_frames(
                 [
                     coerce_identity_drop_frame(

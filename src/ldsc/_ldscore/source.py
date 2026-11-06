@@ -539,10 +539,10 @@ def read_ldscore_manifest(ldscore_dir) -> LDScoreManifest:
             f"Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
         )
     _validate_count_overlap_config(metadata, root, has_overlap="overlap" in declared)
-    missing_provenance = [key for key in INDEX_PROVENANCE_FIELDS if key not in metadata]
+    missing_provenance = [key for key in INDEX_PROVENANCE_FIELDS if metadata.get(key) is None]
     if metadata.get("index_id") is not None and missing_provenance:
         raise LDSCInputError(
-            f"Could not load LD-score directory '{root}': metadata records `index_id` but lacks "
+            f"Could not load LD-score directory '{root}': metadata records `index_id` but no value for "
             f"{', '.join(f'`{key}`' for key in missing_provenance)}, the rest of its gene LD-score index "
             "provenance. Most likely metadata.json was edited by hand or copied from another run. Restore the "
             "complete LD-score directory from the same run, or regenerate it with `ldsc ldscore`. "

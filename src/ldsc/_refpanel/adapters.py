@@ -619,27 +619,26 @@ class RefPanelLoader:
         """Store the shared configuration used for every loaded panel."""
         self.global_config = global_config
 
-    def load(self, ref_panel_spec: RefPanelConfig, *, chromosome_prefixes: dict[str, str] | None = None) -> RefPanel:
+    def load(self, ref_panel_spec: RefPanelConfig) -> RefPanel:
         """Return the adapter that ``ref_panel_spec.backend`` names.
 
-        In a coordinate-family SNP identifier mode whose genome build is
-        ``auto``, the build is resolved here from the panel and
-        ``ref_panel_snps_file``. A concrete build is taken as already
-        resolved, as the workflows resolve it once against all their inputs;
-        each R2 matrix chromosome still compares its declared build with it
-        when opened. ``chromosome_prefixes`` maps normalized chromosome labels
-        to PLINK prefixes the caller has validated (``PlinkRefPanel``); an R2
-        matrix ignores it.
+        In a coordinate-family SNP identifier mode, the build declarations of
+        the panel and ``ref_panel_snps_file`` are checked first: a concrete
+        build must agree with them, and an ``auto`` build is resolved from
+        them. Coordinates are inferred only for ``auto``.
+
+        Raises
+        ------
+        LDSCInputError
+            The declarations conflict with each other or with a concrete
+            build, or an ``auto`` build cannot be resolved.
         """
-        global_config = self._global_config_for_spec(ref_panel_spec)
-        if ref_panel_spec.backend == "plink":
-            return PlinkRefPanel(global_config, ref_panel_spec, chromosome_prefixes=chromosome_prefixes)
-        return R2MatrixRefPanel(global_config, ref_panel_spec)
+        return resolved_ref_panel(self._global_config_for_spec(ref_panel_spec), ref_panel_spec)
 
     def _global_config_for_spec(self, ref_panel_spec: RefPanelConfig) -> GlobalConfig:
-        """Resolve an ``auto`` build in a coordinate-family mode before backend loading."""
+        """Validate direct Python build declarations before backend loading."""
         mode = normalize_snp_identifier_mode(self.global_config.snp_identifier)
-        if identity_mode_family(mode) != "chr_pos" or self.global_config.genome_build in {"hg19", "hg38"}:
+        if identity_mode_family(mode) != "chr_pos":
             return self.global_config
         resolved_build = _infer_restricted_ref_panel_build(ref_panel_spec, self.global_config.genome_build)
         return GlobalConfig(
@@ -647,6 +646,22 @@ class RefPanelLoader:
             genome_build=resolved_build,
             log_level=self.global_config.log_level,
         )
+
+
+def resolved_ref_panel(global_config: GlobalConfig, ref_panel_spec: RefPanelConfig, *,
+                       chromosome_prefixes: dict[str, str] | None = None) -> RefPanel:
+    """Return the adapter that ``ref_panel_spec.backend`` names, for a build the caller already resolved.
+
+    Workflows resolve the genome build once against all their inputs, so this
+    checks no build declaration again (``RefPanelLoader.load`` does, for direct
+    Python callers); opening an R2 matrix chromosome still compares its
+    declared build with ``global_config``. ``chromosome_prefixes`` maps
+    normalized chromosome labels to PLINK prefixes the caller has validated
+    (``PlinkRefPanel``); an R2 matrix ignores it.
+    """
+    if ref_panel_spec.backend == "plink":
+        return PlinkRefPanel(global_config, ref_panel_spec, chromosome_prefixes=chromosome_prefixes)
+    return R2MatrixRefPanel(global_config, ref_panel_spec)
 
 
 def _infer_restricted_ref_panel_build(ref_panel_spec: RefPanelConfig, requested) -> str:

@@ -36,7 +36,7 @@ from .._annotation.storage import TsvDiagnostics
 from .._core.chromosomes import chrom_sort_key
 from .._core.row_alignment import concat_chromosome_tables, sort_frame_by_genomic_position
 from .._core.snp_identity import coerce_identity_drop_frame, IDENTITY_DROP_COLUMNS, is_allele_aware_mode
-from .._refpanel.adapters import PlinkRefPanel, RefPanelLoader
+from .._refpanel.adapters import PlinkRefPanel, resolved_ref_panel
 from .._refpanel.funnel import REFERENCE_PANEL, annotation_snp_grid_emptied, concat_funnels, funnel_summary
 from .._refpanel.prepared import ChromosomeAnnotations, MappedAnnotations
 from .._refpanel.r2_format import SIDECAR_FLOAT_FORMAT
@@ -419,8 +419,8 @@ class _DirectProducer:
         # carries the resolved build; its PLINK chromosome prefixes are
         # resolved here, and its SNP restriction and keep list at the first
         # submission, rather than in every task.
-        self.task_panel = RefPanelLoader(global_config).load(
-            ref_panel.spec,
+        self.task_panel = resolved_ref_panel(
+            global_config, ref_panel.spec,
             chromosome_prefixes=ref_panel._resolved_prefixes() if isinstance(ref_panel, PlinkRefPanel) else None)
 
     def prepare(self, bundle, *, ordinal=0, fragment_dir=None) -> _DirectBatch:

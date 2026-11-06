@@ -63,10 +63,26 @@ class RefPanelLoaderTest(unittest.TestCase):
         self.assertEqual(spec.r2_matrix_dir, "/path/to/panel/hg38")
 
     def test_loader_selects_parquet_backend(self):
-        loader = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
-        spec = RefPanelConfig(backend="r2_matrix", r2_matrix_dir="/path/to/panel/hg38")
-        panel = loader.load(spec)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_r2(build_dir)
+            loader = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+            panel = loader.load(RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)))
         self.assertIsInstance(panel, R2MatrixRefPanel)
+
+    def test_loader_checks_declarations_against_a_concrete_build(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            restriction = Path(tmpdir) / "snps.tsv"
+            restriction.write_text("CHR\tHG19_POS\n22\t16406147\n", encoding="utf-8")
+            loader = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"))
+            with self.assertRaisesRegex(LDSCInputError, "Conflicting genome-build evidence"):
+                loader.load(RefPanelConfig(backend="plink", plink_prefix=str(PLINK_PREFIX),
+                                           ref_panel_snps_file=str(restriction)))
+
+            build_dir = Path(tmpdir) / "panel" / "hg19"
+            _write_r2(build_dir, genome_build="hg19")
+            with self.assertRaisesRegex(LDSCInputError, "Conflicting genome-build evidence"):
+                loader.load(RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)))
 
     def test_auto_build_resolution_uses_coordinate_family(self):
         with tempfile.TemporaryDirectory() as tmpdir:

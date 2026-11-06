@@ -45,7 +45,7 @@ from .. import compute as kernel_ldscore
 from ..diagnostics import chromosome_log, emit_reference_snp_funnel_notice, log_reference_snp_funnel_warning
 from ..outputs import CHROMOSOME_LOG_DIR, snp_universe_policy_record
 from ..._annotation.semantics import combine_annotation_types
-from ..._refpanel.adapters import PlinkRefPanel, RefPanelLoader
+from ..._refpanel.adapters import PlinkRefPanel, resolved_ref_panel
 from ..._refpanel.funnel import ANNOTATION_SNP_GRID, REFERENCE_PANEL, concat_funnels, funnel_from_records, funnel_records
 from ..._refpanel.plink_source import keep_individual_indices, read_keep_individuals, select_plink_chromosome
 from ..._refpanel.prepared import ChromosomeAnnotations
@@ -808,7 +808,8 @@ def _run_gene_ldscore_index_build(
         snp_label_discordant = _validate_baseline_plink_inputs(
             sources, chromosome_prefixes, config, chromosomes, build_dir)
         # One panel for the run: its keep list is read here, and every task's copy carries it.
-        ref_panel = RefPanelLoader(global_config).load(
+        ref_panel = resolved_ref_panel(
+            global_config,
             RefPanelConfig(backend="plink", plink_prefix=config.plink_prefix,
                            keep_indivs_file=config.keep_indivs_file, maf_min=config.maf_min),
             chromosome_prefixes=chromosome_prefixes,

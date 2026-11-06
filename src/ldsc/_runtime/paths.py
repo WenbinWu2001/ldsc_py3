@@ -111,13 +111,6 @@ def split_cli_path_tokens(value: Optional[Union[str, Sequence[str]]]) -> list[st
     return tokens
 
 
-def substitute_chromosome(token: str, chrom: str) -> str:
-    """Apply the legacy ``@`` chromosome substitution rule to ``token``."""
-    if "@" not in token:
-        raise FileNotFoundError(token)
-    return token.replace("@", str(chrom))
-
-
 def expand_chromosome_suite(token: str, chromosomes: Iterable = AUTOSOMES) -> list[tuple[str, str]]:
     """Return the ``(path, chromosome)`` members a declared input token requires.
 
@@ -131,47 +124,23 @@ def expand_chromosome_suite(token: str, chromosomes: Iterable = AUTOSOMES) -> li
     return [(token.replace("@", str(chrom)), str(chrom)) for chrom in chromosomes]
 
 
-def _format_input_path_resolution_message(
-    *,
-    label: str,
-    token: str,
-    match_count: int,
-    likely: str,
-    fix: str,
-) -> str:
-    """Build the shared user-facing path-resolution failure message."""
+def _raise_input_path_error(label: str, token: str, match_count: int, *, cause: Exception | None = None) -> None:
+    """Raise the shared error for a token that matched no file (``cause`` is the lookup error) or several files."""
+    if match_count == 0:
+        likely = "the path is misspelled, relative to the wrong working directory, or missing a required suffix"
+        fix = "Pass an existing path, an exact-one glob, or an explicit @ chromosome suite."
+    else:
+        likely = "the glob is too broad for an input that must resolve to exactly one file"
+        fix = "Narrow the glob or pass the exact file path."
     noun = "file" if match_count == 1 else "files"
-    return (
+    error = LDSCInputError(
         f"Could not resolve {label} path from token {token!r}: matched {match_count} {noun}. "
         f"Most likely {likely}. {fix} "
         f"Other causes & fixes: {_INPUT_PATH_TROUBLESHOOTING}"
     )
-
-
-def _raise_missing_input_path(label: str, token: str, *, cause: Exception | None = None) -> None:
-    """Raise the shared no-match input-path error."""
-    raise LDSCInputError(
-        _format_input_path_resolution_message(
-            label=label,
-            token=token,
-            match_count=0,
-            likely="the path is misspelled, relative to the wrong working directory, or missing a required suffix",
-            fix="Pass an existing path, an exact-one glob, or an explicit @ chromosome suite.",
-        )
-    ) from cause
-
-
-def _raise_ambiguous_input_path(label: str, token: str, match_count: int) -> None:
-    """Raise the shared too-many-matches input-path error."""
-    raise LDSCInputError(
-        _format_input_path_resolution_message(
-            label=label,
-            token=token,
-            match_count=match_count,
-            likely="the glob is too broad for an input that must resolve to exactly one file",
-            fix="Narrow the glob or pass the exact file path.",
-        )
-    )
+    if cause is None:
+        raise error
+    raise error from cause
 
 
 def resolve_scalar_path(
@@ -202,9 +171,9 @@ def resolve_scalar_path(
     try:
         matches = _resolve_direct_token(normalized_token)
     except FileNotFoundError as exc:
-        _raise_missing_input_path(label, normalized_token, cause=exc)
+        _raise_input_path_error(label, normalized_token, 0, cause=exc)
     if len(matches) != 1:
-        _raise_ambiguous_input_path(label, normalized_token, len(matches))
+        _raise_input_path_error(label, normalized_token, len(matches))
     return matches[0]
 
 
@@ -275,12 +244,12 @@ def resolve_file_group(
             matches = _resolve_direct_token(token)
         except FileNotFoundError as exc:
             if not allow_chromosome_suite or "@" not in token:
-                _raise_missing_input_path(label, token, cause=exc)
+                _raise_input_path_error(label, token, 0, cause=exc)
             matches = _resolve_suite_token(token, chromosomes=chromosomes)
             if not matches:
-                _raise_missing_input_path(label, token, cause=exc)
+                _raise_input_path_error(label, token, 0, cause=exc)
         resolved.extend(matches)
-    resolved = _dedupe_preserving_order(resolved)
+    resolved = list(dict.fromkeys(resolved))
     if not resolved:
         raise LDSCInputError(
             f"Could not resolve {label} paths: no files were resolved from the supplied tokens. "
@@ -309,7 +278,7 @@ def resolve_plink_prefix_group(
         tokens, chromosomes=chromosomes, allow_chromosome_suite=allow_chromosome_suite,
     )
     PlinkInputResolution([], {}, issues).require_valid()
-    return _dedupe_preserving_order([prefix for prefix, _ in members])
+    return list(dict.fromkeys(prefix for prefix, _ in members))
 
 
 @dataclass
@@ -396,24 +365,11 @@ def _resolve_suite_token(token: str, *, chromosomes: Sequence[str]) -> list[str]
     """Resolve a chromosome-suite token by substituting each chromosome label."""
     resolved: list[str] = []
     for chrom in chromosomes:
-        chrom_token = substitute_chromosome(token, chrom)
         try:
-            resolved.extend(_resolve_direct_token(chrom_token))
+            resolved.extend(_resolve_direct_token(token.replace("@", str(chrom))))
         except FileNotFoundError:
             continue
-    return _dedupe_preserving_order(resolved)
-
-
-def _dedupe_preserving_order(values: Sequence[str]) -> list[str]:
-    """Return ``values`` with duplicates removed while keeping first-seen order."""
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for value in values:
-        if value in seen:
-            continue
-        seen.add(value)
-        ordered.append(value)
-    return ordered
+    return list(dict.fromkeys(resolved))
 
 
 def ensure_output_directory(
@@ -540,8 +496,8 @@ def preflight_output_artifact_family(
     invocation can pass the all-chromosome package and clean stale siblings
     across the full R2 matrix after success.
     """
-    produced = _dedupe_paths(Path(normalize_path_token(path)) for path in produced_paths)
-    owned = _dedupe_paths(Path(normalize_path_token(path)) for path in owned_paths)
+    produced = list(dict.fromkeys(Path(normalize_path_token(path)) for path in produced_paths))
+    owned = list(dict.fromkeys(Path(normalize_path_token(path)) for path in owned_paths))
     if not overwrite:
         # No-overwrite contract: any owned path on disk is a hard collision,
         # whether or not the current run intended to produce it. This is what
@@ -570,7 +526,7 @@ def remove_output_artifacts(paths: Iterable[str | PathLike[str]]) -> None:
     files in the same directory, such as a user-created ``readme.txt``, remain
     untouched.
     """
-    for path in _dedupe_paths(Path(normalize_path_token(path)) for path in paths):
+    for path in dict.fromkeys(Path(normalize_path_token(path)) for path in paths):
         if not path.exists():
             continue
         if path.is_dir() and not path.is_symlink():
@@ -591,15 +547,3 @@ def _format_output_collision_message(paths: Sequence[Path], *, label: str) -> st
         f"Pass --overwrite on the CLI or overwrite=True in Python to replace them. "
         f"Other causes & fixes: {_OUTPUT_COLLISION_TROUBLESHOOTING}"
     )
-
-
-def _dedupe_paths(paths: Iterable[Path]) -> list[Path]:
-    """Return paths without duplicates while preserving first-seen order."""
-    seen: set[Path] = set()
-    ordered: list[Path] = []
-    for path in paths:
-        if path in seen:
-            continue
-        seen.add(path)
-        ordered.append(path)
-    return ordered

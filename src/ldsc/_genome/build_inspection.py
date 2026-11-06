@@ -15,12 +15,11 @@ import pandas as pd
 from pyarrow import ArrowNotImplementedError
 import pyarrow.parquet as pq
 
-from .build_evidence import r2_members, r2_sidecar_path, sample_chromosomes, table_frames, text_options
-from .._runtime.artifacts import declared_result_file
-from .._core.columns import (
-    RESTRICTION_CHRPOS_SPEC_MAP, RESTRICTION_HG19_POS_SPEC, RESTRICTION_HG38_POS_SPEC,
-    normalize_genome_build, resolve_optional_column,
+from .build_evidence import (
+    build_position_columns, r2_members, r2_sidecar_path, sample_chromosomes, table_frames, text_options,
 )
+from .._runtime.artifacts import declared_result_file
+from .._core.columns import RESTRICTION_CHRPOS_SPEC_MAP, normalize_genome_build, resolve_optional_column
 from ..errors import LDSCInputError
 from .build_inference import infer_chr_pos_build
 from .._runtime.paths import normalize_path_token
@@ -215,12 +214,9 @@ def _inspect_table(path: Path, *, inherited=None) -> _Inspection:
                 result.groups.setdefault("", []).extend(result.metadata({"genome_build": value}, path))
         if result.groups.get(""):
             return result
-    alternatives = [(build, resolve_optional_column(columns, spec, context=str(path))) for build, spec in (
-        ("hg19", RESTRICTION_HG19_POS_SPEC), ("hg38", RESTRICTION_HG38_POS_SPEC),
-    )]
-    alternatives = [(build, column) for build, column in alternatives if column is not None]
+    alternatives = build_position_columns(columns, context=str(path))
     if alternatives:
-        for build, column in alternatives:
+        for build, column in alternatives.items():
             result.add(path, build, f"declared by coordinate column {column}",
                        group=build if len(alternatives) > 1 else "")
         return result

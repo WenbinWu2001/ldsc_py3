@@ -16,11 +16,12 @@ import pyarrow.parquet as pq
 
 from .._core.identifiers import open_identity_table
 from .._core.columns import (
-    normalize_genome_build, resolve_optional_column, resolve_required_column,
-    RESTRICTION_CHRPOS_SPEC_MAP, RESTRICTION_HG19_POS_SPEC, RESTRICTION_HG38_POS_SPEC,
+    normalize_genome_build, resolve_optional_column, resolve_required_column, RESTRICTION_CHRPOS_SPEC_MAP,
 )
 from ..errors import LDSCInputError, LDSCUserError
-from .build_evidence import r2_members, r2_sidecar_path, sample_chromosomes, table_frames, text_options
+from .build_evidence import (
+    build_position_columns, r2_members, r2_sidecar_path, sample_chromosomes, table_frames, text_options,
+)
 from .build_inference import infer_chr_pos_build
 from .._runtime.paths import resolve_file_group, resolve_plink_prefix_group, split_cli_path_tokens
 
@@ -223,15 +224,11 @@ class GenomeBuildCheck:
             if not infer_unlabeled:
                 self.unchecked(role, path, 'unlabeled descriptive coordinates; no coordinate computation')
                 return
-            alternatives = {build for build, spec in (("hg19", RESTRICTION_HG19_POS_SPEC),
-                                                       ("hg38", RESTRICTION_HG38_POS_SPEC))
-                            if resolve_optional_column(columns, spec, context=str(path)) is not None}
+            alternatives = build_position_columns(columns, context=str(path))
             if alternatives:
                 entry = BuildEvidence(role, str(path), frozenset(alternatives), "alternative build-specific position columns")
                 self.evidence.append(entry)
-                specific_columns = {resolve_optional_column(columns, spec, context=str(path))
-                                    for spec in (RESTRICTION_HG19_POS_SPEC, RESTRICTION_HG38_POS_SPEC)}
-                generic = resolve_optional_column([col for col in columns if col not in specific_columns],
+                generic = resolve_optional_column([col for col in columns if col not in alternatives.values()],
                                                   RESTRICTION_CHRPOS_SPEC_MAP["POS"], context=str(path))
                 if generic is not None and len(alternatives) == 1:
                     self._generic_fallbacks.append((self.evidence[-1], path, columns, generic, parquet))

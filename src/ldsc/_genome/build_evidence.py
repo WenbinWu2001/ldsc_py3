@@ -14,6 +14,7 @@ from pathlib import Path
 import pandas as pd
 import pyarrow.parquet as pq
 
+from .._core.columns import RESTRICTION_HG19_POS_SPEC, RESTRICTION_HG38_POS_SPEC, resolve_optional_column
 from .._core.coordinates import normalize_chr_pos_frame
 
 SAMPLE_ROWS = 5000
@@ -43,6 +44,13 @@ def r2_members(root) -> dict[str, list[Path]]:
     members = {"": sorted(root.glob(R2_PARQUET_GLOB))}
     members.update((build, sorted((root / build).glob(R2_PARQUET_GLOB))) for build in ("hg19", "hg38"))
     return members
+
+
+def build_position_columns(columns, *, context) -> dict[str, str]:
+    """Return a header's build-specific position column for hg19 and for hg38, when present."""
+    found = {build: resolve_optional_column(columns, spec, context=context)
+             for build, spec in (("hg19", RESTRICTION_HG19_POS_SPEC), ("hg38", RESTRICTION_HG38_POS_SPEC))}
+    return {build: column for build, column in found.items() if column is not None}
 
 
 def sample_chromosomes(frames, *, context) -> dict:

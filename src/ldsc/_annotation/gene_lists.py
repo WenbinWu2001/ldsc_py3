@@ -143,7 +143,8 @@ class GeneCatalog:
                 repair="Make the catalog readable and rerun.",
             )
             raise GeneCatalogValidationError(
-                f"Could not read gene coordinate catalog '{source}': {exc}", issues
+                f"Could not read gene coordinate catalog '{source}': {exc}. Other causes & fixes: "
+                f"{_CATALOG_TROUBLESHOOTING}", issues
             ) from exc
         try:
             raw = gzip.decompress(payload) if source.lower().endswith(".gz") else payload
@@ -156,7 +157,8 @@ class GeneCatalog:
                 repair="Regenerate the .tsv.gz catalog as a valid gzip-compressed TSV.",
             )
             raise GeneCatalogValidationError(
-                f"Gene coordinate catalog '{source}' is not a readable gzip TSV: {exc}", issues
+                f"Gene coordinate catalog '{source}' is not a readable gzip TSV: {exc}. Other causes & fixes: "
+                f"{_CATALOG_TROUBLESHOOTING}", issues
             ) from exc
         try:
             text = raw.decode("utf-8")
@@ -169,7 +171,8 @@ class GeneCatalog:
                 repair="Encode the catalog as UTF-8 and rerun.",
             )
             raise GeneCatalogValidationError(
-                f"Gene coordinate catalog '{source}' is not valid UTF-8: {exc}", issues
+                f"Gene coordinate catalog '{source}' is not valid UTF-8: {exc}. Other causes & fixes: "
+                f"{_CATALOG_TROUBLESHOOTING}", issues
             ) from exc
 
         frame, parse_issues = _parse_catalog_text(text, source)

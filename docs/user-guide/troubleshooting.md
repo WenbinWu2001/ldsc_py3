@@ -280,12 +280,12 @@ All four also write each affected file to `diagnostics/input_issues.tsv` in the 
 
 ### Common: gene coordinate catalog is not valid
 
-**Symptom:** `Gene coordinate catalog '<file>' is not structurally valid: found <n> defect(s): line <L>, <field>: <reason> ...`
+**Symptom:** `Gene coordinate catalog '<file>' is not structurally valid: found <n> defect(s): line <L>, <field>: <reason> ...`, or, for a file that cannot be read as text, `Could not read gene coordinate catalog '<file>': ...`, `... is not a readable gzip TSV: ...` or `... is not valid UTF-8: ...`
 
 Gene-list runs of `annotate`, `ldscore` and `quantile-h2`, and the Python `AnnotationBuilder`, check the whole gene coordinate catalog before any gene list is resolved.
 A defect that leaves the catalog without one usable genome build or without parseable rows stops the run; the message names the first five defects with their catalog line, field, reason, value and repair, and counts the rest.
 `build-gene-ldscore-index` stops on every catalog defect, with `is not canonical` in the message.
-`annotate`, `ldscore` and `quantile-h2` write every defect to `diagnostics/gene_catalog_issues.tsv` in the output directory; `build-gene-ldscore-index` writes them to `<index-dir>/.build/gene_coordinate_catalog_issues.tsv.gz`.
+`annotate`, `ldscore` and `quantile-h2`, and their Python functions `run_annotate()`, `run_ldscore()` and `run_quantile_h2()`, write every defect to `diagnostics/gene_catalog_issues.tsv` in the output directory; `build-gene-ldscore-index` writes them to `<index-dir>/.build/gene_coordinate_catalog_issues.tsv.gz`.
 The Python `AnnotationBuilder` writes no table; the exception's `issues` attribute holds the same rows.
 
 **Likely causes & how to check:**

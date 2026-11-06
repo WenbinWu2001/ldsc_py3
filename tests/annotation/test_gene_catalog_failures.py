@@ -64,6 +64,26 @@ def test_message_shows_the_first_defects_and_counts_the_rest(tmp_path):
     assert ANCHOR in message
 
 
+@pytest.mark.parametrize(("name", "payload", "reason"), [
+    ("catalog.tsv.gz", b"not a gzip stream", "catalog_unparseable"),
+    ("catalog.tsv", b"gene_id\xff\n", "catalog_unparseable"),
+    ("catalog.tsv", None, "catalog_unreadable"),
+], ids=["gzip", "utf8", "unreadable"])
+def test_file_level_failures_point_to_the_troubleshooting_section(tmp_path, name, payload, reason):
+    catalog = tmp_path / name
+    if payload is None:
+        catalog.mkdir()  # reading a directory fails with an OSError
+    else:
+        catalog.write_bytes(payload)
+
+    with pytest.raises(GeneCatalogValidationError) as caught:
+        GeneCatalog.load(catalog)
+
+    assert f"gene coordinate catalog '{name}'" in str(caught.value).lower()
+    assert str(caught.value).endswith(f"Other causes & fixes: {ANCHOR}")
+    assert caught.value.issues["reason"].iloc[0] == reason
+
+
 def test_error_keeps_its_message_and_table_across_a_process_boundary(tmp_path):
     # quantile-h2 loads the catalog in a worker process and re-raises the error in the parent.
     catalog = _unsupported_build_catalog(tmp_path / "catalog.tsv")

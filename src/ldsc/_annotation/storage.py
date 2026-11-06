@@ -1,82 +1,19 @@
-"""Output-contained scratch and detached, column-selective annotation I/O.
+"""Detached, column-selective annotation I/O.
 
 Private values use column-major NumPy files, with binary SNP values packed into
 bytes. Reads seek and decode bounded runs without a memory map or value cache.
 Descriptors carry logical dimensions and encoding across chromosome workers.
+The files live in a run's ``ScratchWorkspace`` (``ldsc._runtime.scratch``).
 """
 
 from dataclasses import dataclass
 from pathlib import Path
-import pickle
-import shutil
-import tempfile
 from typing import Sequence
 
 import numpy as np
 import pandas as pd
 
-from .._runtime.paths import output_directory_path
-
 BINARY_BITORDER = "little"
-
-
-class AnnotationWorkspace:
-    """Own a unique scratch directory below an explicit workflow destination.
-
-    Closing is idempotent and removes only this owner's private directory.
-    Public artifacts and source files are never owned by this object. Borrowers
-    must not close their caller's workspace.
-    """
-
-    def __init__(self, output_dir: str | Path):
-        destination = output_directory_path(output_dir)
-        destination.mkdir(parents=True, exist_ok=True)
-        self.path = Path(tempfile.mkdtemp(prefix=".ldsc-annotation-", dir=destination))
-        self.closed = False
-
-    def require_open(self) -> None:
-        if self.closed:
-            raise ValueError("Annotation workspace is closed.")
-
-    def close(self) -> None:
-        if not self.closed:
-            shutil.rmtree(self.path)
-            self.closed = True
-
-    def __enter__(self):
-        self.require_open()
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.close()
-
-
-@dataclass(frozen=True)
-class TsvDiagnostics:
-    """Complete compressed diagnostics with an explicit private or public owner.
-
-    A private artifact borrows its annotation workspace and is readable until
-    that owner closes. Publication replaces it with the persistent destination
-    and no workspace dependency. Reads never cache complete diagnostic tables.
-    """
-
-    path: Path
-    workspace: AnnotationWorkspace | None = None
-
-    def frames(self, *, chunk_rows=65536):
-        """Replay bounded rows while checking the private owner's lifetime."""
-        if self.workspace is not None:
-            self.workspace.require_open()
-        yield from pd.read_csv(self.path, sep="\t", chunksize=chunk_rows)
-
-    def write_to(self, path):
-        """Copy the complete artifact without loading or reserializing rows."""
-        if self.workspace is not None:
-            self.workspace.require_open()
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if path.resolve() != self.path.resolve():
-            shutil.copyfile(self.path, path)
 
 
 @dataclass(frozen=True)
@@ -226,50 +163,6 @@ class ColumnStore:
                         raise OSError(f"Truncated annotation shard: {self.path}")
                     result[order[cursor:stop], j] = values[sorted_rows[cursor:stop] - start]
         return result
-
-
-@dataclass
-class FrameSpool:
-    """Append bounded private frames and replay them without retaining records.
-
-    One append stream holds independently serialized frames, keeping file count
-    constant as chunks accumulate. Pickles are locally generated scratch, never
-    user inputs. Descriptors retain no records or open handles.
-    """
-
-    path: Path
-    n_parts: int = 0
-    n_rows: int = 0
-
-    def append(self, frame):
-        if frame.empty:
-            return
-        self.path.mkdir(parents=True, exist_ok=True)
-        with (self.path / "frames.pkl").open("ab" if self.n_parts else "wb") as stream:
-            pickle.dump(frame, stream, protocol=pickle.HIGHEST_PROTOCOL)
-        self.n_parts += 1
-        self.n_rows += len(frame)
-
-    def frames(self):
-        if self.n_parts:
-            with (self.path / "frames.pkl").open("rb") as stream:
-                for _ in range(self.n_parts):
-                    yield pickle.load(stream)
-
-    def write_tsv(self, path, *, columns=(), na_rep=""):
-        """Publish all records, retaining only one append chunk at a time."""
-        import gzip
-
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        opener = gzip.open if path.suffix == ".gz" else open
-        with opener(path, "wt") as stream:
-            header = True
-            for frame in self.frames():
-                frame.to_csv(stream, sep="\t", index=False, header=header, na_rep=na_rep)
-                header = False
-            if header:
-                pd.DataFrame(columns=columns).to_csv(stream, sep="\t", index=False)
 
 
 @dataclass(frozen=True)

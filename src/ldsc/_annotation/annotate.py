@@ -14,7 +14,7 @@ from .bundle import AnnotationBundle
 from .bim_grid import resolve_bim_grid_inputs, prepare_bim_grid
 from .interval_queries import prepare_bed_queries, build_query_shards, require_readable_bed_sources
 from .sources import prepare_annotation_sources
-from .storage import AnnotationWorkspace
+from .._runtime.scratch import ScratchWorkspace
 from .gene_query_storage import resolve_gene_lists_staged
 from .._core.snp_identity import emit_dropped_snps_notice, identity_mode_family
 from .._runtime.workflow_logging import workflow_logging, materializing_overwrite_guard, log_inputs, log_outputs
@@ -136,7 +136,7 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
     writer = AnnotationDirectoryWriter()
     family = writer.artifact_family(output, gene_lists=bool(genes))
     family.preflight(overwrite=overwrite)
-    workspace = AnnotationWorkspace(output)
+    workspace = ScratchWorkspace(output)
     batch = catalog = bundle = None
     try:
         with workflow_logging('annotate', family.paths['log'], log_level=config.log_level):

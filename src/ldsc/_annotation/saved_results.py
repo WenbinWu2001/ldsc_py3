@@ -6,7 +6,7 @@ from pathlib import Path
 from .bundle import AnnotationBundle
 from .gene_query_storage import GeneListDiagnostics, persistent_gene_diagnostics
 from .sources import prepare_annotation_sources
-from .storage import AnnotationWorkspace, TsvDiagnostics
+from .._runtime.scratch import ScratchWorkspace, TsvDiagnostics
 from ..config import GlobalConfig
 
 
@@ -109,7 +109,7 @@ class AnnotationResult:
             manager or call ``close()`` to remove the folder. Each call returns
             an independent bundle; the exported files are only read.
         """
-        workspace = AnnotationWorkspace(directory)
+        workspace = ScratchWorkspace(directory)
         try:
             shards = self.exported_sources.prepare(workspace, self.config_snapshot.snp_identifier)
         except BaseException:

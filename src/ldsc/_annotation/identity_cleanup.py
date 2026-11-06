@@ -10,8 +10,9 @@ import sqlite3
 
 import pandas as pd
 
-from .storage import FrameSpool
+from .._runtime.scratch import FrameSpool
 from .._core.snp_identity import (
+    IDENTITY_DROP_COLUMNS,
     IDENTITY_DROP_REASONS,
     identity_drop_rows,
     allele_set_series,
@@ -30,7 +31,7 @@ class IdentityDropSpool(FrameSpool):
     """Replay global cleanup records in policy-reason order, then source order."""
 
     def __init__(self, path):
-        super().__init__(path)
+        super().__init__(path, columns=tuple(IDENTITY_DROP_COLUMNS))
         self._parts = {reason: FrameSpool(path / reason) for reason in IDENTITY_DROP_REASONS}
 
     def append(self, frame):

@@ -32,7 +32,6 @@ import pandas as pd
 from .._annotation.interval_queries import execution_query_bundle
 from .._annotation.overlap import sum_overlap_contributions
 from .._annotation.semantics import combine_annotation_types
-from .._annotation.storage import TsvDiagnostics
 from .._core.chromosomes import chrom_sort_key
 from .._core.row_alignment import concat_chromosome_tables, sort_frame_by_genomic_position
 from .._core.snp_identity import coerce_identity_drop_frame, IDENTITY_DROP_COLUMNS, is_allele_aware_mode
@@ -40,6 +39,7 @@ from .._refpanel.adapters import PlinkRefPanel, resolved_ref_panel
 from .._refpanel.funnel import REFERENCE_PANEL, annotation_snp_grid_emptied, concat_funnels, funnel_summary
 from .._refpanel.prepared import ChromosomeAnnotations, MappedAnnotations
 from .._refpanel.r2_format import SIDECAR_FLOAT_FORMAT
+from .._runtime.scratch import DiagnosticRows, MemoryDiagnostics, TsvDiagnostics
 from .._runtime.worker_runtime import initialize_worker
 from ..config import GlobalConfig, LDScoreConfig, validate_config_compatibility
 from ..errors import EmptyReferenceSNPs, LDSCInputError, LDSCInternalError
@@ -120,7 +120,7 @@ def compute_direct_chromosome(
 
 
 def _chromosome_record(computed: kernel_ldscore.ChromComputationResult, global_config: GlobalConfig, *,
-                       include_baseline: bool = True, identity_drops: TsvDiagnostics | None = None,
+                       include_baseline: bool = True, identity_drops: DiagnosticRows | None = None,
                        reference_snp_funnel: pd.DataFrame | None = None, fragment_dir: str | None = None):
     """Turn one kernel chromosome result into the chromosome's record.
 
@@ -632,7 +632,6 @@ def _partition_annotation_drops(bundle):
     if bundle.identity_drops is None:
         return artifacts
     if bundle.diagnostics_in_memory:
-        from .._annotation.in_memory import MemoryDiagnostics
         frames = list(bundle.identity_drops.frames())
         if frames:
             for chrom, rows in pd.concat(frames, ignore_index=True).groupby("CHR", sort=False):
@@ -652,7 +651,6 @@ def _partition_annotation_drops(bundle):
 def _stage_chromosome_drops(bundle, chrom, reference_drops):
     """Stream source cleanup followed by reference-stage drops into one artifact."""
     if bundle.diagnostics_in_memory:
-        from .._annotation.in_memory import MemoryDiagnostics
         frames = [frame.loc[frame.CHR.astype(str).eq(str(chrom))] for frame in bundle.identity_drops.frames()] if bundle.identity_drops is not None else []
         frames.append(coerce_identity_drop_frame(reference_drops))
         return MemoryDiagnostics(coerce_identity_drop_frame(pd.concat(frames, ignore_index=True)))

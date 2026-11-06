@@ -1,7 +1,6 @@
 """Prepared annotations and complete diagnostics for small file-free calculations."""
 
 from dataclasses import dataclass
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -11,6 +10,7 @@ from .._core.chromosomes import normalize_chromosome
 from ..config import get_global_config
 from ..errors import LDSCInputError
 from .storage import BINARY_BITORDER
+from .._runtime.scratch import MemoryDiagnostics
 from .._core.snp_identity import clean_identity_artifact_table, identity_base_mode, identity_mode_family
 
 
@@ -26,23 +26,6 @@ class MemoryOwner:
 
     def close(self) -> None:
         self.closed = True
-
-
-@dataclass(frozen=True)
-class MemoryDiagnostics:
-    """Complete diagnostic rows owned by an in-memory result."""
-
-    frame: pd.DataFrame
-
-    def frames(self, *, chunk_rows=65536):
-        for start in range(0, len(self.frame), chunk_rows):
-            yield self.frame.iloc[start:start + chunk_rows]
-
-    def write_to(self, path):
-        """Serialize only when the caller explicitly chooses a writing workflow."""
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self.frame.to_csv(path, sep="\t", index=False, na_rep="")
 
 
 @dataclass(frozen=True)

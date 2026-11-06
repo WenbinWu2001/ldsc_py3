@@ -18,7 +18,7 @@ import pandas as pd
 
 from .._runtime.progress import report_phase, advance
 
-from .storage import FrameSpool
+from .._runtime.scratch import FrameSpool
 from .gene_lists import (
     AUDIT_COLUMNS, SUMMARY_COLUMNS, RESOLVED_ONLY_REASONS, GeneSourceSelection,
     _empty_source_summaries, _expand_focal_gene_list_sources, _resolution_candidates, _resolve_rows,

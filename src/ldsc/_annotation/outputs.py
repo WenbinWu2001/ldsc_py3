@@ -16,7 +16,6 @@ import pandas as pd
 
 from .._runtime.artifacts import ArtifactFamily, atomic_write_json, declare_artifacts
 from .._runtime.paths import remove_output_artifacts
-from .._core.snp_identity import IDENTITY_DROP_COLUMNS
 
 
 class AnnotationDirectoryWriter:
@@ -58,7 +57,7 @@ class AnnotationDirectoryWriter:
             pd.DataFrame([item.as_dict() for item in statuses], columns=columns).to_csv(paths['query_annotation_status'], sep='\t', index=False, na_rep='')
         if drops is not None:
             paths['dropped_snps'] = root / 'dropped_snps' / 'dropped.tsv.gz'
-            drops.write_tsv(paths['dropped_snps'], columns=IDENTITY_DROP_COLUMNS)
+            drops.write_to(paths['dropped_snps'])
         for key, frame in [('gene_catalog_issues', catalog_issues), ('input_issues', input_issues)]:
             if frame is not None:
                 paths[key] = root / f'{key}.tsv'

@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import numpy as np
-from .storage import AnnotationShard, AnnotationWorkspace, FrameSpool, TsvDiagnostics
+from .storage import AnnotationShard
+from .._runtime.scratch import DiagnosticRows, ScratchWorkspace
 from .semantics import require_unique_annotation_names
 from .._core.chromosomes import normalize_chromosome
 from ..config import GlobalConfig
@@ -14,7 +15,7 @@ from ..errors import LDSCInternalError
 
 if TYPE_CHECKING:
     from .gene_query_storage import GeneListDiagnostics, StagedGeneListBatch
-    from .in_memory import MemoryDiagnostics, MemoryOwner
+    from .in_memory import MemoryOwner
     from .interval_queries import ProjectedQueries
 
 
@@ -39,7 +40,7 @@ class AnnotationBundle:
     ----------
     baseline_columns, query_columns : list of str
         Ordered baseline and query annotation names shared by all chromosomes.
-    workspace : AnnotationWorkspace or MemoryOwner
+    workspace : ScratchWorkspace or MemoryOwner
         Owner of private, output-contained staging files, or the lifetime of
         the in-memory arrays of the file-free ``from_frames`` route.
     output_paths : dict
@@ -49,12 +50,12 @@ class AnnotationBundle:
     shards: dict[str, AnnotationShard]
     baseline_columns: list[str]
     query_columns: list[str]
-    workspace: AnnotationWorkspace | MemoryOwner
+    workspace: ScratchWorkspace | MemoryOwner
     source_summary: dict = field(default_factory=dict)
     config_snapshot: GlobalConfig | None = None
     query_statuses: tuple = ()
     gene_list_batch: StagedGeneListBatch | GeneListDiagnostics | None = None
-    identity_drops: FrameSpool | TsvDiagnostics | MemoryDiagnostics | None = None
+    identity_drops: DiagnosticRows | None = None
     chromosome_identity_drops: dict | None = None
     output_paths: dict = field(default_factory=dict)
     diagnostics_in_memory: bool = False

@@ -119,14 +119,14 @@ def test_constant_gene_query_notice_explains_skips_without_claiming_zero_snp_sup
 def test_many_annotation_and_bed_sources_have_collection_progress(tmp_path, caplog):
     from ldsc._annotation.sources import prepare_annotation_sources
     from ldsc._annotation.interval_queries import prepare_bed_queries
-    from ldsc._annotation.storage import AnnotationWorkspace
+    from ldsc._runtime.scratch import ScratchWorkspace
 
     paths = [tmp_path / f"source-{index}.annot" for index in range(40)]
     beds = [tmp_path / f"source-{index}.bed" for index in range(40)]
     for index, (path, bed) in enumerate(zip(paths, beds)):
         path.write_text(f"CHR SNP BP CM MAF col{index}\n1 rs1 10 0 .2 1\n2 rs2 20 0 .3 0\n")
         bed.write_text("1\t0\t10\n")
-    with caplog.at_level(logging.INFO, logger="LDSC"), AnnotationWorkspace(tmp_path / "out") as workspace:
+    with caplog.at_level(logging.INFO, logger="LDSC"), ScratchWorkspace(tmp_path / "out") as workspace:
         prepared = prepare_annotation_sources(workspace, paths[:1], paths[1:], mode="rsid")
         sources = prepare_bed_queries(beds, workspace)
         assert prepared.shards["1"].read(columns=[f"col{index}" for index in range(40)]).shape == (1, 40)

@@ -27,7 +27,7 @@ import pyarrow.parquet as pq
 
 from .._annotation.query_outcomes import gene_viability_errors, log_gene_catalog_issues
 from .._annotation.semantics import require_unique_annotation_names
-from .._annotation.storage import TsvDiagnostics
+from .._runtime.scratch import TsvDiagnostics
 from .._core.row_alignment import first_identity_mismatch
 from .._core.snp_identity import identity_artifact_metadata
 from ..config import normalize_required_path

@@ -12,7 +12,7 @@ import pandas as pd
 
 
 from ldsc._annotation.sources import prepare_annotation_sources
-from ldsc._annotation.storage import AnnotationWorkspace
+from ldsc._runtime.scratch import ScratchWorkspace
 from ldsc._annotation import builder as annotation_builder
 from ldsc._annotation.builder import AnnotationBuilder, AnnotationBundle, run_annotate
 from ldsc.config import AnnotationBuildConfig, GlobalConfig
@@ -103,7 +103,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             path = output_dir / "query.1.annot.gz"
             with gzip.open(path, "rt", encoding="utf-8") as handle:
                 written_rows = [line.split("\t") for line in handle.read().splitlines()[1:]]
-            with AnnotationWorkspace(output_dir / "reload") as workspace:
+            with ScratchWorkspace(output_dir / "reload") as workspace:
                 prepared = prepare_annotation_sources(workspace, [path], [], mode="rsid")
                 loaded = AnnotationBundle(prepared.shards, list(prepared.baseline_columns), [], workspace)
                 metadata = fixture_metadata(loaded)

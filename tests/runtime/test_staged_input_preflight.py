@@ -202,12 +202,12 @@ def test_progress_has_phase_boundaries_and_periodic_counts(caplog, monkeypatch):
 
 def test_header_gate_checks_all_sources_without_scanning(tmp_path, monkeypatch):
     from ldsc._annotation import sources as _annotation_sources
-    from ldsc._annotation.storage import AnnotationWorkspace
+    from ldsc._runtime.scratch import ScratchWorkspace
     first, last = tmp_path/'first.annot', tmp_path/'last.annot'
     first.write_text('CHR SNP POS value\n21 rs1 100 1\n')
     last.write_text('CHR SNP wrong value\n22 rs2 200 1\n')
     monkeypatch.setattr(_annotation_sources, '_scan', forbid_work)
-    with AnnotationWorkspace(tmp_path) as workspace:
+    with ScratchWorkspace(tmp_path) as workspace:
         with pytest.raises(LDSCInputError, match='last.annot'):
             _annotation_sources.prepare_annotation_sources(workspace, [str(first), str(last)], [], mode='rsid')
 
@@ -350,12 +350,12 @@ def test_r2_builder_aggregates_map_header_and_late_companion(tmp_path, monkeypat
 
 def test_empty_annotation_header_stops_before_other_source_scans(tmp_path, monkeypatch):
     from ldsc._annotation import sources as _annotation_sources
-    from ldsc._annotation.storage import AnnotationWorkspace
+    from ldsc._runtime.scratch import ScratchWorkspace
     good, empty = tmp_path/'good.annot', tmp_path/'empty.annot'
     good.write_text('CHR SNP POS base\n1 rs1 100 1\n')
     empty.write_text('CHR SNP POS extra\n')
     monkeypatch.setattr(_annotation_sources, '_scan', forbid_work)
-    with AnnotationWorkspace(tmp_path/'out') as workspace:
+    with ScratchWorkspace(tmp_path/'out') as workspace:
         with pytest.raises(LDSCInputError, match='no SNP rows'):
             _annotation_sources.prepare_annotation_sources(workspace, [good, empty], [], mode='rsid')
 

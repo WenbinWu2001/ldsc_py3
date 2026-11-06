@@ -68,8 +68,6 @@ DEFERRED_IMPORTS = {
         "only R2 matrix runs check their sidecar headers",
     ("ldsc._ldscore.workflow", "ldsc._runtime.workflow_kwargs"):
         "only the ldscore entry points check keyword arguments and record explicit options",
-    ("ldsc._ldscore.direct_batches", "ldsc._annotation.in_memory"):
-        "only in-memory Python runs keep dropped-SNP diagnostics in memory",
     ("ldsc._ldscore.direct_batches", "ldsc._ldscore.overlap_table"):
         "the overlap matrix is assembled only after chromosome results exist",
     ("ldsc._ldscore.gene_index.scoring", "ldsc._ldscore.gene_index.batches"):

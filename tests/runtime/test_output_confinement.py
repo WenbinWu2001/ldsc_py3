@@ -13,7 +13,7 @@ import pytest
 
 import ldsc
 from ldsc import cli
-from ldsc._annotation.storage import AnnotationWorkspace
+from ldsc._runtime.scratch import ScratchWorkspace
 from ldsc._runtime.paths import ensure_output_directory
 from ldsc._runtime.workflow_logging import overwrite_failure_marker
 from ldsc.errors import LDSCConfigError, LDSCInputError
@@ -99,7 +99,7 @@ def test_python_rejects_an_empty_destination_before_writing(empty_cwd, tmp_path,
 
 @pytest.mark.parametrize("helper", [
     lambda: ensure_output_directory(""),
-    lambda: AnnotationWorkspace(" "),
+    lambda: ScratchWorkspace(" "),
     lambda: overwrite_failure_marker("", overwrite=True, command="unit").__enter__(),
 ])
 def test_output_helpers_reject_an_empty_destination(empty_cwd, helper):

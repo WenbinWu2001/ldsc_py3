@@ -137,7 +137,7 @@ Architecture invariant: CLI code should dispatch only; it should not contain num
 These modules define the package-wide contracts that every workflow shares.
 They normalize path tokens, chromosome ordering, genome-build aliases, exact SNP identifier modes, input header aliases, and `chr_pos`-family genome-build inference before the kernel is called.
 `ldsc._runtime.paths` also owns output-directory creation, fixed-artifact collision preflight, coherent artifact-family preflight, and stale owned-sibling cleanup helpers.
-Its `output_directory_path()` turns a destination into a path and rejects an empty or blank one, which would otherwise mean the working directory; `ensure_output_directory()`, the failure-marker scope, `AnnotationWorkspace`, and the `plots/` and liability-scale roots use it, and `cli_help.output_directory_argument` rejects a blank destination option while parsing.
+Its `output_directory_path()` turns a destination into a path and rejects an empty or blank one, which would otherwise mean the working directory; `ensure_output_directory()`, the failure-marker scope, `_runtime.scratch.ScratchWorkspace`, and the `plots/` and liability-scale roots use it, and `cli_help.output_directory_argument` rejects a blank destination option while parsing.
 `ldsc._genome.build_inference` is public for Python callers through the top-level `ldsc` exports, while the CLI exposes it through workflow build options and the read-only `infer-genome-build` helper.
 Architecture invariant: numerical functions consume resolved inputs.
 Shared normalization stays here or in the workflow layer; the runtime reference-panel adapters currently live at `ldsc._refpanel.adapters` and resolve panel-specific inputs before numerical projection.

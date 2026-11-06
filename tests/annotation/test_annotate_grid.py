@@ -9,7 +9,7 @@ import pytest
 
 from ldsc import GlobalConfig, run_annotate
 from ldsc._annotation.sources import prepare_annotation_sources
-from ldsc._annotation.storage import AnnotationWorkspace
+from ldsc._runtime.scratch import ScratchWorkspace
 from ldsc.errors import LDSCInputError, LDSCUsageError
 
 
@@ -42,7 +42,7 @@ def test_exported_baseline_query_pair_survives_cleanup_and_input_removal(tmp_pat
     with result.prepared_in(tmp_path / "scratch") as bundle:
         np.testing.assert_array_equal(bundle.read("1"), [[1, .5, 1]])
         np.testing.assert_array_equal(bundle.read("2"), [[0, 1.25, 0]])
-    with AnnotationWorkspace(tmp_path / "downstream") as workspace:
+    with ScratchWorkspace(tmp_path / "downstream") as workspace:
         prepared = prepare_annotation_sources(workspace, baselines, queries, mode="rsid")
         assert prepared.shards["1"].metadata().SNP.tolist() == ["rs1"]
         np.testing.assert_array_equal(
@@ -211,7 +211,7 @@ def test_bim_suite_requires_all_declared_chromosomes_and_matching_content(tmp_pa
         (tmp_path / f'grid.{chrom}.bim').write_text(f'{chrom} rs{chrom} 0 100 A C\n')
     paths, declared = resolve_bim_grid_inputs([token])
     (tmp_path / 'grid.22.bim').write_text('21 rs22 0 100 A C\n')
-    with AnnotationWorkspace(tmp_path / 'out') as workspace:
+    with ScratchWorkspace(tmp_path / 'out') as workspace:
         with pytest.raises(LDSCInputError, match='declared @ chromosome 22'):
             prepare_bim_grid(workspace, paths, declared, mode='rsid', chunk_rows=1)
 

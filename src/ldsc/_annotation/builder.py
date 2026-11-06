@@ -16,7 +16,7 @@ from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
 from .bundle import AnnotationBundle
 from .saved_results import AnnotationResult
 from .loading import build_annotation_shards
-from .storage import AnnotationWorkspace
+from .._runtime.scratch import ScratchWorkspace
 from .._core.identifiers import normalize_snp_identifier_mode
 from .._core.snp_identity import identity_mode_family
 from .._runtime.workflow_logging import materializing_overwrite_guard
@@ -81,7 +81,7 @@ class AnnotationBuilder:
         This method does not install a file or console handler; ``run_annotate``
         owns the standalone workflow log and canonical output publication.
         """
-        workspace = AnnotationWorkspace(output_dir)
+        workspace = ScratchWorkspace(output_dir)
         try:
             return build_annotation_shards(source_spec or self.annotation_config, self.global_config, workspace,
                                            projection_genome_build=self.projection_genome_build)

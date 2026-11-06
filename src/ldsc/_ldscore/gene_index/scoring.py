@@ -15,7 +15,7 @@ from typing import Sequence
 import pandas as pd
 
 from ..._annotation.gene_lists import GeneCatalog
-from ..._annotation.storage import AnnotationWorkspace
+from ..._runtime.scratch import ScratchWorkspace
 from ..outputs import INPUT_ISSUES_FILE, LDScoreDirectoryWriter, QueryDiagnostics, LDScoreOutputConfig
 from .artifact import inspect_index_paths, load_gene_ldscore_index
 from ..._runtime.parallelism import validate_query_batch_size, validate_workers
@@ -145,7 +145,7 @@ def run_indexed_ldscore(
         LDScoreDirectoryWriter.write_input_preflight_diagnostics(
             QueryDiagnostics(_FAILED_INDEX_SCOPE, input_issues=exc.input_issues), output_dir)
         raise
-    with AnnotationWorkspace(output_dir) as workspace:
+    with ScratchWorkspace(output_dir) as workspace:
         return _run_indexed_ldscore_in_workspace(
             index_dir, query_gene_list_sources=query_gene_list_sources,
             control_gene_list_file=control_gene_list_file,

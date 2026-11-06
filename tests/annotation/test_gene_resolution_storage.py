@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from ldsc._annotation.storage import AnnotationWorkspace
+from ldsc._runtime.scratch import ScratchWorkspace
 from ldsc._annotation.gene_lists import GeneCatalog
 
 
@@ -21,7 +21,7 @@ def test_exclusion_log_summarizes_roles_across_sources_and_audit_chunks(tmp_path
     focal.write_text("MHC1\n\nSECOND\nG1\nUNKNOWN\n")
     retained.write_text("G1\n")
     other.write_text("MHC2\n")
-    with AnnotationWorkspace(tmp_path / "out") as workspace:
+    with ScratchWorkspace(tmp_path / "out") as workspace:
         batch = resolve_gene_lists_staged([focal, retained, other], GeneCatalog.load(catalog_path), workspace,
                                          control_path=focal, gene_exclude_regions="mhc",
                                          resolution_policy="resolved-only", chunk_rows=chunk_rows)
@@ -52,7 +52,7 @@ def test_streamed_resolution_deduplicates_aliases_across_chunks(tmp_path):
     empty = tmp_path / 'empty.txt'
     empty.write_text('')
     catalog = GeneCatalog.load(catalog_path)
-    with AnnotationWorkspace(tmp_path / 'output') as workspace:
+    with ScratchWorkspace(tmp_path / 'output') as workspace:
         batch = resolve_gene_lists_staged([genes, empty], catalog, workspace, resolution_policy='resolved-only', chunk_rows=1)
         assert not batch.has_fatal_gate_a_issues
         audit = pd.concat(batch.audit_frames(), ignore_index=True)

@@ -24,7 +24,7 @@ from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, output_d
 from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
 from ..errors import LDSCInputError
 from .._annotation.outputs import AnnotationDirectoryWriter
-from .._annotation.storage import AnnotationWorkspace
+from .._runtime.scratch import ScratchWorkspace
 from .quantile_inputs import QuantileTarget, prepare_quantile_statistics
 from .quantile_storage import AlignmentDiagnostics
 from .outputs import (
@@ -728,7 +728,7 @@ def _run_quantile_h2(
             target_annotation=target.column,
             output_dir=str(output_dir),
         )
-        with AnnotationWorkspace(output_dir) as workspace, AlignmentDiagnostics(issues_path) as diagnostics:
+        with ScratchWorkspace(output_dir) as workspace, AlignmentDiagnostics(issues_path) as diagnostics:
             model = load_fitted_partitioned_model(partitioned_h2_result_dir)
             # The linked LD scores pass the loader's manifest checks before any annotation is read.
             ldscores = inspect_declared_inputs(

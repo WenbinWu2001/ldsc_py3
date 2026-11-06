@@ -19,7 +19,7 @@ ldsc_py3_restructured/
 │   ├── __init__.py  __main__.py  cli.py  config.py  errors.py   root shell
 │   ├── data/                 packaged HM3 maps and region presets
 │   ├── _core/                tier 1: chromosomes, columns, coordinates, SNP identity, regions, PLINK companion files
-│   ├── _runtime/             tier 2: paths, input preflight, logging, progress, workers, keyword checks, result-file writers
+│   ├── _runtime/             tier 2: paths, input preflight, run scratch, logging, progress, workers, keyword checks, result-file writers
 │   ├── _genome/              tier 4: genome-build inference and policy, build inspection, liftover, HM3 map
 │   ├── _annotation/          tier 5: annotation files, gene lists, interval projection, overlap, ldsc annotate
 │   ├── _refpanel/            tier 5: PLINK reader, R² matrix format, LD windows, runtime adapters, build-r2-matrix, query-r2-matrix
@@ -72,7 +72,9 @@ The lazily exported workflows in `ldsc/__init__.py` and the per-command modules 
 - `ldsc.cli` parses arguments and dispatches; workflow logic lives in the domain packages.
 - Reference panels hand LD-score computation a `PreparedChromosome` (`_refpanel.prepared`); `_ldscore.compute` consumes it and never reopens sources.
 - Each writer lives with the domain that owns its artifact; `_runtime.artifacts` holds the declaration and atomic-write base they share.
-- Regression reloads written LD-score directories; it does not depend on annotation or reference-panel code directly.
+- Regression reloads written LD-score directories; the fit commands (`h2`, `partitioned-h2`, `rg`) do not depend on annotation or reference-panel code.
+  Only quantile-h2 prepares and writes annotations, through `_annotation.loading` and `_annotation.outputs`.
+- Run scratch (`ScratchWorkspace`), frame spools and the diagnostic-row handles live in `_runtime.scratch`, so annotation, LD-score, gene-index and regression runs share them without depending on each other.
 - `_plotting.dispatch` and `_regression.h2_scale` consume canonical result directories; only the private plotting builders and the prevalence-range conversion path import Matplotlib, lazily.
 
 ## Module Map
@@ -90,6 +92,7 @@ The lazily exported workflows in `ldsc/__init__.py` and the per-command modules 
 | `ldsc._core.plink_files` | retained PLINK `.bim`/`.fam` and identifier-list readers; obsolete legacy regression-artifact readers are removed |
 | `ldsc._runtime.paths` | normalize path tokens, resolve concrete input files, create output directories, preflight fixed output paths, and enforce coherent output artifact families |
 | `ldsc._runtime.preflight` | the declared-input gate (`InputGate`, `inspect_declared_inputs`), issue records, companion and saved-manifest checks; domains plug in their own declaration and header checks, and scientific content validators stay with their owners |
+| `ldsc._runtime.scratch` | `ScratchWorkspace`, the owner of one hidden `.ldsc-annotation-*` scratch directory below an output directory for a run or a query batch; `FrameSpool`; and the `DiagnosticRows` protocol (`frames()`, `write_to(path)`) shared by spooled, file-staged (`TsvDiagnostics`) and in-memory (`MemoryDiagnostics`) diagnostic rows |
 | `ldsc._runtime.artifacts` | `ArtifactFamily` declarations shared by workflow preflight, final writes, metadata file entries and cleanup, plus atomic table and JSON writes |
 | `ldsc._runtime.result_files` | contained declared-result input paths and atomic JSON publication for `h2_scale` and plotting |
 | `ldsc._runtime.progress` | phase boundaries and time-throttled progress through existing logger routes; bounded counters, current objects, and elapsed time |
@@ -106,7 +109,7 @@ The lazily exported workflows in `ldsc/__init__.py` and the per-command modules 
 | `ldsc._annotation.builder` | public annotation builder and general standalone parser/API dispatch seam |
 | `ldsc._annotation.annotate`, `ldsc._annotation.interval_queries` | standalone BED/gene gates and incremental projection |
 | `ldsc._annotation.interval_projection` | `ChromosomeProjector` maps BED/gene interval unions to chromosome SNP positions; called by `interval_queries.build_query_shards()` after shared BED parsing |
-| `ldsc._annotation.bundle`, `ldsc._annotation.storage` | explicit dataset ownership, chromosome descriptors, detached selected reads, and output-contained scratch |
+| `ldsc._annotation.bundle`, `ldsc._annotation.storage` | explicit dataset ownership, chromosome descriptors, and detached selected reads from packed-binary and dense-float32 column stores |
 | `ldsc._annotation.sources`, `ldsc._annotation.identity_cleanup`, `ldsc._annotation.loading` | bounded input scans, aligned source preparation, global identity cleanup, and shared source-backed construction |
 | `ldsc._annotation.parsing` | annotation chunk normalization and numeric-value validation shared by every annotation reader |
 | `ldsc._annotation.preflight` | annotation declaration resolution and `inspect_annotation_inputs`, the declared-input gate with annotation header checks first; the query checks that `annotate`, `ldscore` and `build_annotation_shards` share: reserved and colliding BED and gene-list query names, the gene-list Gate A error and the projection genome build |

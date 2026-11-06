@@ -12,7 +12,8 @@ import logging
 from .._runtime.progress import report_phase, advance
 
 from .interval_projection import ChromosomeProjector
-from .storage import AnnotationWorkspace, ColumnStore, FrameSpool
+from .storage import ColumnStore
+from .._runtime.scratch import FrameSpool, ScratchWorkspace
 from .._core.regions import iter_bed_rows
 from .._core.chromosomes import normalize_chromosome
 from .semantics import require_unique_annotation_names
@@ -125,7 +126,7 @@ def execution_query_bundle(bundle, columns, statuses, output_dir):
     """Borrow the fixed baseline SNP rows and own one query preparation batch."""
     active = replace(bundle, query_columns=list(columns), query_statuses=statuses)
     preparation = bundle.query_preparation
-    with AnnotationWorkspace(output_dir) as workspace:
+    with ScratchWorkspace(output_dir) as workspace:
         active = replace(active, workspace=workspace, query_preparation=None)
         if preparation is not None:
             active = build_query_shards(active, bed_sources=preparation.bed_sources, gene_batch=bundle.gene_list_batch,

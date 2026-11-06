@@ -8,7 +8,7 @@ import pytest
 
 from ldsc import AnnotationBundle
 from ldsc._annotation.sources import prepare_annotation_sources
-from ldsc._annotation.storage import AnnotationWorkspace
+from ldsc._runtime.scratch import ScratchWorkspace
 
 
 @pytest.mark.parametrize("sharded", [False, True])
@@ -43,7 +43,7 @@ def test_supplied_annotations_use_global_exact_binary_storage(tmp_path, monkeypa
     monkeypatch.setattr(Path, "open", open_path)
     names = ["continuous", "binary", "late", "near_one", "query_binary", "query_continuous"]
     expected = pd.concat([baseline.iloc[:, 3:], query.iloc[:, 3:]], axis=1).astype(np.float32)
-    with AnnotationWorkspace(tmp_path / "out") as workspace:
+    with ScratchWorkspace(tmp_path / "out") as workspace:
         prepared = prepare_annotation_sources(workspace, *sources, mode="rsid", chunk_rows=3)
         bundle = AnnotationBundle(prepared.shards, list(prepared.baseline_columns),
                                   list(prepared.query_columns), workspace)
@@ -113,7 +113,7 @@ def _normalize(path, mode="rsid"):
 
 
 def _load(tmp_path, baseline, query=(), mode="rsid"):
-    with AnnotationWorkspace(tmp_path / "workspace") as workspace:
+    with ScratchWorkspace(tmp_path / "workspace") as workspace:
         prepared = prepare_annotation_sources(workspace, list(baseline), list(query), mode=mode)
         bundle = AnnotationBundle(prepared.shards, list(prepared.baseline_columns),
                                   list(prepared.query_columns), workspace)

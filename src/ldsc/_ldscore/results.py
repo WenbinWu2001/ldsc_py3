@@ -26,7 +26,7 @@ from .source import validate_ldscore_schemas
 if TYPE_CHECKING:
     from .._annotation.overlap import OverlapContribution
     from .._annotation.query_outcomes import QueryAnnotationStatus
-    from .._annotation.storage import TsvDiagnostics
+    from .._runtime.scratch import DiagnosticRows
     from ..config import GlobalConfig
     from .overlap_table import LDScoreOverlap
     from .query_variation import ScoreVariation
@@ -88,7 +88,7 @@ class ChromLDScoreResult:
     reference_snp_count: int = 0
     regression_selected_snp_count: int = 0
     regression_region_removed_snp_count: int = 0
-    identity_drops: TsvDiagnostics | None = field(default=None, repr=False)
+    identity_drops: DiagnosticRows | None = field(default=None, repr=False)
     annotation_types: dict[str, str] = field(default_factory=dict)
     reference_snp_funnel: pd.DataFrame | None = field(default=None, repr=False)
 
@@ -176,7 +176,7 @@ class LDScoreResult:
     index_provenance: dict[str, str] | None = None
     legacy_ldscore_conversion: dict[str, Any] | None = None
     ld_window: dict[str, Any] | None = None
-    identity_drops_by_chrom: dict[str, TsvDiagnostics] = field(default_factory=dict, repr=False)
+    identity_drops_by_chrom: dict[str, DiagnosticRows] = field(default_factory=dict, repr=False)
     annotation_types: dict[str, str] = field(default_factory=dict)
     chromosome_scope: dict[str, Any] = field(default_factory=dict)
     ld_window_snp_counts: pd.DataFrame | None = field(default=None, repr=False)

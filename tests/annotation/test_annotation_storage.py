@@ -4,11 +4,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ldsc._annotation.storage import AnnotationWorkspace, ColumnStore
+from ldsc._annotation.storage import ColumnStore
+from ldsc._runtime.scratch import ScratchWorkspace
 
 
 def test_selected_reads_preserve_row_order_and_column_values(tmp_path):
-    with AnnotationWorkspace(tmp_path) as workspace:
+    with ScratchWorkspace(tmp_path) as workspace:
         store = ColumnStore.create(workspace.path / "values.npy", 5, ["base", "a", "b"])
         store.write(0, np.array([[1, 11, 21], [1, 12, 22]], dtype=np.float32))
         store.write(2, np.array([[1, 13, 23], [1, 14, 24], [1, 15, 25]], dtype=np.float32))
@@ -113,7 +114,7 @@ def test_binary_selected_reads_decode_bounded_runs_and_detect_truncation(tmp_pat
 def test_workspace_closes_only_its_owned_scratch(tmp_path):
     persistent = tmp_path / "query.1.annot.gz"
     persistent.write_bytes(b"persistent output")
-    workspace = AnnotationWorkspace(tmp_path)
+    workspace = ScratchWorkspace(tmp_path)
     private = workspace.path
     assert private.parent == tmp_path
     with pytest.raises(RuntimeError, match="failed consumption"):
@@ -145,7 +146,7 @@ def test_column_store_empty_selection_and_out_of_bounds(tmp_path):
 
 
 def test_frame_spool_keeps_one_file_and_replays_exact_frames(tmp_path):
-    from ldsc._annotation.storage import FrameSpool
+    from ldsc._runtime.scratch import FrameSpool
 
     spool = FrameSpool(tmp_path / "spool")
     frames = [pd.DataFrame({"position": pd.Series([i], dtype="Int64"),
@@ -262,7 +263,7 @@ def test_mixed_shards_preserve_omitted_alleles_and_global_duplicate_cleanup(tmp_
     second = tmp_path / "second.annot"
     first.write_text("CHR SNP POS A1 A2 base\n1 unique1 10 A C 1\n1 duplicate 20 A C 2\n")
     second.write_text("CHR SNP POS base\n2 unique2 10 3\n2 duplicate 20 4\n")
-    with AnnotationWorkspace(tmp_path / "out") as workspace:
+    with ScratchWorkspace(tmp_path / "out") as workspace:
         prepared = prepare_annotation_sources(workspace, [first, second], [], mode="rsid_allele_aware", chunk_rows=1)
         assert prepared.shards["1"].metadata().SNP.tolist() == ["unique1"]
         assert prepared.shards["2"].metadata().SNP.tolist() == ["unique2"]
@@ -288,7 +289,7 @@ def test_source_preparation_aligns_columns_then_cleans_global_duplicates(tmp_pat
             chunk.to_csv(path, sep="\t", index=False)
             selected.append(path)
         paths.append(selected)
-    with AnnotationWorkspace(tmp_path / "output") as workspace:
+    with ScratchWorkspace(tmp_path / "output") as workspace:
         source = prepare_annotation_sources(workspace, *paths, mode="rsid", chunk_rows=1)
         assert list(source.shards) == ["1", "2"]
         assert source.baseline_columns == ("base", "extra")
@@ -310,7 +311,7 @@ def test_aligned_whole_genome_column_sources_are_not_duplicate_observations(tmp_
         path = tmp_path / f"{name}.annot"
         meta.assign(**{name: values}).to_csv(path, sep="\t", index=False)
         paths.append(path)
-    with AnnotationWorkspace(tmp_path / "output") as workspace:
+    with ScratchWorkspace(tmp_path / "output") as workspace:
         source = prepare_annotation_sources(workspace, paths, [], mode="rsid", chunk_rows=1)
         assert source.drops.n_rows == 0
         np.testing.assert_array_equal(source.shards["2"].read(columns=source.baseline_columns + source.query_columns), [[1, 9]])
@@ -322,7 +323,7 @@ def test_bundle_does_not_cache_chromosome_arrays_and_close_invalidates_reads(tmp
     from ldsc._annotation.bundle import AnnotationBundle
     from ldsc._annotation.storage import AnnotationShard
 
-    workspace = AnnotationWorkspace(tmp_path)
+    workspace = ScratchWorkspace(tmp_path)
     metadata_path = workspace.path / "rows.parquet"
     pd.DataFrame({"CHR": [1], "POS": [10], "SNP": ["rs1"]}).to_parquet(metadata_path)
     store = ColumnStore.create(workspace.path / "values.npy", 1, ["base"])

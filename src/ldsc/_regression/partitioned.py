@@ -20,7 +20,7 @@ from tempfile import TemporaryDirectory
 
 import pandas as pd
 
-from .._annotation.storage import AnnotationWorkspace
+from .._runtime.scratch import ScratchWorkspace
 from .._ldscore.results import LDScoreResult
 from .._ldscore.source import LDScoreSource
 from .._runtime.parallelism import resolve_worker_count, validate_query_batch_size, validate_workers
@@ -139,7 +139,7 @@ def estimate_partitioned_h2_batch(
         metadata.setdefault(name, value)
     if metadata.get("ldscore_dir"):
         metadata["ldscore_dir"] = _absolute_ldscore_dir(metadata["ldscore_dir"])
-    with AnnotationWorkspace(output_dir) as workspace:
+    with ScratchWorkspace(output_dir) as workspace:
         with _log_phase_timing("shared regression preparation"):
             trait = _prepare_trait_sumstats(sumstats_table, ldscore_result)
             prepared = _prepare_h2_inputs(trait, _PreparedLDScores(ldscore_result), config, global_config)

@@ -43,7 +43,7 @@ from .._runtime.parallelism import (
     WORKERS_HELP, parse_query_batch_size, parse_workers, validate_query_batch_size, validate_workers,
 )
 from .._runtime.progress import report_phase, PhaseProgress
-from .._annotation.storage import AnnotationWorkspace
+from .._runtime.scratch import ScratchWorkspace
 from .source import LDScoreSource
 from .._core.snp_identity import identity_mode_family
 from .._core.columns import normalize_genome_build
@@ -705,7 +705,7 @@ def _run_direct_ldscore(configs: _DirectConfigs) -> "LDScoreSource":
         overwrite=output_config.overwrite, additional_paths=[log_path])
     log_path.parent.mkdir(parents=True, exist_ok=True)
     issues_path = output_dir / INPUT_ISSUES_FILE
-    with AnnotationWorkspace(output_dir) as workspace:
+    with ScratchWorkspace(output_dir) as workspace:
         with workflow_logging("ldscore", log_path, log_level=configs.global_config.log_level):
             from .._refpanel.preflight import inspect_r2_headers
             from .preflight import inspect_reference_inputs

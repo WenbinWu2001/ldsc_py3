@@ -24,13 +24,13 @@ def inspect(args, config, tmp_path, *, bed_paths=()):
     from ldsc._annotation.interval_queries import prepare_bed_queries
     from ldsc._annotation.preflight import resolve_annotation_inputs
     from ldsc._annotation.sources import prepare_annotation_sources
-    from ldsc._annotation.storage import AnnotationWorkspace
+    from ldsc._runtime.scratch import ScratchWorkspace
 
     reference = inspect_reference_inputs(panel_config(args), config)
     annotations = AnnotationBuildConfig(baseline_annot_sources=args.baseline_annot_sources,
                                         query_annot_sources=args.query_annot_sources or ())
     paths, declared, issues = resolve_annotation_inputs(args.baseline_annot_sources)
-    with AnnotationWorkspace(tmp_path) as workspace:
+    with ScratchWorkspace(tmp_path) as workspace:
         bed_sources = prepare_bed_queries(list(bed_paths), workspace)
         try:
             prepared = prepare_annotation_sources(workspace, paths, [], mode=config.snp_identifier,

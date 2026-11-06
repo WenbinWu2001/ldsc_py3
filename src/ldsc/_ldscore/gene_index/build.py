@@ -79,7 +79,7 @@ from ..._runtime.workflow_logging import (
     set_workflow_log_path,
     workflow_logging,
 )
-from ..._annotation.storage import AnnotationWorkspace, FrameSpool
+from ..._runtime.scratch import FrameSpool, ScratchWorkspace
 from ..._annotation.sources import prepare_annotation_sources
 from ..._core.chromosomes import chrom_sort_key, normalize_chromosome, normalize_chromosome_series
 from ..._core.coordinates import positive_int_position_series
@@ -791,7 +791,7 @@ def _run_gene_ldscore_index_build(
     )
     chromosome_prefixes = plink.chromosome_prefixes
 
-    with AnnotationWorkspace(build_dir) as workspace:
+    with ScratchWorkspace(build_dir) as workspace:
         paths, declared, issues = declared_inputs.baseline, declared_inputs.declarations, []
         sources = prepare_annotation_sources(
             workspace, paths, [], mode=global_config.snp_identifier,

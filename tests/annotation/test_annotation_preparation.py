@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from ldsc._annotation.sources import prepare_annotation_sources
-from ldsc._annotation.storage import AnnotationWorkspace
+from ldsc._runtime.scratch import ScratchWorkspace
 from ldsc._runtime.workflow_logging import workflow_logging
 from ldsc.errors import LDSCInputError
 
@@ -17,7 +17,7 @@ def test_preparation_log_marks_main_steps_and_retained_logical_rows(tmp_path, ca
     for path, column in zip(paths, ("base", "query")):
         path.write_text(f"CHR SNP POS {column}\n1 duplicate 1 1\n1 rs1 2 .5\n2 duplicate 1 1\n2 rs2 2 .25\n")
     log_path = tmp_path / "preparation.log"
-    with workflow_logging("annotate", log_path, log_level="INFO"), AnnotationWorkspace(tmp_path / "out") as workspace:
+    with workflow_logging("annotate", log_path, log_level="INFO"), ScratchWorkspace(tmp_path / "out") as workspace:
         prepared = prepare_annotation_sources(workspace, paths[:1], paths[1:], mode="rsid", chunk_rows=1)
         messages = log_path.read_text().splitlines()
         assert "Reading annotation inputs: baseline files=1, query files=1." in messages
@@ -35,7 +35,7 @@ def test_preparation_failure_does_not_log_completion(tmp_path, rows, reached_ide
     path = tmp_path / "baseline.annot"
     path.write_text("CHR SNP POS base\n" + rows)
     log_path = tmp_path / "preparation.log"
-    with pytest.raises(LDSCInputError), workflow_logging("annotate", log_path, log_level="INFO"), AnnotationWorkspace(tmp_path / "out") as workspace:
+    with pytest.raises(LDSCInputError), workflow_logging("annotate", log_path, log_level="INFO"), ScratchWorkspace(tmp_path / "out") as workspace:
         prepare_annotation_sources(workspace, [path], [], mode="rsid", chunk_rows=1)
     log = log_path.read_text()
     assert "Phase failed: validation" in log or "Reading annotation inputs:" in log
@@ -50,7 +50,7 @@ def test_metadata_notice_summarizes_sources_on_each_preparation(tmp_path, caplog
         path.write_text(f"CHR SNP POS CM MAF base\n{chrom} rs{chrom}a 1 0 .2 1\n{chrom} rs{chrom}b 2 0 .3 .5\n")
     for run in range(2):
         caplog.clear()
-        with caplog.at_level("INFO", logger="LDSC"), AnnotationWorkspace(tmp_path / f"out{run}") as workspace:
+        with caplog.at_level("INFO", logger="LDSC"), ScratchWorkspace(tmp_path / f"out{run}") as workspace:
             prepared = prepare_annotation_sources(workspace, paths, [], mode="rsid", chunk_rows=1)
             notices = [record.getMessage() for record in caplog.records if "Annotation input metadata:" in record.getMessage()]
             assert len(notices) == 1 and "files=2" in notices[0]
@@ -66,7 +66,7 @@ def test_annotation_files_without_alleles_log_base_identity_matching(tmp_path, c
     columns = "CHR SNP POS CM A1 A2 base" if alleles else "CHR SNP POS CM base"
     rows = ["1 rs1 1 0 A G 1", "1 rs2 2 0 C T 1"] if alleles else ["1 rs1 1 0 1", "1 rs2 2 0 1"]
     path.write_text("\n".join([columns, *rows]) + "\n")
-    with caplog.at_level("INFO", logger="LDSC"), AnnotationWorkspace(tmp_path / "out") as workspace:
+    with caplog.at_level("INFO", logger="LDSC"), ScratchWorkspace(tmp_path / "out") as workspace:
         prepare_annotation_sources(workspace, [path], [], mode=mode)
 
     notices = [record.getMessage() for record in caplog.records if "without checking alleles" in record.getMessage()]
@@ -79,7 +79,7 @@ def test_base_identity_notice_names_at_most_three_files(tmp_path, caplog):
     paths = [tmp_path / f"part{index}.annot" for index in range(5)]
     for index, path in enumerate(paths):
         path.write_text(f"CHR SNP POS CM part{index}\n1 rs1 1 0 1\n2 rs2 2 0 0\n")
-    with caplog.at_level("INFO", logger="LDSC"), AnnotationWorkspace(tmp_path / "out") as workspace:
+    with caplog.at_level("INFO", logger="LDSC"), ScratchWorkspace(tmp_path / "out") as workspace:
         prepare_annotation_sources(workspace, paths, [], mode="rsid_allele_aware")
 
     notices = [record.getMessage() for record in caplog.records if "without checking alleles" in record.getMessage()]
@@ -107,7 +107,7 @@ def test_sharded_scan_budget_does_not_shrink_with_chromosome_count(tmp_path, mon
         return original(*args, **kwargs)
 
     monkeypatch.setattr(pd, "read_csv", read_csv)
-    with AnnotationWorkspace(tmp_path / "out") as workspace:
+    with ScratchWorkspace(tmp_path / "out") as workspace:
         prepared = prepare_annotation_sources(
             workspace, paths, [], mode="rsid", chunk_rows=chunk_rows,
             declared_chromosomes={str(p): str(i) for i, p in enumerate(paths, 1)} if declared else None,
@@ -148,7 +148,7 @@ def test_identity_preparation_uses_only_metadata_and_never_stages_numeric_values
     monkeypatch.setattr(DiskIdentityIndex, "select", select)
     monkeypatch.setattr(Path, "open", open_path)
     monkeypatch.setattr(pickle, "load", load)
-    with AnnotationWorkspace(tmp_path / "out") as workspace:
+    with ScratchWorkspace(tmp_path / "out") as workspace:
         prepared = prepare_annotation_sources(workspace, [path], [], mode="rsid", chunk_rows=1)
         np.testing.assert_array_equal(prepared.shards["2"].read(columns=["base"]), [[-0.25]])
 
@@ -171,7 +171,7 @@ def test_automatic_tiles_align_unequal_widths_and_preserve_logical_rows(tmp_path
             part.to_csv(path, sep="\t", index=False)
             paths.append(path)
         sources.append(paths)
-    with AnnotationWorkspace(tmp_path / "out") as workspace:
+    with ScratchWorkspace(tmp_path / "out") as workspace:
         prepared = prepare_annotation_sources(workspace, *sources, mode="rsid_allele_aware")
         assert list(prepared.shards) == ["1", "2"]
         assert prepared.baseline_columns == ("base",)
@@ -200,7 +200,7 @@ def test_identity_cleanup_follows_global_conflicts_and_preserves_order(tmp_path,
     second = tmp_path / "second.annot"
     first.write_text("CHR SNP POS A1 A2 base\n1 duplicate 10 A C 1\n1 conflict 20 A C 2\n1 retained1 30 A C 3\n")
     second.write_text("CHR SNP POS A1 A2 base\n2 retained2 40 A C -1.25\n2 duplicate 20 G T 5\n2 conflict 30 A G 6\n2 invalid 10 N C 7\n2 retained3 5 A C 0.125\n")
-    with AnnotationWorkspace(tmp_path / "out") as workspace:
+    with ScratchWorkspace(tmp_path / "out") as workspace:
         prepared = prepare_annotation_sources(workspace, [second, first], [],
                                               mode="rsid_allele_aware", chunk_rows=chunk_rows)
         assert sorted(prepared.shards) == ["1", "2"]
@@ -235,7 +235,7 @@ def test_failed_preparation_keeps_validation_and_workspace_ownership(tmp_path, d
     persistent = output / "existing.txt"
     persistent.write_text("user-owned")
     with pytest.raises(LDSCInputError, match=message):
-        with AnnotationWorkspace(output) as workspace:
+        with ScratchWorkspace(output) as workspace:
             prepare_annotation_sources(workspace, [baseline], [query], mode="rsid", chunk_rows=2)
     assert list(output.iterdir()) == [persistent]
     assert persistent.read_text() == "user-owned"
@@ -246,7 +246,7 @@ def test_empty_retained_result_preserves_complete_diagnostics(tmp_path):
 
     path = tmp_path / "duplicate.annot"
     path.write_text("CHR SNP POS base\n1 duplicated 1 1\n2 duplicated 2 2\n")
-    with AnnotationWorkspace(tmp_path / "out") as workspace:
+    with ScratchWorkspace(tmp_path / "out") as workspace:
         with pytest.raises(LDSCInputError, match="retained no annotation rows") as error:
             prepare_annotation_sources(workspace, [path], [], mode="rsid", chunk_rows=1)
         assert error.value.annotation_drops.n_rows == 2
@@ -274,7 +274,7 @@ def test_second_source_pass_failure_closes_handles_and_cleans_owned_scratch(tmp_
     monkeypatch.setattr(pd, "read_csv", read_csv)
     output = tmp_path / "out"
     with pytest.raises(OSError, match="interrupted numeric read"):
-        with AnnotationWorkspace(output) as workspace:
+        with ScratchWorkspace(output) as workspace:
             prepare_annotation_sources(workspace, [path], [], mode="rsid", chunk_rows=1)
     assert handles and all(stream.closed for stream in handles)
     assert not list(output.iterdir())
@@ -288,7 +288,7 @@ def test_baseline_query_grid_mismatch_explains_the_shared_snp_grid(tmp_path, que
     baseline.write_text("CHR\tSNP\tPOS\tbase\n22\trs1\t10\t1\n22\trs2\t20\t1\n")
     rows = ["22\trs1\t10\t1", "22\trs9\t90\t0", "22\trs3\t30\t1"][:query_rows]
     query.write_text("CHR\tSNP\tPOS\tq\n" + "\n".join(rows) + "\n")
-    with AnnotationWorkspace(tmp_path / "work") as workspace:
+    with ScratchWorkspace(tmp_path / "work") as workspace:
         with pytest.raises(LDSCInputError) as caught:
             prepare_annotation_sources(workspace, [str(baseline)], [str(query)], mode="rsid")
     message = str(caught.value)

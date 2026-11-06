@@ -89,7 +89,8 @@ The explicit small-input `AnnotationBundle.from_frames(metadata, baseline_annota
 `bundle.read(chrom, rows=..., columns=...)` returns detached float32 values owned by the caller; `metadata_for_chromosome(chrom)` reads that chromosome's metadata without caching it.
 No property implicitly concatenates every chromosome.
 
-[`AnnotationWorkspace`](../../../src/ldsc/_annotation/storage.py) owns a unique `.ldsc-annotation-*` directory immediately below the supplied output directory.
+[`ScratchWorkspace`](../../../src/ldsc/_runtime/scratch.py) owns a unique `.ldsc-annotation-*` directory immediately below the supplied output directory.
+LD-score runs, gene-index builds and scoring, partitioned-h2 and quantile-h2 use the same owner for their run and per-batch scratch.
 Source-backed Python preparation requires `AnnotationBuilder.run(..., output_dir=...)`.
 Use its returned bundle as a context manager or call `close()` after the last borrower finishes.
 The calculator borrows a bundle and does not close it.
@@ -145,7 +146,7 @@ There is no numeric `values.bin` spool, replacement numeric staging file, or con
 The repeated parsing/decompression is the accepted trade-off for this simpler preparation path.
 Inputs must remain unchanged between passes.
 Source metadata staging is removed after each source finishes; group selection locators are then removed.
-[`FrameSpool`](../../../src/ldsc/_annotation/storage.py) uses one file of independently serialized frames per spool, including diagnostic spools; descriptors keep no open handles.
+[`FrameSpool`](../../../src/ldsc/_runtime/scratch.py) uses one file of independently serialized frames per spool, including diagnostic spools; descriptors keep no open handles.
 Selection preserves source order within each chromosome and applies requested chromosome filtering only after global identity cleanup.
 Preparation remains serial before the gene LD-score index builder starts chromosome workers.
 

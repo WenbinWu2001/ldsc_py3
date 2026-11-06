@@ -13,7 +13,8 @@ import numpy as np
 import pandas as pd
 
 from ldsc._annotation.bundle import AnnotationBundle
-from ldsc._annotation.storage import AnnotationShard, AnnotationWorkspace, ColumnStore
+from ldsc._annotation.storage import AnnotationShard, ColumnStore
+from ldsc._runtime.scratch import ScratchWorkspace
 from ldsc._annotation.parsing import normalize_annotation_chunk
 from ldsc._core.snp_identity import effective_merge_key_series, identity_base_mode, is_allele_aware_mode
 
@@ -42,7 +43,7 @@ def make_annotation_bundle(*, metadata, baseline_annotations, query_annotations,
                            config_snapshot=None, query_statuses=(), gene_list_batch=None):
     """Write small independently specified arrays directly into test shards."""
     temporary = tempfile.TemporaryDirectory(prefix="ldsc-annotation-test-")
-    workspace = AnnotationWorkspace(temporary.name)
+    workspace = ScratchWorkspace(temporary.name)
     shards = {}
     for chrom in chromosomes:
         rows = np.flatnonzero(metadata.CHR.astype(str).eq(str(chrom)))
@@ -97,7 +98,7 @@ def replace_fixture_queries(bundle, *, query_annotations, query_columns=None):
 def resolve_gene_fixture(focal_paths, catalog, *, output_dir, **kwargs):
     """Stage gene fixtures under the test framework's owned output parent."""
     from ldsc._annotation.gene_query_storage import resolve_gene_lists_staged
-    return resolve_gene_lists_staged(focal_paths, catalog, AnnotationWorkspace(output_dir), **kwargs)
+    return resolve_gene_lists_staged(focal_paths, catalog, ScratchWorkspace(output_dir), **kwargs)
 
 
 def fixture_gene_audit(batch):

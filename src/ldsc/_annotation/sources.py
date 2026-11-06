@@ -24,7 +24,8 @@ from .identity_cleanup import DiskIdentityIndex, IdentityDropSpool
 from .parsing import annotation_parse_error_message, normalize_annotation_chunk, validate_annotation_values
 from .._core.chromosomes import AUTOSOMES
 from .._runtime.preflight import INPUT_ISSUE_COLUMNS, input_issue
-from .storage import AnnotationShard, ColumnStore, FrameSpool
+from .storage import AnnotationShard, ColumnStore
+from .._runtime.scratch import FrameSpool
 from .._core.snp_identity import identity_base_mode, is_allele_aware_mode
 from .._core.row_alignment import assert_same_snp_rows
 from .semantics import require_unique_annotation_names

@@ -148,16 +148,10 @@ class RegressionRunner:
             Also caps concurrent query workers; a width of one allows one worker.
             Independent of the batch width used to generate the LD scores.
         workers : int, optional
-            Maximum concurrent workers, default 1, including on HPC.
-            Use joblib.cpu_count() as the detected available CPU budget.
-            Positive requests above that budget fail before capping by task
-            count; negative -k uses max(1, budget + 1 - k). Zero, booleans,
-            and non-integers are invalid. One worker still runs in a separate process.
-            Every worker uses 1 BLAS thread in serial and parallel execution.
-            Numerical OpenMP and Arrow CPU/I/O limits are also one; unsupported
-            numerical limits are logged as unverified and computation continues.
-            This does not detect idle CPUs, guarantee scheduler allocation
-            compliance, or ensure sufficient memory.
+            Maximum concurrent workers, default 1. A negative ``-k`` uses
+            ``max(1, budget + 1 - k)``, where the budget is
+            ``joblib.cpu_count()``. See docs/reference/parallel-execution.md
+            for the full worker policy.
         overwrite : bool, optional
             Replace workflow-owned outputs, default False.
         summary_sort_by : str, optional

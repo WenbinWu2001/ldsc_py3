@@ -5,6 +5,17 @@ Last updated on: 2026-11-06
 Branch `restructure`; checked on 2026-11-06.
 Nothing below is in progress; each open item needs the user's go-ahead.
 
+## Completed: strict column-name matching (2026-11-06)
+
+The user decided on 2026-11-06 that every input matches a column only by its canonical name or a listed alias, compared after lowercasing and removing punctuation.
+
+- `c0fbf285` (breaking): the suffix ranks and `ColumnSpec.allow_suffix_match` are removed, so annotation `CHR`/`POS`, SNP restriction files, user HM3 maps, genetic maps, `quantile-h2` reference metadata and coordinate inference no longer read a header that only ends in a name, such as `EUR_MAF`; a missing required column's error names such headers as columns to rename, and a restriction file never offers another build's position column as `POS`.
+  Genetic maps list the HapMap names `Position(bp)` and `Map(cM)`, which only suffix matching accepted before.
+  Format rules that carry data in a name (`FRQ_A_<cases>`, legacy `<annotation>L2`, the `query-r2-matrix` `_1`/`_2` endpoints) and munging's cleaned exact aliases are unchanged.
+- `14247f5b`: the error ends with the new troubleshooting anchor "Common: a required column is not recognized".
+- `5189c6f7` and this commit: column-schema, input-paths, `quantile-h2`, continuous-annotation, troubleshooting and developer pages state the rule.
+- Evidence: with suffix matching instrumented, neither the test suite nor the 207 harness cases matched any column by suffix; the harness at `5189c6f7` is identical to `d1dea6d4` in all 207 cases; the full suite at `5189c6f7` passed (3078 passed, 5 skipped for the absent `resources/` directory, 0 failed).
+
 ## Completed: audit-fix program (2026-11-04 to 2026-11-06)
 
 The program fixed the findings of a package-wide audit in 294 commits, `e1f22c2..6adf7d3e` on `restructure`; the first 248, through `7612eed8`, are on `origin/restructure`, and the last 46 are not pushed.
@@ -41,8 +52,7 @@ The decision record (47 numbered coordinator entries plus lane decisions) and th
 - Confirm or reverse: `run_ldscore()` and `run_quantile_h2()` also write `diagnostics/gene_catalog_issues.tsv`, as their CLI runs do.
 - Confirm or reverse six Python-API changes from batch 6: Python `run_ldscore()` and `run_annotate()` log query notices; an invalid `log_level` raises `LDSCConfigError` instead of `LDSCUsageError`; `LDScoreDirectoryWriter.write_batches` no longer applies the gene-list viability gate; `PartitionedH2DirectoryWriter` writes the declared `coefficient_delete_values.parquet` with per-query output; the legacy converter may report several defects in a different order; `declared_result_file` rejects `..` names.
 - Confirm or revert a mechanical line-number refresh inside the proposed "dropped-SNP table" vocabulary row.
-- Decide history items: the 186 program commits made before 2026-11-06 lack the co-author trailer, 48 subjects exceed 50 characters, some breaking commits lack `!` (for example `23610614` and `c9feb7dd`), and commits `97e492a3` through `acc08452` are not bisectable; all of these commits are already on `origin/restructure`, so rewriting them needs a force push.
-- Decide whether to guard real annotation metadata under a non-alias name (such as `GENETIC_MAP_CM` or `EUR_MAF`), which now becomes an annotation without a message, and whether SNP restriction files and annotation `CHR`/`POS` should stop matching by suffix too.
+- Decided on 2026-11-06, no action: the history items stay as they are (186 commits before 2026-11-06 without the co-author trailer, 48 subjects over 50 characters, some breaking commits without `!`, the non-bisectable `97e492a3` to `acc08452`), and real annotation metadata under a non-alias name stays an annotation without a message.
 - Approved vocabulary entry "LD-score producer" names `_DirectProducer` in `calculator.py`; it now lives in `src/ldsc/_ldscore/direct_batches.py`.
 - Open defects reported but not fixed: rsID `ldscore` examples in `docs/user-guide/workflows/ld-scores.md` omit `--genome-build`; `run_ldscore()` in rsID-family modes cannot use default region exclusions; `InputGate.check` may replace other chained error messages; a `.build` symlink planted between preflight and lock is still followed; `MungeConfig.column_hints` alias keys are undocumented; `test_completed_chromosome_is_durably_staged_before_other_workers_finish` can fail under heavy load.
 

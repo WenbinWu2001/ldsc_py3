@@ -99,6 +99,17 @@ class PlinkBedFileTest(unittest.TestCase):
             PlinkBEDFile(str(PLINK_FIXTURES / "plink.bed"), self.sample_count, self.bim,
                          keep_snps=[0, self.snp_count])
 
+    def test_negative_keep_indivs_index_is_rejected(self):
+        # A negative index would count from the end of the sample row, padding bits included.
+        with self.assertRaisesRegex(LDSCInputError, "outside the `.fam` sample range"):
+            PlinkBEDFile(str(PLINK_FIXTURES / "plink.bed"), self.sample_count, self.bim,
+                         keep_indivs=[-1, 0])
+
+    def test_negative_keep_snps_index_is_rejected(self):
+        with self.assertRaisesRegex(LDSCInputError, "outside the `.bim` SNP range"):
+            PlinkBEDFile(str(PLINK_FIXTURES / "plink.bed"), self.sample_count, self.bim,
+                         keep_snps=[-1])
+
     def test_bad_filename(self):
         with self.assertRaises(LDSCInputError):
             PlinkBEDFile(str(PLINK_FIXTURES / "plink.bim"), 9, self.bim)

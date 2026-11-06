@@ -282,6 +282,31 @@ def test_run_infer_only_and_python_inference_share_one_build_plan(tmp_path, caps
     assert any(str(caught.value) in note for note in python.notes)
 
 
+def test_python_inference_suggests_the_options_of_its_config_as_infer_only_does(tmp_path):
+    # Final review of audit D9: infer_raw_sumstats() left the request's own options (QC thresholds and others) out of
+    # suggested_args, which --infer-only keeps, so a command rebuilt from the Python report ran with other QC.
+    from ldsc import GlobalConfig, MungeConfig, infer_raw_sumstats
+
+    raw = tmp_path / 'raw.tsv'
+    raw.write_text('SNP CHR POS A1 A2 Z P N INFO FRQ\n'
+                   + ''.join(f'rs{i} 1 {1000 * (i + 1)} A G 0.1 0.5 1000 0.99 0.3\n' for i in range(20)))
+    options = {'--info-min': '0.95', '--maf-min': '0.02', '--N-min': '100.0', '--chunksize': '5',
+               '--trait-name': 'T', '--output-format': 'both', '--info': 'INFO', '--log-level': 'WARNING'}
+    cli = workflow.main(['--raw-sumstats-file', str(raw), '--output-dir', str(tmp_path / 'out'), '--infer-only',
+                         '--snp-identifier', 'chr_pos', '--source-genome-build', 'hg19',
+                         '--output-genome-build', 'hg19', '--no-snp-restriction',
+                         *[token for option in options.items() for token in option]])
+    config = MungeConfig(raw_sumstats_file=raw, output_dir=tmp_path / 'out', source_genome_build='hg19',
+                         output_genome_build='hg19', no_snp_restriction=True, info_min=0.95, maf_min=0.02,
+                         N_min=100.0, chunk_size=5, trait_name='T', output_format='both',
+                         column_hints={'info': 'INFO'})
+    python = infer_raw_sumstats(config, global_config=GlobalConfig(snp_identifier='chr_pos', log_level='WARNING'))
+    assert cli.runnable, cli.missing_fields
+    assert set(options.items()) <= set(zip(cli.suggested_args, cli.suggested_args[1:]))
+    assert python == cli
+    assert not (tmp_path / 'out').exists()
+
+
 def _unresolvable_chr1_rows(n_column=True):
     """Return 50 chromosome-1 rows that no HM3 SNP supports, so ``source_genome_build='auto'`` cannot resolve."""
     header = 'SNP CHR POS A1 A2 P BETA' + (' N' if n_column else '')

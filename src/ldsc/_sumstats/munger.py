@@ -492,7 +492,6 @@ def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable | Ra
         ))
         return table
     plan, inference = _infer(_checked_munge_config(args), _resolve_main_global_config(args))
-    inference = _preserve_inference_options(inference, args)
     print(_render_inference_report(inference, plan.schema.source_path, args.output_dir))
     return inference
 
@@ -1004,7 +1003,11 @@ def infer_raw_sumstats(config: MungeConfig, *, global_config: GlobalConfig | Non
     liftover method or chain file. It also lists all-missing columns. It
     detects plain text, old DANER, and new DANER inputs; identifies
     numeric/NA comma-separated INFO lists; and returns exact CLI hints for
-    cases that still need user confirmation. VCF-style headers with leading
+    cases that still need user confirmation. Its ``suggested_args`` are the
+    ``munge-sumstats`` flags of the suggested command: the resolved format
+    and build choices, inferred column hints, and every other option of
+    ``config``, and the log level of ``global_config``, that differs from its
+    CLI default. VCF-style headers with leading
     ``##`` metadata are treated as plain input. It intentionally does not
     treat ``NEFF`` as total sample size ``N``. Missing ``A1/A2`` is reported
     only when the resolved ``global_config`` uses an allele-aware SNP
@@ -1033,7 +1036,8 @@ def _infer(
         config, munge_input.resolve_source_config(config, global_config), logger=logger,
     )
     inference = _apply_build_inference_report(plan, _inference_from_schema(plan.schema))
-    return plan, _apply_missing_column_report(plan.schema, inference)
+    inference = _apply_missing_column_report(plan.schema, inference)
+    return plan, _preserve_inference_options(inference, config, global_config)
 
 
 def _inference_from_schema(schema: munge_input.RawSchema) -> RawSumstatsInference:
@@ -1160,13 +1164,22 @@ def _apply_missing_column_report(
         *inference.missing_fields, *(f"all-missing column: {column}" for column in names)))
 
 
-def _preserve_inference_options(inference: RawSumstatsInference, args: argparse.Namespace) -> RawSumstatsInference:
-    """Retain effective CLI options alongside resolved inference suggestions."""
+def _preserve_inference_options(
+    inference: RawSumstatsInference, config: MungeConfig, global_config: GlobalConfig,
+) -> RawSumstatsInference:
+    """Add the request's other effective options, and inferred column hints, to the resolved suggestions.
+
+    The options come from ``config`` and ``global_config``, not from parsed
+    arguments, so ``--infer-only`` and :func:`infer_raw_sumstats` suggest
+    the same command for the same request. Options at their CLI default are
+    left out; the input file and output directory are not suggested options.
+    """
+    values = _cli_option_values(config, global_config)
     suggested = list(inference.suggested_args)
     for action in build_parser()._actions:
-        if not action.option_strings or action.dest in {"help", "infer_only", "raw_sumstats_file", "output_dir"}:
+        if not action.option_strings:
             continue
-        value = getattr(args, action.dest, action.default)
+        value = values.get(action.dest, action.default)
         if value == action.default:
             value = inference.column_hints.get(action.dest, value)
         if value is None or value == action.default:
@@ -1178,6 +1191,43 @@ def _preserve_inference_options(inference: RawSumstatsInference, args: argparse.
         else:
             _append_suggested_option(suggested, flag, value)
     return replace(inference, suggested_args=tuple(suggested))
+
+
+def _cli_option_values(config: MungeConfig, global_config: GlobalConfig) -> dict[str, object]:
+    """Return the ``munge-sumstats`` option values, keyed by parser destination, that request ``config``.
+
+    The inverse of :func:`_munge_config_from_args` and
+    :func:`_resolve_main_global_config` for every run option besides
+    ``--raw-sumstats-file`` and ``--output-dir``; the comma-separated
+    ``--ignore`` and ``--info-list`` values are rebuilt from their parsed
+    column names.
+    """
+    return {
+        **{key: value for key, value in config.column_hints.items() if key in _COLUMN_HINT_ARG_KEYS},
+        "snp_identifier": global_config.snp_identifier,
+        "source_genome_build": config.source_genome_build,
+        "output_genome_build": config.output_genome_build,
+        "liftover_chain_file": config.liftover_chain_file,
+        "trait_name": config.trait_name,
+        "sumstats_format": config.sumstats_format,
+        "N": config.N,
+        "N_cas": config.N_cas,
+        "N_con": config.N_con,
+        "overwrite": config.overwrite,
+        "output_format": config.output_format,
+        "sumstats_snps_file": config.sumstats_snps_file,
+        "no_snp_restriction": config.no_snp_restriction,
+        "N_min": config.N_min,
+        "nstudy_min": config.nstudy_min,
+        "info_min": config.info_min,
+        "maf_min": config.maf_min,
+        "signed_sumstats": config.signed_sumstats_spec,
+        "a1_inc": config.a1_inc,
+        "info_list": ",".join(config.info_list_columns) or config.column_hints.get("info_list"),
+        "ignore": ",".join(config.ignore_columns) or None,
+        "chunksize": config.chunk_size,
+        "log_level": global_config.log_level,
+    }
 
 
 def _render_inference_report(

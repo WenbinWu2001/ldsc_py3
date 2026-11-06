@@ -627,7 +627,7 @@ def _index_chromosome_task(log_path, chrom, *task):
 @report_phase(LOGGER, 'computation', 'gene-index chromosome')
 def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, chrom_catalog,
                                 config, ref_panel, genetic_map, regression_keys,
-                                regression_regions, staged_index, snp_label_discordant_rows):
+                                regression_regions, snp_label_discordant_rows, staged_index):
     """Read one staged chromosome and return only its persisted component metadata.
 
     The baseline shard goes to ``ref_panel.prepare_chromosome`` as the
@@ -824,7 +824,7 @@ def _run_gene_ldscore_index_build(
                          else genetic_map.loc[genetic_map["CHR"] == normalize_chromosome(chrom)])
             return (chrom, sources.shards[chrom], sources.baseline_columns, baseline_drops[chrom],
                     chrom_catalog, config, ref_panel, chrom_map, regression_keys,
-                    regression_regions, staged_index, snp_label_discordant[chrom])
+                    regression_regions, snp_label_discordant[chrom], staged_index)
 
 
         chromosome_logs = _chromosome_log_dir(build_dir)

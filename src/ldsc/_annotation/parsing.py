@@ -22,7 +22,7 @@ LOGGER = logging.getLogger("LDSC.annotation")
 def normalize_annotation_chunk(df, path, snp_identifier, chrom=None, *, log_ignored_metadata=True, value_dtype=np.float32):
     """Normalize aligned metadata and numeric values, ordinarily to float32.
 
-    ``SNP``, ``CM``, ``MAF``, ``A1`` and ``A2`` are recognised by exact name or
+    ``SNP``, ``CM``, ``MAF``, ``A1`` and ``A2`` are recognized by exact name or
     alias only, so a header that merely ends in one of them (``lowMAF``,
     ``EUR_MAF``, ``eQTL_SNP``) stays an annotation value column.
 

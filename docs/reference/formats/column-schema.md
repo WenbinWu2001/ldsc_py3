@@ -17,6 +17,7 @@ The alias registry is `src/ldsc/_core/columns.py`; the tables below list its con
 Headers are compared after lowercasing and removing punctuation, so `p-value`, `P_VALUE` and `pvalue` are the same header.
 Matches are ranked: the canonical name, then an alias, then a header ending in the canonical name, then a header ending in an alias.
 Two headers tied at the best rank stop the run with an error instead of a guess.
+The two suffix ranks do not apply to `SNP`, `CM`, `MAF`, `A1` and `A2` in annotation files (see [Annotation files](#annotation-files-exact-names-and-aliases-only)).
 
 ### Shared metadata columns
 
@@ -31,9 +32,9 @@ These aliases apply to annotation files, SNP restriction files, `quantile-h2` ta
 | `MAF` | `MAF` |
 
 `MAF`, a folded minor-allele frequency, has no alias besides its own name.
-Under the ranking above, a header ending in `MAF`, such as `EUR_MAF`, still matches it when no header is named `MAF`.
+Under the ranking above, a header ending in `MAF`, such as `EUR_MAF`, still matches it when no header is named `MAF`; this holds for `quantile-h2` reference metadata and not for annotation files.
 
-Allele columns in SNP restriction files and in `quantile-h2` target annotations and reference metadata also accept genome-oriented names, because SNP identity treats the two alleles as an unordered set:
+Allele columns in annotation files, SNP restriction files and `quantile-h2` reference metadata also accept genome-oriented names, because SNP identity treats the two alleles as an unordered set:
 
 | Canonical | Accepted aliases |
 | --- | --- |
@@ -42,6 +43,14 @@ Allele columns in SNP restriction files and in `quantile-h2` target annotations 
 
 SNP restriction files in coordinate-family modes also accept a build-specific position column: the prefix `hg19_`, `hg37_` or `grch37_` (hg19) or `hg38_` or `grch38_` (hg38), followed by `pos`, `bp`, `position`, `base_pair` or `basepair`.
 `build-r2-matrix` chooses the column from the source genome build of the PLINK files; `ldscore` and `munge-sumstats` use the genome build resolved for the run.
+
+#### Annotation files: exact names and aliases only
+
+Annotation files, read by `annotate`, `ldscore` (`--baseline-annot-sources`, `--query-annot-sources`), `build-gene-ldscore-index`, the Python `AnnotationBuilder` and `quantile-h2` (fitted and target annotations), recognize `SNP`, `CM`, `MAF`, `A1` and `A2` only by their canonical name or an alias from the tables in this section.
+Every other column except `CHR` and `POS` is an annotation value column, so a header that only ends in a metadata name or alias stays an annotation: `lowMAF`, `EUR_MAF`, `eQTL_SNP` and `eQTL_CM` are annotations, and so are `Enhancers` and `Thyroid`, which end in the aliases `RS` and `ID`.
+`CHR` and `POS` are required and keep the full ranking.
+Where `SNP` is required (annotation files in rsID-family modes, and `quantile-h2` target annotations in every mode), a file whose only SNP-like header is such a look-alike stops the run with an error naming the missing `SNP` column.
+This rule supersedes the earlier suffix matching for annotation files (changed on 2026-11-06), under which such columns were taken as metadata and silently left out of the model.
 
 ### Raw summary statistics
 
@@ -82,7 +91,7 @@ Sample-size selection, INFO-list columns and `--infer-only` are described in the
 | --- | --- |
 | R² matrix files | The pair file has the fixed columns `IDX_1`, `IDX_2`, `R2` and `SIGN_R`, and the sidecar exactly `CHR`, `POS`, `SNP`, `A1`, `A2`, `CM` and `MAF` in that order, both with no aliases ([R² matrix format](r2-matrices.md#27-snp-metadata-sidecar-mandatory-authoritative)). |
 | Genetic maps | The cM column accepts `CM`, `GENETIC_MAP_CM`, `GENETICMAPCM`, `GENETIC_MAP(CM)` and `GENETICMAP(CM)`; this family is defined in `src/ldsc/_refpanel/genetic_map.py`, the only alias family outside the registry. |
-| Package-written artifacts | Munged summary statistics, annotation files and LD-score directories are read with canonical names only, which catches schema drift in files the package wrote. |
+| Package-written artifacts | Munged summary statistics and LD-score directories are read with canonical names only, which catches schema drift in files the package wrote. `annotate` output is read like any other annotation file (`BP` is an alias of `POS`). |
 
 ### Setting values
 

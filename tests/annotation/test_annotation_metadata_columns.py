@@ -1,6 +1,6 @@
-"""Annotation files recognise metadata columns by exact name or alias only.
+"""Annotation files recognize metadata columns by exact name or alias only.
 
-A column recognised as SNP, CM or MAF metadata is removed from the annotation
+A column recognized as SNP, CM or MAF metadata is removed from the annotation
 values, so a header that merely ends in a metadata name (``lowMAF``,
 ``eQTL_SNP``, ``EUR_MAF``) or in a short SNP alias (``Enhancers`` ends in
 ``rs``, ``Thyroid`` in ``id``) must stay an annotation column.

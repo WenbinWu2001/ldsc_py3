@@ -282,12 +282,13 @@ after strict row-alignment validation.
 
 Requirements:
 
-- each file must contain metadata columns equivalent to `CHR`, `POS`, `SNP`, and `CM`
+- each file must contain `CHR` and `POS` columns, and a `SNP` column in rsID-family modes; `SNP` (in coordinate-family modes), `CM`, `MAF`, `A1` and `A2` are optional
 - query/baseline files for the same chromosome must refer to the same ordered SNP rows
 
 Automatic inference:
 
 - common header aliases for required columns are inferred
+- the optional metadata columns `SNP`, `CM`, `MAF`, `A1` and `A2` are recognized by exact name or alias only; every other column, such as `lowMAF` or `EUR_MAF`, is an annotation ([column schema](formats/column-schema.md#annotation-files-exact-names-and-aliases-only))
 - chromosome labels are normalized
 - multi-chromosome files are filtered by `CHR` during parsing
 

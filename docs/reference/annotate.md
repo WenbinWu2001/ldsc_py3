@@ -1,6 +1,6 @@
 # `annotate`
 
-Last updated on: 2026-11-03
+Last updated on: 2026-11-06
 
 `ldsc annotate` projects BED intervals or gene lists onto an annotation SNP grid and writes reusable query annotation files.
 This page is the exact contract; the task guide is [Create reusable SNP annotations](../user-guide/workflows/annotations.md), and every option is listed by `ldsc annotate --help`.
@@ -43,6 +43,7 @@ Gene identifiers match exactly and case-sensitively, as described in the [gene-l
 A query name that equals a baseline column or a reserved name stops the run; queries are never renamed.
 The reserved names are `gene_control`, `CHR`, `POS`, `BP`, `SNP`, `CM`, `A1`, `A2` and `MAF` (`RESERVED_QUERY_NAMES` in `src/ldsc/_annotation/preflight.py`).
 `ldscore`, `quantile-h2` and the Python `AnnotationBuilder` apply the same rule.
+A name that only ends in a metadata name, such as `lowMAF` or `eQTL_SNP`, is not reserved, and it stays an annotation column when the output is read back, because annotation files recognize metadata columns by exact name or alias only ([column schema](formats/column-schema.md#annotation-files-exact-names-and-aliases-only)).
 
 ## Validation and outcomes
 

@@ -27,17 +27,14 @@ from __future__ import annotations
 
 from typing import Sequence
 
-import pandas as pd
-
 from .._ldscore.results import LDScoreResult
 from .._ldscore.source import LDScoreSource
-from .._runtime.serial_calculation import serial_calculation
 from .._sumstats.table import SumstatsTable
 from ..config import GlobalConfig, RegressionConfig, get_global_config, print_global_config_banner
 from . import partitioned, rg
 from .results import PartitionedH2BatchResult, RegressionDataset, RegressionFit, RgResultFamily
-from .alignment import _prepare_h2_dataset, _prepare_rg_dataset, _validate_partitioned_query_columns
-from .fitting import _config_prevalence, _fit_h2_dataset, _fit_rg_dataset, summarize_partitioned_h2
+from .alignment import _prepare_h2_dataset, _prepare_rg_dataset
+from .fitting import _fit_h2_dataset, _fit_rg_dataset
 
 
 class RegressionRunner:
@@ -120,48 +117,6 @@ class RegressionRunner:
             and ``ratio_se`` are NaN when the mean chi-square is at most 1.
         """
         return _fit_h2_dataset(dataset, config or self.regression_config)
-
-    @serial_calculation
-    def estimate_partitioned_h2(
-        self,
-        sumstats_table: SumstatsTable,
-        ldscore_result: LDScoreSource | LDScoreResult,
-        *,
-        query_column: str,
-        config: RegressionConfig | None = None,
-    ) -> pd.DataFrame:
-        """Estimate partitioned heritability for one query annotation.
-
-        Parameters
-        ----------
-        sumstats_table : SumstatsTable
-            Munged single-trait summary statistics.
-        ldscore_result : LDScoreSource or LDScoreResult
-            LD-score directory containing baseline LD-score columns and
-            at least one query LD-score column.
-        query_column : str
-            Query annotation to test in the baseline-plus-query model. The
-            column must be present in ``ldscore_result.query_columns``.
-        config : RegressionConfig, optional
-            Regression settings. Defaults to the runner's config.
-
-        Returns
-        -------
-        pandas.DataFrame
-            One-row compact partitioned-h2 summary for ``query_column``.
-
-        Raises
-        ------
-        ValueError
-            If the LD-score result has no query annotations or ``query_column``
-            is not one of the available query annotations.
-        """
-        selected_queries = _validate_partitioned_query_columns(ldscore_result, [query_column])
-        dataset = self.build_dataset(sumstats_table, ldscore_result, config=config, query_columns=selected_queries)
-        fit = self.estimate_h2(dataset, config=config)
-        samp_prev, pop_prev = _config_prevalence(config or self.regression_config)
-        return summarize_partitioned_h2(fit.estimator, fit.dataset, selected_queries, samp_prev=samp_prev,
-                                        pop_prev=pop_prev)
 
     def estimate_partitioned_h2_batch(
         self, sumstats_table, ldscore_result, *, output_dir, query_columns=None,

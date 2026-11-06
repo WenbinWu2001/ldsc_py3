@@ -1,4 +1,4 @@
-"""Partitioned-h2 batches and the single-query facade method: shared preparation, regimes, summary sorting."""
+"""Partitioned-h2 batches: shared preparation, query selection, regimes, summary sorting."""
 
 from dataclasses import replace
 import json
@@ -110,17 +110,7 @@ class PartitionedTest(RegressionFixtures, unittest.TestCase):
         self.assertEqual(_resolve_summary_sort("auto", has_queries=False), "category")
         self.assertEqual(_resolve_summary_sort("enrichment", has_queries=True), "enrichment")
 
-    def test_estimate_partitioned_h2_requires_explicit_query_column(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-
-        with self.assertRaises(TypeError):
-            runner.estimate_partitioned_h2(
-                self.make_sumstats_table(),
-                self.make_ldscore_result(),
-                self.make_annotation_bundle(),
-            )
-
-    def test_estimate_partitioned_h2_uses_requested_query_column(self):
+    def test_estimate_partitioned_h2_batch_fits_only_requested_query(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         fake_hsq = mock.Mock(
             tot=np.array([0.3]),
@@ -139,28 +129,27 @@ class PartitionedTest(RegressionFixtures, unittest.TestCase):
         )
 
         # The toy LD columns are collinear; exercise selection independently.
-        with mock.patch.object(fitting, "_raise_on_model_collinearity"), mock.patch.object(
-            runner,
-            "build_dataset",
-            wraps=runner.build_dataset,
-        ) as build_dataset, stub_h2_kernel(fake_hsq):
-            result = runner.estimate_partitioned_h2(
+        with mock.patch.object(fitting, "_raise_on_model_collinearity"), stub_h2_kernel(fake_hsq) as patched:
+            result = runner.estimate_partitioned_h2_batch(
                 self.make_sumstats_table(),
                 self.make_ldscore_result(),
-                query_column="query1",
+                query_columns=["query1"],
+                output_dir=self.temporary_output_dir(),
             )
 
-        self.assertEqual(build_dataset.call_args.kwargs["query_columns"], ["query1"])
-        self.assertEqual(result["category"].tolist(), ["query1"])
+        self.assertEqual(patched.call_count, 1)
+        self.assertEqual(result.summary["category"].tolist(), ["query1"])
+        self.assertEqual(list(result.per_query_artifacts), ["query1"])
 
-    def test_estimate_partitioned_h2_rejects_unknown_query_column(self):
+    def test_estimate_partitioned_h2_batch_rejects_unknown_query_column(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
 
         with self.assertRaisesRegex(LDSCInputError, "requested query annotation columns.*missing"):
-            runner.estimate_partitioned_h2(
+            runner.estimate_partitioned_h2_batch(
                 self.make_sumstats_table(),
                 self.make_ldscore_result(),
-                query_column="missing",
+                query_columns=["missing"],
+                output_dir=self.temporary_output_dir(),
             )
 
     def test_estimate_partitioned_h2_batch_loops_over_queries(self):

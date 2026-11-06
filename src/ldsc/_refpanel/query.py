@@ -315,13 +315,6 @@ class R2Matrix:
                 pa2_out[found] = state.a2[positions[found]]
         return chrom_out, idx_out, pa1_out, pa2_out
 
-    def _resolve_with_query_alleles(self, endpoint: pd.DataFrame):
-        """Resolve an endpoint and also return its query A1/A2 (or None columns)."""
-        chrom, idx, pa1, pa2 = self._resolve_endpoint(endpoint)
-        qa1 = endpoint["A1"].to_numpy(dtype=object) if "A1" in endpoint.columns else np.full(len(endpoint), None, dtype=object)
-        qa2 = endpoint["A2"].to_numpy(dtype=object) if "A2" in endpoint.columns else np.full(len(endpoint), None, dtype=object)
-        return chrom, idx, qa1, qa2, pa1, pa2
-
     def query_pairs(self, pairs: pd.DataFrame) -> pd.DataFrame:
         """Return unbiased R2 and query-oriented signed r for each SNP pair.
 
@@ -360,8 +353,8 @@ class R2Matrix:
         """Implement :meth:`query_pairs`; ``source`` names the pairs in input errors."""
         ep1 = _endpoint_frame(pairs, "1", self._mode, source=source)
         ep2 = _endpoint_frame(pairs, "2", self._mode, source=source)
-        c1, i1, qa1_1, _qa2_1, pa1_1, pa2_1 = self._resolve_with_query_alleles(ep1)
-        c2, i2, qa1_2, _qa2_2, pa1_2, pa2_2 = self._resolve_with_query_alleles(ep2)
+        c1, i1, pa1_1, pa2_1 = self._resolve_endpoint(ep1)
+        c2, i2, pa1_2, pa2_2 = self._resolve_endpoint(ep2)
 
         n = len(pairs)
         r2 = np.full(n, np.nan, dtype=np.float32)
@@ -394,8 +387,9 @@ class R2Matrix:
         status[absent] = "absent"
 
         if is_allele_aware_mode(self._mode):
-            mult1 = _orientation_multiplier(qa1_1, pa1_1, pa2_1)
-            mult2 = _orientation_multiplier(qa1_2, pa1_2, pa2_2)
+            # _endpoint_frame requires A1 and A2 for both endpoints in allele-aware modes.
+            mult1 = _orientation_multiplier(ep1["A1"].to_numpy(dtype=object), pa1_1, pa2_1)
+            mult2 = _orientation_multiplier(ep2["A1"].to_numpy(dtype=object), pa1_2, pa2_2)
             harmonized = sign.astype(np.int16) * mult1 * mult2
             sign = np.where(found_numeric, harmonized, 0).astype(np.int8)
         else:
@@ -604,11 +598,6 @@ def run_query_r2_matrix_from_args(args: argparse.Namespace) -> pd.DataFrame:
     ``diagnostics/metadata.json`` and ``diagnostics/query-r2-matrix.log``, matching the
     other workflow commands.
     """
-    return _write_query_r2_matrix_directory(args)
-
-
-def _write_query_r2_matrix_directory(args: argparse.Namespace) -> pd.DataFrame:
-    """Query against the R2 matrix and write the canonical result directory."""
     output_dir = ensure_output_directory(args.output_dir, label="output directory")
     diagnostics_dir = output_dir / "diagnostics"
     log_path = diagnostics_dir / "query-r2-matrix.log"

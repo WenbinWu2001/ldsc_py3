@@ -1,6 +1,6 @@
 # Config Design: Immutable Config + Provenance-Carrying Results
 
-Last updated on: 2026-11-05
+Last updated on: 2026-11-06
 
 `--workers` sets the number of managed workers (default one, each with one BLAS thread); CPU budgets, limits and failure handling are in [parallel execution](../../reference/parallel-execution.md).
 
@@ -210,7 +210,7 @@ regression = runner.build_dataset(sumstats_hg19, ldscore_hg38)  # ← hard error
 | Name | Location | Purpose |
 | --- | --- | --- |
 | `ConfigMismatchError` | `ldsc.config` | Raised on incompatible config combination |
-| `validate_config_compatibility(a, b)` | `ldsc.config` | Public compatibility helper used by workflow merge points |
+| `validate_config_compatibility(a, b)` | `ldsc.config` | Compatibility helper used by workflow merge points; not exported from `ldsc` |
 | `config_snapshot` field | Result classes | Frozen config from computation time, or `None` when provenance is genuinely unknown |
 
 ---

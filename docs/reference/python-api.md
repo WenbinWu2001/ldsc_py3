@@ -1,8 +1,8 @@
 # Python API reference
 
-Last updated on: 2026-11-05
+Last updated on: 2026-11-06
 
-The supported Python interface is the set of names exported by the `ldsc` package (`ldsc.__all__`, 84 names on 2026-11-03).
+The supported Python interface is the set of names exported by the `ldsc` package (`ldsc.__all__`, 83 names on 2026-11-06).
 Modules whose names start with an underscore, including the domain packages such as `ldsc._ldscore`, are private even when a name defined there is re-exported.
 This page lists every exported name with the first paragraph of its docstring, taken from the installed package; `help(ldsc.<name>)` shows the full docstring, and a future documentation build will generate this page.
 Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and the command-line equivalents in the [command-line reference](cli.md).
@@ -72,7 +72,6 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | `get_global_config` | Return the process-wide default configuration used by Python workflows. |
 | `reset_global_config` | Restore the process-wide default configuration and return it. |
 | `set_global_config` | Replace the process-wide default configuration used by Python workflows. |
-| `validate_config_compatibility` | Raise when ``a`` and ``b`` disagree on critical LDSC3 workflow settings. |
 
 ## Results and data objects
 

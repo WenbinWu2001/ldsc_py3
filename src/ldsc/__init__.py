@@ -54,7 +54,6 @@ from .config import (
     get_global_config,
     reset_global_config,
     set_global_config,
-    validate_config_compatibility,
 )
 from .errors import (
     LDSCConfigError,
@@ -190,6 +189,5 @@ __all__ = [
     "reset_global_config",
     "resolve_genome_build",
     "set_global_config",
-    "validate_config_compatibility",
     *_LAZY_EXPORTS,
 ]

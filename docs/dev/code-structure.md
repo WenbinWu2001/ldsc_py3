@@ -72,9 +72,11 @@ The lazily exported workflows in `ldsc/__init__.py` and the per-command modules 
 - `ldsc.cli` parses arguments and dispatches; workflow logic lives in the domain packages.
 - Reference panels hand LD-score computation a `PreparedChromosome` (`_refpanel.prepared`); `_ldscore.compute` consumes it and never reopens sources.
 - Each writer lives with the domain that owns its artifact; `_runtime.artifacts` holds the declaration and atomic-write base they share.
-- Regression reloads written LD-score directories; the fit commands (`h2`, `partitioned-h2`, `rg`) do not depend on annotation or reference-panel code.
-  Only `quantile-h2` imports annotation code: it rebuilds the fitted model's annotations, BED and gene-list query annotations included, with `_annotation.loading.build_annotation_shards()`.
-  When that preparation fails on a gene list or the gene coordinate catalog, it writes the gene-list diagnostics with `_annotation.outputs.AnnotationDirectoryWriter` and recognizes the catalog failure by `_annotation.gene_lists.GeneCatalogValidationError`.
+- Regression reloads written LD-score directories; the fit commands (`h2`, `partitioned-h2`, `rg`) import no annotation or reference-panel module directly.
+  They reach annotation code only through the LD-score loader: `_ldscore.source` checks annotation names with `_annotation.semantics`, and `_ldscore.overlap_table` labels `_annotation.overlap.OverlapContribution` values.
+  `quantile-h2` is the only regression command that imports annotation code directly: it rebuilds the fitted model's annotations, BED and gene-list query annotations included, with `_annotation.loading.build_annotation_shards()`.
+  When that preparation stops at the gene-list Gate A check, it writes the gene-list audit and resolution summary with `_annotation.outputs.AnnotationDirectoryWriter.write_diagnostics()`.
+  When it stops on a `_annotation.gene_lists.GeneCatalogValidationError`, it writes the gene coordinate catalog issue table with its own `_regression.outputs.QuantileH2DirectoryWriter.write_gene_catalog_issues()`.
 - Run scratch (`ScratchWorkspace`), frame spools and the diagnostic-row handles live in `_runtime.scratch`, so annotation, LD-score, gene-index and regression runs share them without depending on each other.
 - `_plotting.dispatch` and `_regression.h2_scale` consume canonical result directories; only the private plotting builders and the prevalence-range conversion path import Matplotlib, lazily.
 

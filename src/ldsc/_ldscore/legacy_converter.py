@@ -295,7 +295,7 @@ class LegacyLDScoreConverter:
                 build_check.table(f"legacy {role}", path, infer_unlabeled=(role == "reference" and mode == "chr_pos"))
         if mode == "chr_pos" or build_check.explicit or any(not entry.unchecked for entry in build_check.evidence):
             build_check.resolve()
-        first_reference = _read_ldscore_table(reference_family.paths[1], "reference", 1)
+        first_reference = _read_legacy_table(reference_family.paths[1], "reference LD-score", 1)
         reference_columns = _scientific_columns(first_reference)
         if not reference_columns:
             raise LDSCInputError(
@@ -329,7 +329,6 @@ class LegacyLDScoreConverter:
                 "Unpartitioned legacy reference suite must have exactly one scientific LD-score column when no "
                 f"complete annotation family is present; found {reference_columns}."
             )
-        profile = "unpartitioned"
         frames: list[pd.DataFrame] = []
         common_total = 0.0
         all_total = 0.0
@@ -340,41 +339,13 @@ class LegacyLDScoreConverter:
         seen_reference: set[str] = set()
         seen_weight: set[str] = set()
         for chrom in _CHROMS:
-            reference_path = reference_family.paths[chrom]
-            weight_path = weight_family.paths[chrom]
-            reference = _read_ldscore_table(reference_path, "reference", chrom)
-            weight = _read_ldscore_table(weight_path, "weight", chrom)
-            _require_columns(reference, {"CHR", "SNP", "BP"}, "reference", reference_path, chrom)
-            _require_columns(weight, {"CHR", "SNP", "BP"}, "weight", weight_path, chrom)
-            ref_science = _scientific_columns(reference)
-            weight_science = _scientific_columns(weight)
-            if ref_science != reference_columns:
-                raise LDSCInputError(
-                    f"Reference LD-score scientific columns differ on chromosome {chrom}: "
-                    f"expected {reference_columns}, observed {ref_science} in '{reference_path}'."
-                )
-            if len(weight_science) != 1:
-                raise LDSCInputError(
-                    f"Weight LD-score table '{weight_path}' on chromosome {chrom} must contain exactly one "
-                    f"scientific value column; found {weight_science}."
-                )
-            _validate_ldscore_rows(reference, ref_science, "reference", reference_path, chrom)
-            _validate_ldscore_rows(weight, weight_science, "weight", weight_path, chrom)
-            _validate_global_source_ids(reference["SNP"], seen_reference, "reference", reference_path, chrom)
-            _validate_global_source_ids(weight["SNP"], seen_weight, "weight", weight_path, chrom)
-            merged = _join_reference_weight(reference, weight, ref_science, weight_science[0], chrom, issues)
-            frames.append(merged.rename(columns={ref_science[0]: "base"}))
-            intersections[str(chrom)] = {
-                "reference_rows": len(reference),
-                "weight_rows": len(weight),
-                "retained_rows": len(merged),
-            }
-            common_path = reference_root / f"{reference_prefix}{chrom}.l2.M_5_50"
-            if not common_path.exists():
-                raise LDSCInputError(
-                    f"Required .l2.M_5_50 count file is missing for chromosome {chrom}: '{common_path}'. "
-                    + _COUNT_FILENAME_GUIDANCE
-                )
+            reference, weight, weight_column = _read_reference_weight(
+                chrom, reference_family, weight_family, reference_columns, seen_reference, seen_weight,
+            )
+            merged = _join_reference_weight(reference, weight, reference_columns, weight_column, chrom, issues)
+            frames.append(merged.rename(columns={reference_columns[0]: "base"}))
+            intersections[str(chrom)] = _intersection_counts(reference, weight, merged)
+            common_path = _common_count_path(reference_root, reference_prefix, chrom)
             common_total += _read_count_vector(common_path, 1, chrom, "M_5_50")[0]
             all_path = reference_root / f"{reference_prefix}{chrom}.l2.M"
             if all_path.exists():
@@ -385,51 +356,27 @@ class LegacyLDScoreConverter:
                 all_available = False
                 all_origin = "missing"
             count_origins[str(chrom)] = {"base_all": all_origin, "base_common": "legacy_unvalidated"}
-            selected_files.extend((reference_path, weight_path, common_path))
+            selected_files.extend((reference_family.paths[chrom], weight_family.paths[chrom], common_path))
 
-        baseline = pd.concat(frames, ignore_index=True)
-        frames.clear()
-        if baseline.empty:
-            raise LDSCInputError(
-                "Legacy reference and weight suites have an empty genome-wide rsID intersection. "
-                "Check --legacy-reference-dir and --legacy-weight-dir: use matching suites from the same "
-                "reference SNP population and confirm their SNP columns use the same rsID identifiers."
-            )
-        _validate_global_output_identity(baseline, mode)
-        baseline, effective_build, coordinate_provenance = _resolve_output_coordinates(
-            baseline, mode, build_hint, context="legacy reference LD-score suite", build_check=build_check
-        )
-        baseline = _sort_baseline(baseline)
-        count_records = [count_record("baseline", "base", all_total if all_available else None, common_total)]
-        provenance = _build_provenance(
-            profile=profile,
-            reference_root=reference_root,
-            weight_root=weight_root,
-            frequency_root=None,
-            reference_family=reference_family,
-            weight_family=weight_family,
-            frequency_prefix=None,
-            selected_files=selected_files,
-            intersections=intersections,
-            count_origins=count_origins,
-            coordinate_provenance=coordinate_provenance,
-            issues=issues,
-        )
-        ldscore = LDScoreResult(
-            baseline_table=baseline,
-            query_table=None,
-            count_records=count_records,
+        return _publish_conversion(
+            frames,
+            profile="unpartitioned",
+            context="legacy reference LD-score suite",
             baseline_columns=["base"],
-            query_columns=[],
-            count_config=dict(_COUNT_CONFIG),
-            config_snapshot=GlobalConfig(snp_identifier=mode, genome_build=effective_build),
-            legacy_ldscore_conversion=provenance,
+            count_records=[count_record("baseline", "base", all_total if all_available else None, common_total)],
+            overlap=None,
+            mode=mode,
+            build_hint=build_hint,
+            build_check=build_check,
+            output_root=output_root,
+            overwrite=overwrite,
+            provenance_sources=dict(
+                reference_root=reference_root, weight_root=weight_root, frequency_root=None,
+                reference_family=reference_family, weight_family=weight_family, frequency_prefix=None,
+                selected_files=selected_files, intersections=intersections, count_origins=count_origins,
+                issues=issues,
+            ),
         )
-        paths = LDScoreDirectoryWriter().write_batches(
-            [ldscore],
-            LDScoreOutputConfig(output_dir=output_root, overwrite=overwrite),
-        ).output_paths
-        return LegacyLDScoreConversionResult(profile, len(baseline), ("base",), paths)
 
     def _convert_baseline_partitioned(
         self,
@@ -467,30 +414,15 @@ class LegacyLDScoreConverter:
         seen_annotations: set[str] = set()
         seen_frequency: set[str] = set()
         for chrom in _CHROMS:
-            reference_path = reference_family.paths[chrom]
-            weight_path = weight_family.paths[chrom]
             annotation_path = annotation_family[chrom]
             frequency_path = frequency_family.paths[chrom]
-            reference = _read_ldscore_table(reference_path, "reference", chrom)
-            weight = _read_ldscore_table(weight_path, "weight", chrom)
-            annotation = _read_whitespace_table(annotation_path, "annotation", chrom)
-            frequency = _read_whitespace_table(frequency_path, "frequency", chrom)
-            _require_columns(reference, {"CHR", "SNP", "BP"}, "reference", reference_path, chrom)
-            _require_columns(weight, {"CHR", "SNP", "BP"}, "weight", weight_path, chrom)
+            reference, weight, weight_column = _read_reference_weight(
+                chrom, reference_family, weight_family, reference_columns, seen_reference, seen_weight,
+            )
+            annotation = _read_legacy_table(annotation_path, "annotation", chrom)
+            frequency = _read_legacy_table(frequency_path, "frequency", chrom)
             _require_columns(annotation, {"CHR", "SNP", "BP", "CM"}, "annotation", annotation_path, chrom)
-            ref_science = _scientific_columns(reference)
-            weight_science = _scientific_columns(weight)
             annot_science = _scientific_columns(annotation)
-            if ref_science != reference_columns:
-                raise LDSCInputError(
-                    f"Reference LD-score scientific columns differ on chromosome {chrom}: expected "
-                    f"{reference_columns}, observed {ref_science} in '{reference_path}'."
-                )
-            if len(weight_science) != 1:
-                raise LDSCInputError(
-                    f"Weight LD-score table '{weight_path}' on chromosome {chrom} must contain exactly one "
-                    f"scientific value column; found {weight_science}."
-                )
             if annotation_columns is None:
                 annotation_columns = annot_science
                 column_mapping = _resolve_annotation_mapping(reference_columns, annotation_columns)
@@ -500,11 +432,7 @@ class LegacyLDScoreConverter:
                     f"observed {annot_science} in '{annotation_path}'."
                 )
             assert column_mapping is not None
-            _validate_ldscore_rows(reference, ref_science, "reference", reference_path, chrom)
-            _validate_ldscore_rows(weight, weight_science, "weight", weight_path, chrom)
             _validate_annotation_rows(annotation, annotation_columns, annotation_path, chrom)
-            _validate_global_source_ids(reference["SNP"], seen_reference, "reference", reference_path, chrom)
-            _validate_global_source_ids(weight["SNP"], seen_weight, "weight", weight_path, chrom)
             _validate_global_source_ids(annotation["SNP"], seen_annotations, "annotation", annotation_path, chrom)
             _audit_coordinate_disagreements(reference, annotation, chrom, annotation_path, issues)
 
@@ -572,12 +500,7 @@ class LegacyLDScoreConverter:
             n_all += len(matrix)
             n_common += int(common_mask.sum())
 
-            common_path = reference_root / f"{reference_family.prefix}{chrom}.l2.M_5_50"
-            if not common_path.exists():
-                raise LDSCInputError(
-                    f"Required .l2.M_5_50 count file is missing for chromosome {chrom}: '{common_path}'. "
-                    + _COUNT_FILENAME_GUIDANCE
-                )
+            common_path = _common_count_path(reference_root, reference_family.prefix, chrom)
             legacy_common = _read_count_vector(common_path, len(reference_columns), chrom, "M_5_50")
             _validate_reconstructed_counts(
                 legacy_common,
@@ -614,34 +537,12 @@ class LegacyLDScoreConverter:
                 **{f"{column}_common": "legacy_validated" for column in reference_columns},
             }
 
-            merged = _join_reference_weight(reference, weight, reference_columns, weight_science[0], chrom, issues)
+            merged = _join_reference_weight(reference, weight, reference_columns, weight_column, chrom, issues)
             frames.append(merged)
-            intersections[str(chrom)] = {
-                "reference_rows": len(reference),
-                "weight_rows": len(weight),
-                "retained_rows": len(merged),
-            }
-            selected_files.extend(
-                (reference_path, weight_path, annotation_path, frequency_path, common_path)
-            )
+            intersections[str(chrom)] = _intersection_counts(reference, weight, merged)
+            selected_files.extend((reference_family.paths[chrom], weight_family.paths[chrom],
+                                   annotation_path, frequency_path, common_path))
 
-        baseline = pd.concat(frames, ignore_index=True)
-        frames.clear()
-        if baseline.empty:
-            raise LDSCInputError(
-                "Legacy reference and weight suites have an empty genome-wide rsID intersection. "
-                "Check --legacy-reference-dir and --legacy-weight-dir: use matching suites from the same "
-                "reference SNP population and confirm their SNP columns use the same rsID identifiers."
-            )
-        _validate_global_output_identity(baseline, mode)
-        baseline, effective_build, coordinate_provenance = _resolve_output_coordinates(
-            baseline, mode, build_hint, context="legacy baseline reference LD-score suite", build_check=build_check
-        )
-        baseline = _sort_baseline(baseline)
-        count_records = [
-            count_record("baseline", column, all_counts[index], common_counts[index])
-            for index, column in enumerate(reference_columns)
-        ]
         overlap = LDScoreOverlap(
             baseline_block_all=pd.DataFrame(overlap_all, index=reference_columns, columns=reference_columns),
             baseline_block_common=pd.DataFrame(
@@ -652,37 +553,27 @@ class LegacyLDScoreConverter:
             total_all_reference_snps=float(n_all),
             total_common_reference_snps=float(n_common),
         )
-        provenance = _build_provenance(
+        return _publish_conversion(
+            frames,
             profile="baseline_partitioned",
-            reference_root=reference_root,
-            weight_root=weight_root,
-            frequency_root=frequency_root,
-            reference_family=reference_family,
-            weight_family=weight_family,
-            frequency_prefix=frequency_family.prefix,
-            selected_files=selected_files,
-            intersections=intersections,
-            count_origins=count_origins,
-            coordinate_provenance=coordinate_provenance,
-            issues=issues,
-        )
-        ldscore = LDScoreResult(
-            baseline_table=baseline,
-            query_table=None,
-            count_records=count_records,
+            context="legacy baseline reference LD-score suite",
             baseline_columns=list(reference_columns),
-            query_columns=[],
-            count_config=dict(_COUNT_CONFIG),
-            config_snapshot=GlobalConfig(snp_identifier=mode, genome_build=effective_build),
+            count_records=[
+                count_record("baseline", column, all_counts[index], common_counts[index])
+                for index, column in enumerate(reference_columns)
+            ],
             overlap=overlap,
-            legacy_ldscore_conversion=provenance,
-        )
-        paths = LDScoreDirectoryWriter().write_batches(
-            [ldscore],
-            LDScoreOutputConfig(output_dir=output_root, overwrite=overwrite),
-        ).output_paths
-        return LegacyLDScoreConversionResult(
-            "baseline_partitioned", len(baseline), tuple(reference_columns), paths
+            mode=mode,
+            build_hint=build_hint,
+            build_check=build_check,
+            output_root=output_root,
+            overwrite=overwrite,
+            provenance_sources=dict(
+                reference_root=reference_root, weight_root=weight_root, frequency_root=frequency_root,
+                reference_family=reference_family, weight_family=weight_family,
+                frequency_prefix=frequency_family.prefix, selected_files=selected_files,
+                intersections=intersections, count_origins=count_origins, issues=issues,
+            ),
         )
 
 
@@ -1020,28 +911,129 @@ def _discover_frequency_family(
     return _DiscoveredFamily(prefix, selected)
 
 
-def _read_ldscore_table(path: Path, role: str, chrom: int) -> pd.DataFrame:
+def _read_legacy_table(path: Path, label: str, chrom: int) -> pd.DataFrame:
+    """Read one whitespace-delimited legacy table; ``label`` names it, e.g. ``"reference LD-score"``."""
     try:
         return pd.read_csv(path, sep=r"\s+", compression="infer", comment="#")
     except Exception as exc:
         raise LDSCInputError(
-            f"Could not parse legacy {role} LD-score table '{path}' for chromosome {chrom}: {exc}. "
+            f"Could not parse legacy {label} table '{path}' for chromosome {chrom}: {exc}. "
             "Check the named file's readability, compression integrity, and whitespace-delimited header; "
             "restore the original table from the selected legacy suite. "
             "See docs/user-guide/troubleshooting.md#conversion-rejected-the-legacy-suite."
         ) from exc
 
 
-def _read_whitespace_table(path: Path, role: str, chrom: int) -> pd.DataFrame:
-    try:
-        return pd.read_csv(path, sep=r"\s+", compression="infer", comment="#")
-    except Exception as exc:
+def _read_reference_weight(
+    chrom: int,
+    reference_family: _DiscoveredFamily,
+    weight_family: _DiscoveredFamily,
+    reference_columns: list[str],
+    seen_reference: set[str],
+    seen_weight: set[str],
+) -> tuple[pd.DataFrame, pd.DataFrame, str]:
+    """Read and validate one chromosome's reference and weight LD-score tables.
+
+    Both profiles use this reader: it checks the required columns, the
+    reference scientific columns against the chromosome-1 table, a single
+    weight column, finite unique rows, and rsIDs not repeated across the
+    family's shards (``seen_*`` collect them). Returns the coerced
+    reference and weight tables and the weight column name.
+    """
+    reference_path = reference_family.paths[chrom]
+    weight_path = weight_family.paths[chrom]
+    reference = _read_legacy_table(reference_path, "reference LD-score", chrom)
+    weight = _read_legacy_table(weight_path, "weight LD-score", chrom)
+    _require_columns(reference, {"CHR", "SNP", "BP"}, "reference", reference_path, chrom)
+    _require_columns(weight, {"CHR", "SNP", "BP"}, "weight", weight_path, chrom)
+    ref_science = _scientific_columns(reference)
+    weight_science = _scientific_columns(weight)
+    if ref_science != reference_columns:
         raise LDSCInputError(
-            f"Could not parse legacy {role} table '{path}' for chromosome {chrom}: {exc}. "
-            "Check the named file's readability, compression integrity, and whitespace-delimited header; "
-            "restore the original table from the selected legacy suite. "
-            "See docs/user-guide/troubleshooting.md#conversion-rejected-the-legacy-suite."
-        ) from exc
+            f"Reference LD-score scientific columns differ on chromosome {chrom}: "
+            f"expected {reference_columns}, observed {ref_science} in '{reference_path}'."
+        )
+    if len(weight_science) != 1:
+        raise LDSCInputError(
+            f"Weight LD-score table '{weight_path}' on chromosome {chrom} must contain exactly one "
+            f"scientific value column; found {weight_science}."
+        )
+    _validate_ldscore_rows(reference, ref_science, "reference", reference_path, chrom)
+    _validate_ldscore_rows(weight, weight_science, "weight", weight_path, chrom)
+    _validate_global_source_ids(reference["SNP"], seen_reference, "reference", reference_path, chrom)
+    _validate_global_source_ids(weight["SNP"], seen_weight, "weight", weight_path, chrom)
+    return reference, weight, weight_science[0]
+
+
+def _intersection_counts(reference: pd.DataFrame, weight: pd.DataFrame, merged: pd.DataFrame) -> dict[str, int]:
+    """Return one chromosome's ``intersection_counts`` provenance entry."""
+    return {"reference_rows": len(reference), "weight_rows": len(weight), "retained_rows": len(merged)}
+
+
+def _common_count_path(reference_root: Path, prefix: str, chrom: int) -> Path:
+    """Return the required ``.l2.M_5_50`` count file of one reference chromosome."""
+    path = reference_root / f"{prefix}{chrom}.l2.M_5_50"
+    if not path.exists():
+        raise LDSCInputError(
+            f"Required .l2.M_5_50 count file is missing for chromosome {chrom}: '{path}'. "
+            + _COUNT_FILENAME_GUIDANCE
+        )
+    return path
+
+
+def _publish_conversion(
+    frames: list[pd.DataFrame],
+    *,
+    profile: str,
+    context: str,
+    baseline_columns: list[str],
+    count_records: list[dict[str, object]],
+    overlap: LDScoreOverlap | None,
+    mode: str,
+    build_hint: str | None,
+    build_check,
+    output_root: Path,
+    overwrite: bool,
+    provenance_sources: dict[str, object],
+) -> LegacyLDScoreConversionResult:
+    """Assemble the converted baseline table and publish it as an LD-score directory.
+
+    Both profiles end here: the per-chromosome joins are concatenated and
+    must be non-empty, genome-wide identities must be unique, output
+    coordinates are resolved and sorted, and ``LDScoreDirectoryWriter``
+    writes the result as a one-item batch. ``provenance_sources`` holds the
+    ``_build_provenance`` arguments other than the profile and coordinates.
+    """
+    baseline = pd.concat(frames, ignore_index=True)
+    frames.clear()
+    if baseline.empty:
+        raise LDSCInputError(
+            "Legacy reference and weight suites have an empty genome-wide rsID intersection. "
+            "Check --legacy-reference-dir and --legacy-weight-dir: use matching suites from the same "
+            "reference SNP population and confirm their SNP columns use the same rsID identifiers."
+        )
+    _validate_global_output_identity(baseline, mode)
+    baseline, effective_build, coordinate_provenance = _resolve_output_coordinates(
+        baseline, mode, build_hint, context=context, build_check=build_check
+    )
+    baseline = _sort_baseline(baseline)
+    provenance = _build_provenance(profile=profile, coordinate_provenance=coordinate_provenance, **provenance_sources)
+    ldscore = LDScoreResult(
+        baseline_table=baseline,
+        query_table=None,
+        count_records=count_records,
+        baseline_columns=baseline_columns,
+        query_columns=[],
+        count_config=dict(_COUNT_CONFIG),
+        config_snapshot=GlobalConfig(snp_identifier=mode, genome_build=effective_build),
+        overlap=overlap,
+        legacy_ldscore_conversion=provenance,
+    )
+    paths = LDScoreDirectoryWriter().write_batches(
+        [ldscore],
+        LDScoreOutputConfig(output_dir=output_root, overwrite=overwrite),
+    ).output_paths
+    return LegacyLDScoreConversionResult(profile, len(baseline), tuple(baseline_columns), paths)
 
 
 def _scientific_columns(frame: pd.DataFrame) -> list[str]:

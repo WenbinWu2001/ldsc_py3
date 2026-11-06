@@ -309,6 +309,7 @@ The calculation picks the kernel from the prepared reader: a `SortedR2BlockReade
 
 This workflow module is the sole public reader of selected legacy LD-score fragments.
 It discovers one coherent autosomal reference family and one weight family, joins them by rsID, accepts either an unpartitioned single-score suite or a complete full baseline suite, validates the fixed legacy common-SNP-count semantics, and writes an ordinary LDSC3 LD-score directory through `LDScoreDirectoryWriter.write_batches()` as a one-item batch, so its files are staged and the published directory is reloaded as in an `ldscore` run.
+The two profiles share one per-chromosome reference/weight reader (`_read_reference_weight()`: required columns, scientific columns, finite unique rows, rsIDs not repeated across shards) and one publish tail (`_publish_conversion()`: concatenation, genome-wide identity and coordinate resolution, sorting, provenance and the write); each profile keeps its own count handling and the point where it joins reference and weight, which fixes the order of `diagnostics/conversion_issues.tsv.gz` rows.
 Baseline conversion reconstructs and validates marginal counts plus the full overlap matrix; it never accepts query or thin annotations.
 Inputs remain read-only and provenance includes selected prefixes/files, intersections, coordinate evidence, and count origins.
 Routine source hashes are not computed.

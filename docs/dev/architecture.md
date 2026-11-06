@@ -274,7 +274,7 @@ The direct run then hands the calculation a private `_RunContext`: the resolved 
 The parent builds the reference-panel adapter with `_refpanel.adapters.resolved_ref_panel(config, spec, chromosome_prefixes=...)` and the resolved configuration, and the direct LD-score producer sends every task one adapter built the same way with the run's configuration and the resolved PLINK chromosome prefixes, so a run resolves its build once; `resolved_ref_panel()` checks no build declaration again, and opening an R² matrix chromosome still compares its declared build with the run's.
 `RefPanelLoader.load(spec)`, for direct Python callers, checks the panel and `ref_panel_snps_file` declarations in a coordinate-family mode (resolving an `auto` build) and then builds the adapter through `resolved_ref_panel()`.
 PLINK gene LD-score index construction builds its panel through the same `resolved_ref_panel()`.
-An indexed run tells `run_indexed_ldscore(main_log_open=True)` the same way that its log is open, so `_ldscore.diagnostics.ldscore_logs()` never has to recognize a caller's log handler.
+An indexed run's `run_indexed_ldscore()` relies on the `ldscore` workflow, its only caller, for the output preflight and the open log, and calls `_ldscore.diagnostics.ldscore_logs()` with `main_log_open=True`, so `ldscore_logs()` never has to recognize a caller's log handler.
 
 ### `ldsc._ldscore.calculator`
 

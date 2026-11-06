@@ -161,12 +161,15 @@ def test_writer_output_satisfies_contract_and_decodes_exactly(tmp_path):
     chromosome = panel.open_chromosome("1")
     reader = chromosome.pair_reader(chromosome.sidecar(), "chr_pos_allele_aware", "hg19")
     try:
+        assert reader.contract.r2_scale == 32767.0
         _, _, values = next(reader.iter_all_pairs())
     finally:
         reader.close()
-    # Writer stores round(R2 * 32767); the endpoint 1.0 and 0.25 decode within one step.
-    np.testing.assert_allclose(np.sort(values), [0.25, 1.0], rtol=0, atol=1 / 32767)
+    # Writer stores round(R2 * 32767): the endpoint 1.0 decodes exactly, 0.25 within half a step.
     assert values.dtype == np.float32
+    decoded = np.sort(values)
+    assert decoded[1] == 1.0
+    np.testing.assert_allclose(decoded[0], 0.25, rtol=0, atol=0.5 / 32767)
     result = R2Matrix.open(root, genome_build="hg19").query_pairs(pd.DataFrame({
         "CHR_1": ["1"], "POS_1": [100], "A1_1": ["A"], "A2_1": ["C"],
         "CHR_2": ["1"], "POS_2": [120], "A1_2": ["A"], "A2_2": ["G"],

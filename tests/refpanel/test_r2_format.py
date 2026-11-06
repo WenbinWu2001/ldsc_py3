@@ -164,22 +164,3 @@ class R2MatrixWindowValidationTest(unittest.TestCase):
         self.assertIn("windows in different units cannot be checked for coverage", message)
         self.assertIn("ldsc build-r2-matrix --ld-wind-kb 100.0", message)
 
-
-class R2DequantizationTest(unittest.TestCase):
-    def test_reader_dequantizes_int16_panel_to_float32(self):
-        panel = pd.DataFrame({"CHR": ["1"] * 3, "POS": [100, 120, 140],
-                              "SNP": ["rs1", "rs2", "rs3"], "A1": ["A"] * 3, "A2": ["C"] * 3,
-                              "CM": [0.0] * 3, "MAF": [0.3] * 3})
-        pairs = [{"i": 0, "j": 1, "R2": 1.0, "sign": "+"},
-                 {"i": 0, "j": 2, "R2": 0.2, "sign": "-"}]
-        with tempfile.TemporaryDirectory() as tmp:
-            chromosome = open_r2_matrix_chromosome(Path(tmp), panel, pairs)
-            reader = chromosome.pair_reader(panel, "chr_pos", "hg19")
-            self.assertEqual(reader.contract.r2_scale, 32767.0)
-            i, j, r2_values = next(reader.iter_all_pairs())
-            reader.close()
-            self.assertEqual(r2_values.dtype, np.float32)
-            # endpoint exact; 0.2 within half-step
-            got = dict(zip(zip(i.tolist(), j.tolist()), r2_values.tolist()))
-            self.assertEqual(got[(0, 1)], 1.0)
-            self.assertAlmostEqual(got[(0, 2)], 0.2, delta=2e-5)

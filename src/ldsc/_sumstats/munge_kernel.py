@@ -640,7 +640,6 @@ def _normalize_chr_pos_chunk(dat, request, counts):
         context=request.source_path,
         coordinate_policy='drop',
         logger=None,
-        example_columns=('SNP', 'CHR', 'POS'),
         min_position=min_position,
     )
     _accumulate_coordinate_drop_counts(counts, report)

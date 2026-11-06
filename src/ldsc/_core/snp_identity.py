@@ -409,7 +409,6 @@ def base_key_series(
     keyed, _report = build_chr_pos_key_frame(
         frame.loc[:, columns],
         context=context,
-        drop_missing=True,
         logger=logger,
     )
     if not keyed.empty:

@@ -958,7 +958,6 @@ def _with_chr_pos_key(frame: pd.DataFrame, *, context: str) -> pd.DataFrame:
         context=context,
         chr_col=chr_col,
         pos_col=pos_col,
-        drop_missing=True,
         logger=LOGGER,
     )
     return keyed

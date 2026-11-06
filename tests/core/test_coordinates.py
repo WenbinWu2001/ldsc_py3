@@ -82,7 +82,7 @@ class CoordinateHelperTest(unittest.TestCase):
     def test_build_chr_pos_key_frame_adds_canonical_key_after_drop(self):
         frame = pd.DataFrame({"CHR": ["chr1", pd.NA, "2"], "POS": [10, 20, 30], "value": [1, 2, 3]})
 
-        keyed, report = build_chr_pos_key_frame(frame, context="key test", drop_missing=True)
+        keyed, report = build_chr_pos_key_frame(frame, context="key test")
 
         self.assertEqual(keyed["_ldsc_chr_pos_key"].tolist(), ["1:10", "2:30"])
         self.assertEqual(keyed["value"].tolist(), [1, 3])

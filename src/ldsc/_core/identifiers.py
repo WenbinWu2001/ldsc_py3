@@ -520,13 +520,7 @@ def _finalize_chr_pos_restriction_frame(
 ) -> set[str]:
     """Normalize one restriction frame, dropping rows with missing or invalid CHR/POS."""
     frame = frame.loc[:, ["CHR", "POS"]].copy()
-    keyed, _report = build_chr_pos_key_frame(
-        frame,
-        context=f"restriction file '{path}'",
-        drop_missing=True,
-        logger=logger,
-        log_level=logging.WARNING,
-    )
+    keyed, _report = build_chr_pos_key_frame(frame, context=f"restriction file '{path}'", logger=logger)
     return set(keyed[CHR_POS_KEY_COLUMN].astype(str))
 
 
@@ -579,7 +573,6 @@ def _read_packed_chr_pos_restriction_rows(
             context=f"restriction file '{path}'",
             coordinate_policy="drop",
             logger=logger,
-            log_level=logging.WARNING,
         )
         missing_dropped += int(report.n_dropped)
         retained += int(report.n_retained)

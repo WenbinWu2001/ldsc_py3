@@ -337,7 +337,6 @@ def _normalized_coordinate_frame(
     return normalize_chr_pos_frame(
         frame,
         context="sumstats liftover",
-        drop_missing=drop_missing,
         logger=logger,
     )
 

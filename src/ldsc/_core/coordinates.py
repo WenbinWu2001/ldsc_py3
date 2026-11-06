@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
-from typing import Literal, Sequence
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -15,8 +15,6 @@ from ..errors import LDSCConfigError, LDSCInputError
 CHR_POS_KEY_COLUMN = "_ldsc_chr_pos_key"
 NA_COORDINATE_TOKENS = frozenset({"", ".", "na", "nan", "none", "null"})
 CoordinatePolicy = Literal["drop", "raise"]
-DEFAULT_COORDINATE_POLICY: CoordinatePolicy = "drop"
-STRICT_COORDINATE_POLICY: CoordinatePolicy = "raise"
 
 
 @dataclass(frozen=True)
@@ -110,10 +108,7 @@ def normalize_chr_pos_frame(
     chr_col: str = "CHR",
     pos_col: str = "POS",
     coordinate_policy: CoordinatePolicy | str | None = None,
-    drop_missing: bool | None = None,
     logger: logging.Logger | None = None,
-    log_level: int = logging.WARNING,
-    example_columns: Sequence[str] | None = None,
     min_position: int = 1,
 ) -> tuple[pd.DataFrame, CoordinateDropReport]:
     """
@@ -123,25 +118,14 @@ def normalize_chr_pos_frame(
     warning report. Pass ``coordinate_policy="raise"`` where a strict file
     contract requires complete, valid coordinates.
     """
-    policy = _resolve_coordinate_policy(coordinate_policy=coordinate_policy, drop_missing=drop_missing, context=context)
+    policy = _resolve_coordinate_policy(coordinate_policy, context=context)
     masks = _coordinate_quality_masks(frame, chr_col=chr_col, pos_col=pos_col, context=context, min_position=min_position)
     droppable = masks["droppable"]
-    report = _drop_report(
-        frame,
-        droppable,
-        context=context,
-        chr_col=chr_col,
-        pos_col=pos_col,
-        missing_chr=masks["missing_chr"],
-        missing_pos=masks["missing_pos"],
-        invalid_chr=masks["invalid_chr"],
-        invalid_pos=masks["invalid_pos"],
-        example_columns=example_columns,
-    )
+    report = _drop_report(frame, masks, context=context, chr_col=chr_col, pos_col=pos_col)
     if report.n_dropped:
-        if policy == STRICT_COORDINATE_POLICY:
+        if policy == "raise":
             _raise_coordinate_policy_error(frame, masks, context=context, chr_col=chr_col, pos_col=pos_col, min_position=min_position)
-        _log_drop_report(report, logger=logger, level=log_level)
+        _log_drop_report(report, logger=logger)
         work = frame.take(np.flatnonzero(~droppable.to_numpy()))
     else:
         # The two normalized columns are replaced below; the others are shared with ``frame``.
@@ -161,82 +145,49 @@ def build_chr_pos_key_frame(
     context: str,
     chr_col: str = "CHR",
     pos_col: str = "POS",
-    key_col: str = CHR_POS_KEY_COLUMN,
-    coordinate_policy: CoordinatePolicy | str | None = None,
-    drop_missing: bool | None = None,
     logger: logging.Logger | None = None,
-    log_level: int = logging.WARNING,
-    example_columns: Sequence[str] | None = None,
-    min_position: int = 1,
 ) -> tuple[pd.DataFrame, CoordinateDropReport]:
-    """Return a normalized copy with a canonical private ``CHR:POS`` key."""
-    keyed, report = normalize_chr_pos_frame(
-        frame,
-        context=context,
-        chr_col=chr_col,
-        pos_col=pos_col,
-        coordinate_policy=coordinate_policy,
-        drop_missing=drop_missing,
-        logger=logger,
-        log_level=log_level,
-        example_columns=example_columns,
-        min_position=min_position,
-    )
+    """Return a normalized copy with a canonical private ``CHR:POS`` key, dropping invalid coordinate rows."""
+    keyed, report = normalize_chr_pos_frame(frame, context=context, chr_col=chr_col, pos_col=pos_col, logger=logger)
     if keyed.empty:
-        keyed[key_col] = pd.Series(dtype="string")
+        keyed[CHR_POS_KEY_COLUMN] = pd.Series(dtype="string")
         return keyed, report
-    keyed[key_col] = keyed[chr_col].astype(str) + ":" + keyed[pos_col].astype("int64").astype(str)
+    keyed[CHR_POS_KEY_COLUMN] = keyed[chr_col].astype(str) + ":" + keyed[pos_col].astype("int64").astype(str)
     return keyed, report
 
 
 def _drop_report(
     frame: pd.DataFrame,
-    droppable: pd.Series,
+    masks: dict[str, pd.Series],
     *,
     context: str,
     chr_col: str,
     pos_col: str,
-    missing_chr: pd.Series,
-    missing_pos: pd.Series,
-    invalid_chr: pd.Series,
-    invalid_pos: pd.Series,
-    example_columns: Sequence[str] | None,
 ) -> CoordinateDropReport:
-    examples = _example_rows(frame, droppable, chr_col=chr_col, pos_col=pos_col, example_columns=example_columns)
+    droppable = masks["droppable"]
+    examples = _example_rows(frame, droppable, chr_col=chr_col, pos_col=pos_col)
     dropped = int(droppable.sum())
     return CoordinateDropReport(
         context=context,
         n_input=int(len(frame)),
         n_dropped=dropped,
         n_retained=int(len(frame) - dropped),
-        n_missing_chr=int(missing_chr.sum()),
-        n_missing_pos=int(missing_pos.sum()),
-        n_invalid_chr=int(invalid_chr.sum()),
-        n_invalid_pos=int(invalid_pos.sum()),
+        n_missing_chr=int(masks["missing_chr"].sum()),
+        n_missing_pos=int(masks["missing_pos"].sum()),
+        n_invalid_chr=int(masks["invalid_chr"].sum()),
+        n_invalid_pos=int(masks["invalid_pos"].sum()),
         examples=examples,
     )
 
 
-def _example_rows(
-    frame: pd.DataFrame,
-    missing: pd.Series,
-    *,
-    chr_col: str,
-    pos_col: str,
-    example_columns: Sequence[str] | None,
-) -> list[dict[str, object]]:
+def _example_rows(frame: pd.DataFrame, missing: pd.Series, *, chr_col: str, pos_col: str) -> list[dict[str, object]]:
     if not bool(missing.any()):
         return []
-    if example_columns is None:
-        columns = [column for column in ("SNP", chr_col, pos_col) if column in frame.columns]
-    else:
-        columns = [column for column in example_columns if column in frame.columns]
-    if not columns:
-        columns = [chr_col, pos_col]
+    columns = [column for column in ("SNP", chr_col, pos_col) if column in frame.columns] or [chr_col, pos_col]
     return frame.loc[missing, columns].head(5).to_dict(orient="records")
 
 
-def _log_drop_report(report: CoordinateDropReport, *, logger: logging.Logger | None, level: int) -> None:
+def _log_drop_report(report: CoordinateDropReport, *, logger: logging.Logger | None) -> None:
     if report.n_dropped == 0 or logger is None:
         return
     message = (
@@ -245,21 +196,14 @@ def _log_drop_report(report: CoordinateDropReport, *, logger: logging.Logger | N
         f"(missing CHR={report.n_missing_chr}, missing POS={report.n_missing_pos}, "
         f"invalid CHR={report.n_invalid_chr}, invalid POS={report.n_invalid_pos})."
     )
-    logger.log(level, message)
+    logger.warning(message)
     if report.examples:
         logger.debug(f"Example rows dropped for invalid or missing CHR/POS in {report.context}: {report.examples}")
 
 
-def _resolve_coordinate_policy(
-    *,
-    coordinate_policy: CoordinatePolicy | str | None,
-    drop_missing: bool | None,
-    context: str,
-) -> CoordinatePolicy:
+def _resolve_coordinate_policy(coordinate_policy: CoordinatePolicy | str | None, *, context: str) -> CoordinatePolicy:
     if coordinate_policy is None:
-        if drop_missing is None:
-            return DEFAULT_COORDINATE_POLICY
-        return "drop" if drop_missing else "raise"
+        return "drop"
     if coordinate_policy not in {"drop", "raise"}:
         raise LDSCConfigError(
             f"Could not normalize CHR/POS coordinates for {context}: coordinate_policy={coordinate_policy!r} is invalid. "
@@ -321,13 +265,7 @@ def _raise_coordinate_policy_error(
     min_position: int,
 ) -> None:
     if bool((masks["missing_chr"] | masks["missing_pos"]).any()):
-        first = _example_rows(
-            frame,
-            masks["missing_chr"] | masks["missing_pos"],
-            chr_col=chr_col,
-            pos_col=pos_col,
-            example_columns=None,
-        )[0]
+        first = _example_rows(frame, masks["missing_chr"] | masks["missing_pos"], chr_col=chr_col, pos_col=pos_col)[0]
         raise LDSCInputError(
             f"{context} requires valid CHR/POS coordinates; first missing row: {first}. "
             "Most likely CHR or POS contains blank or NA-like values. "
@@ -337,7 +275,7 @@ def _raise_coordinate_policy_error(
         _integer_position_series(frame[pos_col], context=context, label=pos_col, min_position=min_position)
     if bool(masks["invalid_chr"].any()):
         normalize_chromosome_series(frame[chr_col], context=context)
-    first = _example_rows(frame, masks["droppable"], chr_col=chr_col, pos_col=pos_col, example_columns=None)[0]
+    first = _example_rows(frame, masks["droppable"], chr_col=chr_col, pos_col=pos_col)[0]
     raise LDSCInputError(
         f"{context} requires valid CHR/POS coordinates; first invalid row: {first}. "
         "Most likely CHR or POS contains unsupported chromosome labels or invalid positions. "

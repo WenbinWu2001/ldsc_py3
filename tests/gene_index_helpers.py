@@ -71,6 +71,7 @@ def write_gene_ldscore_index(index_dir, *, index_identity, gene_catalog, chromos
                 selected_snp_count_before_region_exclusion=written,
                 region_excluded_snp_count=0, written_snp_count=written),
         )
-        return gene_index_build._publish_staged_gene_ldscore_index(staged_index, destination)
+        return gene_index_build._publish_staged_gene_ldscore_index(
+            staged_index, destination, accepted_entries=frozenset())
     finally:
         _remove_gene_index_transaction(gene_index_build._gene_index_build_dir(destination))

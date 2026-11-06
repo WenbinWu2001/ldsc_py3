@@ -315,6 +315,58 @@ def test_a_failure_during_publication_leaves_an_index_no_reader_accepts(tmp_path
     load_gene_ldscore_index(index)
 
 
+@pytest.mark.parametrize("intruder", ["user-file", "another-index"])
+@pytest.mark.parametrize("overwrite", [False, True])
+def test_publication_refuses_a_destination_that_changed_during_the_build(
+    tmp_path, index_inputs, monkeypatch, intruder, overwrite,
+):
+    import shutil
+
+    from ldsc._ldscore.gene_index import build as gene_index_build
+    from ldsc._ldscore.gene_index.artifact import load_gene_ldscore_index
+
+    index = tmp_path / "parent" / "index"
+    if overwrite:
+        _build_index(index_inputs, index, monkeypatch)
+    other = tmp_path / "other"
+    _build_index(index_inputs, other, monkeypatch)
+    real_stage = gene_index_build._create_gene_index_stage
+
+    def stage_while_the_destination_changes(destination):
+        # The output check ran before the lock; meanwhile a user adds a file, or another
+        # builder that held the lock first publishes its index.
+        staged = real_stage(destination)
+        if intruder == "user-file":
+            (index / "results.txt").write_text("written during the build\n")
+        else:
+            for entry in other.iterdir():
+                if not (index / entry.name).exists():
+                    shutil.copytree(entry, index / entry.name) if entry.is_dir() else shutil.copy2(entry, index)
+            (index / "results.txt").write_text("another builder's notes\n")
+        return staged
+
+    monkeypatch.setattr(gene_index_build, "_create_gene_index_stage", stage_while_the_destination_changes)
+    before = None
+
+    def snapshot_before_publication(staged_index, destination, **kwargs):
+        nonlocal before
+        before = _snapshot(destination)
+        return real_publish(staged_index, destination, **kwargs)
+
+    real_publish = gene_index_build._publish_staged_gene_ldscore_index
+    monkeypatch.setattr(gene_index_build, "_publish_staged_gene_ldscore_index", snapshot_before_publication)
+    with pytest.raises(FileExistsError, match="changed during the build"):
+        _build_index(index_inputs, index, monkeypatch, overwrite=overwrite)
+
+    # Nothing outside this run's own build directory was replaced or removed.
+    after = {name: data for name, data in _snapshot(index).items() if not name.startswith(".build")}
+    after.pop("RUN_FAILED.txt", None)
+    assert after == {name: data for name, data in before.items() if not name.startswith(".build")}
+    assert (index / "results.txt").is_file()
+    if intruder == "another-index" or overwrite:
+        load_gene_ldscore_index(index)
+
+
 def _saved_annotation(tmp_path, mode):
     """Run annotate once on the two-chromosome R2 test panel; return what LD scoring needs."""
     import pandas as pd

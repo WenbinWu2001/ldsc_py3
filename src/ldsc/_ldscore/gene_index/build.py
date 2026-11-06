@@ -604,6 +604,7 @@ def _build(
                     config,
                     chromosomes,
                     index_path=index_path,
+                    accepted_entries=accepted_entries,
                     genetic_map_sources=genetic_map_sources,
                     overwrite=overwrite,
                     log_level=log_level,
@@ -758,6 +759,7 @@ def _run_gene_ldscore_index_build(
     chromosomes: tuple[str, ...],
     *,
     index_path: Path,
+    accepted_entries: frozenset[str],
     genetic_map_sources: dict[str, str | None],
     overwrite: bool,
     log_level: str,
@@ -766,7 +768,12 @@ def _run_gene_ldscore_index_build(
     started: float,
     declared_inputs,
 ) -> Path:
-    """Build chromosome shards into the staged index, then publish it with root metadata last."""
+    """Build chromosome shards into the staged index, then publish it with root metadata last.
+
+    ``accepted_entries`` are the destination's top-level entries that the
+    output preflight accepted; publication refuses a destination that has
+    gained any other entry since.
+    """
     embedded_catalog = _build_embedded_gene_catalog(
         catalog,
         gene_exclude_regions=config.gene_exclude_regions,
@@ -995,7 +1002,8 @@ def _run_gene_ldscore_index_build(
             snp_universe_policy=snp_universe_policy,
             diagnostic_payload=diagnostic_payload,
         )
-        published_path = _publish_staged_gene_ldscore_index(staged_index, index_path)
+        published_path = _publish_staged_gene_ldscore_index(
+            staged_index, index_path, accepted_entries=accepted_entries)
     except Exception as exc:
         LOGGER.error(
             f"Gene LD-score index build failed during staged validation/publication: "
@@ -1080,8 +1088,8 @@ def _preflight_gene_index_output(
     need ``overwrite``. Any other content is refused, including component
     names without such a build directory.
 
-    Returns the names of the top-level entries it accepted; ``.build`` is
-    among them only when an earlier attempt left it.
+    Returns the names of the top-level entries it accepted, which publication
+    checks again; ``.build`` is among them only when an earlier attempt left it.
     """
     if index_path.exists() and not index_path.is_dir():
         raise FileExistsError(f"Gene LD-score index output is not a directory: {index_path}")
@@ -1552,8 +1560,16 @@ def _create_gene_index_stage(destination: Path) -> Path:
     return staged_index
 
 
-def _publish_staged_gene_ldscore_index(staged_index: Path, destination: Path) -> Path:
+def _publish_staged_gene_ldscore_index(
+    staged_index: Path, destination: Path, *, accepted_entries: frozenset[str],
+) -> Path:
     """Move a reload-validated staged index into its destination, root metadata last.
+
+    The output preflight ran before the build lock, so before changing
+    anything the destination is checked again: a top-level entry other than
+    the build directory that ``accepted_entries`` does not name, such as an
+    index another builder published meanwhile or a file a user added, stops
+    publication with the destination unchanged.
 
     The root ``metadata.json`` records ``index_id`` and the loader rejects a
     directory without it. Removing the old root metadata first and writing
@@ -1565,6 +1581,14 @@ def _publish_staged_gene_ldscore_index(staged_index: Path, destination: Path) ->
     removed here; the caller moves the new build's logs in afterwards.
     """
     load_gene_ldscore_index(staged_index)
+    gained = sorted({entry.name for entry in destination.iterdir()} - accepted_entries - {_BUILD_DIR})
+    if gained:
+        raise FileExistsError(
+            f"Gene LD-score index output directory changed during the build: {destination} gained "
+            f"{', '.join(gained)}, which the output check before the build did not accept. Nothing was "
+            "published and the directory's other contents were left as they were. Move those entries "
+            "elsewhere or choose another output directory, then rerun."
+        )
     (destination / "metadata.json").unlink(missing_ok=True)
     (destination / "diagnostics" / "build-gene-ldscore-index.log").unlink(missing_ok=True)
     _remove_published_entry(destination / CHROMOSOME_LOG_DIR)

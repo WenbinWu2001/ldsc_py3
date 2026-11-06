@@ -259,6 +259,7 @@ The lock, the live log, issue tables, earlier failed attempts and the index bein
 - Preflight reads the destination before the build lock creates `.build/`, so a refused attempt leaves no `.build/` behind and never makes a directory look like an interrupted index.
 - A `.build/` that is a symlink or not a directory, or that holds a symlink, fails before anything is created, locked or removed; the builder never follows a link out of the index directory.
 - Two builders cannot target the same directory concurrently.
+- Publication checks the destination again, under the lock and before it replaces anything: if the directory gained a top-level entry that preflight did not accept, such as an index another builder published meanwhile or a file a user added, the build fails and publishes nothing.
 
 While the build is running, the live log is `<index-dir>/.build/build-gene-ldscore-index.log`, so `tail -f` works.
 Each chromosome worker writes its own records, phase timings and any traceback to `<index-dir>/.build/chromosome-logs/chrN.log`, through the per-chromosome log mechanism of `ldscore` ([parallel execution](parallel-execution.md#ld-logs-and-failure-cleanup)); the coordinator writes each chromosome's start, completion and warnings, such as a chromosome without regression SNPs, to the main log.

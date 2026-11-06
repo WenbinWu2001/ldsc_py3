@@ -66,7 +66,7 @@ PLINK users should supply metadata previously produced with `ldscore --export-re
 Reference metadata is a UTF-8 text table, plain or gzip-compressed, with a whitespace-delimited header.
 It requires `CHR`, `POS` (or `BP`), `SNP`, and `MAF`, and `A1/A2` when the fit is allele-aware: it defines the reference SNPs, so a file without both alleles stops the run with an error that names it.
 Header names resolve through the [shared column aliases](../formats/column-schema.md#shared-metadata-columns).
-`MAF` must be the folded minor-allele frequency, read from the column named `MAF` or, when there is none, from the one column whose name ends in `MAF`, such as `EUR_MAF`.
+`MAF` must be the folded minor-allele frequency, read from the column named `MAF`; a population-specific name such as `EUR_MAF` is not read as `MAF`, and the error names it as a column to rename.
 A column named `FRQ` is not read as `MAF`, because it usually holds the unfolded frequency of `A1`, which would select the wrong common SNPs.
 A file that cannot be parsed or lacks a required column stops the run; see [troubleshooting](../../user-guide/troubleshooting.md#quantile-h2-reference-metadata-cannot-be-read).
 Fitted and target annotations without alleles are matched by base identity instead, which requires a unique base identity in the reference metadata, and the log names each such file.

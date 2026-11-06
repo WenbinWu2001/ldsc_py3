@@ -15,9 +15,10 @@ Aliases are accepted only when reading input headers and are never written.
 The alias registry is `src/ldsc/_core/columns.py`; the tables below list its contents.
 
 Headers are compared after lowercasing and removing punctuation, so `p-value`, `P_VALUE` and `pvalue` are the same header.
-Matches are ranked: the canonical name, then an alias, then a header ending in the canonical name, then a header ending in an alias.
-Two headers tied at the best rank stop the run with an error instead of a guess.
-The two suffix ranks do not apply to `SNP`, `CM`, `MAF`, `A1` and `A2` in annotation files (see [Annotation files](#annotation-files-exact-names-and-aliases-only)).
+A header matches a field only when it equals the field's canonical name or one of its listed aliases; a header that only ends in one, such as `EUR_MAF`, `eQTL_POS` or `my_hg19_pos`, matches nothing.
+The canonical name is preferred to an alias, and two headers that match at the same level stop the run with an error instead of a guess.
+When a required column is missing, the error names the headers that end in one of its names after a separator, such as `EUR_MAF` or `start_bp`, as columns to rename; such a header is never read as the field.
+This rule holds for every input listed on this page (changed on 2026-11-06; before then a header ending in a name or alias was also matched when no better header existed).
 
 ### Shared metadata columns
 
@@ -32,7 +33,7 @@ These aliases apply to annotation files, SNP restriction files, `quantile-h2` ta
 | `MAF` | `MAF` |
 
 `MAF`, a folded minor-allele frequency, has no alias besides its own name.
-Under the ranking above, a header ending in `MAF`, such as `EUR_MAF`, still matches it when no header is named `MAF`; this holds for `quantile-h2` reference metadata and not for annotation files.
+A population-specific column such as `EUR_MAF` is not read as `MAF`; rename it to `MAF` if it holds the folded minor-allele frequency.
 
 Allele columns in annotation files, SNP restriction files and `quantile-h2` reference metadata also accept genome-oriented names, because SNP identity treats the two alleles as an unordered set:
 
@@ -46,13 +47,13 @@ SNP restriction files in coordinate-family modes also accept a build-specific po
 
 #### Annotation files: exact names and aliases only
 
-Annotation files, read by `annotate`, `ldscore` (`--baseline-annot-sources`, `--query-annot-sources`), `build-gene-ldscore-index`, the Python `AnnotationBuilder` and `quantile-h2` (fitted and target annotations), recognize `SNP`, `CM`, `MAF`, `A1` and `A2` only by their canonical name or an alias from the tables in this section.
-Every other column except `CHR` and `POS` is an annotation value column, so a header that only ends in a metadata name or alias stays an annotation: `lowMAF`, `EUR_MAF`, `eQTL_SNP` and `eQTL_CM` are annotations, and so are `Enhancers` and `Thyroid`, which end in the aliases `RS` and `ID`.
-`CHR` and `POS` are required and keep the full ranking.
+Annotation files, read by `annotate`, `ldscore` (`--baseline-annot-sources`, `--query-annot-sources`), `build-gene-ldscore-index`, the Python `AnnotationBuilder` and `quantile-h2` (fitted and target annotations), recognize the metadata columns `CHR`, `POS`, `SNP`, `CM`, `MAF`, `A1` and `A2` only by their canonical name or an alias from the tables in this section.
+Every other column is an annotation value column, so a header that only ends in a metadata name or alias stays an annotation: `lowMAF`, `EUR_MAF`, `eQTL_SNP` and `eQTL_CM` are annotations, and so are `Enhancers` and `Thyroid`, which end in the aliases `RS` and `ID`.
+`CHR` and `POS` are required, so a file whose position column is named, for example, `eQTL_POS` stops the run with an error that names that column.
 The same applies to real metadata stored under another name: a genetic-map column such as `GENETIC_MAP_CM`, a frequency column such as `EUR_MAF`, or a variant-ID column such as `variant_id` is read as an annotation, without a warning.
 Rename such a column to its canonical name or an alias, or drop it, before using the file; a non-numeric one such as `variant_id` stops the run as a [malformed annotation value](../../user-guide/troubleshooting.md#ldscore-annotation-values-are-malformed), and a numeric one is fitted as an annotation.
 Where `SNP` is required (annotation files in rsID-family modes, and `quantile-h2` target annotations in every mode), a file whose only SNP-like header is such a look-alike stops the run with an error naming the missing `SNP` column.
-This rule supersedes the earlier suffix matching for annotation files (changed on 2026-11-06), under which such columns were taken as metadata and silently left out of the model.
+This rule replaces the earlier suffix matching for annotation files (changed on 2026-11-06), under which such columns were taken as metadata and silently left out of the model.
 
 ### Raw summary statistics
 
@@ -92,7 +93,7 @@ Sample-size selection, INFO-list columns and `--infer-only` are described in the
 | Input | Column names |
 | --- | --- |
 | R² matrix files | The pair file has the fixed columns `IDX_1`, `IDX_2`, `R2` and `SIGN_R`, and the sidecar exactly `CHR`, `POS`, `SNP`, `A1`, `A2`, `CM` and `MAF` in that order, both with no aliases ([R² matrix format](r2-matrices.md#27-snp-metadata-sidecar-mandatory-authoritative)). |
-| Genetic maps | The cM column accepts `CM`, `GENETIC_MAP_CM`, `GENETICMAPCM`, `GENETIC_MAP(CM)` and `GENETICMAP(CM)`; this family is defined in `src/ldsc/_refpanel/genetic_map.py`, the only alias family outside the registry. |
+| Genetic maps | `CHR` and `POS` take the shared aliases, and `POS` also accepts `POSITION(BP)`; the cM column accepts `CM`, `GENETIC_MAP_CM`, `GENETICMAPCM`, `GENETIC_MAP(CM)`, `GENETICMAP(CM)` and `MAP(CM)`. Both the 1000 Genomes header `chr position Genetic_Map(cM)` and the HapMap header `Chromosome Position(bp) Rate(cM/Mb) Map(cM)` are read. These families are defined in `src/ldsc/_refpanel/genetic_map.py`, the only alias families outside the registry. |
 | Package-written artifacts | Munged summary statistics and LD-score directories are read with canonical names only, which catches schema drift in files the package wrote. `annotate` output is read like any other annotation file (`BP` is an alias of `POS`). |
 
 ### Setting values

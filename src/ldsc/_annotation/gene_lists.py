@@ -828,11 +828,19 @@ def catalog_defect_message(prefix: str, issues: pd.DataFrame) -> str:
 
     ``prefix`` states what failed. The message adds the defect count, the
     first ``_SHOWN_CATALOG_DEFECTS`` rows of ``issues`` in table order (line,
-    field, reason, details, observed value and repair), the number not shown,
-    and the troubleshooting anchor.
+    field, reason, details and observed value), each repair once after the
+    consecutive defects that share it, the number not shown, and the
+    troubleshooting anchor.
     """
-    shown = [_describe_catalog_issue(row) for _, row in issues.head(_SHOWN_CATALOG_DEFECTS).iterrows()]
-    message = f"{prefix}: found {len(issues)} defect(s): " + "; ".join(shown)
+    shown = issues.head(_SHOWN_CATALOG_DEFECTS)
+    repairs = [_issue_text(repair).rstrip(".") for repair in shown["repair"]]
+    parts = []
+    for position, (_, row) in enumerate(shown.iterrows()):
+        part = _describe_catalog_issue(row)
+        if position + 1 == len(repairs) or repairs[position + 1] != repairs[position]:
+            part += f". Repair: {repairs[position]}"
+        parts.append(part)
+    message = f"{prefix}: found {len(issues)} defect(s): " + "; ".join(parts)
     omitted = len(issues) - len(shown)
     if omitted:
         message += f"; {omitted} more defect(s) not shown"
@@ -846,7 +854,7 @@ def _describe_catalog_issue(row: pd.Series) -> str:
         text += f" ({_issue_text(row['details'])})"
     if _issue_text(row["observed_value"]):
         text += f", value {_issue_text(row['observed_value'])!r}"
-    return f"{text}. Repair: {_issue_text(row['repair']).rstrip('.')}"
+    return text
 
 
 def _issue_text(value: Any) -> str:

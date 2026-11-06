@@ -64,6 +64,20 @@ def test_message_shows_the_first_defects_and_counts_the_rest(tmp_path):
     assert ANCHOR in message
 
 
+def test_message_states_a_repair_shared_by_consecutive_defects_once(tmp_path):
+    catalog = tmp_path / "catalog.tsv"
+    catalog.write_text(HEADER + "".join(f"G{i}\tN{i}\t1\t{10 * i + 5}\t{10 * i + 6}\tGRCh-38\n" for i in range(7)))
+
+    with pytest.raises(GeneCatalogValidationError) as caught:
+        GeneCatalog.load(catalog)
+
+    message = str(caught.value)
+    assert ("line 5, genome_build: unsupported_genome_build, value 'GRCh-38'; "
+            "line 6, genome_build: unsupported_genome_build, value 'GRCh-38'. "
+            "Repair: Use hg19/GRCh37 or hg38/GRCh38 coordinates; 2 more defect(s) not shown") in message
+    assert message.count("Repair:") == 1
+
+
 @pytest.mark.parametrize(("name", "payload", "reason"), [
     ("catalog.tsv.gz", b"not a gzip stream", "catalog_unparseable"),
     ("catalog.tsv", b"gene_id\xff\n", "catalog_unparseable"),

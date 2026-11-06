@@ -10,7 +10,10 @@ import pytest
 
 from ldsc._ldscore.gene_index import build as index
 from ldsc._ldscore.gene_index.artifact import load_gene_ldscore_index
+from ldsc import GlobalConfig, LDScoreConfig, RefPanelConfig
 from ldsc.config import GeneLDScoreIndexBuildConfig
+from ldsc._refpanel.adapters import PlinkRefPanel
+from ldsc._refpanel.prepared import ChromosomeAnnotations
 from ldsc.errors import LDSCConfigError, LDSCInputError
 from tests.gene_index_helpers import narrow_index_chromosomes
 from tests.ref_panel_helpers import ORIENTATION_PANEL, write_counted_plink
@@ -107,9 +110,10 @@ def test_builder_allele_matching_uses_shared_cleanup(tmp_path, mode, with_allele
                               "A1": ["A", "A", "A", "N", "A", "A"],
                               "A2": ["G", "C", "T", "G", "G", "C"]})
     prefix = tmp_path / "panel"
+    # Polymorphic genotypes for all six rows, then the .bim under test.
+    write_counted_plink(prefix, [(snp, "A", "G", (2, 1, 0, 0)) for snp in reference.SNP])
     reference.assign(CM=0.0).loc[:, ["CHR", "SNP", "CM", "POS", "A1", "A2"]].to_csv(
         str(prefix) + ".bim", sep="\t", header=False, index=False)
-    Path(str(prefix) + ".fam").write_text("F I 0 0 1 -9\n")
     baseline = reference.iloc[:4].copy()
     if with_alleles:
         baseline["A1"] = ["C", "T", "A", "N"]
@@ -125,6 +129,20 @@ def test_builder_allele_matching_uses_shared_cleanup(tmp_path, mode, with_allele
     drops = select_plink_chromosome(str(prefix), "1", mode, stage="test").identity_drops
     assert {"invalid_allele", "multi_allelic_base_key"}.issubset(set(drops.reason))
     assert index._check_baseline_plink_chromosome(baseline, plink, snp_identifier=mode, chrom="1") == 0
+
+    # Panel preparation, which the index builder's PlinkRefPanel runs, aligns the
+    # baseline values to the kept PLINK rows: by base key without baseline
+    # alleles, and by unordered allele set (swaps and strand complements) with them.
+    # Annotation identity cleanup has already removed the baseline's invalid N row.
+    values = pd.DataFrame({"base": [11.0, 22.0, 33.0, 44.0]})
+    if with_alleles:
+        baseline, values = baseline.iloc[:3], values.iloc[:3]
+    panel = PlinkRefPanel(GlobalConfig(snp_identifier=mode, **({} if mode.startswith("rsid") else {"genome_build": "hg38"})),
+                          RefPanelConfig(backend="plink", plink_prefix=str(prefix)))
+    bundle = ChromosomeAnnotations(baseline.reset_index(drop=True), values, ["base"], [])
+    with panel.prepare_chromosome("1", bundle, LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True)) as prepared:
+        assert prepared.metadata.SNP.tolist() == ["rs1", "rs2", "rs3"]
+        assert prepared.annotations.read()[:, 0].tolist() == [11, 22, 33]
 
 
 @pytest.mark.parametrize("mode", ["rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"])

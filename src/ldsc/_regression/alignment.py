@@ -46,8 +46,7 @@ from .._core.snp_identity import (
 )
 from .._genome.build_policy import GenomeBuildCheck
 from .._ldscore.results import LDScoreResult
-from .._ldscore.outputs import REGRESSION_LD_SCORE_COLUMN
-from .._ldscore.source import LDScoreSource
+from .._ldscore.source import ALL_COUNT_FIELD, COMMON_COUNT_FIELD, REGRESSION_LD_SCORE_COLUMN, LDScoreSource
 from .._sumstats.table import SumstatsTable
 from ..config import GlobalConfig, RegressionConfig
 from ..errors import LDSCInputError
@@ -1154,7 +1153,7 @@ def _count_totals_for_columns(count_records, columns: Sequence[str]) -> dict[str
             "the parquet tables. Regenerate the LD-score directory with the current `ldsc ldscore`."
         )
     count_totals: dict[str, np.ndarray] = {}
-    all_values = [records_by_column[column].get("all_reference_snp_count") for column in columns]
+    all_values = [records_by_column[column].get(ALL_COUNT_FIELD) for column in columns]
     if all(value is not None and pd.notna(value) for value in all_values):
         all_counts = np.asarray([float(value) for value in all_values], dtype=np.float64)
         if not np.isfinite(all_counts).all():
@@ -1164,8 +1163,8 @@ def _count_totals_for_columns(count_records, columns: Sequence[str]) -> dict[str
                 "LD-score directory. Do not replace missing or invalid counts with zero."
             )
         count_totals[ALL_COUNT_KEY] = all_counts
-    if all("common_reference_snp_count" in records_by_column[column] for column in columns):
-        common_values = [records_by_column[column].get("common_reference_snp_count") for column in columns]
+    if all(COMMON_COUNT_FIELD in records_by_column[column] for column in columns):
+        common_values = [records_by_column[column].get(COMMON_COUNT_FIELD) for column in columns]
         if any(value is None or pd.isna(value) for value in common_values):
             raise LDSCInputError(
                 "Regression found a malformed common-SNP count record with a missing value. "

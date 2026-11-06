@@ -30,6 +30,7 @@ from ..._core.snp_identity import identity_cleanup_keys, identity_mode_family, n
 from ..._refpanel.funnel import FUNNEL_COLUMNS, concat_funnels, funnel_from_records, funnel_records
 from ..._runtime.progress import advance, report_phase
 from .atoms import AtomStatistics, ChromosomeAtomModel, validate_ldscore_operator
+from ..source import REGRESSION_LD_SCORE_COLUMN
 from ...config import GlobalConfig
 from ...errors import LDSCInputError, LDSCInternalError
 from ..._runtime.preflight import InputGate, check_readable, input_issue
@@ -320,7 +321,7 @@ def _index_chromosome_metadata(
     baseline_columns = [
         column
         for column in record.baseline_rows.columns
-        if column not in {"CHR", "SNP", "POS", "A1", "A2", "regression_ld_scores"}
+        if column not in {"CHR", "SNP", "POS", "A1", "A2", REGRESSION_LD_SCORE_COLUMN}
     ]
     published_digest = _published_row_metadata_sha256(
         _cast_index_baseline_rows(record.baseline_rows)
@@ -597,7 +598,7 @@ def _load_index_chromosome(
             "index components. Rebuild the complete index if the original valid files are unavailable."
         )
     required_baseline = [
-        "CHR", "SNP", "POS", *allele_columns, "regression_ld_scores", *baseline_columns
+        "CHR", "SNP", "POS", *allele_columns, REGRESSION_LD_SCORE_COLUMN, *baseline_columns
     ]
     if list(baseline_rows.columns) != required_baseline:
         raise LDSCInputError(
@@ -605,7 +606,7 @@ def _load_index_chromosome(
             " Restore this chromosome component together with its matching root index; do not mix or hand-edit "
             "index components. Rebuild the complete index if the original valid files are unavailable."
         )
-    if any(baseline_rows[column].dtype != np.float32 for column in ["regression_ld_scores", *baseline_columns]):
+    if any(baseline_rows[column].dtype != np.float32 for column in [REGRESSION_LD_SCORE_COLUMN, *baseline_columns]):
         raise LDSCInputError(
             "Gene LD-score index baseline LD-score columns must use float32 dtype."
             " Restore this chromosome component together with its matching root index; do not mix or hand-edit "
@@ -1120,5 +1121,5 @@ def load_gene_ldscore_index(
 
 def _baseline_columns_from_rows(frame: pd.DataFrame) -> list[str]:
     """Return ordered supplied baseline score columns from one common shard."""
-    reserved = {"CHR", "SNP", "POS", "A1", "A2", "regression_ld_scores"}
+    reserved = {"CHR", "SNP", "POS", "A1", "A2", REGRESSION_LD_SCORE_COLUMN}
     return [column for column in frame.columns if column not in reserved]

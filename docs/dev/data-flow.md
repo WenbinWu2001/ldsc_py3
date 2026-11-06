@@ -14,7 +14,7 @@ This document summarizes the user-visible file streams for each public workflow.
 | Preprocessing | yes | `ldsc.config`, `ldsc._runtime.paths`, `ldsc._core.columns`, `ldsc._core.chromosomes`, `ldsc._genome.build_inference` | normalize tokens, headers, identifiers, chromosome order, and genome-build assumptions |
 | Workflow | yes | workflow modules in the domain packages (`ldsc._annotation`, `ldsc._refpanel`, `ldsc._sumstats`, `ldsc._ldscore`, `ldsc._regression`) | build aligned in-memory tables |
 | Computation | no | computation modules in those packages, such as `ldsc._ldscore.compute`, `ldsc._refpanel.r2_format` and `ldsc._regression.estimators` | low-level readers and numerical work |
-| Artifact access | yes | `ldsc._ldscore.source` | open LD-score directories, validate schemas/identities, and read selected query columns |
+| Artifact access | yes | `ldsc._ldscore.source` | read and check LD-score manifests, open LD-score directories, validate schemas/identities, and read selected query columns |
 | Postprocessing | yes | each domain's `outputs` writer on `ldsc._runtime.artifacts`, `ldsc._plotting.dispatch`, `ldsc._regression.h2_scale`, `ldsc._runtime.workflow_logging` | preflight fixed output paths, emit core/derived results, and write workflow audit logs/failure markers |
 
 ## Package Overview

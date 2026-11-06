@@ -45,7 +45,8 @@ from ..config import GlobalConfig, LDScoreConfig, validate_config_compatibility
 from ..errors import EmptyReferenceSNPs, LDSCInputError, LDSCInternalError
 from . import compute as kernel_ldscore
 from .diagnostics import chromosome_log, log_reference_snp_funnel_warning, reference_snp_funnel_path
-from .outputs import REGRESSION_LD_SCORE_COLUMN, common_count_config, ref_metadata_file, snp_universe_policy_record
+from .outputs import LD_WINDOW_SNP_COUNTS_FILE, common_count_config, ref_metadata_file, snp_universe_policy_record
+from .source import REGRESSION_LD_SCORE_COLUMN, count_record
 from .query_variation import summarize_variation
 from .results import ChromLDScoreResult, DirectChromosomeFragment, LDScoreResult, StagedLDScoreBatch
 
@@ -355,17 +356,8 @@ def _count_records_from_totals(
             "count vectors for a different annotation matrix. Re-run with DEBUG logging and "
             "report the traceback."
         )
-    records: list[dict[str, Any]] = []
-    for idx, (group, column) in enumerate(zip(groups, columns)):
-        record: dict[str, Any] = {
-            "group": group,
-            "column": column,
-            "all_reference_snp_count": float(all_counts[idx]),
-        }
-        if common_counts is not None:
-            record["common_reference_snp_count"] = float(common_counts[idx])
-        records.append(record)
-    return records
+    return [count_record(group, column, all_counts[idx], None if common_counts is None else common_counts[idx])
+            for idx, (group, column) in enumerate(zip(groups, columns))]
 
 
 @dataclass(frozen=True)
@@ -517,7 +509,7 @@ class _DirectProducer:
         if batch.ordinal == 0 and self.output_dir is not None:  # every batch shares chromosomes and counts
             _warn_ld_window_snp_subset(
                 result.ld_window_snp_counts,
-                str(Path(self.output_dir) / "diagnostics" / "ld_window_snp_counts.tsv"))
+                str(Path(self.output_dir) / LD_WINDOW_SNP_COUNTS_FILE))
             log_reference_snp_funnel_warning(result.reference_snp_funnel, reference_snp_funnel_path(self.output_dir))
         LOGGER.debug(f"Computed LD scores for {len(chromosome_results)} chromosomes.")
         staged = isinstance(result, StagedLDScoreBatch)

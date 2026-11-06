@@ -44,6 +44,7 @@ from ..._runtime.progress import report_phase, PhaseProgress
 from .. import compute as kernel_ldscore
 from ..diagnostics import chromosome_log, emit_reference_snp_funnel_notice, log_reference_snp_funnel_warning
 from ..outputs import CHROMOSOME_LOG_DIR, snp_universe_policy_record
+from ..source import REGRESSION_LD_SCORE_COLUMN
 from ..._annotation.semantics import combine_annotation_types
 from ..._refpanel.adapters import PlinkRefPanel, resolved_ref_panel
 from ..._refpanel.funnel import ANNOTATION_SNP_GRID, REFERENCE_PANEL, concat_funnels, funnel_from_records, funnel_records
@@ -1625,7 +1626,7 @@ def build_plink_index_chromosome(
 
         identity_columns = ["CHR", "SNP", "POS", *[c for c in ("A1", "A2") if c in metadata.columns]]
         baseline_rows = computed.metadata.loc[:, identity_columns].copy()
-        baseline_rows["regression_ld_scores"] = computed.w_ld[:, 0]
+        baseline_rows[REGRESSION_LD_SCORE_COLUMN] = computed.w_ld[:, 0]
         for column_index, column in enumerate(baseline_bundle.baseline_columns):
             baseline_rows[column] = computed.ld_scores[:, column_index]
         payload = IndexChromosomeData(

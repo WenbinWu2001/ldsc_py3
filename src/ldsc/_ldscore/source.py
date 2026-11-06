@@ -33,6 +33,28 @@ from .._runtime.result_files import declared_result_file
 
 _QUERY_BATCH_FILE_RE = re.compile(r"ldscore\.query\.batch\d{5}\.parquet")
 
+# Schema facts of an LD-score directory that the direct and indexed producers,
+# the legacy converter and the readers share.
+REGRESSION_LD_SCORE_COLUMN = "regression_ld_scores"
+ALL_COUNT_FIELD = "all_reference_snp_count"
+COMMON_COUNT_FIELD = "common_reference_snp_count"
+INDEX_PROVENANCE_FIELDS = ("index_id", "index_snp_identifier", "index_genome_build")
+
+
+def count_record(group: str, column: str, all_count, common_count=None) -> dict[str, Any]:
+    """Return one entry of the ``counts`` metadata of an LD-score directory.
+
+    ``group`` is ``"baseline"`` or ``"query"``. An unavailable all-SNP count
+    (``all_count=None``, legacy conversion without ``.l2.M``) is recorded as
+    ``None``; an unavailable common-SNP count (``common_count=None``) is left
+    out. Regression treats both as unavailable and never substitutes another
+    count kind.
+    """
+    record = {"group": group, "column": column, ALL_COUNT_FIELD: None if all_count is None else float(all_count)}
+    if common_count is not None:
+        record[COMMON_COUNT_FIELD] = float(common_count)
+    return record
+
 
 def query_batch_file_name(ordinal: int, count: int) -> str:
     """Return the file name of query batch ``ordinal`` (1-based) in an LD-score directory of ``count`` batches."""
@@ -109,7 +131,7 @@ def _validate_row_groups(path, row_groups, message: str) -> None:
 def validate_ldscore_schemas(baseline_columns, query_columns, baseline_schema, query_schema):
     """Check every declared column without loading its values."""
     require_unique_annotation_names(baseline_columns, query_columns)
-    required = {"CHR", "SNP", "POS", "regression_ld_scores", *baseline_columns}
+    required = {"CHR", "SNP", "POS", REGRESSION_LD_SCORE_COLUMN, *baseline_columns}
     missing = required.difference(baseline_schema)
     if missing:
         raise LDSCInternalError(f"LD-score baseline_table is missing required columns {sorted(missing)}. Regenerate the complete LD-score directory.")
@@ -137,7 +159,7 @@ def validate_ldscore_baseline_table(
         )
     snp_identifier = config_snapshot.snp_identifier
     _validate_ldscore_output_columns(
-        table, ["regression_ld_scores", *baseline_columns],
+        table, [REGRESSION_LD_SCORE_COLUMN, *baseline_columns],
         table_name="baseline_table", snp_identifier=snp_identifier,
     )
     return snp_identifier
@@ -634,7 +656,7 @@ def load_ldscore_from_dir(
         snp_identifier=effective_identifier,
         chromosome_scope=metadata.get("chromosome_scope") or {},
         snp_universe_policy=metadata.get("snp_universe_policy"),
-        index_provenance=({key: metadata[key] for key in ("index_id", "index_snp_identifier", "index_genome_build")}
+        index_provenance=({key: metadata[key] for key in INDEX_PROVENANCE_FIELDS}
                           if metadata.get("index_id") is not None else None),
         legacy_ldscore_conversion=metadata.get("legacy_ldscore_conversion"),
     )

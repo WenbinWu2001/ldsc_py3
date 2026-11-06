@@ -59,6 +59,7 @@ from ..config import (
 )
 from .._genome.hm3 import packaged_hm3_curated_map_path
 from .outputs import (
+    INPUT_ISSUES_FILE,
     LDSCORE_LOG,
     LDScoreDirectoryWriter,
     LDScoreOutputConfig,
@@ -703,7 +704,7 @@ def _run_direct_ldscore(configs: _DirectConfigs) -> "LDScoreSource":
     LDScoreDirectoryWriter.artifact_family(output_dir, include_logs=True).preflight(
         overwrite=output_config.overwrite, additional_paths=[log_path])
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    issues_path = output_dir / "diagnostics/input_issues.tsv"
+    issues_path = output_dir / INPUT_ISSUES_FILE
     with AnnotationWorkspace(output_dir) as workspace:
         with workflow_logging("ldscore", log_path, log_level=configs.global_config.log_level):
             from .._refpanel.preflight import inspect_r2_headers

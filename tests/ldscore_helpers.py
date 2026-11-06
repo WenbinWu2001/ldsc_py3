@@ -10,6 +10,7 @@ from ldsc.config import GlobalConfig
 from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig, common_count_config
 from ldsc._ldscore.overlap_table import LDScoreOverlap
 from ldsc._ldscore.results import LDScoreResult
+from ldsc._ldscore.source import count_record
 
 
 def write_ldscore_dir(
@@ -38,12 +39,8 @@ def write_ldscore_dir(
     reloads the directory, so the fixture carries the real manifest.
     """
     baseline_columns, query_columns = list(baseline_columns), list(query_columns)
-    records = [
-        {"group": "baseline" if column in baseline_columns else "query", "column": column,
-         "all_reference_snp_count": float(counts[column][0]),
-         "common_reference_snp_count": float(counts[column][1])}
-        for column in [*baseline_columns, *query_columns]
-    ]
+    records = [count_record("baseline" if column in baseline_columns else "query", column, *counts[column])
+               for column in [*baseline_columns, *query_columns]]
     result = LDScoreResult(
         baseline_table=baseline,
         query_table=query,

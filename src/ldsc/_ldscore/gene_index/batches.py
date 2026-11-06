@@ -26,6 +26,7 @@ from ..batch_execution import run_query_batches
 from ..diagnostics import chromosome_log
 from ..outputs import common_count_config
 from ..results import StagedLDScoreBatch
+from ..source import INDEX_PROVENANCE_FIELDS, count_record
 from ..overlap_table import LDScoreOverlap
 from ..query_variation import ScoreVariation, summarize_variation
 from .atoms import assemble_atom_selector, assemble_indexed_ld_scores, assemble_selected_atom_statistics
@@ -208,8 +209,7 @@ class _IndexedProducer:
             query_diagonal_all=pd.Series(query_counts[0], index=query_columns),
             query_diagonal_common=pd.Series(query_counts[1], index=query_columns),
             total_all_reference_snps=float(totals[0]), total_common_reference_snps=float(totals[1]))
-        counts = [{"group": group, "column": name, "all_reference_snp_count": float(values[0, pos]),
-                   "common_reference_snp_count": float(values[1, pos])}
+        counts = [count_record(group, name, values[0, pos], values[1, pos])
                   for group, columns, values in [("baseline", baseline_columns, baseline_counts),
                                                  ("query", query_columns, query_counts)]
                   for pos, name in enumerate(columns)]
@@ -219,8 +219,8 @@ class _IndexedProducer:
             count_records=counts, baseline_columns=baseline_columns, query_columns=query_columns,
             count_config=common_count_config(index.index_identity["common_maf_min"]), config_snapshot=index.global_config, overlap=overlap,
             query_statuses=(), gene_list_batch=self.gene_batch, chromosome_scope=self.scope,
-            index_provenance={"index_id": index.index_id, "index_snp_identifier": index.snp_identifier,
-                              "index_genome_build": index.genome_build},
+            index_provenance=dict(zip(INDEX_PROVENANCE_FIELDS,
+                                      (index.index_id, index.snp_identifier, index.genome_build), strict=True)),
             # gene_control and the gene-list queries are Boolean atom unions, so binary.
             annotation_types={**index.annotation_types,
                               **dict.fromkeys(all_columns[len(index.baseline_columns):], "binary")},

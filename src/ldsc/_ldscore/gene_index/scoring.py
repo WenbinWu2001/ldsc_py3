@@ -16,7 +16,7 @@ import pandas as pd
 
 from ..._annotation.gene_lists import GeneCatalog
 from ..._annotation.storage import AnnotationWorkspace
-from ..outputs import LDScoreDirectoryWriter, QueryDiagnostics, LDScoreOutputConfig
+from ..outputs import INPUT_ISSUES_FILE, LDScoreDirectoryWriter, QueryDiagnostics, LDScoreOutputConfig
 from .artifact import inspect_index_paths, load_gene_ldscore_index
 from ..._runtime.parallelism import validate_query_batch_size, validate_workers
 from ..._runtime.paths import output_directory_path
@@ -140,7 +140,7 @@ def run_indexed_ldscore(
     try:
         inspect_declared_inputs(files=[('query genes', query_gene_list_sources), ('control genes', control_gene_list_file)],
             checks=[('index', index_dir, lambda: inspect_index_paths(index_dir))],
-            issues_path=Path(output_dir)/'diagnostics/input_issues.tsv')
+            issues_path=Path(output_dir)/INPUT_ISSUES_FILE)
     except LDSCInputError as exc:
         LDScoreDirectoryWriter.write_input_preflight_diagnostics(
             QueryDiagnostics(_FAILED_INDEX_SCOPE, input_issues=exc.input_issues), output_dir)

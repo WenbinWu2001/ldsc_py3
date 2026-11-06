@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .._runtime.workflow_logging import workflow_logging, log_outputs
 from .._runtime.worker_runtime import log_native_thread_state
-from .outputs import CHROMOSOME_LOG_DIR, LDSCORE_LOG, LDScoreDirectoryWriter
+from .outputs import CHROMOSOME_LOG_DIR, LDSCORE_LOG, REFERENCE_SNP_FUNNEL_FILE, LDScoreDirectoryWriter, chromosome_log_file
 from .._annotation.query_outcomes import (
     gene_list_gate_a_message,
     log_gene_list_rejections,
@@ -41,9 +41,9 @@ def ldscore_logs(output_dir, chromosomes, *, overwrite=False, log_level="INFO", 
     directory = root / CHROMOSOME_LOG_DIR
     directory.mkdir(parents=True, exist_ok=True)
     if overwrite:
-        for path in directory.glob("chr*.log"):
+        for path in root.glob(chromosome_log_file("*")):
             path.unlink()
-    paths = {chrom: directory / f"chr{chrom}.log" for chrom in chromosomes}
+    paths = {chrom: root / chromosome_log_file(chrom) for chrom in chromosomes}
     for path in paths.values():
         path.touch(exist_ok=False)
     with (nullcontext() if main_log_open else workflow_logging("ldscore", root / LDSCORE_LOG,
@@ -122,7 +122,7 @@ def log_query_outcomes(gene_list_batch, statuses) -> None:
 
 def reference_snp_funnel_path(output_dir) -> str:
     """Return the published reference-SNP funnel path of an LD-score output directory."""
-    return str(Path(output_dir) / "diagnostics" / "reference_snp_funnel.tsv")
+    return str(Path(output_dir) / REFERENCE_SNP_FUNNEL_FILE)
 
 
 def log_reference_snp_funnel_warning(funnel, diagnostics, *, command="ldscore") -> None:

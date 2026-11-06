@@ -53,6 +53,14 @@ BASELINE_FILE = "ldscore.baseline.parquet"
 LDSCORE_LOG = "diagnostics/ldscore.log"
 CHROMOSOME_LOG_DIR = "diagnostics/chromosome-logs"
 REF_METADATA_GLOB = "ref_metadata/chr*_meta.tsv.gz"
+INPUT_ISSUES_FILE = "diagnostics/input_issues.tsv"
+LD_WINDOW_SNP_COUNTS_FILE = "diagnostics/ld_window_snp_counts.tsv"
+REFERENCE_SNP_FUNNEL_FILE = "diagnostics/reference_snp_funnel.tsv"
+
+
+def chromosome_log_file(chrom: str) -> str:
+    """Return a chromosome's diagnostic log, relative to an LD-score directory; ``"*"`` gives the glob."""
+    return f"{CHROMOSOME_LOG_DIR}/chr{chrom}.log"
 
 
 def dropped_snps_file(chrom: str) -> str:
@@ -167,9 +175,6 @@ def _require_baseline_rows(baseline: pd.DataFrame, frame: pd.DataFrame, identity
             "(reference panel, annotations or SNP restriction) changed while the run was in progress, so a "
             "later query batch selected different SNPs. Rerun with unchanged inputs."
         )
-
-
-REGRESSION_LD_SCORE_COLUMN = "regression_ld_scores"
 
 
 QUERY_STATUS_COLUMNS = ["query", "source", "input_type", "status", "reason", "n_annotation_snps", "details"]
@@ -384,15 +389,15 @@ class LDScoreDirectoryWriter:
                              result is not None and bool(result.query_statuses)),
             "chromosome_scope": ("diagnostics/chromosome_scope.json",
                                  result is not None and bool(result.chromosome_scope)),
-            "input_issues": ("diagnostics/input_issues.tsv",
+            "input_issues": (INPUT_ISSUES_FILE,
                              diagnostics is not None and diagnostics.input_issues is not None),
             "gene_list_audit": ("diagnostics/gene_list_audit.tsv.gz", batch is not None),
             "gene_list_resolution_summary": ("diagnostics/gene_list_resolution_summary.tsv", batch is not None),
             "gene_catalog_issues": ("diagnostics/gene_catalog_issues.tsv",
                                     batch is not None and batch.catalog is not None and not batch.catalog.issues.empty),
-            "ld_window_snp_counts": ("diagnostics/ld_window_snp_counts.tsv",
+            "ld_window_snp_counts": (LD_WINDOW_SNP_COUNTS_FILE,
                                      scientific and publication.ld_window_snp_counts is not None),
-            "reference_snp_funnel": ("diagnostics/reference_snp_funnel.tsv",
+            "reference_snp_funnel": (REFERENCE_SNP_FUNNEL_FILE,
                                      scientific and publication.reference_snp_funnel is not None),
         }
         if scientific:
@@ -406,7 +411,7 @@ class LDScoreDirectoryWriter:
         return declare_artifacts(
             output_dir, entries, label="LD-score output artifact",
             extra_owned=[*([output_dir / LDSCORE_LOG,
-                            *sorted((output_dir / CHROMOSOME_LOG_DIR).glob("chr*.log"))]
+                            *sorted(output_dir.glob(chromosome_log_file("*")))]
                            if include_logs else []),
                          *sorted(output_dir.glob(REF_METADATA_GLOB)),
                          *sorted(output_dir.glob(dropped_snps_file("*"))),
@@ -572,6 +577,7 @@ class LDScoreDirectoryWriter:
                 self._write_reference_snp_funnel(shared, paths)
                 metadata = self._build_metadata(shared,
                     files=staged_family.metadata_files(exclude=self.METADATA_EXCLUDED_FILES),
+                    diagnostics=staged_family.metadata_files(),
                     baseline_rg=baseline_rg,
                     query_rg=query_batches[0]["row_groups"] if len(query_batches) == 1 else None)
                 paths["metadata"].write_text(json.dumps(to_serializable(metadata), indent=2, sort_keys=True), encoding="utf-8")
@@ -701,11 +707,15 @@ class LDScoreDirectoryWriter:
         self,
         publication: _LDScorePublication,
         files: dict[str, str],
+        diagnostics: dict[str, str],
         baseline_rg: list[dict] | None = None,
         query_rg: list[dict] | None = None,
     ) -> dict[str, Any]:
         """Build the JSON metadata payload for one LD-score directory.
 
+        ``files`` lists the files recorded under ``files``; ``diagnostics``
+        maps every written file of the ``artifact_family`` to its relative
+        path, from which ``query_diagnostics`` takes its entries.
         The metadata always includes ``count_config`` so downstream regression
         code can report the common-SNP count threshold even when MAF metadata is
         unavailable and per-column common-SNP counts are omitted. Row-group metadata
@@ -761,26 +771,20 @@ class LDScoreDirectoryWriter:
             "query_batches": list(publication.query_batches),
         }
         gene_list_batch = publication.gene_list_batch
-        if publication.query_statuses:
-            payload["query_diagnostics"] = {"status": "diagnostics/query_annotation_status.tsv"}
-        if publication.chromosome_scope:
-            payload.setdefault("query_diagnostics", {})["chromosome_scope"] = "diagnostics/chromosome_scope.json"
+        # artifact_family selected these diagnostics under the same conditions as their records.
+        query_diagnostics = {label: diagnostics[key] for label, key in (
+            ("status", "query_status"), ("chromosome_scope", "chromosome_scope"),
+            ("gene_catalog_issues", "gene_catalog_issues"), ("gene_list_audit", "gene_list_audit"),
+            ("gene_list_resolution_summary", "gene_list_resolution_summary")) if key in diagnostics}
+        if query_diagnostics:
+            payload["query_diagnostics"] = query_diagnostics
         if gene_list_batch is not None:
             payload["gene_list_resolution_policy"] = gene_list_batch.resolution_policy
-            catalog = gene_list_batch.catalog
-            if catalog is not None and not catalog.issues.empty:
-                payload.setdefault("query_diagnostics", {})["gene_catalog_issues"] = "diagnostics/gene_catalog_issues.tsv"
             payload["gene_list_resolution_counts"] = {
                 "nonblank_input_rows": int(gene_list_batch.summary["nonblank_input_rows"].fillna(0).sum()),
                 "rejected_rows": int(gene_list_batch.summary["rejected_rows"].fillna(0).sum()),
                 "unique_resolved_genes": int(gene_list_batch.summary["unique_resolved_genes"].fillna(0).sum()),
             }
-            payload.setdefault("query_diagnostics", {}).update(
-                {
-                    "gene_list_audit": "diagnostics/gene_list_audit.tsv.gz",
-                    "gene_list_resolution_summary": "diagnostics/gene_list_resolution_summary.tsv",
-                }
-            )
         if publication.index_provenance is not None:
             payload.update(dict(publication.index_provenance))
         if publication.snp_universe_policy is not None:

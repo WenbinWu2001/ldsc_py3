@@ -30,6 +30,7 @@ from ..errors import LDSCInputError, LDSCUsageError
 from .results import LDScoreResult
 from .overlap_table import LDScoreOverlap
 from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
+from .source import REGRESSION_LD_SCORE_COLUMN, count_record
 from .._runtime.paths import ensure_output_directory, normalize_path_token
 from .._genome.build_policy import GenomeBuildCheck
 
@@ -73,6 +74,9 @@ _COUNT_CONFIG = {
     "common_reference_snp_maf_operator": ">",
     "common_reference_snp_semantics": "legacy_ldsc",
 }
+# The converter's own diagnostics, relative to its output directory.
+CONVERSION_LOG = "diagnostics/convert-legacy-ldscores.log"
+CONVERSION_ISSUES_FILE = "diagnostics/conversion_issues.tsv.gz"
 
 
 @dataclass(frozen=True)
@@ -207,10 +211,9 @@ class LegacyLDScoreConverter:
             else _existing_directory(legacy_frequency_dir, "legacy frequency directory")
         )
         output_root = ensure_output_directory(output_dir, label="converted LD-score output directory")
-        diagnostics = output_root / "diagnostics"
-        diagnostics.mkdir(parents=True, exist_ok=True)
-        issue_path = diagnostics / "conversion_issues.tsv.gz"
-        log_path = diagnostics / "convert-legacy-ldscores.log"
+        (output_root / "diagnostics").mkdir(parents=True, exist_ok=True)
+        issue_path = output_root / CONVERSION_ISSUES_FILE
+        log_path = output_root / CONVERSION_LOG
         LDScoreDirectoryWriter.artifact_family(output_root).preflight(
             overwrite=overwrite, additional_paths=[issue_path, log_path],
         )
@@ -399,14 +402,7 @@ class LegacyLDScoreConverter:
             baseline, mode, build_hint, context="legacy reference LD-score suite", build_check=build_check
         )
         baseline = _sort_baseline(baseline)
-        count_records = [
-            {
-                "group": "baseline",
-                "column": "base",
-                "all_reference_snp_count": float(all_total) if all_available else None,
-                "common_reference_snp_count": float(common_total),
-            }
-        ]
+        count_records = [count_record("baseline", "base", all_total if all_available else None, common_total)]
         provenance = _build_provenance(
             profile=profile,
             reference_root=reference_root,
@@ -645,12 +641,7 @@ class LegacyLDScoreConverter:
         )
         baseline = _sort_baseline(baseline)
         count_records = [
-            {
-                "group": "baseline",
-                "column": column,
-                "all_reference_snp_count": float(all_counts[index]),
-                "common_reference_snp_count": float(common_counts[index]),
-            }
+            count_record("baseline", column, all_counts[index], common_counts[index])
             for index, column in enumerate(reference_columns)
         ]
         overlap = LDScoreOverlap(
@@ -1296,7 +1287,7 @@ def _join_reference_weight(
 ) -> pd.DataFrame:
     ref = reference.loc[:, ["CHR", "SNP", "BP", *reference_columns]]
     wgt = weight.loc[:, ["CHR", "SNP", "BP", weight_column]].rename(
-        columns={"CHR": "weight_CHR", "BP": "weight_BP", weight_column: "regression_ld_scores"}, copy=False
+        columns={"CHR": "weight_CHR", "BP": "weight_BP", weight_column: REGRESSION_LD_SCORE_COLUMN}, copy=False
     )
     ref_ids = set(ref["SNP"].astype(str))
     weight_ids = set(wgt["SNP"].astype(str))
@@ -1320,7 +1311,7 @@ def _join_reference_weight(
                 expected=f"{row['CHR']}:{row['BP']}",
             )
         )
-    return merged.loc[:, ["CHR", "BP", "SNP", "regression_ld_scores", *reference_columns]].rename(
+    return merged.loc[:, ["CHR", "BP", "SNP", REGRESSION_LD_SCORE_COLUMN, *reference_columns]].rename(
         columns={"BP": "POS"}, copy=False
     )
 
@@ -1464,8 +1455,8 @@ def _build_provenance(
         "common_frequency_rule": dict(_COUNT_CONFIG),
         "coordinate_provenance": coordinate_provenance,
         "diagnostics": {
-            "log": "diagnostics/convert-legacy-ldscores.log",
-            "issues": "diagnostics/conversion_issues.tsv.gz",
+            "log": CONVERSION_LOG,
+            "issues": CONVERSION_ISSUES_FILE,
         },
     }
 

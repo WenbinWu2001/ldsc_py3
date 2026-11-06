@@ -20,6 +20,7 @@ from ..errors import LDSCInputError
 from .._runtime.paths import resolve_file_group, split_cli_path_tokens
 from .overlap_model import assemble_model_overlap
 from .._genome.build_policy import GenomeBuildCheck
+from .._ldscore.source import COMMON_COUNT_FIELD
 
 LOGGER = logging.getLogger("LDSC.quantile_h2")
 
@@ -209,7 +210,7 @@ def _validate_universe(ldscores, universe, actual):
 def _validate_aggregates(model, ldscores, sums, products):
     records = {str(row.get("column")): row for row in ldscores.count_records}
     for name, actual in zip(model.annotation_names, sums):
-        expected = records.get(name, {}).get("common_reference_snp_count")
+        expected = records.get(name, {}).get(COMMON_COUNT_FIELD)
         if expected is not None and not np.isclose(actual, float(expected), rtol=1e-6, atol=1e-8):
             raise LDSCInputError(f"quantile-h2 fitted annotation '{name}' has common reference-SNP sum {actual}, expected {expected}. Resupply the exact annotation sources used for LD-score construction.")
     overlap = ldscores.load_overlap()

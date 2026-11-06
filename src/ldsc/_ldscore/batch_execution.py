@@ -25,6 +25,7 @@ from .._runtime.parallelism import run_chromosome_tasks
 from .._runtime.progress import PhaseProgress
 from .diagnostics import report_chromosome_failure
 from .results import LDScoreResult, StagedLDScoreBatch
+from .source import ALL_COUNT_FIELD
 from .query_variation import ScoreVariation, combine_variation
 
 
@@ -131,7 +132,7 @@ def finalize_batch(staged: StagedLDScoreBatch | LDScoreResult, statuses: tuple,
     else:
         flags = [staged.query_table[name].nunique(dropna=False) > 1 for name in staged.query_columns]
     varying = dict(zip(staged.query_columns, flags, strict=True))
-    counts = {record["column"]: float(record["all_reference_snp_count"])
+    counts = {record["column"]: float(record[ALL_COUNT_FIELD])
               for record in staged.count_records if record["group"] == "query"}
     finalized, retained = finalize_query_measurements(statuses, counts, varying)
     return replace(staged.select_queries(retained), query_statuses=finalized)

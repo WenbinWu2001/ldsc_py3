@@ -16,25 +16,11 @@ keep-list path, allele orientation, source build, liftover method) with
 :func:`infer_raw_sumstats` report from as well;
 ``munge_input.prepare_munge_input`` raises the plan's problems and loads the
 keep-list. It passes a ``ResolvedMungeInput`` to the kernel and consumes an explicit ``MungeResult``.
-Packaged HM3 restriction is the default; a custom list replaces it, and
-``no_snp_restriction`` disables keep-list filtering. For different coordinate
-builds, packaged HM3 uses quick liftover unless an explicit chain overrides it;
-custom-list and unrestricted runs require a chain.
 The workflow layer owns CLI orchestration, output
 preflight, diagnostics, and result objects; the kernel keeps the
-legacy-compatible parsing and filtering primitives. Coordinate-family runs separate raw source-build interpretation
-from final output-build compatibility: ``source_genome_build="auto"`` infers
-the raw ``CHR``/``POS`` build, while ``output_genome_build`` is the required
-build recorded in the parquet footer after any liftover. rsID-family runs reject
-build and liftover fields and record ``genome_build=None``. Run summaries
-expose munged data artifacts only; ``diagnostics/sumstats.log`` is an audit
-file and is not included in ``output_paths``. The Parquet footer
-carries only the thin downstream-identity payload; source-build and liftover
-provenance is written as readable workflow-log text. Successful CLI runs print
-the resolved method and mapping/drop counts to stdout and record the same
-summary in the log at every log level. Python API calls record it only in the
-log. Trait labels determine sanitized data filenames; without a label, use
-``sumstats.parquet`` and optional ``sumstats.gz``.
+legacy-compatible parsing and filtering primitives. Source-build and liftover
+provenance is written as readable workflow-log text, not to the Parquet
+footer. The options and their defaults are documented on ``MungeConfig``.
 """
 
 from __future__ import annotations
@@ -174,20 +160,13 @@ class SumstatsMunger:
         ----------
         config : MungeConfig
             The whole munging request: the raw file path, trait label and
-            column hints, the QC thresholds, the output directory and the
-            munged output format. Common plain-text inputs, including
-            VCF-style headers, old DANER, and new DANER are handled before the
-            kernel runs; explicit column hints still take priority. The
-            workflow writes ``<trait>.parquet`` (self-describing via its footer)
-            and/or ``<trait>.sumstats.gz``, using the filesystem-safe trait
-            label. Without a label, filenames are
-            ``sumstats.parquet`` and ``sumstats.gz``. Diagnostics live under
-            ``diagnostics/``. Any existing owned artifact is refused before the kernel
-            runs unless ``config.overwrite`` is true; successful
-            overwrites remove stale sibling formats that the current run did
-            not produce. Packaged HM3 is the default keep-list; a custom
-            ``sumstats_snps_file`` replaces it, while ``no_snp_restriction=True``
-            disables keep-list filtering. These overrides are mutually exclusive.
+            column hints, the QC thresholds, the SNP restriction and genome
+            builds, the output directory and the munged output format; the
+            ``MungeConfig`` parameters document each option, its default, the
+            output filenames and the overwrite policy. Common plain-text
+            inputs, including VCF-style headers, old DANER, and new DANER are
+            handled before the kernel runs; explicit column hints still take
+            priority. Diagnostics live under ``diagnostics/``.
             The effective headered keep-list is loaded once before raw chunk
             parsing, and applied to each parsed chunk after munging QC and
             coordinate normalization. Allele-free keep-lists match by base key,
@@ -196,15 +175,7 @@ class SumstatsMunger:
             retained key, and non-identity columns such as ``CM`` or ``MAF`` are
             ignored; keep-lists do not reorder output rows.
             In coordinate-family modes, keep-list filtering uses source-build
-            coordinates before output liftover. The output build must be chosen
-            explicitly. Different builds use automatic quick liftover from
-            bundled HM3 metadata only under packaged restriction; an explicit
-            chain replaces that method and is required for custom/unrestricted
-            cross-build runs. Matching builds ignore any chain; unresolved
-            source builds stop and request an explicit source build.
-            ``sumstats_format="auto"`` is the default; use
-            ``sumstats_format="plain"``, ``"daner-old"``, or ``"daner-new"``
-            only when overriding auto-detection.
+            coordinates before output liftover.
         global_config : GlobalConfig or None, keyword-only, optional
             Shared configuration snapshot to attach to the returned
             ``SumstatsTable``. When omitted, the current package-global

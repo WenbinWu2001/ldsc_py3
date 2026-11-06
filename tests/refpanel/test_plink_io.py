@@ -88,6 +88,17 @@ class PlinkBedFileTest(unittest.TestCase):
         self.assertEqual(bed.n, 2)
         self.assertEqual(bed.geno[0:4], ba.bitarray("0001"))
 
+    def test_keep_indivs_index_equal_to_the_sample_count_is_rejected(self):
+        # Index n would read the padding bits after the last individual as a sample.
+        with self.assertRaisesRegex(LDSCInputError, "outside the `.fam` sample range"):
+            PlinkBEDFile(str(PLINK_FIXTURES / "plink.bed"), self.sample_count, self.bim,
+                         keep_indivs=[0, self.sample_count])
+
+    def test_keep_snps_index_equal_to_the_snp_count_is_rejected(self):
+        with self.assertRaisesRegex(LDSCInputError, "outside the `.bim` SNP range"):
+            PlinkBEDFile(str(PLINK_FIXTURES / "plink.bed"), self.sample_count, self.bim,
+                         keep_snps=[0, self.snp_count])
+
     def test_bad_filename(self):
         with self.assertRaises(LDSCInputError):
             PlinkBEDFile(str(PLINK_FIXTURES / "plink.bim"), 9, self.bim)

@@ -2,7 +2,8 @@
 # Upstream authors and Python 3 port credit are in NOTICE. Modified 2026-06:
 # extracted readers and added selective streaming; 2026-09: reader lifetime;
 # 2026-10: exact LD windows independent of the chunk size; LD-score block
-# sums moved to _ldscore/compute.py; 2026-11: rewind().
+# sums moved to _ldscore/compute.py; 2026-11: rewind(), and the keep-index
+# bounds checks reject index n and m.
 # See NOTICE for attribution and dated modifications.
 
 """PLINK genotype reader.
@@ -39,7 +40,7 @@ class __GenotypeArrayInMemory__(object):
         (self.nru, self.geno) = self.__read__(fname, self.m, n)
         if keep_indivs is not None:
             keep_indivs = np.array(keep_indivs, dtype="int")
-            if np.any(keep_indivs > self.n):
+            if np.any(keep_indivs >= self.n):
                 raise LDSCInputError(
                     "PLINK BED loading could not apply the individual keep list: at least "
                     "one keep_indivs index is outside the `.fam` sample range. Most likely "
@@ -55,7 +56,7 @@ class __GenotypeArrayInMemory__(object):
                 )
         if keep_snps is not None:
             keep_snps = np.array(keep_snps, dtype="int")
-            if np.any(keep_snps > self.m):
+            if np.any(keep_snps >= self.m):
                 raise LDSCInputError(
                     "PLINK BED loading could not apply the SNP keep list: at least one "
                     "keep_snps index is outside the `.bim` SNP range. Most likely SNP "

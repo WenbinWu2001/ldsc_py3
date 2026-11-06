@@ -113,8 +113,9 @@ class GeneCatalogValidationError(LDSCInputError):
         self.issues = issues.loc[:, CATALOG_ISSUE_COLUMNS].copy()
 
     def __reduce__(self):
-        # quantile-h2 loads the catalog in a worker process; the table must survive the return trip.
-        return type(self), (self.args[0], self.issues)
+        # quantile-h2 loads the catalog in a worker process; the table, and the
+        # worker's traceback note in __dict__, must survive the return trip.
+        return type(self), (self.args[0], self.issues), self.__dict__
 
 
 @dataclass(frozen=True)

@@ -70,10 +70,14 @@ def test_error_keeps_its_message_and_table_across_a_process_boundary(tmp_path):
     with pytest.raises(GeneCatalogValidationError) as caught:
         GeneCatalog.load(catalog)
 
+    # The worker adds a note with its traceback before the error crosses back.
+    caught.value.add_note("Calculation child traceback: ...")
+
     restored = pickle.loads(pickle.dumps(caught.value))
 
     assert str(restored) == str(caught.value)
     pd.testing.assert_frame_equal(restored.issues, caught.value.issues)
+    assert restored.__notes__ == ["Calculation child traceback: ..."]
 
 
 def test_embedded_catalog_message_names_its_defects():

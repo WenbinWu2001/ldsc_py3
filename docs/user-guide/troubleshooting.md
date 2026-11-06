@@ -548,6 +548,16 @@ The marker does not grant permission to replace those contents, and neither does
 Preserve them for inspection and choose a fresh output directory, or explicitly resolve the conflicting files.
 A valid existing index still requires `--overwrite`.
 
+### `build-gene-ldscore-index`: the build directory cannot be used
+
+**Symptom:** the build stops before it creates, locks or removes anything and reports that `<index-dir>/.build` is a symlink, is not a directory, or holds a symlink.
+
+The builder keeps its lock, live log, issue tables and staged index in the hidden `.build/` directory of the index directory, and it never follows a link out of that directory.
+A `.build` link to scratch space, a regular file named `.build`, or a link placed inside `.build/` is therefore refused, and the link target is left unchanged.
+Remove or rename the listed entry after checking that nothing in it is needed, or choose another output directory; to keep build state on scratch space, put the whole index directory there.
+
+**Developer reference:** `_ldscore.gene_index.build._refuse_unusable_build_dir()` · **Exception:** `FileExistsError`
+
 ### `build-gene-ldscore-index`: baseline/PLINK identifier intersection fails
 
 **Symptom:** the builder reports an empty `rsid` or `chr_pos` baseline/PLINK

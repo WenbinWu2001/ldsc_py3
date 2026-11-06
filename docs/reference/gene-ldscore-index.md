@@ -255,6 +255,7 @@ The lock, the live log, issue tables, earlier failed attempts and the index bein
 - Index components beside a `.build/` left by an earlier attempt, without a loadable index, are the remains of an interrupted build or publication; rebuilding over them needs `--overwrite`.
 - Any other content fails before the build creates, locks or removes anything, including with `--overwrite`: unrelated files or directories, a symlink, a marker that is not a regular file, or index component names without `.build/`.
 - Preflight reads the destination before the build lock creates `.build/`, so a refused attempt leaves no `.build/` behind and never makes a directory look like an interrupted index.
+- A `.build/` that is a symlink or not a directory, or that holds a symlink, fails before anything is created, locked or removed; the builder never follows a link out of the index directory.
 - Two builders cannot target the same directory concurrently.
 
 While the build is running, the live log is `<index-dir>/.build/build-gene-ldscore-index.log`, so `tail -f` works.

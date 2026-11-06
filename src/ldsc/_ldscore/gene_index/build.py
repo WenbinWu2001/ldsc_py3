@@ -1077,6 +1077,7 @@ def _preflight_gene_index_output(
     """
     if index_path.exists() and not index_path.is_dir():
         raise FileExistsError(f"Gene LD-score index output is not a directory: {index_path}")
+    _refuse_unusable_build_dir(index_path)
     if not index_path.exists() or _is_build_leftover_only(index_path):
         return
     try:
@@ -1096,6 +1097,32 @@ def _preflight_gene_index_output(
     if not overwrite:
         raise FileExistsError(
             f"Gene LD-score index already exists: {index_path}. Pass --overwrite to rebuild it completely."
+        )
+
+
+def _refuse_unusable_build_dir(index_path: Path) -> None:
+    """Refuse a build directory that is a symlink or not a directory, or that holds a symlink.
+
+    The lock, log preparation and input checks create, truncate and remove
+    entries of the build directory; following a link there would act on
+    files outside the index directory.
+    """
+    build_dir = index_path / _BUILD_DIR
+    if build_dir.is_symlink():
+        problems = [f"{build_dir} is a symlink"]
+    elif not build_dir.exists():
+        return
+    elif not build_dir.is_dir():
+        problems = [f"{build_dir} is not a directory"]
+    else:
+        problems = [f"{entry} is a symlink" for entry in sorted(build_dir.iterdir()) if entry.is_symlink()]
+    if problems:
+        raise FileExistsError(
+            f"Gene LD-score index build directory cannot be used: {'; '.join(problems)}. "
+            "The builder keeps its lock, logs and staged index in the hidden .build/ directory of the "
+            "output directory and never follows a link out of it. Remove or rename what is listed, "
+            "or choose another output directory. "
+            "See docs/user-guide/troubleshooting.md#build-gene-ldscore-index-the-build-directory-cannot-be-used."
         )
 
 

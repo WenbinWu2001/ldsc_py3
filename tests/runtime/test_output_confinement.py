@@ -218,6 +218,48 @@ def test_index_component_names_without_a_build_directory_are_never_replaced(tmp_
     assert (index / "diagnostics" / "notes.txt").read_text() == "notes\n"
 
 
+def _snapshot(root: Path) -> dict[str, bytes | None]:
+    """Map every entry under ``root`` to its bytes (``None`` for a directory)."""
+    return {path.relative_to(root).as_posix(): path.read_bytes() if path.is_file() else None
+            for path in root.rglob("*")}
+
+
+@pytest.mark.parametrize("existing_index", [False, True], ids=["empty", "complete-index"])
+@pytest.mark.parametrize("link", [".build", ".build/build-gene-ldscore-index.lock"])
+def test_gene_index_build_never_follows_a_symlink_in_its_build_directory(
+    tmp_path, index_inputs, monkeypatch, link, existing_index,
+):
+    index = tmp_path / "parent" / "index"
+    index.mkdir(parents=True)
+    if existing_index:
+        _build_index(index_inputs, index, monkeypatch)
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / "projectA").mkdir(parents=True)
+    (elsewhere / "projectA" / "results.txt").write_text("data\n")
+    (elsewhere / "keep.txt").write_text("top\n")
+    (index / link).parent.mkdir(exist_ok=True)
+    (index / link).symlink_to(elsewhere if link == ".build" else elsewhere / "keep.txt")
+    before = _snapshot(elsewhere)
+
+    with pytest.raises(FileExistsError, match=rf"{index / link} is a symlink"):
+        _build_index(index_inputs, index, monkeypatch, overwrite=existing_index)
+
+    # Nothing was created in, written to or removed from the link target.
+    assert _snapshot(elsewhere) == before
+    assert (index / link).is_symlink()
+
+
+def test_gene_index_build_refuses_a_build_entry_that_is_not_a_directory(tmp_path, index_inputs, monkeypatch):
+    index = tmp_path / "parent" / "index"
+    _build_index(index_inputs, index, monkeypatch)
+    (index / ".build").write_text("not the builder's\n")
+
+    with pytest.raises(FileExistsError, match=rf"{index / '.build'} is not a directory"):
+        _build_index(index_inputs, index, monkeypatch, overwrite=True)
+
+    assert (index / ".build").read_text() == "not the builder's\n"
+
+
 def test_a_failure_during_publication_leaves_an_index_no_reader_accepts(tmp_path, index_inputs, monkeypatch):
     from ldsc._ldscore.gene_index import build as gene_index_build
     from ldsc._ldscore.gene_index.artifact import load_gene_ldscore_index

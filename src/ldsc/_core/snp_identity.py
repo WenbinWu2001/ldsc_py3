@@ -388,6 +388,13 @@ def base_key_series(
 
     Coordinate rows with a missing or invalid ``CHR``/``POS`` get a missing
     key; with ``logger`` their count is logged as a warning.
+
+    This is the base-identity step of :func:`identity_key_series`; its values
+    equal ``identity_key_series(frame, identity_base_mode(mode))``. Callers
+    that pair the base identity with their own handling of invalid alleles
+    (identity cleanup, restriction matching, R2 matrix queries and the
+    gene-index baseline/PLINK pairing) call it directly instead of
+    :func:`identity_key_series`, which raises on such rows.
     """
     family = identity_mode_family(mode)
     if family == "rsid":

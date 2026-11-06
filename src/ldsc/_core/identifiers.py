@@ -10,9 +10,9 @@ Overview
 This module owns low-level restriction-file parsing, delimiter handling, and
 header resolution. Exact SNP identity policy lives in
 ``ldsc._core.snp_identity``: four public modes, base/effective keys,
-allele-aware cleanup, and restriction key collapse semantics; the one SNP key
-builder for a table is ``snp_identity.identity_key_series``. Callers pass
-file paths in and receive restriction sets back.
+allele-aware cleanup, and restriction key collapse semantics;
+``snp_identity.identity_key_series`` builds the SNP identity of every row of
+a table. Callers pass file paths in and receive restriction sets back.
 
 Key Functions
 -------------

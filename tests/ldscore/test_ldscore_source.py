@@ -211,13 +211,35 @@ def test_declared_files_may_be_symbolic_links_to_shared_storage(tmp_path):
     pd.testing.assert_frame_equal(loaded.overlap.baseline_block_all, expected.overlap.baseline_block_all)
 
 
-def test_an_unreadable_parquet_footer_is_an_input_error(tmp_path):
+@pytest.mark.parametrize("name", ["ldscore.query.parquet", "ldscore.overlap.parquet"])
+def test_an_unreadable_parquet_footer_is_an_input_error(tmp_path, name):
     from ldsc import load_ldscore_from_dir
 
-    root = write_one_snp_ldscore_dir(tmp_path / "ldscores", include_query=True)
-    (root / "ldscore.query.parquet").write_text("not parquet", encoding="utf-8")
+    root = (write_one_snp_ldscore_dir(tmp_path / "ldscores", include_query=True)
+            if name == "ldscore.query.parquet" else _quantile_ldscores(tmp_path))
+    (root / name).write_text("not parquet", encoding="utf-8")
 
-    with pytest.raises(LDSCInputError, match="ldscore.query.parquet"):
+    with pytest.raises(LDSCInputError, match=f"^Could not read LD-score file .*{name}.*troubleshooting"):
+        load_ldscore_from_dir(str(root))
+
+
+@pytest.mark.parametrize("overlap_config", [
+    None, {}, [4.0],
+    {"total_common_reference_snps": 4.0, "common_maf_min": 0.05, "common_maf_operator": ">="},
+    {"total_all_reference_snps": "4", "total_common_reference_snps": 4.0,
+     "common_maf_min": 0.05, "common_maf_operator": ">="},
+    {"total_all_reference_snps": 4.0, "total_common_reference_snps": "x",
+     "common_maf_min": 0.05, "common_maf_operator": ">="},
+])
+def test_a_declared_overlap_needs_a_usable_overlap_config(tmp_path, overlap_config):
+    # The overlap file stores cross-products only; its reference-SNP totals live in overlap_config.
+    from ldsc import load_ldscore_from_dir
+
+    root = _quantile_ldscores(tmp_path)
+    _edit_metadata(root, lambda metadata: metadata.update(overlap_config=overlap_config))
+
+    with pytest.raises(LDSCInputError,
+                       match="^Could not load LD-score directory .*overlap_config.*total_all_reference_snps.*troubleshooting"):
         load_ldscore_from_dir(str(root))
 
 

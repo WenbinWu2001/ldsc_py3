@@ -94,7 +94,7 @@ def load_query_manifest(root, metadata, baseline_columns, baseline_schema):
                 "regenerate it with ldsc ldscore. Do not mix query batches from different runs."
             )
         paths.add(path)
-        schema = _parquet_footer(path, pq.read_schema).names
+        schema = _read_ldscore_parquet(path, pq.read_schema).names
         _validate_row_groups(
             path, entry["row_groups"],
             f"LD-score query batch {entry['file']} has inconsistent row-group metadata."
@@ -118,7 +118,7 @@ def _validate_row_groups(path, row_groups, message: str) -> None:
     Each record needs its position, its row offset in the file, its row count
     and a chromosome label; one record per chromosome row group.
     """
-    parquet_metadata = _parquet_footer(path, pq.read_metadata)
+    parquet_metadata = _read_ldscore_parquet(path, pq.read_metadata)
     if not isinstance(row_groups, list) or len(row_groups) != parquet_metadata.num_row_groups:
         raise LDSCInputError(message)
     offset = 0
@@ -372,8 +372,8 @@ class LDScoreManifest:
     Obtain it from ``read_ldscore_manifest``. Every check that needs no
     LD-score values has passed: the identity metadata, the declared files
     and their containment, the baseline and query row groups and schemas,
-    the count configuration and its agreement with the overlap
-    configuration.
+    the count configuration, the overlap totals of a declared overlap, and
+    the agreement of the count and overlap configurations.
 
     Attributes
     ----------
@@ -418,17 +418,20 @@ class LDScoreManifest:
     annotation_types: dict[str, str]
 
     def load_overlap(self):
-        """Read the overlap matrix as an ``LDScoreOverlap``, or return ``None`` when none is declared."""
+        """Read the overlap matrix as an ``LDScoreOverlap``, or return ``None`` when none is declared.
+
+        Raises ``LDSCInputError`` when the overlap file is unreadable.
+        """
         path = self.files.get("overlap")
         if path is None:
             return None
         from .overlap_table import overlap_from_long_frame
-        config = self.overlap_config or {}
+        config = self.overlap_config
         return overlap_from_long_frame(
-            pd.read_parquet(path),
+            _read_ldscore_parquet(path, pd.read_parquet),
             baseline_columns=self.baseline_columns,
             query_columns=self.query_columns,
-            total_all_reference_snps=config.get("total_all_reference_snps"),
+            total_all_reference_snps=config["total_all_reference_snps"],
             total_common_reference_snps=config.get("total_common_reference_snps"),
         )
 
@@ -508,11 +511,10 @@ def read_ldscore_manifest(ldscore_dir) -> LDScoreManifest:
     baseline_columns = [str(column) for column in metadata.get("baseline_columns", [])]
     query_columns = [str(column) for column in metadata.get("query_columns", [])]
     query_batches = load_query_manifest(root, metadata, baseline_columns,
-                                        _parquet_footer(declared["baseline"], pq.read_schema).names)
+                                        _read_ldscore_parquet(declared["baseline"], pq.read_schema).names)
     count_config = metadata.get("count_config")
     threshold = count_config.get(COMMON_MAF_MIN_FIELD) if isinstance(count_config, dict) else None
-    if (not isinstance(threshold, (int, float)) or isinstance(threshold, bool)
-            or not isinstance(count_config.get(COMMON_MAF_OPERATOR_FIELD), str)):
+    if not _is_number(threshold) or not isinstance(count_config.get(COMMON_MAF_OPERATOR_FIELD), str):
         raise LDSCInputError(
             f"Could not load LD-score directory '{root}': metadata is missing a usable `count_config`, the "
             f"common-SNP MAF threshold (`{COMMON_MAF_MIN_FIELD}`) and comparison "
@@ -520,7 +522,7 @@ def read_ldscore_manifest(ldscore_dir) -> LDScoreManifest:
             "older LDSC3 version or edited by hand. Regenerate it with the current `ldsc ldscore`. "
             f"Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
         )
-    _validate_count_overlap_config(metadata, root)
+    _validate_count_overlap_config(metadata, root, has_overlap="overlap" in declared)
     return LDScoreManifest(
         root=root,
         metadata=metadata,
@@ -566,8 +568,13 @@ def _declared_file(root: Path, key: str, value, *, required: bool) -> Path:
     return path
 
 
-def _parquet_footer(path, read):
-    """Return ``read(path)`` for a Parquet footer reader, raising ``LDSCInputError`` when the file is unreadable."""
+def _is_number(value) -> bool:
+    """Return whether a decoded JSON value is a number (an ``int`` or ``float``, not a ``bool``)."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _read_ldscore_parquet(path, read):
+    """Return ``read(path)`` for a Parquet footer or table reader, raising ``LDSCInputError`` when the file is unreadable."""
     try:
         return read(path)
     except (OSError, pa.ArrowException) as exc:
@@ -609,10 +616,10 @@ def load_ldscore_from_dir(
     ------
     LDSCInputError
         The directory or root metadata is missing or unreadable, a declared
-        baseline, query or overlap file is missing or outside the directory,
-        the recorded baseline or query row groups disagree with the Parquet
-        files, or the manifest, identity, count, or overlap contract is
-        invalid.
+        baseline, query or overlap file is missing, unreadable or outside the
+        directory, the recorded baseline or query row groups disagree with
+        the Parquet files, or the manifest, identity, count, or overlap
+        contract is invalid.
     LDSCInternalError
         A declared baseline/query schema lacks required columns.
     ConfigMismatchError
@@ -696,9 +703,24 @@ def load_ldscore_from_dir(
     return result
 
 
-def _validate_count_overlap_config(metadata: dict[str, Any], root: Path) -> None:
-    """Require count and overlap metadata to describe the same common reference SNPs."""
+def _validate_count_overlap_config(metadata: dict[str, Any], root: Path, *, has_overlap: bool) -> None:
+    """Require count and overlap metadata to describe the same common reference SNPs.
+
+    A declared overlap file (``has_overlap``) stores cross-products only, so
+    its ``overlap_config`` must also hold the reference-SNP totals.
+    """
     overlap_config = metadata.get("overlap_config")
+    if has_overlap and not (
+            isinstance(overlap_config, dict) and _is_number(overlap_config.get("total_all_reference_snps"))
+            and (overlap_config.get("total_common_reference_snps") is None
+                 or _is_number(overlap_config["total_common_reference_snps"]))):
+        raise LDSCInputError(
+            f"Could not load LD-score directory '{root}': `files.overlap` is declared, but metadata has no usable "
+            "`overlap_config` with the overlap's reference-SNP totals: a number `total_all_reference_snps` and a "
+            "number or null `total_common_reference_snps`. Most likely metadata.json was edited by hand or copied "
+            "from another run. Restore the complete LD-score directory from the same run, or regenerate it with "
+            f"`ldsc ldscore`. Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
+        )
     if not overlap_config:
         return
     count_config = metadata.get("count_config") or {}

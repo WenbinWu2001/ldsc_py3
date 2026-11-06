@@ -310,16 +310,12 @@ def test_publication_starts_from_every_run_level_field_of_the_first_batch(staged
     from ldsc._ldscore.outputs import _LDScorePublication
     from ldsc._ldscore.results import LDScoreResult, StagedLDScoreBatch
 
-    class Overlap:
-        def select_queries(self, retained):
-            return ("overlap without queries", tuple(retained))
-
     copied = {"baseline_table", "baseline_columns", "count_config", "config_snapshot", "gene_list_batch",
               "chromosome_scope", "index_provenance", "snp_universe_policy", "legacy_ldscore_conversion",
               "ld_window", "ld_window_snp_counts", "reference_snp_funnel"}
-    baseline_only = {"count_records", "annotation_types", "overlap"}
+    baseline_only = {"count_records", "annotation_types"}
     filled_by_every_batch = {"query_columns", "query_statuses", "identity_drops_by_chrom"}
-    filled_by_writer = {"query_batches", "ref_metadata_chroms"}
+    filled_by_writer = {"overlap", "query_batches", "ref_metadata_chroms"}
     groups = [copied, baseline_only, filled_by_every_batch, filled_by_writer]
     assert sorted(name for group in groups for name in group) == sorted(f.name for f in fields(_LDScorePublication))
 
@@ -331,7 +327,7 @@ def test_publication_starts_from_every_run_level_field_of_the_first_batch(staged
     values.update(
         count_records=[{"group": "baseline", "column": "base"}, {"group": "query", "column": "query"}],
         annotation_types={"base": "binary", "query": "quantitative"},
-        overlap=Overlap(),
+        overlap={"sentinel": "overlap"},
         query_columns=["query"],
         query_statuses=("query status",),
         identity_drops_by_chrom={"1": "dropped rows"},
@@ -348,6 +344,5 @@ def test_publication_starts_from_every_run_level_field_of_the_first_batch(staged
         assert getattr(publication, name) == values[name], name
     assert publication.count_records == [{"group": "baseline", "column": "base"}]
     assert publication.annotation_types == {"base": "binary"}
-    assert publication.overlap == ("overlap without queries", ())
     for name in filled_by_every_batch | filled_by_writer:
         assert not getattr(publication, name), name

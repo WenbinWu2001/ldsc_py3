@@ -20,9 +20,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, ContextManager, Iterator, Protocol, Sequence
 
-from .._annotation.query_outcomes import finalize_query_measurements
+from .._annotation.query_outcomes import finalize_query_measurements, gene_viability_errors
 from .._runtime.parallelism import run_chromosome_tasks
 from .._runtime.progress import PhaseProgress
+from ..errors import LDSCInputError
 from .diagnostics import report_chromosome_failure
 from .results import LDScoreResult, StagedLDScoreBatch
 from .source import ALL_COUNT_FIELD
@@ -95,9 +96,17 @@ def run_query_batches(producer: LDScoreProducer, query_columns: Sequence[str], s
     calculation. With no query columns, one baseline-only batch runs. Each
     batch's scratch directory is removed after the consumer resumes the
     generator, so the consumer reads the batch's fragments before they go.
+
+    After the last batch is consumed, the run's final query statuses and the
+    first batch's computed baseline pass the gene-list viability gate: an
+    unusable gene control or every query skipped raises ``LDSCInputError``
+    before the consumer publishes anything. The consumer has received every
+    batch's statuses by then, so it can still write the query diagnostics.
     """
     names = list(query_columns)
     groups = [names[start:start + width] for start in range(0, len(names), width)] or [[]]
+    positions = {status.query: index for index, status in enumerate(statuses)}
+    first, finalized = None, []
     for ordinal, columns in enumerate(groups):
         label = f"{producer.batch_name} {ordinal + 1}/{len(groups)}"
         with PhaseProgress(producer.logger, "batch", f"{producer.phase} {ordinal + 1}/{len(groups)}",
@@ -110,9 +119,17 @@ def run_query_batches(producer: LDScoreProducer, query_columns: Sequence[str], s
                 results = run_chromosome_batch(producer, pool, workers, batch, label)
                 staged, variation = producer.reduce(results, batch)
                 del results
-                yield finalize_batch(staged, active, variation)
+                staged = finalize_batch(staged, active, variation)
+                if first is None:
+                    first = staged
+                finalized.extend(staged.query_statuses)
+                yield staged
                 del staged, batch
             progress.completed = len(columns)
+    finalized.sort(key=lambda status: positions.get(status.query, len(positions)))
+    errors = gene_viability_errors(first.gene_list_batch, tuple(finalized), first)
+    if errors:
+        raise LDSCInputError("; ".join(errors))
 
 
 def finalize_batch(staged: StagedLDScoreBatch | LDScoreResult, statuses: tuple,

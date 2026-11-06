@@ -25,7 +25,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .._annotation.query_outcomes import gene_viability_errors, log_gene_catalog_issues
+from .._annotation.query_outcomes import log_gene_catalog_issues
 from .._annotation.semantics import require_unique_annotation_names
 from .._runtime.scratch import TsvDiagnostics
 from .._core.row_alignment import first_identity_mismatch
@@ -294,9 +294,10 @@ class _LDScorePublication:
         """Start a publication from the run's first batch, materialized or staged.
 
         The first batch's baseline and run-level provenance belong to the
-        whole run. Counts, annotation types and overlap keep only their
-        baseline entries; every batch, the first included, then adds its own
-        query entries. Identity drops are staged separately.
+        whole run. Counts and annotation types keep only their baseline
+        entries; every batch, the first included, then adds its own query
+        entries. The overlap is joined from all batches' blocks after the
+        last batch. Identity drops are staged separately.
         """
         return cls(
             baseline_table=result.baseline_table,
@@ -310,7 +311,7 @@ class _LDScorePublication:
             annotation_types={name: result.annotation_types.get(name, "unknown") for name in result.baseline_columns},
             snp_universe_policy=result.snp_universe_policy,
             legacy_ldscore_conversion=result.legacy_ldscore_conversion,
-            overlap=None if result.overlap is None else result.overlap.select_queries([]),
+            overlap=None,
             ld_window=result.ld_window,
             ld_window_snp_counts=result.ld_window_snp_counts,
             reference_snp_funnel=result.reference_snp_funnel,
@@ -466,8 +467,10 @@ class LDScoreDirectoryWriter:
             An owned artifact exists and overwrite is disabled.
         LDSCInputError
             No results were yielded, a batch's query rows differ from the
-            first batch's baseline rows, annotation names repeat, or the
-            gene-list control or every query is unusable.
+            first batch's baseline rows, or annotation names repeat. An
+            error the producer raises while yielding, such as the gene-list
+            viability gate of ``run_query_batches``, propagates after the
+            query diagnostics are written.
 
         Notes
         -----
@@ -540,25 +543,9 @@ class LDScoreDirectoryWriter:
                 if shared is None:
                     raise LDSCInputError("LD-score batch writing received no calculation results.")
                 shared.query_statuses = ordered_statuses()
-                errors = gene_viability_errors(shared.gene_list_batch, shared.query_statuses, shared)
-                if errors:
-                    raise LDSCInputError("; ".join(errors))
                 if overlaps:
-                    first = overlaps[0]
-                    def blocks(name):
-                        block = getattr(first, name)
-                        if block is None:
-                            return None
-                        return pd.concat([block.loc[:, shared.baseline_columns], *[
-                            getattr(overlap, name).loc[:, overlap.query_diagonal_all.index] for overlap in overlaps]], axis=1)
-                    def diagonal(name):
-                        if getattr(first, name) is None:
-                            return None
-                        return pd.concat([getattr(overlap, name) for overlap in overlaps])
-                    shared.overlap = replace(first, baseline_block_all=blocks("baseline_block_all"),
-                                             baseline_block_common=blocks("baseline_block_common"),
-                                             query_diagonal_all=diagonal("query_diagonal_all"),
-                                             query_diagonal_common=diagonal("query_diagonal_common"))
+                    from .overlap_table import LDScoreOverlap
+                    shared.overlap = LDScoreOverlap.concat_query_batches(overlaps, shared.baseline_columns)
                 for ordinal, entry in enumerate(query_batches, 1):
                     name = query_batch_file_name(ordinal, len(query_batches))
                     (stage / entry["file"]).rename(stage / name)

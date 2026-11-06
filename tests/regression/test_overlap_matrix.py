@@ -94,6 +94,35 @@ def test_overlap_long_frame_round_trip():
     assert restored.total_common_reference_snps == 8.0
 
 
+def test_concat_query_batches_keeps_baseline_then_each_batch_in_order():
+    from ldsc._annotation.overlap import OverlapContribution
+    from ldsc._ldscore.overlap_table import LDScoreOverlap
+    # Batch 1 is complete (base x [base, q1]); batch 2 is a baseline-by-query block (base x [q2, q3]).
+    first = LDScoreOverlap.from_contribution(
+        OverlapContribution(np.array([[10.0, 4.0]]), np.array([[8.0, 3.0]]), np.array([6.0]), np.array([5.0]), 10, 8),
+        ["base"], ["q1"],
+    )
+    second = LDScoreOverlap.from_contribution(
+        OverlapContribution(np.array([[2.0, 7.0]]), np.array([[1.0, 6.0]]), np.array([3.0, 9.0]),
+                            np.array([2.0, 8.0]), 10, 8),
+        ["base"], ["q2", "q3"], include_baseline=False,
+    )
+    merged = LDScoreOverlap.concat_query_batches([first, second], ["base"])
+    expected_all = pd.DataFrame([[10.0, 4.0, 2.0, 7.0]], index=["base"], columns=["base", "q1", "q2", "q3"])
+    pd.testing.assert_frame_equal(merged.baseline_block_all, expected_all)
+    pd.testing.assert_frame_equal(merged.baseline_block_common, pd.DataFrame(
+        [[8.0, 3.0, 1.0, 6.0]], index=["base"], columns=["base", "q1", "q2", "q3"]))
+    pd.testing.assert_series_equal(merged.query_diagonal_all, pd.Series([6.0, 3.0, 9.0], index=["q1", "q2", "q3"]))
+    pd.testing.assert_series_equal(merged.query_diagonal_common, pd.Series([5.0, 2.0, 8.0], index=["q1", "q2", "q3"]))
+    assert (merged.total_all_reference_snps, merged.total_common_reference_snps) == (10.0, 8.0)
+
+    without_common = LDScoreOverlap.from_contribution(
+        OverlapContribution(np.array([[10.0, 4.0]]), None, np.array([6.0]), None, 10, None), ["base"], ["q1"],
+    )
+    merged = LDScoreOverlap.concat_query_batches([without_common], ["base"])
+    assert merged.baseline_block_common is None and merged.query_diagonal_common is None
+
+
 def _legacy_overlap_reference(prop, prop_cov, coef, coef_cov, n_blocks, O, M, M_tot):
     """Transcription of legacy ``Hsq._overlap_output`` math (pure-NumPy oracle)."""
     from scipy.stats import t as tdist

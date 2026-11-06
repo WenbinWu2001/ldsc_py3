@@ -56,6 +56,32 @@ class LDScoreOverlap:
         )
 
     @classmethod
+    def concat_query_batches(cls, batches: list["LDScoreOverlap"], baseline_columns: list[str]) -> "LDScoreOverlap":
+        """Join one run's per-batch overlap blocks, in batch order.
+
+        The first batch supplies the baseline-by-baseline columns and the
+        reference-SNP totals; every batch, the first included, then adds its
+        query columns to the baseline block and its query diagonal entries.
+        A common-SNP block is kept only when the first batch has one.
+        """
+        first = batches[0]
+
+        def block(blocks):
+            return pd.concat([blocks[0].loc[:, baseline_columns], *(
+                values.loc[:, batch.query_diagonal_all.index] for values, batch in zip(blocks, batches))], axis=1)
+
+        common = first.baseline_block_common is not None
+        return cls(
+            block([batch.baseline_block_all for batch in batches]),
+            block([batch.baseline_block_common for batch in batches]) if common else None,
+            pd.concat([batch.query_diagonal_all for batch in batches]),
+            pd.concat([batch.query_diagonal_common for batch in batches])
+            if first.query_diagonal_common is not None else None,
+            first.total_all_reference_snps,
+            first.total_common_reference_snps,
+        )
+
+    @classmethod
     def from_contribution(
         cls,
         contribution: OverlapContribution,

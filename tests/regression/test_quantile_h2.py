@@ -311,6 +311,28 @@ class QuantileH2WorkflowTest(unittest.TestCase):
         self.assertFalse((diagnostics / "gene_catalog_issues.tsv").exists())
         self.assertNotIn("gene_catalog_issues", result.output_paths)
 
+    def test_run_quantile_h2_names_catalog_defects_and_writes_the_catalog_table(self):
+        # The Python form of quantile-h2 writes the same files as the command, this table included.
+        catalog = self.root / "genes.tsv"
+        catalog.write_text("gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\nG1\tONE\t1\t15\t25\tGRCh-38\n",
+                           encoding="utf-8")
+        genes = self.root / "query.txt"
+        genes.write_text("G1\n", encoding="utf-8")
+        options = {
+            name: value[0] if isinstance(value, list) else value
+            for name, value in vars(self.args).items() if name != "log_level"
+        }
+        options.update(query_annot_gene_list_sources=str(genes), gene_coordinate_file=str(catalog))
+
+        with self.assertRaises(LDSCInputError) as caught:
+            ldsc.run_quantile_h2(**options)
+
+        self.assertIn("is not structurally valid: found 1 defect(s): line 2, genome_build: "
+                      "unsupported_genome_build, value 'GRCh-38'", str(caught.exception))
+        issues = pd.read_csv(Path(self.args.output_dir) / "diagnostics" / "gene_catalog_issues.tsv", sep="\t",
+                             keep_default_na=False)
+        self.assertEqual(issues["reason"].tolist(), ["unsupported_genome_build"])
+
     def test_run_quantile_h2_takes_the_command_option_names(self):
         # Single path tokens may be plain strings, as in the documented example.
         options = {

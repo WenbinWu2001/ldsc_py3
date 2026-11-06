@@ -1,7 +1,8 @@
 """A structurally invalid gene coordinate catalog names its defects on every route.
 
-``annotate``, ``ldscore`` and ``quantile-h2`` write the complete defect table
-to ``diagnostics/gene_catalog_issues.tsv`` of their output directory; the
+``annotate``, ``ldscore`` and ``quantile-h2``, on the command line and through
+their output-directory Python functions, write the complete defect table to
+``diagnostics/gene_catalog_issues.tsv`` of their output directory; the
 in-memory ``AnnotationBuilder`` writes no table and relies on the message and
 the exception's ``issues`` frame.
 """
@@ -12,10 +13,11 @@ import pickle
 import pandas as pd
 import pytest
 
+import ldsc
 from ldsc import cli
 from ldsc._annotation.builder import AnnotationBuilder
 from ldsc._annotation.gene_lists import CATALOG_ISSUE_COLUMNS, GeneCatalog, GeneCatalogValidationError
-from ldsc.config import AnnotationBuildConfig, GlobalConfig
+from ldsc.config import AnnotationBuildConfig, GlobalConfig, reset_global_config, set_global_config
 from tests.ldscore.test_gene_query_integration import inputs  # noqa: F401  (pytest fixture)
 
 ANCHOR = "docs/user-guide/troubleshooting.md#common-gene-coordinate-catalog-is-not-valid"
@@ -114,6 +116,30 @@ def test_ldscore_cli_names_the_defects_and_writes_the_catalog_table(tmp_path, in
     assert result.query_columns == ["focal"]
     assert not (output / "diagnostics/gene_catalog_issues.tsv").exists()
     assert "gene_catalog_issues" not in result.output_paths
+
+
+def test_run_ldscore_names_the_defects_and_writes_the_catalog_table(tmp_path, inputs):  # noqa: F811
+    # The Python form of ldscore shares the command's output directory and its diagnostics.
+    prefix, baseline, regression, _ = inputs
+    catalog = _unsupported_build_catalog(tmp_path / "catalog.tsv")
+    focal = tmp_path / "focal.txt"
+    focal.write_text("G1\n")
+    output = tmp_path / "py"
+    set_global_config(GlobalConfig(snp_identifier="rsid"))
+    try:
+        with pytest.raises(GeneCatalogValidationError) as caught:
+            ldsc.run_ldscore(output_dir=output, baseline_annot_sources=[str(baseline)],
+                             query_annot_gene_list_sources=[str(focal)], gene_coordinate_file=str(catalog),
+                             padding_bp=0, plink_prefix=str(prefix), ld_wind_cm=0.2,
+                             regr_snps_file=str(regression), regr_snps_exclude_regions="none")
+    finally:
+        reset_global_config()
+
+    _assert_names_the_build_defect(str(caught.value), "catalog.tsv")
+    table = pd.read_csv(output / "diagnostics/gene_catalog_issues.tsv", sep="\t", keep_default_na=False)
+    assert tuple(table.columns) == CATALOG_ISSUE_COLUMNS
+    assert table["catalog_line"].tolist() == [2, 3]
+    assert not (output / "metadata.json").exists()
 
 
 def test_annotation_builder_names_the_defects_and_writes_no_catalog_table(tmp_path, inputs):  # noqa: F811

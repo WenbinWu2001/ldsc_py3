@@ -205,6 +205,15 @@ def _store_ld_window(config) -> None:
     object.__setattr__(config, f"ld_wind_{window.unit}", window.value)
 
 
+class _LDWindowFields:
+    """The ``ld_window`` property of a configuration with ``ld_wind_*`` fields."""
+
+    @property
+    def ld_window(self) -> LDWindow:
+        """Return the LD window this configuration sets."""
+        return _ld_window(self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm)
+
+
 @dataclass(frozen=True, init=False)
 class GlobalConfig:
     """Shared configuration used across LDSC3 workflows.
@@ -562,7 +571,7 @@ _REF_PANEL_BACKEND_FIELDS = {
 
 
 @dataclass(frozen=True)
-class LDScoreConfig:
+class LDScoreConfig(_LDWindowFields):
     """Configuration for chromosome-wise LD-score calculation.
 
     Exactly one LD-window field must be set, to a finite number greater than
@@ -653,14 +662,9 @@ class LDScoreConfig:
         validate_workers(self.workers, error_type=LDSCConfigError)
         _normalize_paths(self, optional=("regr_snps_file",))
 
-    @property
-    def ld_window(self) -> LDWindow:
-        """Return the LD window this configuration sets."""
-        return _ld_window(self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm)
-
 
 @dataclass(frozen=True)
-class GeneLDScoreIndexBuildConfig:
+class GeneLDScoreIndexBuildConfig(_LDWindowFields):
     """Scientific and resource settings for exact gene-index construction.
 
     Parameters
@@ -821,14 +825,9 @@ class GeneLDScoreIndexBuildConfig:
             )
         validate_workers(self.workers, error_type=LDSCConfigError)
 
-    @property
-    def ld_window(self) -> LDWindow:
-        """Return the LD window this configuration sets."""
-        return _ld_window(self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm)
-
 
 @dataclass(frozen=True)
-class R2MatrixBuildConfig:
+class R2MatrixBuildConfig(_LDWindowFields):
     """Configuration for building standard parquet reference panels from PLINK.
 
     This config owns the builder-only SNP restriction path
@@ -958,11 +957,6 @@ class R2MatrixBuildConfig:
                 "Most likely an R2 percentage or invalid threshold was supplied. "
                 "Use a decimal threshold in [0, 1]."
             )
-
-    @property
-    def ld_window(self) -> LDWindow:
-        """Return the LD window this configuration sets."""
-        return _ld_window(self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm)
 
 
 @dataclass(frozen=True)

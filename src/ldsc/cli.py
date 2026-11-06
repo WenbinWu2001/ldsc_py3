@@ -32,9 +32,12 @@ from ._runtime.workflow_logging import (
     remove_cli_console_handler,
     reset_workflow_log_path,
 )
-from .errors import LDSCError, LDSCUserError
+from .errors import LDSCUserError
 
 LOGGER = logging.getLogger("LDSC.cli")
+# Exit 1 with a one-line "Error:" report; any other exception is an internal error (exit 2).
+# Besides LDSCUserError, builtin ValueError and ImportError and the OS path errors count as
+# user errors, so a malformed input that pandas rejects is reported as one.
 _USER_ERROR_TYPES = (
     LDSCUserError,
     ValueError,
@@ -212,9 +215,6 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
     except _USER_ERROR_TYPES as exc:
         LOGGER.error(f"Error: {exc}")
         return 1
-    except LDSCError as exc:
-        _log_internal_error(exc, workflow_advice=not _read_only(raw_argv))
-        return 2
     except Exception as exc:
         _log_internal_error(exc, workflow_advice=not _read_only(raw_argv))
         return 2

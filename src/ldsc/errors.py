@@ -1,7 +1,10 @@
 """Package-specific exception hierarchy for user and internal LDSC3 failures.
 
-The CLI boundary uses these classes to decide whether a failure should be
-displayed as a clean user-facing message or logged with a developer traceback.
+The CLI boundary reports ``LDSCUserError`` subclasses as clean user-facing
+messages (exit status 1) and other ``LDSCError`` failures as internal errors
+with a pointer to the logged traceback (exit status 2). It also treats the
+builtin ``ValueError``, ``ImportError`` and OS path errors as user errors
+(``ldsc.cli._USER_ERROR_TYPES``).
 Workflow modules should raise the most specific subclass that matches the
 failure source when adding new user-facing validation.
 """

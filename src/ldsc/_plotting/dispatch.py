@@ -162,34 +162,15 @@ def plot_result(
             " Check the named file and its readability; restore the original table and matching metadata from "
             "the same run. See docs/user-guide/troubleshooting.md#plot-result-directory-is-unsupported-or-incomplete."
         ) from exc
-    h2_per_trait = None
-    h2_path = None
-    if metadata["artifact_type"] == "rg_result" and "h2_per_trait" in metadata["files"]:
-        h2_path = declared_result_file(
-            source_dir, metadata, "h2_per_trait", context="Canonical rg plotting metadata", allow_missing=True
-        )
-        try:
-            h2_per_trait = pd.read_csv(h2_path, sep="\t", dtype={"trait_name": str})
-        except FileNotFoundError:
-            pass
-        except (OSError, ValueError) as exc:
-            raise LDSCInputError(
-                f"Could not read rg heritability table '{h2_path}': {exc}."
-                " Check the named file and its readability; restore the original table and matching metadata "
-                "from the same run. See "
-                "docs/user-guide/troubleshooting.md#plot-result-directory-is-unsupported-or-incomplete."
-            ) from exc
-        if h2_per_trait is not None and not h2_per_trait.empty and not isinstance(h2_per_trait.index, pd.RangeIndex):
-            raise LDSCInputError(
-                f"Malformed rg heritability table '{h2_path}': rows contain more fields than the header. "
-                "Supply a tab-separated table with one field per declared column."
-            )
+    rg_heritability = _read_rg_heritability(source_dir, metadata) if metadata["artifact_type"] == "rg_result" else None
     builders = _load_builders()
     destination = output_directory_path(output_dir) if output_dir is not None else default_plot_dir(source_dir)
     family = _plot_artifact_family(destination, contract)
     paths = {**family.paths, "log": destination / "diagnostics" / "plot.log"}
     family.preflight(overwrite=overwrite, additional_paths=[paths["log"]])
-    figure, axes = builders.build_plot(contract.kind, table, metadata, h2_per_trait=h2_per_trait)
+    figure, axes = builders.build_plot(
+        contract.kind, table, metadata, h2_per_trait=None if rg_heritability is None else rg_heritability.table,
+    )
     plot_metadata = {
         "artifact_type": "plot_result",
         "plot_kind": contract.kind,
@@ -200,24 +181,17 @@ def plot_result(
         "uncertainty": contract.uncertainty,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    if metadata["artifact_type"] == "rg_result":
-        plot_metadata["heritability_annotations"] = {
-            "source_table": str(h2_path.relative_to(source_dir)) if h2_path is not None else None,
-            "source_available": h2_per_trait is not None,
-            "scale": "observed",
-            "estimate_column": "total_h2_obs",
-            "se_column": "total_h2_obs_se",
-            "uncertainty": "block_jackknife_standard_error",
-            "missing_label": "failed",
-        }
+    if rg_heritability is not None:
+        plot_metadata["heritability_annotations"] = rg_heritability.annotation_metadata(source_dir)
     try:
         ensure_output_directory(destination, label="plot output directory")
         ensure_output_directory(destination / "diagnostics", label="plot diagnostics directory")
         log_level = get_global_config().log_level if log_level is None else log_level
         with workflow_logging("plot", paths["log"], log_level=log_level):
             log_inputs(result_dir=source_dir, source_table=source_path, plot_kind=contract.kind)
-            if metadata["artifact_type"] == "rg_result":
-                log_inputs(h2_per_trait=h2_path, h2_source_available=h2_per_trait is not None, h2_scale="observed")
+            if rg_heritability is not None:
+                log_inputs(h2_per_trait=rg_heritability.path, h2_source_available=rg_heritability.table is not None,
+                           h2_scale="observed")
             figure.savefig(paths["plot"], dpi=300, bbox_inches="tight", facecolor="white")
             atomic_write_json(plot_metadata, paths["metadata"])
             log_outputs(plot=paths["plot"], metadata=paths["metadata"])
@@ -316,6 +290,57 @@ def _read_source_metadata(result_dir: Path) -> dict[str, Any]:
             "tables, or regenerate the upstream result."
         )
     return metadata
+
+
+@dataclass(frozen=True)
+class _RgHeritability:
+    """The single-trait heritability table that annotates both rg plots.
+
+    ``path`` is the declared ``files.h2_per_trait`` table (``None`` when the
+    metadata declares none) and ``table`` its rows (``None`` when the table
+    is not declared or the declared file is missing).
+    """
+
+    table: pd.DataFrame | None
+    path: Path | None
+
+    def annotation_metadata(self, source_dir: Path) -> dict[str, Any]:
+        """Return the plot metadata's ``heritability_annotations`` record."""
+        return {
+            "source_table": str(self.path.relative_to(source_dir)) if self.path is not None else None,
+            "source_available": self.table is not None,
+            "scale": "observed",
+            "estimate_column": "total_h2_obs",
+            "se_column": "total_h2_obs_se",
+            "uncertainty": "block_jackknife_standard_error",
+            "missing_label": "failed",
+        }
+
+
+def _read_rg_heritability(source_dir: Path, metadata: dict[str, Any]) -> _RgHeritability:
+    """Read an rg result's declared ``h2_per_trait`` table, which may be missing."""
+    if "h2_per_trait" not in metadata["files"]:
+        return _RgHeritability(None, None)
+    path = declared_result_file(
+        source_dir, metadata, "h2_per_trait", context="Canonical rg plotting metadata", allow_missing=True
+    )
+    try:
+        table = pd.read_csv(path, sep="\t", dtype={"trait_name": str})
+    except FileNotFoundError:
+        return _RgHeritability(None, path)
+    except (OSError, ValueError) as exc:
+        raise LDSCInputError(
+            f"Could not read rg heritability table '{path}': {exc}."
+            " Check the named file and its readability; restore the original table and matching metadata "
+            "from the same run. See "
+            "docs/user-guide/troubleshooting.md#plot-result-directory-is-unsupported-or-incomplete."
+        ) from exc
+    if not table.empty and not isinstance(table.index, pd.RangeIndex):
+        raise LDSCInputError(
+            f"Malformed rg heritability table '{path}': rows contain more fields than the header. "
+            "Supply a tab-separated table with one field per declared column."
+        )
+    return _RgHeritability(table, path)
 
 
 def _select_contract(metadata: dict[str, Any]) -> _PlotContract:

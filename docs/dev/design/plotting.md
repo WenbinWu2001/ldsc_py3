@@ -91,6 +91,7 @@ The dispatcher rejects raw legacy outputs, loose tables, unsupported analysis re
 ### Heritability annotations in `rg` plots
 
 For both `rg` plot modes, `plot_result` also follows `files.h2_per_trait` when declared.
+This side input is read by `_read_rg_heritability()` in `_plotting/dispatch.py`, apart from the generic dispatch; its `_RgHeritability` record also supplies the `heritability_annotations` metadata, and a plot kind that needs another side input gets its own reader in the same way.
 It reads `trait_name`, `total_h2_obs`, and `total_h2_obs_se`, matching by name to metadata trait order.
 These are the separately fitted single-trait results, not the heritabilities fitted on each pair's shared SNP set.
 Liability columns are ignored; plotting never refits or converts scales.

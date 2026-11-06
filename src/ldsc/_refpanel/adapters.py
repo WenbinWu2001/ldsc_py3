@@ -22,6 +22,7 @@ from ..config import GlobalConfig, LDScoreConfig, RefPanelConfig, validate_confi
 from ..errors import EmptyReferenceSNPs, LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from .._genome.build_inference import resolve_genome_build, validate_auto_genome_build_mode
 from .._runtime.paths import inspect_plink_inputs, split_cli_path_tokens
+from .._runtime.preflight import InputGate
 from .._core.identifiers import identifier_keys, validate_retained_identifier_uniqueness
 from .funnel import ANNOTATION_SNP_GRID, REFERENCE_PANEL, ReferenceSNPFunnel
 from .plink import PlinkBEDFile
@@ -141,6 +142,15 @@ class RefPanel(ABC):
 
         Raises ``EmptyReferenceSNPs``, carrying the chromosome's
         ``reference_snp_funnel``, when those filters leave no SNP.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def check_reference(self, chromosomes, config: LDScoreConfig) -> None:
+        """Check the reference files of ``chromosomes`` for ``config`` before any chromosome is computed.
+
+        Raises ``LDSCInputError`` listing every defect found. Inputs that are
+        checked only when a chromosome is prepared are not read here.
         """
         raise NotImplementedError
 
@@ -371,6 +381,9 @@ class PlinkRefPanel(RefPanel):
         geno.close()
         return metadata
 
+    def check_reference(self, chromosomes, config):
+        """PLINK files are read and checked when each chromosome is prepared."""
+
     def reference_metadata_sources(self, config):
         """CM comes from the genetic map only for ``--ld-wind-cm``; kb and SNP windows keep the ``.bim`` CM."""
         has_map = bool(self.spec.genetic_map_hg19_sources or self.spec.genetic_map_hg38_sources)
@@ -477,6 +490,37 @@ class R2MatrixRefPanel(RefPanel):
         )
         return chromosome
 
+    def check_chromosome(self, chrom: str, *, on_pair_block=None) -> None:
+        """Check one chromosome's R2 Parquet footer and its binding to the sidecar.
+
+        Opening the chromosome checks the footer against this panel's SNP
+        identifier mode and genome build; opening a pair reader over the whole
+        sidecar checks that the R2 Parquet file was written for that sidecar.
+        With ``on_pair_block``, every stored pair is also read, and
+        ``on_pair_block()`` is called after each pair block.
+        """
+        chromosome = self.open_chromosome(chrom)
+        reader = chromosome.pair_reader(chromosome.sidecar(), self.global_config.snp_identifier,
+                                        self.global_config.genome_build)
+        try:
+            if on_pair_block is not None:
+                for _ in reader.iter_all_pairs():
+                    on_pair_block()
+        finally:
+            reader.close()
+
+    def check_reference(self, chromosomes, config):
+        """Check every chromosome's files, footer, LD window and sidecar binding; one error lists all issues."""
+        from .preflight import inspect_r2_headers
+
+        r2_matrix_dir = self.spec.r2_matrix_dir
+        gate = InputGate("R2 matrix validation")
+        gate.check("reference", r2_matrix_dir, lambda: inspect_r2_headers(
+            r2_matrix_dir, self.global_config.genome_build, command="ldscore", ld_window=config.ld_window))
+        for chrom in chromosomes:
+            gate.check("reference", r2_matrix_dir, lambda chrom=chrom: self.check_chromosome(chrom), chrom=chrom)
+        gate.finish()
+
     def load_metadata(self, chrom: str) -> pd.DataFrame:
         """Load, restrict, and validate metadata owned by this chromosome consumer."""
         metadata, funnel = self._load_reference(self.open_chromosome(chrom))
@@ -565,16 +609,27 @@ class RefPanelLoader:
         """Store the shared configuration used for every loaded panel."""
         self.global_config = global_config
 
-    def load(self, ref_panel_spec: RefPanelConfig) -> RefPanel:
-        """Return the adapter that ``ref_panel_spec.backend`` names."""
+    def load(self, ref_panel_spec: RefPanelConfig, *, chromosome_prefixes: dict[str, str] | None = None) -> RefPanel:
+        """Return the adapter that ``ref_panel_spec.backend`` names.
+
+        In a coordinate-family SNP identifier mode whose genome build is
+        ``auto``, the build is resolved here from the panel and
+        ``ref_panel_snps_file``. A concrete build is taken as already
+        resolved, as the workflows resolve it once against all their inputs;
+        each R2 matrix chromosome still compares its declared build with it
+        when opened. ``chromosome_prefixes`` maps normalized chromosome labels
+        to PLINK prefixes the caller has validated (``PlinkRefPanel``); an R2
+        matrix ignores it.
+        """
         global_config = self._global_config_for_spec(ref_panel_spec)
-        adapter = PlinkRefPanel if ref_panel_spec.backend == "plink" else R2MatrixRefPanel
-        return adapter(global_config, ref_panel_spec)
+        if ref_panel_spec.backend == "plink":
+            return PlinkRefPanel(global_config, ref_panel_spec, chromosome_prefixes=chromosome_prefixes)
+        return R2MatrixRefPanel(global_config, ref_panel_spec)
 
     def _global_config_for_spec(self, ref_panel_spec: RefPanelConfig) -> GlobalConfig:
-        """Validate direct Python build declarations before backend loading."""
+        """Resolve an ``auto`` build in a coordinate-family mode before backend loading."""
         mode = normalize_snp_identifier_mode(self.global_config.snp_identifier)
-        if identity_mode_family(mode) != "chr_pos":
+        if identity_mode_family(mode) != "chr_pos" or self.global_config.genome_build in {"hg19", "hg38"}:
             return self.global_config
         resolved_build = _infer_restricted_ref_panel_build(ref_panel_spec, self.global_config.genome_build)
         return GlobalConfig(

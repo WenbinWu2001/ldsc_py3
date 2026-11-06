@@ -314,13 +314,6 @@ def _r2_ref_panel(build_dir, snp_identifier="chr_pos", genome_build="hg38", **sp
     )
 
 
-def _open_pair_reader(panel, chrom):
-    """Open one chromosome's pair reader over its whole sidecar, as ``ldscore`` does, and close it."""
-    chromosome = panel.open_chromosome(chrom)
-    chromosome.pair_reader(chromosome.sidecar(), panel.global_config.snp_identifier,
-                           panel.global_config.genome_build).close()
-
-
 class ParquetRefPanelTest(unittest.TestCase):
     def test_missing_sidecar_is_a_hard_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -354,7 +347,7 @@ class ParquetRefPanelTest(unittest.TestCase):
             pq.write_table(table.replace_schema_metadata(stripped), parquet_path)
 
             with self.assertRaisesRegex(LDSCInputError, "ldsc:artifact_type is missing"):
-                _open_pair_reader(_r2_ref_panel(build_dir), "1")
+                _r2_ref_panel(build_dir).check_chromosome("1")
 
     def test_package_metadata_sidecar_rejects_missing_identity_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -379,14 +372,14 @@ class ParquetRefPanelTest(unittest.TestCase):
             build_dir = Path(tmpdir) / "panel" / "hg38"
             _write_r2(build_dir, snp_identifier="chr_pos")
             with self.assertRaisesRegex(ValueError, "snp_identifier mismatch"):
-                _open_pair_reader(_r2_ref_panel(build_dir, snp_identifier="rsid", genome_build=None), "1")
+                _r2_ref_panel(build_dir, snp_identifier="rsid", genome_build=None).check_chromosome("1")
 
     def test_concrete_build_rejects_conflicting_r2_declaration(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
             _write_r2(build_dir, genome_build="hg38")
             with self.assertRaisesRegex(LDSCInputError, "Conflicting genome-build evidence"):
-                _open_pair_reader(_r2_ref_panel(build_dir, genome_build="hg19"), "1")
+                _r2_ref_panel(build_dir, genome_build="hg19").check_chromosome("1")
 
     def test_r2_matrix_dir_requires_r2_for_requested_chromosome(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -524,7 +517,7 @@ class ParquetRefPanelTest(unittest.TestCase):
             build_dir = Path(tmpdir) / "panel" / "hg38"
             _write_r2(build_dir)[0].unlink()
             with self.assertRaisesRegex(LDSCInputError, "the R2 Parquet file .*chr1_r2.parquet' is missing"):
-                _open_pair_reader(_r2_ref_panel(build_dir), "1")
+                _r2_ref_panel(build_dir).check_chromosome("1")
 
     def test_plink_prefix_accepts_suite_token(self):
         with tempfile.TemporaryDirectory() as tmpdir:

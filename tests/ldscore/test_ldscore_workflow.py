@@ -384,8 +384,11 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 backend=backend,
                 genome_build=genome_build,
                 plink_prefix=plink_prefix,
+                r2_matrix_dir=None,
                 ref_panel_snps_file=None,
-            )
+            ),
+            check_reference=lambda chromosomes, config: None,
+            reference_metadata_sources=lambda config: ("plink_bim", "plink_genotypes"),
         )
         if metadata is not None:
             panel.available_chromosomes = lambda: list(metadata_by_chrom)
@@ -1156,6 +1159,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             config_snapshot=GlobalConfig(genome_build="hg19", snp_identifier="chr_pos"),
         )
         ref_panel = SimpleNamespace(spec=SimpleNamespace(genome_build="hg19", backend="plink"),
+                                    check_reference=lambda chromosomes, config: None,
                                     reference_metadata_sources=lambda config: ("plink_bim", "plink_genotypes"))
 
         with mock.patch.object(direct_batches, "compute_direct_chromosome") as patched_compute:
@@ -1606,16 +1610,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 "--output-dir", str(output_dir), "--plink-prefix", str(tmpdir / "panel"), "--snp-identifier", "rsid",
                 "--ld-wind-snps", "10", "--snp-batch-size", "50", "--regr-snps-exclude-regions", "none", "--overwrite",
             ])
-            ref_panel = self.make_ref_panel_stub(
-                backend="plink",
-                metadata=pd.DataFrame({"CHR": ["1"], "SNP": ["rs1"], "CM": [0.1], "POS": [10]}),
-            )
-
-            with mock.patch(
-                "ldsc._refpanel.adapters.RefPanelLoader.load",
-                autospec=True,
-                return_value=ref_panel,
-            ), mock.patch.object(
+            with mock.patch.object(
                 direct_batches,
                 "compute_direct_chromosome",
                 autospec=True,
@@ -1680,16 +1675,10 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     n_common=4,
                 ),
             )
-            ref_panel = self.make_ref_panel_stub(backend="plink")
-
             with mock.patch(
                 "ldsc._annotation.builder.AnnotationBuilder.run",
                 autospec=True,
                 return_value=annotation_bundle,
-            ), mock.patch(
-                "ldsc._refpanel.adapters.RefPanelLoader.load",
-                autospec=True,
-                return_value=ref_panel,
             ), mock.patch.object(
                 direct_batches,
                 "compute_direct_chromosome",

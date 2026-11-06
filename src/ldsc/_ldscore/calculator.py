@@ -43,7 +43,6 @@ from .._core import regions as kernel_regions
 from .._core.snp_identity import RestrictionIdentityKeys
 from ..errors import LDSCUsageError
 from .._genome.build_policy import GenomeBuildCheck
-from .._runtime.preflight import InputGate
 
 
 LOGGER = logging.getLogger("LDSC.ldscore_calculator")
@@ -80,7 +79,8 @@ class _RunContext:
         The genome build in ``global_config`` and ``ref_panel`` was resolved
         against every input.
     reference_checked : bool
-        Every chromosome's R2 matrix footer and sidecar were checked.
+        ``ref_panel.check_reference`` already checked every chromosome's
+        reference files.
     """
 
     global_config: GlobalConfig
@@ -224,7 +224,7 @@ class LDScoreCalculator:
             global_config, ref_panel = _resolve_calculator_build(annotation_bundle, ref_panel, global_config)
         chromosomes = list(annotation_bundle.chromosomes)
         if not context.reference_checked:
-            _check_parquet_reference(ref_panel, chromosomes, ldscore_config, global_config)
+            ref_panel.check_reference(chromosomes, ldscore_config)
         with ExitStack() as stack:
             output_dir = None if output_config is None else output_config.output_dir
             log_paths = stack.enter_context(ldscore_logs(
@@ -345,29 +345,6 @@ def _resolve_calculator_build(annotation_bundle, ref_panel, global_config: Globa
         ref_panel = copy(ref_panel)
         ref_panel.global_config = dataclass_replace(ref_panel.global_config, genome_build=global_config.genome_build)
     return global_config, ref_panel
-
-
-def _check_parquet_reference(ref_panel, chromosomes, ldscore_config: LDScoreConfig, global_config: GlobalConfig) -> None:
-    """Check every chromosome's R2 matrix footer and sidecar before any is computed.
-
-    The CLI runs the same checks in its input preflight. Python API callers would
-    otherwise learn of a defect only from the first chromosome worker to reach it.
-    """
-    if getattr(getattr(ref_panel, "spec", None), "backend", None) != "r2_matrix":
-        return
-    from .._refpanel.preflight import inspect_r2_headers
-
-    def check_sidecar(chrom):
-        chromosome = ref_panel.open_chromosome(chrom)
-        chromosome.pair_reader(chromosome.sidecar(), global_config.snp_identifier, global_config.genome_build).close()
-
-    r2_matrix_dir = ref_panel.spec.r2_matrix_dir
-    gate = InputGate("R2 matrix validation")
-    gate.check("reference", r2_matrix_dir, lambda: inspect_r2_headers(
-        r2_matrix_dir, global_config.genome_build, command="ldscore", ld_window=ldscore_config.ld_window))
-    for chrom in chromosomes:
-        gate.check("reference", r2_matrix_dir, lambda chrom=chrom: check_sidecar(chrom), chrom=chrom)
-    gate.finish()
 
 
 def _annotation_result_message(caller: str) -> str:

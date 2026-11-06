@@ -60,8 +60,6 @@ DEFERRED_IMPORTS = {
         "the plot builders import Matplotlib, which loads only for a figure",
     ("ldsc._annotation.bundle", "ldsc._annotation.in_memory"):
         "only AnnotationBundle.from_frames builds in-memory annotations",
-    ("ldsc._ldscore.calculator", "ldsc._refpanel.preflight"):
-        "only R2 matrix runs check their sidecar headers",
     ("ldsc._ldscore.workflow", "ldsc._ldscore.direct_annotation"):
         "only the ldscore command prepares direct BED and gene-list annotations",
     ("ldsc._ldscore.workflow", "ldsc._ldscore.preflight"):
@@ -84,6 +82,8 @@ DEFERRED_IMPORTS = {
         "only directories with an overlap matrix write one",
     ("ldsc._ldscore.source", "ldsc._ldscore.overlap_table"):
         "only directories with an overlap matrix read one",
+    ("ldsc._refpanel.adapters", "ldsc._refpanel.preflight"):
+        "only R2 matrix runs check their sidecar headers",
     ("ldsc._refpanel.builder", "ldsc._refpanel.preflight"):
         "only build-r2-matrix checks genetic-map headers",
     ("ldsc._refpanel.builder", "ldsc._runtime.workflow_kwargs"):

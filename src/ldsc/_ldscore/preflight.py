@@ -13,7 +13,6 @@ import logging
 import pandas as pd
 
 from .._core.chromosomes import AUTOSOMES, chrom_sort_key
-from ..config import RefPanelConfig
 from ..errors import LDSCInputError, LDSCUserError
 from .._runtime.paths import inspect_plink_inputs, split_cli_path_tokens
 from .._refpanel.adapters import R2MatrixRefPanel
@@ -87,7 +86,7 @@ def inspect_reference_inputs(ref_panel_config, global_config, *, require_autosom
         except (OSError, EOFError, ValueError, LDSCUserError) as exc:
             issue("reference", r2_matrix_dir, "", "invalid_required_input", exc, R2_MATRIX_REPAIR)
             members = []
-        panel = R2MatrixRefPanel(global_config, RefPanelConfig(backend="r2_matrix", r2_matrix_dir=r2_matrix_dir)) if members else None
+        panel = R2MatrixRefPanel(global_config, ref_panel_config) if members else None
         for chrom in members:
             try:
                 if require_autosomes and chrom not in AUTOSOMES:
@@ -96,16 +95,12 @@ def inspect_reference_inputs(ref_panel_config, global_config, *, require_autosom
                         "annotations use autosomes 1 through 22 only. Select an R2 matrix directory that holds "
                         "only autosomes."
                     )
-                chromosome = panel.open_chromosome(chrom)
-                reader = chromosome.pair_reader(chromosome.sidecar(), global_config.snp_identifier,
-                                                global_config.genome_build)
-                try:
-                    if require_autosomes:
-                        with PhaseProgress(logging.getLogger('LDSC.preflight'), 'validation', f'R2 pairs chromosome {chrom}') as progress:
-                            for pairs in reader.iter_all_pairs():
-                                progress.advance(object=f'chromosome {chrom} pair block')
-                finally:
-                    reader.close()
+                if require_autosomes:
+                    with PhaseProgress(logging.getLogger('LDSC.preflight'), 'validation', f'R2 pairs chromosome {chrom}') as progress:
+                        panel.check_chromosome(chrom, on_pair_block=lambda: progress.advance(
+                            object=f'chromosome {chrom} pair block'))
+                else:
+                    panel.check_chromosome(chrom)
                 sets["reference"].add(chrom)
             except (OSError, EOFError, ValueError, LDSCUserError) as exc:
                 issue("reference", r2_matrix_dir, chrom, "invalid_required_input", exc, R2_MATRIX_REPAIR)

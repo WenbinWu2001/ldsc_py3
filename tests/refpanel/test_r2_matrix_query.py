@@ -82,11 +82,10 @@ def test_readers_require_sign_r(tmp_path, reader):
 
     with pytest.raises(LDSCInputError, match="SIGN_R.*build-r2-matrix"):
         if reader == "ldscore":
-            chromosome = R2MatrixRefPanel(
+            R2MatrixRefPanel(
                 GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
                 RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)),
-            ).open_chromosome("1")
-            chromosome.pair_reader(chromosome.sidecar(), "chr_pos_allele_aware", "hg38").close()
+            ).check_chromosome("1")
         else:
             panel = R2Matrix.open(tmp_path, genome_build="hg38")
             panel.query_pairs(pd.DataFrame({

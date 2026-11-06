@@ -36,7 +36,7 @@ from .diagnostics import (
     fail_unusable_queries,
     log_query_outcomes,
 )
-from .direct_batches import _chromosome_annotations, _grid_emptied_message, _ref_panel_from_config, _slice_annotation_bundle
+from .direct_batches import _chromosome_annotations, _grid_emptied_message, _slice_annotation_bundle
 from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP, output_directory_argument
 from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
 from .._runtime.parallelism import (
@@ -75,6 +75,7 @@ from .._runtime.paths import (
 from .._runtime.workflow_logging import (
     log_inputs, log_outputs, materializing_overwrite_guard, overwrite_failure_marker, workflow_logging,
 )
+from .._refpanel.adapters import RefPanelLoader
 from .._refpanel.funnel import annotation_snp_grid_emptied, read_reference_snp_funnel
 from .._core import regions as kernel_regions
 from .._core.regions import REGR_SNPS_EXCLUDE_REGIONS_CHOICES, regr_snps_exclude_regions_choice_to_presets
@@ -738,9 +739,9 @@ def _run_direct_ldscore(configs: _DirectConfigs) -> "LDScoreSource":
                     annotation_config, global_config, workspace, output_config, batch=batch,
                     gene_catalog_build=gene_catalog_build, declared_inputs=declared_inputs,
                     reference_inputs=reference_inputs)
-                ref_panel = _ref_panel_from_config(panel_config, global_config, chromosome_prefixes=chromosome_prefixes)
-            else:
-                ref_panel = _ref_panel_from_config(panel_config, global_config, chromosome_prefixes=chromosome_prefixes)
+            # The adapter owns the A -> A' restriction; global_config carries the resolved build.
+            ref_panel = RefPanelLoader(global_config).load(panel_config, chromosome_prefixes=chromosome_prefixes)
+            if not annotation_config.baseline_annot_sources:
                 annotation_bundle, skipped_funnels = prepare_synthetic_base(ref_panel, global_config, workspace)
             if scope.get("chromosomes"):
                 LOGGER.info("Chromosomes resolved and entering the analysis: %s.", ", ".join(scope['chromosomes']))

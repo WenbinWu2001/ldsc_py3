@@ -99,8 +99,7 @@ def test_ldscore_reader_rejects_contract_defect(tmp_path, defect):
         RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(tmp_path / "hg19")),
     )
     with pytest.raises(LDSCInputError) as failure:
-        chromosome = panel.open_chromosome("1")
-        chromosome.pair_reader(chromosome.sidecar(), "chr_pos_allele_aware", "hg19").close()
+        panel.check_chromosome("1")
     _assert_contract_error(failure.value, r2, key)
 
 

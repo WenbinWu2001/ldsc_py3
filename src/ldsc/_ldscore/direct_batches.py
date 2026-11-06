@@ -36,12 +36,12 @@ from .._annotation.storage import TsvDiagnostics
 from .._core.chromosomes import chrom_sort_key
 from .._core.row_alignment import concat_chromosome_tables, sort_frame_by_genomic_position
 from .._core.snp_identity import coerce_identity_drop_frame, IDENTITY_DROP_COLUMNS, is_allele_aware_mode
-from .._refpanel.adapters import PlinkRefPanel, R2MatrixRefPanel
+from .._refpanel.adapters import PlinkRefPanel, RefPanelLoader
 from .._refpanel.funnel import REFERENCE_PANEL, annotation_snp_grid_emptied, concat_funnels, funnel_summary
 from .._refpanel.prepared import ChromosomeAnnotations, MappedAnnotations
 from .._refpanel.r2_format import SIDECAR_FLOAT_FORMAT
 from .._runtime.worker_runtime import initialize_worker
-from ..config import GlobalConfig, LDScoreConfig, RefPanelConfig, validate_config_compatibility
+from ..config import GlobalConfig, LDScoreConfig, validate_config_compatibility
 from ..errors import EmptyReferenceSNPs, LDSCInputError, LDSCInternalError
 from . import compute as kernel_ldscore
 from .diagnostics import chromosome_log, log_reference_snp_funnel_warning, reference_snp_funnel_path
@@ -55,17 +55,6 @@ LOGGER = logging.getLogger("LDSC.ldscore_calculator")
 _LDSCORE_INTERSECTION_DOC = (
     "docs/user-guide/troubleshooting.md#ldscore-no-reference-snps-remain-on-the-annotation-snp-grid"
 )
-
-
-def _ref_panel_from_config(config: RefPanelConfig, global_config: GlobalConfig, *, chromosome_prefixes=None):
-    """Build the reference-panel adapter that owns the ``A -> A'`` restriction.
-
-    ``global_config`` carries the build the run already resolved against the
-    panel, so unlike ``RefPanelLoader.load`` this checks no build again.
-    """
-    if config.backend == "plink":
-        return PlinkRefPanel(global_config, config, chromosome_prefixes=chromosome_prefixes)
-    return R2MatrixRefPanel(global_config, config)
 
 
 def compute_direct_chromosome(
@@ -430,8 +419,8 @@ class _DirectProducer:
         # carries the resolved build; its PLINK chromosome prefixes are
         # resolved here, and its SNP restriction and keep list at the first
         # submission, rather than in every task.
-        self.task_panel = _ref_panel_from_config(
-            ref_panel.spec, global_config,
+        self.task_panel = RefPanelLoader(global_config).load(
+            ref_panel.spec,
             chromosome_prefixes=ref_panel._resolved_prefixes() if isinstance(ref_panel, PlinkRefPanel) else None)
 
     def prepare(self, bundle, *, ordinal=0, fragment_dir=None) -> _DirectBatch:

@@ -19,7 +19,7 @@ explicit in the figure; no estimate is refitted or converted by plotting.
 from __future__ import annotations
 
 from .._runtime.cli_help import CLIHelpFormatter, output_directory_argument, add_log_level_argument
-from .._runtime.artifacts import atomic_write_json, declared_result_file
+from .._runtime.artifacts import ArtifactFamily, atomic_write_json, declare_artifacts, declared_result_file
 
 import argparse
 from dataclasses import dataclass
@@ -34,9 +34,7 @@ import pandas as pd
 from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from ..config import get_global_config
 from ..errors import LDSCInputError
-from .._runtime.paths import (
-    ensure_output_directory, output_directory_path, preflight_output_artifact_family,
-)
+from .._runtime.paths import ensure_output_directory, output_directory_path
 
 
 @dataclass(frozen=True)
@@ -70,6 +68,19 @@ class _PlotContract:
     filename: str
     source_key: str
     uncertainty: str
+
+
+def _plot_artifact_family(destination, contract: _PlotContract) -> ArtifactFamily:
+    """Declare one plot kind's outputs: its figure and ``diagnostics/metadata.json``.
+
+    The run log ``diagnostics/plot.log`` is preflighted beside them but is
+    not a result file.
+    """
+    return declare_artifacts(
+        destination,
+        {"plot": (contract.filename, True), "metadata": ("diagnostics/metadata.json", True)},
+        label=f"{contract.kind} plot artifact",
+    )
 
 
 def default_plot_dir(result_dir) -> Path:
@@ -175,17 +186,9 @@ def plot_result(
             )
     builders = _load_builders()
     destination = output_directory_path(output_dir) if output_dir is not None else default_plot_dir(source_dir)
-    paths = {
-        "plot": destination / contract.filename,
-        "metadata": destination / "diagnostics" / "metadata.json",
-        "log": destination / "diagnostics" / "plot.log",
-    }
-    preflight_output_artifact_family(
-        paths.values(),
-        paths.values(),
-        overwrite=overwrite,
-        label=f"{contract.kind} plot artifact",
-    )
+    family = _plot_artifact_family(destination, contract)
+    paths = {**family.paths, "log": destination / "diagnostics" / "plot.log"}
+    family.preflight(overwrite=overwrite, additional_paths=[paths["log"]])
     figure, axes = builders.build_plot(contract.kind, table, metadata, h2_per_trait=h2_per_trait)
     plot_metadata = {
         "artifact_type": "plot_result",
@@ -193,7 +196,7 @@ def plot_result(
         "source_artifact_type": metadata["artifact_type"],
         "source_result_dir": str(source_dir),
         "source_table": str(source_path.relative_to(source_dir)),
-        "files": {"plot": contract.filename},
+        "files": family.metadata_files(),
         "uncertainty": contract.uncertainty,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }

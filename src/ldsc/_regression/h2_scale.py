@@ -17,7 +17,9 @@ sensitivity figure is requested.
 from __future__ import annotations
 
 from .._runtime.cli_help import CLIHelpFormatter, output_directory_argument, add_log_level_argument
-from .._runtime.artifacts import atomic_write_dataframe, atomic_write_json, declared_result_file
+from .._runtime.artifacts import (
+    ArtifactFamily, atomic_write_dataframe, atomic_write_json, declare_artifacts, declared_result_file,
+)
 
 import argparse
 from dataclasses import dataclass
@@ -34,12 +36,7 @@ from .estimators import liability_conversion_factor
 from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from ..config import get_global_config, validate_prevalences
 from ..errors import LDSCInputError, LDSCUsageError
-from .._runtime.paths import (
-    ensure_output_directory,
-    output_directory_path,
-    preflight_output_artifact_family,
-    remove_output_artifacts,
-)
+from .._runtime.paths import ensure_output_directory, output_directory_path, remove_output_artifacts
 
 
 _TABLE_NAME = "h2_scale_conversion.tsv"
@@ -78,6 +75,21 @@ class H2ScaleConversionArtifact:
     metadata_path: Path
     log_path: Path
     plot_path: Path | None
+
+
+def _conversion_artifact_family(destination, mode: str) -> ArtifactFamily:
+    """Declare a conversion's outputs: the table, its metadata and, in ``"sensitivity"`` mode, the figure.
+
+    The figure is owned in both modes, so an exact conversion that replaces a
+    range conversion removes the stale figure. The run log is preflighted
+    beside these outputs but is not a result file.
+    """
+    return declare_artifacts(
+        destination,
+        {"table": (_TABLE_NAME, True), "plot": (_PLOT_NAME, mode == "sensitivity"),
+         "metadata": (_METADATA_NAME, True)},
+        label="liability-scale conversion artifact",
+    )
 
 
 def default_liability_scale_dir(h2_result_dir) -> Path:
@@ -180,21 +192,9 @@ def convert_h2_scale(
         if output_dir is not None
         else default_liability_scale_dir(source_dir)
     )
-    paths = {
-        "table": destination / _TABLE_NAME,
-        "plot": destination / _PLOT_NAME,
-        "metadata": destination / _METADATA_NAME,
-        "log": destination / _LOG_NAME,
-    }
-    produced = [paths["table"], paths["metadata"], paths["log"]]
-    if mode == "sensitivity":
-        produced.append(paths["plot"])
-    stale = preflight_output_artifact_family(
-        produced,
-        paths.values(),
-        overwrite=overwrite,
-        label="liability-scale conversion artifact",
-    )
+    family = _conversion_artifact_family(destination, mode)
+    paths = {**family.paths, "log": destination / _LOG_NAME}
+    stale = family.preflight(overwrite=overwrite, additional_paths=[paths["log"]])
     ensure_output_directory(destination, label="liability-scale conversion directory")
     ensure_output_directory(destination / "diagnostics", label="conversion diagnostics directory")
 
@@ -211,9 +211,6 @@ def convert_h2_scale(
         },
         columns=_TABLE_COLUMNS,
     )
-    files = {"table": _TABLE_NAME}
-    if mode == "sensitivity":
-        files["plot"] = _PLOT_NAME
     metadata = {
         "artifact_type": "h2_scale_conversion_result",
         "source_artifact_type": "h2_result",
@@ -228,7 +225,7 @@ def convert_h2_scale(
             else None
         ),
         "num_points": int(len(prevalences)),
-        "files": files,
+        "files": family.metadata_files(),
         "uncertainty": "block_jackknife_standard_error",
         "population_prevalence_uncertainty_propagated": False,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -251,14 +248,14 @@ def convert_h2_scale(
         log_outputs(
             table=paths["table"],
             metadata=paths["metadata"],
-            plot=paths["plot"] if mode == "sensitivity" else None,
+            plot=paths.get("plot"),
         )
     remove_output_artifacts(stale)
     return H2ScaleConversionArtifact(
         table_path=paths["table"],
         metadata_path=paths["metadata"],
         log_path=paths["log"],
-        plot_path=paths["plot"] if mode == "sensitivity" else None,
+        plot_path=paths.get("plot"),
     )
 
 

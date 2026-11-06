@@ -168,10 +168,10 @@ The lazily exported workflows in `ldsc/__init__.py` and the per-command modules 
 | `ldsc._regression.jackknife`, `ldsc._regression.irwls` | supporting numerical routines used by regression |
 | `ldsc._regression.overlap_model` | per-model overlap assembly, the overlap-aware annotation table (ported `_overlap_output` with augmentation, renamed once to the `partitioned-h2` column names) and the collinearity check (`model_collinearity_error`) |
 | `ldsc._regression.prevalence` | parse the `rg` prevalence inputs (comma-separated `--samp-prev`/`--pop-prev` lists or a `--prevalence-manifest` TSV) into a normalized per-trait `(samp_prev, pop_prev)` structure for observed-to-liability conversion, checking each pair with `ldsc.config.normalize_prevalence_pair()`; `RegressionConfig` checks the scalar `h2`/`partitioned-h2` pair |
-| `ldsc._regression.h2_scale` | strict post-fit observed-to-liability conversion from a canonical `h2` result, including exact and prevalence-range modes and the fixed nested derived-result family |
+| `ldsc._regression.h2_scale` | strict post-fit observed-to-liability conversion from a canonical `h2` result, including exact and prevalence-range modes and the fixed nested derived-result family, declared as an `ArtifactFamily` |
 | `ldsc._regression.quantile_h2`, `ldsc._regression.quantile_inputs`, `ldsc._regression.quantile_storage` | post-fit continuous-target quantile assignment, reconstruction and verification of the fitted sources and common reference SNPs, vectorized coefficient/delete-value projection, standardized `tau_star`, and streamed alignment diagnostics |
 | `ldsc._regression.outputs` | writers for the `h2`, `partitioned-h2` (per-query layout), `rg` (result family) and `quantile-h2` result directories, including the legacy summary-statistics audit, with their column constants and the fitted-model file names and locators (`fitted_model_files()`, `published_query_artifacts()`) |
-| `ldsc._plotting.dispatch` | sole public metadata-driven plotting dispatcher, lazy plotting-runtime boundary, fixed plot-family output, and live `PlotArtifact` return object |
+| `ldsc._plotting.dispatch` | sole public metadata-driven plotting dispatcher, lazy plotting-runtime boundary, fixed plot-family output declared as an `ArtifactFamily`, and live `PlotArtifact` return object |
 | `ldsc._plotting.builders` | private Matplotlib-only headless builders for the approved `h2`, `rg`, `partitioned-h2`, and `quantile-h2` plots |
 
 ## Where To Change Code

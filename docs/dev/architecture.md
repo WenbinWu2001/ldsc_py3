@@ -198,6 +198,7 @@ path. `ldsc._regression.h2_scale.convert_h2_scale()` reads the observed estimate
 from a canonical `h2` result and reuses the kernel liability conversion factor;
 only prevalence-range mode imports Matplotlib. Both default to package-owned
 nested result roots and allow an advanced Python-only destination override.
+Each declares its derived family as an `ArtifactFamily` (`_plot_artifact_family()`, `_conversion_artifact_family()`), preflights it with its log and writes metadata `files` from it, like the domain writers, and reads source tables through `_runtime.artifacts.declared_result_file()`.
 Their complete seams are documented in [plotting.md](design/plotting.md).
 
 For `rg`, the dispatcher loads the correlation table and optional metadata-declared single-trait heritability table.

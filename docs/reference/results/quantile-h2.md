@@ -97,6 +97,7 @@ After loading the fitted model, and before reading any annotation, a second pref
 The manifest check and the readability check of every declared file run side by side, so one run reports both kinds of defect.
 A failure stops the run with an `LDSCInputError` and lists the directory under the role `LD scores` in `diagnostics/input_issues.tsv` for a manifest defect, and each unreadable declared file under its `files` key.
 For a missing declared file, the `LD scores` row keeps the manifest check's own message, which names that file.
+That row has the reason `invalid_required_input`, because the directory exists but its manifest declares a file it lacks, and the file's own row has the reason `missing_required_input`.
 Undecodable fitted-model metadata, from `run_quantile_h2()` or `load_fitted_partitioned_model()`, is also an `LDSCInputError`.
 
 The workflow inherits the linked LD-score directory's inclusive common-MAF threshold from its `count_config`; it has no common-MAF override and no default for a missing `count_config`.

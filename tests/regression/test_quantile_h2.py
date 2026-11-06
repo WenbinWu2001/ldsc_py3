@@ -544,6 +544,8 @@ def test_a_damaged_ldscore_directory_fails_in_the_preflight(tmp_path, damage):
         assert issues["source"].tolist() == [str(ldscore_dir), str(ldscore_dir / name)]
         assert issues["details"].iloc[0].startswith("LDSCInputError: Could not ")
         assert name in issues["details"].iloc[0]
+        # The directory row reports an inconsistent manifest; the file row reports the missing file.
+        assert issues["reason"].tolist() == ["invalid_required_input", "missing_required_input"]
     else:
         # Undecodable metadata is reported once; the declared files cannot be listed.
         assert issues["input_role"].tolist() == ["LD scores"]

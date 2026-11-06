@@ -533,15 +533,15 @@ def _build(
     genetic-map paths supplied for that build, or ``None``. The caller opens
     the failure-marker scope. The output preflight is read-only and runs
     before the lock creates the build directory, so a refused destination is
-    left as it was and an existing build directory is evidence of an earlier
-    attempt.
+    left as it was; only a build directory that an earlier attempt left is
+    cleaned for this one.
     """
     started = time.perf_counter()
     chromosomes = index_artifact.INDEX_CHROMOSOMES
     index_path = Path(config.output_dir)
-    _preflight_gene_index_output(index_path, overwrite=bool(overwrite))
+    accepted_entries = _preflight_gene_index_output(index_path, overwrite=bool(overwrite))
     with _gene_index_build_lock(index_path):
-        live_log_path = _prepare_gene_index_log(index_path)
+        live_log_path = _prepare_gene_index_log(index_path, earlier_attempt=_BUILD_DIR in accepted_entries)
         with workflow_logging("build-gene-ldscore-index", live_log_path, log_level=log_level):
             log_inputs(
                 output_dir=str(config.output_dir),
@@ -1021,7 +1021,7 @@ def _gene_index_build_lock(index_path: Path):
     retried on a fresh lock file.
     """
     destination = index_path.expanduser().resolve()
-    lock_path = _gene_index_build_dir(destination) / "build-gene-ldscore-index.lock"
+    lock_path = _gene_index_build_dir(destination) / _LOCK_FILE
     for _attempt in range(3):
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         handle = lock_path.open("a+", encoding="utf-8")
@@ -1033,7 +1033,7 @@ def _gene_index_build_lock(index_path: Path):
             handle.close()
             raise LDSCInputError(
                 f"Another build-gene-ldscore-index process is active for {destination} ({owner}). "
-                f"Monitor {lock_path.parent / 'build-gene-ldscore-index.log'}."
+                f"Monitor {lock_path.parent / _LOG_FILE}."
             ) from exc
         if lock_path.exists() and lock_path.stat().st_ino == os.fstat(handle.fileno()).st_ino:
             break
@@ -1064,40 +1064,57 @@ def _preflight_gene_index_output(
     index_path: Path,
     *,
     overwrite: bool,
-) -> None:
+) -> frozenset[str]:
     """Validate the publication destination without changing anything in it.
 
-    The build directory and a failure marker are the builder's own; a
-    directory holding nothing else is reused. Only a successful build removes
-    the build directory, so index components beside it without a loadable
-    index are the remains of an interrupted build or publication and need
-    ``overwrite``; any other content is refused, including component names
-    without a build directory. This runs before the build lock creates the
-    build directory, so the build directory it sees is an earlier attempt's.
+    This runs before the build lock creates the build directory, so a build
+    directory it sees was left by an earlier attempt, and it is the
+    builder's only if it holds the lock or log file that every attempt writes
+    there first. That build directory and a failure marker are the builder's
+    own; a directory holding nothing else is reused. Only a successful build
+    removes the build directory, so index components beside it without a
+    loadable index are the remains of an interrupted build or publication and
+    need ``overwrite``. Any other content is refused, including component
+    names without such a build directory.
+
+    Returns the names of the top-level entries it accepted; ``.build`` is
+    among them only when an earlier attempt left it.
     """
     if index_path.exists() and not index_path.is_dir():
         raise FileExistsError(f"Gene LD-score index output is not a directory: {index_path}")
+    if not index_path.exists():
+        return frozenset()
     _refuse_unusable_build_dir(index_path)
-    if not index_path.exists() or _is_build_leftover_only(index_path):
-        return
+    entries = frozenset(entry.name for entry in index_path.iterdir())
+    unrecognized = FileExistsError(
+        f"Gene LD-score index output directory is nonempty but invalid: {index_path}. "
+        "Choose an empty directory; --overwrite does not replace unrecognized contents."
+    )
+    if _BUILD_DIR in entries and not _holds_build_evidence(index_path / _BUILD_DIR):
+        raise unrecognized
+    if _is_build_leftover_only(index_path):
+        return entries
     try:
         load_gene_ldscore_index(index_path)
     except Exception as exc:
-        if (index_path / _BUILD_DIR).is_dir() and all(map(_is_owned_index_entry, index_path.iterdir())):
+        if _BUILD_DIR in entries and all(map(_is_owned_index_entry, index_path.iterdir())):
             if overwrite:
-                return
+                return entries
             raise FileExistsError(
                 f"Gene LD-score index output directory holds an incomplete gene LD-score index, "
                 f"most likely from an interrupted publication: {index_path}. Pass --overwrite to rebuild it."
             ) from exc
-        raise FileExistsError(
-            f"Gene LD-score index output directory is nonempty but invalid: {index_path}. "
-            "Choose an empty directory; --overwrite does not replace unrecognized contents."
-        ) from exc
+        raise unrecognized from exc
     if not overwrite:
         raise FileExistsError(
             f"Gene LD-score index already exists: {index_path}. Pass --overwrite to rebuild it completely."
         )
+    return entries
+
+
+def _holds_build_evidence(build_dir: Path) -> bool:
+    """Return whether a build directory holds the lock or log file that every build attempt writes there first."""
+    return any((build_dir / name).is_file() for name in (_LOCK_FILE, _LOG_FILE))
 
 
 def _refuse_unusable_build_dir(index_path: Path) -> None:
@@ -1128,6 +1145,8 @@ def _refuse_unusable_build_dir(index_path: Path) -> None:
 
 # Hidden directory inside the index for the lock, live log, issue tables and staged index.
 _BUILD_DIR = ".build"
+_LOCK_FILE = "build-gene-ldscore-index.lock"
+_LOG_FILE = "build-gene-ldscore-index.log"
 
 
 def _gene_index_build_dir(index_path: Path) -> Path:
@@ -1148,14 +1167,19 @@ def _archive_gene_index_log(log_path: Path, history: Path) -> Path:
     return archived
 
 
-def _prepare_gene_index_log(index_path: Path) -> Path:
+def _prepare_gene_index_log(index_path: Path, *, earlier_attempt: bool) -> Path:
     """Archive a failed attempt's logs and issue tables, discard its scratch, and return the live-log path.
 
     Only a failed or interrupted attempt leaves a build directory; its staged
-    index and workspaces are never reused.
+    index and workspaces are never reused. ``earlier_attempt`` is the
+    preflight's finding that such a build directory was there before this
+    run; without it nothing in the build directory is archived or removed.
     """
     build_dir = _gene_index_build_dir(index_path)
     build_dir.mkdir(parents=True, exist_ok=True)
+    log_path = build_dir / _LOG_FILE
+    if not earlier_attempt:
+        return log_path
     chromosome_logs = _chromosome_log_dir(build_dir)
     if chromosome_logs.is_dir() and not chromosome_logs.is_symlink():
         history = build_dir / "history"
@@ -1165,7 +1189,6 @@ def _prepare_gene_index_log(index_path: Path) -> Path:
     for entry in build_dir.iterdir():
         if entry.is_dir() and not entry.is_symlink() and entry.name != "history":
             shutil.rmtree(entry)
-    log_path = build_dir / "build-gene-ldscore-index.log"
     if log_path.exists():
         history = build_dir / "history"
         history.mkdir(exist_ok=True)
@@ -1250,7 +1273,10 @@ def _finalize_gene_index_log(live_log_path: Path, published_path: Path) -> Path:
 
 
 def _is_owned_index_entry(entry: Path) -> bool:
-    """Return whether one top-level entry is the builder's: build directory, marker file, or index component."""
+    """Return whether one top-level entry is the builder's: build directory, marker file, or index component.
+
+    The preflight has already refused a build directory without the builder's lock or log file.
+    """
     if entry.is_symlink():
         return False
     if entry.name == _BUILD_DIR:
@@ -1261,7 +1287,10 @@ def _is_owned_index_entry(entry: Path) -> bool:
 
 
 def _is_build_leftover_only(path: Path) -> bool:
-    """Recognize a failed build's destination: only the build directory and a regular ``RUN_FAILED.txt``."""
+    """Recognize a failed build's destination: only the build directory and a regular ``RUN_FAILED.txt``.
+
+    The preflight has already refused a build directory without the builder's lock or log file.
+    """
     if not path.is_dir():
         return False
     for entry in path.iterdir():

@@ -1856,10 +1856,25 @@ def test_retry_discards_a_partial_stage_instead_of_reusing_it(tmp_path):
     stale_shard.mkdir(parents=True)
     (stale_shard / "stale-payload.txt").write_text("partial\n", encoding="utf-8")
 
-    gene_ldscore_index._prepare_gene_index_log(index_dir)
+    gene_ldscore_index._prepare_gene_index_log(index_dir, earlier_attempt=True)
 
     assert not (index_dir / ".build" / "stage").exists()
     assert [path.name for path in tmp_path.iterdir()] == ["index"]
+
+
+def test_log_preparation_discards_nothing_unless_an_earlier_attempt_left_the_build_directory(tmp_path):
+    # Preflight saw no build directory of an earlier attempt, so whatever is there now is not this builder's.
+    index_dir = tmp_path / "index"
+    kept = index_dir / ".build" / "stage" / "chromosomes" / "chr22"
+    kept.mkdir(parents=True)
+    (kept / "payload.txt").write_text("not ours\n", encoding="utf-8")
+    (index_dir / ".build" / "build-gene-ldscore-index.log").write_text("not ours\n", encoding="utf-8")
+
+    gene_ldscore_index._prepare_gene_index_log(index_dir, earlier_attempt=False)
+
+    assert (kept / "payload.txt").read_text(encoding="utf-8") == "not ours\n"
+    assert sorted(path.name for path in (index_dir / ".build").iterdir()) == [
+        "build-gene-ldscore-index.log", "stage"]
 
 
 def test_index_loader_rejects_embedded_catalog_policy_and_source_tampering(tmp_path):

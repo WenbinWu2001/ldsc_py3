@@ -184,9 +184,10 @@ def test_an_incomplete_gene_index_is_never_read_and_needs_overwrite(tmp_path, in
     index = tmp_path / "parent" / "index"
     _build_index(index_inputs, index, monkeypatch)
     # An interrupted publication leaves owned components without the root metadata written last,
-    # beside the build directory that only a successful build removes.
+    # beside the build directory, holding the lock it ran under, that only a successful build removes.
     (index / "metadata.json").unlink()
     (index / ".build").mkdir()
+    (index / ".build" / "build-gene-ldscore-index.lock").write_text("pid=1 host=node target=index\n")
 
     with pytest.raises(LDSCInputError):
         load_gene_ldscore_index(index)
@@ -216,6 +217,29 @@ def test_index_component_names_without_a_build_directory_are_never_replaced(tmp_
     assert _tree(index) == before | {"RUN_FAILED.txt"}
     assert (index / "chromosomes" / "my_notes.txt").read_text() == "precious\n"
     assert (index / "diagnostics" / "notes.txt").read_text() == "notes\n"
+
+
+@pytest.mark.parametrize("overwrite", [False, True])
+@pytest.mark.parametrize("components", [False, True], ids=["build-only", "with-components"])
+def test_a_build_directory_without_the_builders_files_is_never_treated_as_owned(
+    tmp_path, index_inputs, monkeypatch, components, overwrite,
+):
+    # A .build/ that holds neither the lock nor the log every build attempt writes there first
+    # was not left by the builder, so neither it nor component names beside it are the builder's.
+    index = tmp_path / "parent" / "index"
+    (index / ".build" / "notes").mkdir(parents=True)
+    (index / ".build" / "notes" / "keep.txt").write_text("user notes\n")
+    if components:
+        (index / "chromosomes").mkdir()
+        (index / "chromosomes" / "my_notes.txt").write_text("precious\n")
+    before = _snapshot(index)
+
+    with pytest.raises(FileExistsError, match="nonempty but invalid"):
+        _build_index(index_inputs, index, monkeypatch, overwrite=overwrite)
+
+    after = _snapshot(index)
+    after.pop("RUN_FAILED.txt", None)
+    assert after == before
 
 
 def _snapshot(root: Path) -> dict[str, bytes | None]:
@@ -266,25 +290,29 @@ def test_a_failure_during_publication_leaves_an_index_no_reader_accepts(tmp_path
 
     index = tmp_path / "parent" / "index"
     _build_index(index_inputs, index, monkeypatch)
-    calls = []
+    real_replace = gene_index_build.os.replace
 
-    def fail_on_published_index(path):
-        # The first load of the destination is the overwrite preflight; the second follows publication.
-        if Path(path) == index:
-            calls.append(path)
-            if len(calls) == 2:
-                raise LDSCInputError("simulated failure after publication began")
-        return load_gene_ldscore_index(path)
+    def fail_before_the_root_metadata(source, target):
+        # Publication writes the root metadata last; fail just before it.
+        if Path(target) == index / "metadata.json":
+            raise OSError("simulated failure during publication")
+        return real_replace(source, target)
 
-    monkeypatch.setattr(gene_index_build, "load_gene_ldscore_index", fail_on_published_index)
-    with pytest.raises(LDSCInputError, match="simulated"):
-        _build_index(index_inputs, index, monkeypatch, overwrite=True)
+    with monkeypatch.context() as patcher:
+        patcher.setattr(gene_index_build.os, "replace", fail_before_the_root_metadata)
+        with pytest.raises(OSError, match="simulated"):
+            _build_index(index_inputs, index, monkeypatch, overwrite=True)
 
     assert [path.name for path in index.parent.iterdir()] == ["index"]
     assert (index / "RUN_FAILED.txt").is_file()
-    monkeypatch.undo()
     with pytest.raises(LDSCInputError):
         load_gene_ldscore_index(index)
+
+    # The build directory the interrupted attempt left marks the remains as the builder's own.
+    with pytest.raises(FileExistsError, match="incomplete gene LD-score index"):
+        _build_index(index_inputs, index, monkeypatch)
+    _build_index(index_inputs, index, monkeypatch, overwrite=True)
+    load_gene_ldscore_index(index)
 
 
 def _saved_annotation(tmp_path, mode):

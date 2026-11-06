@@ -9,7 +9,6 @@
 Iterativey re-weighted least squares.
 
 '''
-from __future__ import division
 import numpy as np
 from ..errors import LDSCInternalError
 from . import jackknife as jk

@@ -368,12 +368,7 @@ def gene_gate_b_notice(
         "zero_annotation_snps",
         "zero_variance_ld_scores",
     }
-    affected = [
-        status
-        for status in statuses
-        if status.reason in gate_b_reasons
-        or "zero reference-SNP support" in (status.details or "")
-    ]
+    affected = [status for status in statuses if status.reason in gate_b_reasons]
     if unsupported_rows == 0 and not affected:
         return None
     checks, outputs = _NOTICE_WORDING[command]

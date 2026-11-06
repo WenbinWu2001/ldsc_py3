@@ -19,7 +19,7 @@ from ..errors import LDSCInputError
 LOGGER = logging.getLogger("LDSC.annotation")
 
 
-def normalize_annotation_chunk(df, path, snp_identifier, chrom=None, *, log_ignored_metadata=True, value_dtype=np.float32):
+def normalize_annotation_chunk(df, path, snp_identifier, *, log_ignored_metadata=True, value_dtype=np.float32):
     """Normalize aligned metadata and numeric values, ordinarily to float32.
 
     Metadata columns (``CHR``, ``POS``, ``SNP``, ``CM``, ``MAF``, ``A1``,
@@ -75,11 +75,6 @@ def normalize_annotation_chunk(df, path, snp_identifier, chrom=None, *, log_igno
             f"Annotation file '{path}' contains CM/MAF columns; these are ignored "
             "(the reference panel is authoritative for CM and MAF)."
         )
-    if chrom is not None:
-        keep = metadata["CHR"] == normalize_chromosome(chrom, context=context)
-        metadata = metadata.loc[keep].reset_index(drop=True)
-        df = df.loc[keep].reset_index(drop=True)
-
     if len(metadata) == 0:
         return metadata, pd.DataFrame(index=metadata.index)
 

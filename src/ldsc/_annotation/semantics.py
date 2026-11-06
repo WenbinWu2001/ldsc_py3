@@ -99,10 +99,3 @@ def combine_annotation_types(
         name: "quantitative" if any(types.get(name) == "quantitative" for types in chromosome_types) else "binary"
         for name in names
     }
-
-
-__all__ = [
-    "classify_annotation_values",
-    "combine_annotation_types",
-    "require_unique_annotation_names",
-]

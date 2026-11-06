@@ -294,7 +294,7 @@ class GeneCatalog:
             )
         prepared = frame.loc[:, CATALOG_REQUIRED_COLUMNS].copy()
         prepared["catalog_line"] = catalog_lines.astype("Int64")
-        normalized, issues = _validate_catalog_rows(prepared, source, preserve_catalog_lines=True)
+        normalized, issues = _validate_catalog_rows(prepared, source)
         issues = _sort_catalog_issues(issues)
         if not issues.empty:
             raise GeneCatalogValidationError(
@@ -468,22 +468,12 @@ def _parse_catalog_text(text: str, source: str) -> tuple[pd.DataFrame | None, pd
     return frame, issues
 
 
-def _validate_catalog_rows(
-    frame: pd.DataFrame,
-    source: str,
-    *,
-    preserve_catalog_lines: bool = False,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _validate_catalog_rows(frame: pd.DataFrame, source: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     normalized = frame.copy()
-    if "catalog_line" not in normalized:
-        normalized["catalog_line"] = np.arange(2, len(normalized) + 2, dtype=int)
-    if not preserve_catalog_lines:
-        normalized["catalog_line"] = pd.to_numeric(normalized["catalog_line"], errors="coerce").astype("Int64")
+    normalized["catalog_line"] = pd.to_numeric(normalized["catalog_line"], errors="coerce").astype("Int64")
     for column in CATALOG_REQUIRED_COLUMNS:
         normalized[column] = normalized[column].fillna("").astype(str).str.strip()
     raw = normalized.loc[:, CATALOG_REQUIRED_COLUMNS].copy()
-    normalized["gene_id"] = raw["gene_id"]
-    normalized["gene_name"] = raw["gene_name"]
     normalized["genome_build"] = raw["genome_build"].str.lower().map(_BUILD_ALIASES)
     chrom_text = raw["chrom"].str.lower().str.replace(r"^chr", "", regex=True)
     chrom_numeric = pd.to_numeric(chrom_text.where(chrom_text.str.fullmatch(r"[0-9]+")), errors="coerce")

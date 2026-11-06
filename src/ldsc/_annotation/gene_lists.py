@@ -12,7 +12,7 @@ import csv
 from dataclasses import dataclass
 import gzip
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 import numpy as np
 import pandas as pd

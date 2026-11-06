@@ -18,8 +18,30 @@ if TYPE_CHECKING:
     from .in_memory import MemoryOwner
 
 
+class ShardDimensions:
+    """Dimensions and provenance shared by ``AnnotationBundle`` and ``AnnotationResult``.
+
+    Both carry ``shards`` (chromosome to an object with ``n_rows``), the
+    baseline and query column names and ``source_summary``.
+    """
+
+    @property
+    def chromosomes(self):
+        return list(self.shards)
+
+    @property
+    def n_rows(self):
+        return sum(shard.n_rows for shard in self.shards.values())
+
+    def summary(self):
+        """Return compact dimensions and provenance without reading any shard or file."""
+        return {"n_rows": self.n_rows, "baseline_columns": list(self.baseline_columns),
+                "query_columns": list(self.query_columns), "chromosomes": self.chromosomes,
+                "source_summary": dict(self.source_summary)}
+
+
 @dataclass(frozen=True)
-class AnnotationBundle:
+class AnnotationBundle(ShardDimensions):
     """Complete annotation dataset represented by on-demand chromosome shards.
 
     File-backed ``shards`` contain descriptors. ``from_frames`` instead owns
@@ -109,14 +131,6 @@ class AnnotationBundle:
     def _require_open(self):
         self.workspace.require_open()
 
-    @property
-    def chromosomes(self):
-        return list(self.shards)
-
-    @property
-    def n_rows(self):
-        return sum(shard.n_rows for shard in self.shards.values())
-
     def shard(self, chrom):
         """Return one chromosome accessor while verifying its owner's lifetime."""
         self._require_open()
@@ -174,12 +188,6 @@ class AnnotationBundle:
             usable = [item.query for item in self.query_statuses if item.status in {"ok", "warning"}]
             if usable != self.query_columns:
                 raise LDSCInternalError("Usable annotation query statuses do not match declared query columns.")
-
-    def summary(self):
-        """Return compact dimensions and provenance without reading any shard."""
-        return {"n_rows": self.n_rows, "baseline_columns": list(self.baseline_columns),
-                "query_columns": list(self.query_columns), "chromosomes": self.chromosomes,
-                "source_summary": dict(self.source_summary)}
 
     def close(self):
         """Remove owned private staging; persistent outputs and sources survive."""

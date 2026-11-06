@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from collections import Counter
 from typing import Any, Sequence
 
@@ -55,16 +55,8 @@ class QueryAnnotationStatus:
         return replace(self, **changes)
 
     def as_dict(self) -> dict[str, Any]:
-        """Return the fixed query-status manifest row schema."""
-        return {
-            "query": self.query,
-            "source": self.source,
-            "input_type": self.input_type,
-            "status": self.status,
-            "reason": self.reason,
-            "n_annotation_snps": self.n_annotation_snps,
-            "details": self.details,
-        }
+        """Return the fixed query-status manifest row schema: the fields in declaration order."""
+        return asdict(self)
 
 
 def gene_query_statuses(batch):
@@ -250,11 +242,8 @@ def gene_list_gate_a_message(batch: Any) -> str:
         return reason
 
     source_error_text = "; ".join(
-        (
-            f"control gene-list file {row.source!r}: {source_reason_text(row.source_reasons, row.source, row.input_role)}"
-            if row.input_role == "control"
-            else f"query gene-list source {row.source!r}: {source_reason_text(row.source_reasons, row.source, row.input_role)}"
-        )
+        f"{'control gene-list file' if row.input_role == 'control' else 'query gene-list source'} {row.source!r}: "
+        f"{source_reason_text(row.source_reasons, row.source, row.input_role)}"
         for row in source_errors.head(MAX_CONSOLE_GENE_ISSUES).itertuples(index=False)
     )
     issue_text = "; ".join(value for value in (source_error_text, sample) if value)

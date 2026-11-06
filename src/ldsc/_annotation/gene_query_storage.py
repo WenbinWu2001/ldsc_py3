@@ -48,6 +48,9 @@ class GeneListDiagnostics:
 
 
 LOGGER = logging.getLogger('LDSC.annotation')
+# The per-source row and gene counts of the resolution summary.
+_COUNT_COLUMNS = ('nonblank_input_rows', 'uniquely_resolved_rows', 'rejected_rows', 'unique_resolved_genes',
+                  'duplicate_rows', 'excluded_genes')
 
 def persistent_gene_diagnostics(batch, output_paths):
     """Detach a completed result from private resolution storage after writing."""
@@ -191,14 +194,7 @@ def _empty_source_summaries(source_seed: pd.DataFrame, resolution_policy: str) -
     summary = source_seed.loc[:, seed_columns].copy()
     summary["resolution_policy"] = resolution_policy
     readable = summary["source_status"].eq("ok")
-    for column in (
-        "nonblank_input_rows",
-        "uniquely_resolved_rows",
-        "rejected_rows",
-        "unique_resolved_genes",
-        "duplicate_rows",
-        "excluded_genes",
-    ):
+    for column in _COUNT_COLUMNS:
         summary[column] = pd.Series(pd.NA, index=summary.index, dtype="Int64")
         summary.loc[readable, column] = 0
     summary["zero_support_genes"] = pd.NA
@@ -306,13 +302,12 @@ def resolve_gene_lists_staged(focal_paths, catalog, workspace, *, existing_colum
             if spool.path.exists():
                 shutil.rmtree(spool.path)
             spool, selected = FrameSpool(path / label), []
-        if unreadable:
             counts = empty_summaries.iloc[source_index].copy()
         counts['unique_resolved_genes'] = len(seen) if not unreadable else pd.NA
         counts['source_reasons'] = ';'.join(source_errors)
         counts['source_status'] = 'error' if source_errors else 'ok'
         if source_errors:
-            for column in ('nonblank_input_rows', 'uniquely_resolved_rows', 'rejected_rows', 'unique_resolved_genes', 'duplicate_rows', 'excluded_genes'):
+            for column in _COUNT_COLUMNS:
                 counts[column] = pd.NA
             counts['resolution_fraction'] = pd.NA
         elif counts['nonblank_input_rows']:
@@ -322,7 +317,7 @@ def resolve_gene_lists_staged(focal_paths, catalog, workspace, *, existing_colum
         summaries.append(counts)
         spools.append(spool)
     summary = pd.DataFrame(summaries).reindex(columns=SUMMARY_COLUMNS).reset_index(drop=True)
-    for column in ('nonblank_input_rows','uniquely_resolved_rows','rejected_rows','unique_resolved_genes','duplicate_rows','excluded_genes'):
+    for column in _COUNT_COLUMNS:
         summary[column] = pd.to_numeric(summary[column],errors='coerce').astype('Int64')
     summary['resolution_fraction'] = summary['resolution_fraction'].astype(object)
     batch = StagedGeneListBatch(catalog, path, tuple(declarations), tuple(spools), summary, resolution_policy, fatal)

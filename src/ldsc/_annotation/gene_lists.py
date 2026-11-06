@@ -132,48 +132,29 @@ class GeneCatalog:
         """Load a required TSV/TSV.GZ catalog and validate its full contents."""
         source_path = Path(path)
         source = source_path.name
+
+        def file_error(exc, problem, reason, observed_value, repair):
+            issues = _single_catalog_issue(source, reason=reason, field="file", observed_value=observed_value,
+                                           repair=repair)
+            return GeneCatalogValidationError(
+                f"{problem}: {exc}. Other causes & fixes: {_CATALOG_TROUBLESHOOTING}", issues
+            )
+
         try:
             payload = source_path.read_bytes()
         except OSError as exc:
-            issues = _single_catalog_issue(
-                source,
-                reason="catalog_unreadable",
-                field="file",
-                observed_value=str(exc).replace(str(source_path), source),
-                repair="Make the catalog readable and rerun.",
-            )
-            raise GeneCatalogValidationError(
-                f"Could not read gene coordinate catalog '{source}': {exc}. Other causes & fixes: "
-                f"{_CATALOG_TROUBLESHOOTING}", issues
-            ) from exc
+            raise file_error(exc, f"Could not read gene coordinate catalog '{source}'", "catalog_unreadable",
+                             str(exc).replace(str(source_path), source), "Make the catalog readable and rerun.") from exc
         try:
             raw = gzip.decompress(payload) if source.lower().endswith(".gz") else payload
         except (OSError, EOFError) as exc:
-            issues = _single_catalog_issue(
-                source,
-                reason="catalog_unparseable",
-                field="file",
-                observed_value="invalid gzip stream",
-                repair="Regenerate the .tsv.gz catalog as a valid gzip-compressed TSV.",
-            )
-            raise GeneCatalogValidationError(
-                f"Gene coordinate catalog '{source}' is not a readable gzip TSV: {exc}. Other causes & fixes: "
-                f"{_CATALOG_TROUBLESHOOTING}", issues
-            ) from exc
+            raise file_error(exc, f"Gene coordinate catalog '{source}' is not a readable gzip TSV", "catalog_unparseable",
+                             "invalid gzip stream", "Regenerate the .tsv.gz catalog as a valid gzip-compressed TSV.") from exc
         try:
             text = raw.decode("utf-8")
         except UnicodeDecodeError as exc:
-            issues = _single_catalog_issue(
-                source,
-                reason="catalog_unparseable",
-                field="file",
-                observed_value="invalid UTF-8",
-                repair="Encode the catalog as UTF-8 and rerun.",
-            )
-            raise GeneCatalogValidationError(
-                f"Gene coordinate catalog '{source}' is not valid UTF-8: {exc}. Other causes & fixes: "
-                f"{_CATALOG_TROUBLESHOOTING}", issues
-            ) from exc
+            raise file_error(exc, f"Gene coordinate catalog '{source}' is not valid UTF-8", "catalog_unparseable",
+                             "invalid UTF-8", "Encode the catalog as UTF-8 and rerun.") from exc
 
         frame, parse_issues = _parse_catalog_text(text, source)
         if frame is None:
@@ -542,11 +523,7 @@ def _validate_catalog_rows(frame: pd.DataFrame, source: str) -> tuple[pd.DataFra
     ) if not issue_frame.empty else pd.Series(dtype=str)
     normalized["_row_issue_reasons"] = normalized["catalog_line"].map(row_issue_reasons).fillna("")
     normalized["_duplicate_gene_id"] = duplicate_ids.to_numpy()
-    duplicate_id_lines = (
-        normalized.loc[duplicate_ids]
-        .groupby("gene_id", sort=False)["catalog_line"]
-        .agg(lambda lines: ",".join(str(int(value)) for value in sorted(lines.dropna().astype(int))))
-    )
+    duplicate_id_lines = _related_catalog_lines(normalized, duplicate_ids, "gene_id")
     normalized["_duplicate_gene_id_lines"] = normalized["gene_id"].map(duplicate_id_lines).fillna("")
     normalized["_outside_supported_chromosome"] = (invalid_chrom | outside_chrom).to_numpy()
     coordinate_problem = invalid_chrom | outside_chrom | invalid_start | invalid_end | end_before
@@ -557,6 +534,13 @@ def _validate_catalog_rows(frame: pd.DataFrame, source: str) -> tuple[pd.DataFra
         & ~coordinate_problem
     )
     return normalized, _sort_catalog_issues(issue_frame)
+
+
+def _related_catalog_lines(normalized: pd.DataFrame, mask: pd.Series, field: str) -> pd.Series:
+    """Return the sorted, comma-joined catalog lines of the ``mask`` rows that share each ``field`` value."""
+    return normalized.loc[mask].groupby(field, sort=False)["catalog_line"].agg(
+        lambda lines: ",".join(str(int(value)) for value in sorted(lines.dropna().astype(int)))
+    )
 
 
 def _append_duplicate_issues(
@@ -573,11 +557,7 @@ def _append_duplicate_issues(
     duplicate = values.duplicated(keep=False) & (values.ne("") if allow_blank else pd.Series(True, index=values.index))
     if not duplicate.any():
         return
-    related = (
-        normalized.loc[duplicate].groupby(field, sort=False)["catalog_line"].agg(
-            lambda lines: ",".join(str(int(value)) for value in sorted(lines.dropna().astype(int)))
-        )
-    )
+    related = _related_catalog_lines(normalized, duplicate, field)
     for index in normalized.index[duplicate]:
         issues.append(
             _catalog_issue_dict(

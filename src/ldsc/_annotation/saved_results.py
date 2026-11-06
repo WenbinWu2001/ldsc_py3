@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .bundle import AnnotationBundle
+from .bundle import AnnotationBundle, ShardDimensions
 from .gene_query_storage import GeneListDiagnostics, persistent_gene_diagnostics
 from .sources import prepare_annotation_sources
 from .._runtime.scratch import ScratchWorkspace, TsvDiagnostics
@@ -42,7 +42,7 @@ class AnnotationOutputSources:
 
 
 @dataclass(frozen=True)
-class AnnotationResult:
+class AnnotationResult(ShardDimensions):
     """Files a completed ``run_annotate`` wrote; values are read after explicit preparation.
 
     The result owns no files and needs no closing. It records the exported
@@ -80,20 +80,6 @@ class AnnotationResult:
     source_summary: dict
     config_snapshot: GlobalConfig
     exported_sources: AnnotationOutputSources = field(repr=False)
-
-    @property
-    def chromosomes(self):
-        return list(self.shards)
-
-    @property
-    def n_rows(self):
-        return sum(shard.n_rows for shard in self.shards.values())
-
-    def summary(self):
-        """Return compact dimensions and provenance without reading any file."""
-        return {"n_rows": self.n_rows, "baseline_columns": list(self.baseline_columns),
-                "query_columns": list(self.query_columns), "chromosomes": self.chromosomes,
-                "source_summary": dict(self.source_summary)}
 
     def prepared_in(self, directory):
         """Prepare the exported files for reading in a private folder of ``directory``.

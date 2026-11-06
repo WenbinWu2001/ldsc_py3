@@ -117,18 +117,12 @@ def validate_annotation_values(
     if missing.any().any() or non_numeric.any().any():
         problems: list[str] = []
         for column in annotation_columns:
-            missing_rows = np.flatnonzero(missing[column].to_numpy()) + 1
-            non_numeric_rows = np.flatnonzero(non_numeric[column].to_numpy()) + 1
-            if len(missing_rows):
-                problems.append(
-                    f"'{column}': {_counted(len(missing_rows), 'missing value')} at data row(s) "
-                    f"{_summarize_row_numbers(missing_rows)}"
-                )
-            if len(non_numeric_rows):
-                problems.append(
-                    f"'{column}': {_counted(len(non_numeric_rows), 'non-numeric value')} at data row(s) "
-                    f"{_summarize_row_numbers(non_numeric_rows)}"
-                )
+            for mask, noun in ((missing, 'missing value'), (non_numeric, 'non-numeric value')):
+                rows = np.flatnonzero(mask[column].to_numpy()) + 1
+                if len(rows):
+                    problems.append(
+                        f"'{column}': {_counted(len(rows), noun)} at data row(s) {_summarize_row_numbers(rows)}"
+                    )
         raise LDSCInputError(annotation_parse_error_message(path, details="; ".join(problems)))
     return numeric if dtype is None else numeric.astype(dtype)
 

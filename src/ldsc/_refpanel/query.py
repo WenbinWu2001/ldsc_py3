@@ -607,7 +607,7 @@ def run_query_r2_matrix_from_args(args: argparse.Namespace) -> pd.DataFrame:
     return _write_query_r2_matrix_directory(args)
 
 
-def _write_query_r2_matrix_directory(args: argparse.Namespace, pairs: pd.DataFrame | None = None) -> pd.DataFrame:
+def _write_query_r2_matrix_directory(args: argparse.Namespace) -> pd.DataFrame:
     """Query against the R2 matrix and write the canonical result directory."""
     output_dir = ensure_output_directory(args.output_dir, label="output directory")
     diagnostics_dir = output_dir / "diagnostics"
@@ -622,11 +622,10 @@ def _write_query_r2_matrix_directory(args: argparse.Namespace, pairs: pd.DataFra
             checks=[('reference', args.r2_matrix_dir, lambda: inspect_r2_headers(
                 args.r2_matrix_dir, args.genome_build, command='query-r2-matrix'))],
             issues_path=diagnostics_dir/'input_issues.tsv')
-        if pairs is None:
-            with PhaseProgress(LOGGER, 'validation', 'pair input loading'):
-                pairs_handle = sys.stdin if args.pairs_file == '-' else args.pairs_file
-                sep = ',' if str(args.pairs_file).endswith('.csv') else '\t'
-                pairs = pd.read_csv(pairs_handle, sep=sep)
+        with PhaseProgress(LOGGER, 'validation', 'pair input loading'):
+            pairs_handle = sys.stdin if args.pairs_file == '-' else args.pairs_file
+            sep = ',' if str(args.pairs_file).endswith('.csv') else '\t'
+            pairs = pd.read_csv(pairs_handle, sep=sep)
         log_inputs(r2_matrix_dir=args.r2_matrix_dir, pairs=args.pairs_file, output_dir=str(output_dir))
         LOGGER.info(f"Querying R2 for pairs from '{args.pairs_file}' against R2 matrix '{args.r2_matrix_dir}'.")
         matrix = R2Matrix.open(args.r2_matrix_dir, snp_identifier=args.snp_identifier, genome_build=args.genome_build)

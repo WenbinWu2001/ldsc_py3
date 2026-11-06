@@ -67,9 +67,9 @@ class LiftOverTranslator:
         *,
         source_build: str,
         target_build: str,
-        chain_path: str | PathLike[str] | None = None,
-        chain_flag_hint: str | None = None,
-        workflow_label: str = "liftover",
+        chain_path: str | PathLike[str] | None,
+        chain_flag_hint: str,
+        workflow_label: str,
     ) -> None:
         """Initialize a build-to-build position translator for one run."""
         self.source_build = source_build
@@ -81,11 +81,10 @@ class LiftOverTranslator:
             return
         self._identity = False
         if self.chain_path is None:
-            flag = chain_flag_hint or _default_chain_flag_hint(source_build, target_build)
             raise LDSCUsageError(
                 f"Cannot run {workflow_label}: liftover from {source_build} to {target_build} requires a chain file. "
                 "Most likely a build-changing liftover was requested without the matching chain path. "
-                f"Provide the chain file with {flag}."
+                f"Provide the chain file with {chain_flag_hint}."
             )
         try:
             from pyliftover import LiftOver
@@ -96,7 +95,6 @@ class LiftOverTranslator:
                 "in an environment missing the optional dependency. Install pyliftover or use a workflow "
                 "that does not request chain-file liftover."
             ) from exc
-        self.chain_path = Path(self.chain_path)
         self._liftover = LiftOver(str(self.chain_path))
 
     def map_positions(self, chrom: str, positions: Sequence[int] | np.ndarray) -> LiftOverMappingResult:
@@ -254,11 +252,6 @@ def mapping_reason_masks(result: LiftOverMappingResult) -> tuple[np.ndarray, np.
     else:
         cross_chrom_mask = np.zeros_like(dropped_mask, dtype=bool)
     return unmapped_mask, cross_chrom_mask
-
-
-def _default_chain_flag_hint(source_build: str, target_build: str) -> str:
-    """Return the ``build-r2-matrix`` chain flag for a build pair, the default hint."""
-    return f"--liftover-chain-{source_build}-to-{target_build}-file"
 
 
 def _drop_examples(

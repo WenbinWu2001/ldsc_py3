@@ -40,13 +40,6 @@ _GENOME_BUILD_TROUBLESHOOTING = (
     "docs/user-guide/troubleshooting.md#common-genome-build-could-not-be-inferred"
 )
 
-__all__ = [
-    "ChrPosBuildInference",
-    "infer_chr_pos_build",
-    "resolve_genome_build",
-    "resolve_chr_pos_table",
-]
-
 _HYPOTHESIS_ORDER = (
     ("hg19_1based", "hg19", "1-based", "hg19_POS", 0),
     ("hg19_0based", "hg19", "0-based", "hg19_POS", -1),

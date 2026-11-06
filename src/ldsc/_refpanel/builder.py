@@ -709,19 +709,9 @@ class R2MatrixBuilder:
                     "desynchronized from the BIM table. Re-run with DEBUG logging and report the traceback."
                 )
 
-            geno_kept_snps = list(geno.kept_snps)
-            hg19_positions = self._positions_from_lookup(geno_kept_snps, hg19_lookup) if hg19_lookup else None
-            hg38_positions = self._positions_from_lookup(geno_kept_snps, hg38_lookup) if hg38_lookup else None
-            del geno_kept_snps  # the pair phase needs only the positions
-            build_positions = hg19_positions if build == "hg19" else hg38_positions
-            if build_positions is None:
-                raise LDSCInputError(
-                    f"build-r2-matrix cannot emit {build} artifacts for chromosome {chrom}: "
-                    "positions for that build are unavailable. Most likely the matching "
-                    "liftover chain was omitted or dropped all retained SNPs. Provide the "
-                    "matching liftover chain or disable opposite-build emission. "
-                    f"Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
-                )
+            # _sort_retained_snps_by_build_position has already rejected a missing lookup.
+            build_lookup = hg19_lookup if build == "hg19" else hg38_lookup
+            build_positions = np.asarray([build_lookup[int(idx)] for idx in geno.kept_snps], dtype=int)
             _validate_emitted_build_chr_pos_uniqueness(
                 metadata=metadata,
                 positions=build_positions,
@@ -931,14 +921,6 @@ class R2MatrixBuilder:
         target_build: str,
     ) -> LiftOverMappingResult:
         """Translate positions between builds, caching translators by build pair."""
-        if source_build == target_build:
-            array = np.asarray(positions, dtype=int)
-            return LiftOverMappingResult(
-                translated_positions=array.copy(),
-                keep_mask=np.ones(len(array), dtype=bool),
-                unmapped_count=0,
-                cross_chrom_count=0,
-            )
         key = (source_build, target_build)
         translator = build_state.translator_cache.get(key)
         if translator is None:
@@ -946,20 +928,11 @@ class R2MatrixBuilder:
                 source_build=source_build,
                 target_build=target_build,
                 chain_path=build_state.liftover_chain_paths.get(key),
-                chain_flag_hint=_chain_flag_hint(source_build, target_build),
+                chain_flag_hint=f"--liftover-chain-{source_build}-to-{target_build}-file",
                 workflow_label="R2 matrix liftover",
             )
             build_state.translator_cache[key] = translator
         return translator.map_positions(chrom, positions)
-
-    def _positions_from_lookup(self, kept_snps: Sequence[int], lookup: dict[int, int]):
-        """Materialize retained positions in the same order as ``kept_snps``."""
-        return np.asarray([lookup[int(idx)] for idx in kept_snps], dtype=int)
-
-
-def _chain_flag_hint(source_build: str, target_build: str) -> str:
-    """Return the CLI chain flag that corresponds to an R2 matrix build pair."""
-    return f"--liftover-chain-{source_build}-to-{target_build}-file"
 
 
 def _read_ref_panel_snp_restriction(

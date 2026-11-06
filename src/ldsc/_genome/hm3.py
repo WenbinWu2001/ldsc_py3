@@ -141,6 +141,3 @@ def _reject_duplicate_hm3_coordinates(frame: pd.DataFrame, *, build: str) -> Non
         "Most likely the curated map is malformed or not deduplicated for genome-build inference. "
         "Use the packaged HM3 map or regenerate the curated map with unique build-specific coordinates."
     )
-
-
-__all__ = ["load_hm3_curated_map"]

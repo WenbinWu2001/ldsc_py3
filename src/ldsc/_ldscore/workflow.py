@@ -3,7 +3,8 @@
 This module is the public boundary for LD-score path handling. Callers may
 provide exact paths, glob patterns, or explicit chromosome-suite tokens using
 ``@``. ``_configs_from_args`` checks the input-mode rules and builds every
-configuration of a run before anything is written. A direct run then
+configuration of a run before the output preflight; with ``--overwrite`` a
+failed check still leaves ``RUN_FAILED.txt``. A direct run then
 preflights its outputs, runs the input gates, resolves the genome build once,
 prepares the annotations, measures gene-list support on the prepared reference
 SNPs, and hands ``LDScoreCalculator`` (``ldsc._ldscore.calculator``) a
@@ -428,7 +429,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 @dataclass(frozen=True)
 class _DirectConfigs:
-    """The configuration of one direct ``ldscore`` run, built before anything is written.
+    """The configuration of one direct ``ldscore`` run, built before the output preflight.
 
     ``global_config`` holds the requested genome build, which the run resolves
     against its inputs (``_resolve_build``): ``"auto"`` or a concrete build in
@@ -460,7 +461,7 @@ class _DirectConfigs:
 
 @dataclass(frozen=True)
 class _IndexedConfigs:
-    """One indexed ``ldscore`` run, checked before anything is written.
+    """One indexed ``ldscore`` run, checked before the output preflight.
 
     The gene LD-score index supplies the SNP identity, genome build, reference
     and regression SNPs, and LD window; the run adds its gene lists and
@@ -583,9 +584,11 @@ def _reject_plink_only_options(args: argparse.Namespace) -> None:
 def _configs_from_args(args: argparse.Namespace) -> "_DirectConfigs | _IndexedConfigs":
     """Check the input-mode rules and build every configuration of one ``ldscore`` run.
 
-    Runs before anything is written, for the command line and for
-    ``run_ldscore()`` alike. An option counts as supplied when the caller
-    named it (``_explicit_cli_options``), whatever its value.
+    Runs before the output preflight, for the command line and for
+    ``run_ldscore()`` alike, but inside the failure-marker scope: with
+    ``--overwrite`` (``overwrite=True``) an error raised here still leaves
+    ``RUN_FAILED.txt`` in the output directory. An option counts as supplied
+    when the caller named it (``_explicit_cli_options``), whatever its value.
     """
     explicit_options = args._explicit_cli_options
     _validate_padding_usage(args)
@@ -1065,6 +1068,11 @@ def run_ldscore(**kwargs) -> "LDScoreSource":
     strings; the CLI uses the value-free ``--allow-unresolved-genes`` flag to
     select ``"resolved-only"`` and rejects ``--gene-list-resolution-policy``.
 
+    The run's configuration is checked before the output preflight; an error
+    found there writes no output, but with ``overwrite=True`` the failed call
+    still leaves ``RUN_FAILED.txt`` in ``output_dir``. Keyword errors are
+    found earlier and leave no marker.
+
     Returns
     -------
     LDScoreSource
@@ -1080,20 +1088,20 @@ def run_ldscore(**kwargs) -> "LDScoreSource":
         Before anything is written, when a keyword is not an ``ldscore``
         option name, ``output_dir`` is missing, a value is outside the
         command's choices, a flag is not a bool, or ``snp_identifier``,
-        ``genome_build`` or ``log_level`` is passed. Also before anything is
-        written, when the keywords combine input modes the command rejects;
+        ``genome_build`` or ``log_level`` is passed. Before the output
+        preflight, when the keywords combine input modes the command rejects;
         a passed keyword counts as supplied even at its default value, so
         ``gene_coordinate_file``, ``gene_exclude_regions``,
         ``control_gene_list_file`` or ``gene_list_resolution_policy``
         without gene lists is rejected.
     LDSCConfigError
-        Before anything is written, when a value is outside its valid range,
+        Before the output preflight, when a value is outside its valid range,
         except ``query_batch_size`` in indexed mode.
     ValueError
-        Before anything is written, in indexed mode, when ``query_batch_size``
+        Before the output preflight, in indexed mode, when ``query_batch_size``
         is not a positive integer.
     LDSCInputError
-        Before anything is written, in indexed mode, when a direct-run option
+        Before the output preflight, in indexed mode, when a direct-run option
         such as ``maf_min`` is passed (the index supplies it) or
         ``query_annot_gene_list_sources`` is missing. After the output
         preflight, when an input is missing, unreadable or inconsistent with

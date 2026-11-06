@@ -262,7 +262,7 @@ Architecture invariant: `query-r2-matrix` reads canonical package-built R² matr
 
 This module owns the `ldscore` command and the keyword-argument Python workflow `run_ldscore()`: the parser, `main()`, `run_ldscore_from_args()`, and the direct and indexed run bodies.
 It resolves annotation and reference-panel inputs, selects the gene-coordinate-catalog projection build, synthesizes the all-ones `base` annotation when an unpartitioned run omits baseline/query inputs, measures gene-list support, and hands the calculation to `LDScoreCalculator`.
-`run_ldscore_from_args()` is a thin adapter: `_configs_from_args()` checks the input-mode rules and builds the run's configuration before anything is written, for the command line and `run_ldscore()` alike, and a typed body runs it.
+`run_ldscore_from_args()` is a thin adapter: `_configs_from_args()` checks the input-mode rules and builds the run's configuration before the output preflight (with `--overwrite`, an error there still leaves `RUN_FAILED.txt`), for the command line and `run_ldscore()` alike, and a typed body runs it.
 A direct run's `_DirectConfigs` holds the `GlobalConfig` with the requested genome build, `RefPanelConfig`, `LDScoreConfig`, `AnnotationBuildConfig` and `LDScoreOutputConfig`; an indexed run's `_IndexedConfigs` holds its gene lists and execution settings.
 An option counts as supplied when the record of explicitly supplied options (`_explicit_cli_options`) names it, never by comparison with a parser default, so the registered `GlobalConfig` that a keyword call carries is not a live override in indexed mode.
 The configurations' own range checks run once; `_OPTION_RANGE_ERRORS` words an error that a configuration raises by field name with the command-line option instead.

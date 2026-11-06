@@ -391,10 +391,11 @@ class QuantileH2WorkflowTest(unittest.TestCase):
     def test_both_snp_universe_counts_are_checked(self):
         path = self.root / "ldscores" / "metadata.json"
         original = path.read_text(encoding="utf-8")
-        for universe in ("all", "common"):
+        # Both fixture totals are 4; the common total stays within the all total, as the manifest requires.
+        for universe, total in (("all", 5), ("common", 3)):
             with self.subTest(universe=universe):
                 metadata = json.loads(original)
-                metadata["overlap_config"][f"total_{universe}_reference_snps"] = 5
+                metadata["overlap_config"][f"total_{universe}_reference_snps"] = total
                 path.write_text(json.dumps(metadata), encoding="utf-8")
                 self.args.output_dir = str(self.root / universe)
                 with self.assertRaisesRegex(LDSCInputError, f"different {universe}.*count than the fitted"):

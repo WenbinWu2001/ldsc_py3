@@ -230,6 +230,11 @@ def test_an_unreadable_parquet_footer_is_an_input_error(tmp_path, name):
      "common_maf_min": 0.05, "common_maf_operator": ">="},
     {"total_all_reference_snps": 4.0, "total_common_reference_snps": "x",
      "common_maf_min": 0.05, "common_maf_operator": ">="},
+    # JSON NaN and Infinity decode to floats; a total must be finite and the common total within the all total.
+    *({"total_all_reference_snps": total_all, "total_common_reference_snps": total_common,
+       "common_maf_min": 0.05, "common_maf_operator": ">="}
+      for total_all, total_common in [(float("nan"), 4.0), (float("inf"), 4.0), (0.0, None), (-4.0, None),
+                                      (4.0, float("nan")), (4.0, -1.0), (4.0, 5.0)]),
 ])
 def test_a_declared_overlap_needs_a_usable_overlap_config(tmp_path, overlap_config):
     # The overlap file stores cross-products only; its reference-SNP totals live in overlap_config.
@@ -243,8 +248,33 @@ def test_a_declared_overlap_needs_a_usable_overlap_config(tmp_path, overlap_conf
         load_ldscore_from_dir(str(root))
 
 
-@pytest.mark.parametrize("count_config", [None, {}, {"common_reference_snp_maf_min": "x",
-                                                    "common_reference_snp_maf_operator": ">="}])
+@pytest.mark.parametrize("overlap_config", [[4.0], "x", 0, False])
+def test_overlap_config_without_an_overlap_file_must_be_an_object_or_null(tmp_path, overlap_config):
+    from ldsc import load_ldscore_from_dir
+
+    root = write_one_snp_ldscore_dir(tmp_path / "ldscores", include_query=False)
+    _edit_metadata(root, lambda metadata: metadata.update(overlap_config=overlap_config))
+
+    with pytest.raises(LDSCInputError,
+                       match="^Could not load LD-score directory .*`overlap_config`.*JSON object or null.*troubleshooting"):
+        load_ldscore_from_dir(str(root))
+
+
+@pytest.mark.parametrize("overlap_config", [None, {"total_all_reference_snps": float("nan")}])
+def test_load_overlap_fails_closed_without_usable_totals(tmp_path, overlap_config):
+    # A manifest built by hand skips read_ldscore_manifest's checks; the overlap read checks its totals itself.
+    from dataclasses import replace
+    from ldsc._ldscore.source import read_ldscore_manifest
+
+    manifest = replace(read_ldscore_manifest(_quantile_ldscores(tmp_path)), overlap_config=overlap_config)
+
+    with pytest.raises(LDSCInputError, match="^Could not load LD-score directory .*overlap_config.*total_all_reference_snps"):
+        manifest.load_overlap()
+
+
+@pytest.mark.parametrize("count_config", [None, {}, *({"common_reference_snp_maf_min": threshold,
+                                                       "common_reference_snp_maf_operator": ">="}
+                                                      for threshold in ["x", float("nan"), float("inf")])])
 def test_a_missing_or_unusable_count_config_is_rejected(tmp_path, count_config):
     from ldsc import load_ldscore_from_dir
 

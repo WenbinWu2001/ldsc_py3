@@ -10,6 +10,7 @@ The original directory must remain available and unchanged while it is used.
 from dataclasses import dataclass, field
 import json
 import logging
+import math
 from pathlib import Path
 import re
 from typing import Any
@@ -421,13 +422,16 @@ class LDScoreManifest:
     def load_overlap(self):
         """Read the overlap matrix as an ``LDScoreOverlap``, or return ``None`` when none is declared.
 
-        Raises ``LDSCInputError`` when the overlap file is unreadable.
+        Raises ``LDSCInputError`` when the overlap file is unreadable or
+        ``overlap_config`` lacks usable reference-SNP totals.
         """
         path = self.files.get("overlap")
         if path is None:
             return None
-        from .overlap_table import overlap_from_long_frame
         config = self.overlap_config
+        if not _has_overlap_totals(config):
+            raise _missing_overlap_totals_error(self.root)
+        from .overlap_table import overlap_from_long_frame
         return overlap_from_long_frame(
             _read_ldscore_parquet(path, pd.read_parquet),
             baseline_columns=self.baseline_columns,
@@ -579,8 +583,39 @@ def _declared_file(root: Path, key: str, value, *, required: bool) -> Path:
 
 
 def _is_number(value) -> bool:
-    """Return whether a decoded JSON value is a number (an ``int`` or ``float``, not a ``bool``)."""
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    """Return whether a decoded JSON value is a finite number (an ``int`` or ``float``, not a ``bool``).
+
+    ``json.loads`` decodes the literals ``NaN`` and ``Infinity`` to floats,
+    which are not usable numbers here.
+    """
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _has_overlap_totals(overlap_config) -> bool:
+    """Return whether ``overlap_config`` holds usable overlap reference-SNP totals.
+
+    ``total_all_reference_snps`` must be a positive number and
+    ``total_common_reference_snps`` null or a number from 0 to
+    ``total_all_reference_snps``, since the common reference SNPs are a
+    subset of all reference SNPs.
+    """
+    if not isinstance(overlap_config, dict):
+        return False
+    total_all = overlap_config.get("total_all_reference_snps")
+    total_common = overlap_config.get("total_common_reference_snps")
+    return (_is_number(total_all) and total_all > 0
+            and (total_common is None or (_is_number(total_common) and 0 <= total_common <= total_all)))
+
+
+def _missing_overlap_totals_error(root) -> LDSCInputError:
+    """Return the error for a declared overlap file whose ``overlap_config`` lacks usable totals."""
+    return LDSCInputError(
+        f"Could not load LD-score directory '{root}': `files.overlap` is declared, but metadata has no usable "
+        "`overlap_config` with the overlap's reference-SNP totals: a positive number `total_all_reference_snps` "
+        "and a `total_common_reference_snps` that is null or a number from 0 to `total_all_reference_snps`. "
+        "Most likely metadata.json was edited by hand or copied from another run. Restore the complete LD-score "
+        f"directory from the same run, or regenerate it with `ldsc ldscore`. Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
+    )
 
 
 def _read_ldscore_parquet(path, read):
@@ -721,20 +756,19 @@ def load_ldscore_from_dir(
 def _validate_count_overlap_config(metadata: dict[str, Any], root: Path, *, has_overlap: bool) -> None:
     """Require count and overlap metadata to describe the same common reference SNPs.
 
-    A declared overlap file (``has_overlap``) stores cross-products only, so
-    its ``overlap_config`` must also hold the reference-SNP totals.
+    ``overlap_config`` is a JSON object or null. A declared overlap file
+    (``has_overlap``) stores cross-products only, so its ``overlap_config``
+    must also hold the reference-SNP totals.
     """
     overlap_config = metadata.get("overlap_config")
-    if has_overlap and not (
-            isinstance(overlap_config, dict) and _is_number(overlap_config.get("total_all_reference_snps"))
-            and (overlap_config.get("total_common_reference_snps") is None
-                 or _is_number(overlap_config["total_common_reference_snps"]))):
+    if has_overlap and not _has_overlap_totals(overlap_config):
+        raise _missing_overlap_totals_error(root)
+    if overlap_config is not None and not isinstance(overlap_config, dict):
         raise LDSCInputError(
-            f"Could not load LD-score directory '{root}': `files.overlap` is declared, but metadata has no usable "
-            "`overlap_config` with the overlap's reference-SNP totals: a number `total_all_reference_snps` and a "
-            "number or null `total_common_reference_snps`. Most likely metadata.json was edited by hand or copied "
-            "from another run. Restore the complete LD-score directory from the same run, or regenerate it with "
-            f"`ldsc ldscore`. Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
+            f"Could not load LD-score directory '{root}': metadata `overlap_config` is {overlap_config!r}, not a "
+            "JSON object or null. Most likely metadata.json was edited by hand or copied from another run. Restore "
+            "the complete LD-score directory from the same run, or regenerate it with `ldsc ldscore`. "
+            f"Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
         )
     if not overlap_config:
         return

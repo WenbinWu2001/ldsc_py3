@@ -10,18 +10,10 @@ Overview
 This module is the public entry point for the `build-r2-matrix` workflow. It
 keeps path resolution, logging configuration, and cross-file validation in the
 workflow layer, then delegates pairwise-R2 generation and parquet serialization to
-``ldsc._refpanel.build_kernel``. Before chromosome processing begins, the
-workflow precomputes deterministic parquet, metadata sidecar, and dropped-SNP
-audit destinations and refuses any existing workflow-owned artifact unless
-``overwrite=True`` was configured. Concrete single-chromosome invocations own
-only their chromosome's output artifacts so parallel array jobs can share an
-output directory without deleting sibling chromosome outputs. Parsed workflow
-wrappers write ``build-r2-matrix.log`` for multi-chromosome runs and
-chromosome-scoped logs for concrete single-chromosome runs; direct builder calls
-return data artifact paths only and do not create a log file by default. With
-overwrite enabled, successful runs replace current-run artifacts and remove
-stale owned parquet, metadata, audit, or log siblings from previous
-incompatible configurations.
+``ldsc._refpanel.build_kernel``. Output preflight, chromosome-scoped ownership,
+logs and overwrite rules are described in :meth:`R2MatrixBuilder.run` and
+``R2MatrixBuildDirectoryWriter``; failure markers in
+:func:`run_build_r2_matrix_from_args`.
 R2 matrix liftover keeps the historical source-build plus optional
 opposite-build UX, but matching chain files are valid only in ``chr_pos``-family
 modes and are rejected in rsID-family modes. Duplicate-position handling is

@@ -13,9 +13,6 @@ Design Notes
 ------------
 - Automatic inference is limited to ``chr_pos`` workflows.
 - Returned coordinates are canonical 1-based positions.
-- The top-level ``ldsc`` package re-exports only the stable user-facing API:
-  :class:`ChrPosBuildInference`, :func:`infer_chr_pos_build`, and
-  :func:`resolve_chr_pos_table`.
 """
 
 from __future__ import annotations

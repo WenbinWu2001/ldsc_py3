@@ -124,8 +124,8 @@ def build_index_remap(
     matrix order. Returns ``(remap, retained_build_idx)`` where
     ``remap[build_idx]`` is the retained matrix index or ``-1``, and
     ``retained_build_idx[matrix_idx]`` is the originating build index (ascending,
-    used for IDX_1 row-group pruning). Matching uses the same mode-dependent
-    identity keys as the legacy per-pair decode, so the result is bit-identical.
+    used for IDX_1 row-group pruning). Matching uses the mode-dependent SNP
+    identity keys.
 
     The remap must be injective over retained indices: two distinct R2 matrix rows
     sharing an identity key under ``identifier_mode`` (a collapse) is a hard

@@ -1099,7 +1099,9 @@ def _preflight_gene_index_output(
     earlier_attempt = _BUILD_DIR in entries and _holds_build_evidence(build_dir)
     if _BUILD_DIR in entries and not earlier_attempt and any(build_dir.iterdir()):
         raise unrecognized
-    if _is_build_leftover_only(index_path):
+    # A failed build leaves only the build directory and a regular RUN_FAILED.txt.
+    if all(_is_owned_index_entry(entry) and entry.name not in _INDEX_COMPONENTS
+           for entry in index_path.iterdir()):
         return entries
     try:
         load_gene_ldscore_index(index_path)
@@ -1166,12 +1168,14 @@ def _chromosome_log_dir(build_dir: Path) -> Path:
     return build_dir / Path(CHROMOSOME_LOG_DIR).name
 
 
-def _archive_gene_index_log(log_path: Path, history: Path) -> Path:
-    """Move one closed operational log to a collision-resistant history path."""
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
-    archived = history / f"build-gene-ldscore-index.{timestamp}.log"
-    os.replace(log_path, archived)
-    return archived
+def _move_to_history(path: Path, name: str) -> None:
+    """Move one earlier attempt's file or directory into ``.build/history`` as ``name`` with ``{}`` timestamped.
+
+    The UTC timestamp keeps the names of successive attempts apart.
+    """
+    history = path.parent / "history"
+    history.mkdir(exist_ok=True)
+    os.replace(path, history / name.format(datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")))
 
 
 def _prepare_gene_index_log(index_path: Path, *, earlier_attempt: bool) -> Path:
@@ -1188,6 +1192,18 @@ def _prepare_gene_index_log(index_path: Path, *, earlier_attempt: bool) -> Path:
     log_path = build_dir / _LOG_FILE
     if not earlier_attempt:
         return log_path
+    chromosome_logs = _chromosome_log_dir(build_dir)
+    if chromosome_logs.is_dir() and not chromosome_logs.is_symlink():
+        _move_to_history(chromosome_logs, f"{chromosome_logs.name}.{{}}")
+    for entry in build_dir.iterdir():
+        if entry.is_dir() and not entry.is_symlink() and entry.name != "history":
+            shutil.rmtree(entry)
+    for name, archived in ((_LOG_FILE, "build-gene-ldscore-index.{}.log"),
+                           ("plink_input_issues.tsv", "plink_input_issues.{}.tsv"),
+                           ("gene_coordinate_catalog_issues.tsv.gz", "gene_coordinate_catalog_issues.{}.tsv.gz")):
+        if (build_dir / name).exists():
+            _move_to_history(build_dir / name, archived)
+    return log_path
     chromosome_logs = _chromosome_log_dir(build_dir)
     if chromosome_logs.is_dir() and not chromosome_logs.is_symlink():
         history = build_dir / "history"
@@ -1322,24 +1338,6 @@ def _is_owned_index_entry(entry: Path) -> bool:
     if entry.name == FAILURE_MARKER:
         return entry.is_file()
     return entry.name in _INDEX_COMPONENTS
-
-
-def _is_build_leftover_only(path: Path) -> bool:
-    """Recognize a failed build's destination: only the build directory and a regular ``RUN_FAILED.txt``.
-
-    The preflight has already refused a nonempty build directory without the builder's lock or log file.
-    """
-    if not path.is_dir():
-        return False
-    for entry in path.iterdir():
-        if entry.is_symlink():
-            return False
-        if entry.name == _BUILD_DIR and entry.is_dir():
-            continue
-        if entry.name == FAILURE_MARKER and entry.is_file():
-            continue
-        return False
-    return True
 
 
 def _log_gene_index_summary(payload: dict) -> None:

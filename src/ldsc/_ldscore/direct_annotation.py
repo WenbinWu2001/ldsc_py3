@@ -75,8 +75,7 @@ def prepare_direct_annotations(spec, config, workspace, output_config, *, declar
         return bundle, None, scope
     statuses = query_source_statuses(bed_sources, batch)
     if batch is not None and any(item['input_role'] == 'control' for item in batch.declarations):
-        bundle = build_query_shards(bundle, gene_batch=batch, padding_bp=spec.padding_bp,
-                                    evaluate_support=False, query_columns=[])
+        bundle = build_query_shards(bundle, gene_batch=batch, padding_bp=spec.padding_bp, statuses=())
     bundle.validate()
     bundle = replace(bundle, query_statuses=statuses,
                      query_columns=[item.query for item in statuses if item.status in {'ok', 'warning'}])

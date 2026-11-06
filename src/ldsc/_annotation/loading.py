@@ -66,10 +66,10 @@ def build_annotation_shards(spec, config, workspace, *, projection_genome_build=
     bundle = AnnotationBundle(prepared.shards, list(prepared.baseline_columns), list(prepared.query_columns), workspace,
                               config_snapshot=config, identity_drops=prepared.drops, source_summary=source_summary)
     if batch is not None:
-        bundle = replace(build_query_shards(bundle, gene_batch=batch, padding_bp=spec.padding_bp, evaluate_support=False),
+        bundle = replace(build_query_shards(bundle, gene_batch=batch, padding_bp=spec.padding_bp),
                          gene_list_batch=batch)
     elif spec.query_annot_bed_sources:
-        bundle = build_query_shards(bundle, bed_sources=beds, padding_bp=spec.padding_bp, evaluate_support=False)
+        bundle = build_query_shards(bundle, bed_sources=beds, padding_bp=spec.padding_bp)
     if not bundle.baseline_columns:
         raise LDSCInputError("Annotation sources must supply at least one baseline annotation column.")
     bundle.validate()

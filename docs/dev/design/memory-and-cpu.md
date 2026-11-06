@@ -1,6 +1,6 @@
 # Memory and CPU efficiency design
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-06
 
 <a id="annotation-and-workflow-memory-design"></a>
 
@@ -268,6 +268,7 @@ A fixed gene control, when requested by direct/indexed LD scoring, belongs to th
 
 Standalone [`_annotation/annotate.py`](../../../src/ldsc/_annotation/annotate.py) accepts exactly one BED or gene-list route.
 Gene mode requires explicit nonnegative padding, uses gene-coordinate-catalog build and coverage gates, and evaluates support on the cleaned annotation SNP grid.
+That support is measured in the same per-chromosome projection pass: `build_query_shards()` hands each chromosome's projector to annotate's `_AnnotationRowSupport`, which then sets the gene query statuses from the support and the projected SNP totals.
 It skips empty or globally unsupported query gene lists while retaining usable siblings, all-one queries, and zero-valued chromosome shards for queries supported elsewhere.
 It fails when all query gene lists are skipped.
 Its audits use `annotation_snp_count`; reference-panel support remains unevaluated.

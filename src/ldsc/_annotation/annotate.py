@@ -10,6 +10,9 @@ generation.
 import logging
 from dataclasses import replace
 
+import numpy as np
+import pandas as pd
+
 from .bundle import AnnotationBundle
 from .bim_grid import resolve_bim_grid_inputs, prepare_bim_grid
 from .interval_queries import prepare_bed_queries, build_query_shards, require_readable_bed_sources
@@ -38,6 +41,47 @@ from .query_outcomes import (
 )
 
 LOGGER = logging.getLogger('LDSC.annotation')
+
+
+class _AnnotationRowSupport:
+    """Measure each selected gene's annotation-row SNP support during query projection.
+
+    ``build_query_shards`` calls ``measure`` with each chromosome's projector,
+    so support needs no second pass over the grid, and then ``finalize``
+    with the projected per-query SNP totals. Finalization records the
+    support on the batch and recomputes the gene query statuses from it; a
+    usable query whose projection holds no SNP is skipped with
+    ``zero_annotation_snps``.
+    """
+
+    def __init__(self, batch):
+        frame = batch.catalog.frame
+        self.batch = batch
+        self.selected = np.zeros(len(frame), dtype=bool)
+        for selection in batch.selections:
+            self.selected[list(selection.catalog_indices)] = True
+        self.counts = pd.Series(pd.NA, index=frame.index, dtype='Int64')
+        self.counts.loc[self.selected] = 0
+
+    def measure(self, chrom, projector, padding_bp):
+        frame = self.batch.catalog.frame
+        genes = frame.loc[self.selected & frame.chrom.eq(chrom).to_numpy()]
+        self.counts.loc[genes.index] = projector.counts(genes.start0, genes.end, padding_bp=padding_bp)
+
+    def finalize(self, bundle, totals):
+        batch = self.batch.with_snp_support(self.counts, support_kind='annotation')
+        finalized = []
+        for status in gene_query_statuses(batch):
+            if status.status in {'ok', 'warning'}:
+                count = totals[status.query]
+                if count == 0:
+                    status = status.updated(status='skipped', reason='zero_annotation_snps')
+                status = status.updated(n_annotation_snps=float(count))
+            elif status.reason == 'zero_annotation_snps':
+                status = status.updated(n_annotation_snps=0.0)
+            finalized.append(status)
+        return replace(bundle, gene_list_batch=batch, query_statuses=tuple(finalized),
+                       query_columns=[item.query for item in finalized if item.status in {'ok', 'warning'}])
 
 
 @materializing_overwrite_guard(lambda *args, **kwargs: (kwargs.get('output_dir'), kwargs.get('overwrite', False)) if kwargs.get('output_dir') else None, command='run_annotate(...)')
@@ -197,7 +241,8 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                     scope['validation_status'] = 'failed'
                     writer.write_diagnostics(output, batch=batch, statuses=gene_query_statuses(batch), drops=prepared.drops, scope=scope)
                     raise LDSCInputError('Annotation chromosome coverage preflight failed: ' + '; '.join(coverage_errors[:10]) + '. See diagnostics/chromosome_scope.json and gene-list audit/summary.')
-                bundle = build_query_shards(bundle, gene_batch=batch, padding_bp=spec.padding_bp)
+                bundle = build_query_shards(bundle, gene_batch=batch, padding_bp=spec.padding_bp,
+                                            gene_support=_AnnotationRowSupport(batch))
                 writer.write_diagnostics(output, batch=bundle.gene_list_batch, statuses=bundle.query_statuses, drops=prepared.drops, scope=scope)
                 errors = gene_viability_errors(bundle.gene_list_batch, bundle.query_statuses)
                 if errors:

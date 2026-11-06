@@ -252,8 +252,9 @@ The lock, the live log, issue tables, earlier failed attempts and the index bein
 - A valid existing index requires `--overwrite`, even if its `index_id` would be unchanged.
 - A directory holding only `.build/` and a regular `RUN_FAILED.txt` is reused without `--overwrite`.
   Preflight leaves the marker in place; a successful build removes it.
-- Index components beside `.build/` without a loadable index are the remains of an interrupted build or publication; rebuilding over them needs `--overwrite`.
-- Any other content fails before chromosome computation, including with `--overwrite`: unrelated files or directories, a symlink, a marker that is not a regular file, or index component names without `.build/`.
+- Index components beside a `.build/` left by an earlier attempt, without a loadable index, are the remains of an interrupted build or publication; rebuilding over them needs `--overwrite`.
+- Any other content fails before the build creates, locks or removes anything, including with `--overwrite`: unrelated files or directories, a symlink, a marker that is not a regular file, or index component names without `.build/`.
+- Preflight reads the destination before the build lock creates `.build/`, so a refused attempt leaves no `.build/` behind and never makes a directory look like an interrupted index.
 - Two builders cannot target the same directory concurrently.
 
 While the build is running, the live log is `<index-dir>/.build/build-gene-ldscore-index.log`, so `tail -f` works.

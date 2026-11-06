@@ -527,19 +527,22 @@ def _build(
     overwrite: bool,
     log_level: str,
 ) -> Path:
-    """Build one gene LD-score index through locked preflight and staged publication.
+    """Build one gene LD-score index through output preflight, a locked build and staged publication.
 
     ``genetic_map_sources`` maps ``"hg19"`` and ``"hg38"`` to the comma-separated
     genetic-map paths supplied for that build, or ``None``. The caller opens
-    the failure-marker scope.
+    the failure-marker scope. The output preflight is read-only and runs
+    before the lock creates the build directory, so a refused destination is
+    left as it was and an existing build directory is evidence of an earlier
+    attempt.
     """
     started = time.perf_counter()
     chromosomes = index_artifact.INDEX_CHROMOSOMES
     index_path = Path(config.output_dir)
+    _preflight_gene_index_output(index_path, overwrite=bool(overwrite))
     with _gene_index_build_lock(index_path):
         live_log_path = _prepare_gene_index_log(index_path)
         with workflow_logging("build-gene-ldscore-index", live_log_path, log_level=log_level):
-            _preflight_gene_index_output(index_path, overwrite=bool(overwrite))
             log_inputs(
                 output_dir=str(config.output_dir),
                 genome_build=config.genome_build,
@@ -1062,13 +1065,15 @@ def _preflight_gene_index_output(
     *,
     overwrite: bool,
 ) -> None:
-    """Validate the publication destination without changing published files.
+    """Validate the publication destination without changing anything in it.
 
     The build directory and a failure marker are the builder's own; a
     directory holding nothing else is reused. Only a successful build removes
     the build directory, so index components beside it without a loadable
     index are the remains of an interrupted build or publication and need
-    ``overwrite``; any other content is refused.
+    ``overwrite``; any other content is refused, including component names
+    without a build directory. This runs before the build lock creates the
+    build directory, so the build directory it sees is an earlier attempt's.
     """
     if index_path.exists() and not index_path.is_dir():
         raise FileExistsError(f"Gene LD-score index output is not a directory: {index_path}")

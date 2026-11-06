@@ -196,6 +196,28 @@ def test_an_incomplete_gene_index_is_never_read_and_needs_overwrite(tmp_path, in
     load_gene_ldscore_index(index)
 
 
+def test_index_component_names_without_a_build_directory_are_never_replaced(tmp_path, index_inputs, monkeypatch):
+    # A user directory whose entries merely carry index component names; no build ever ran here.
+    index = tmp_path / "parent" / "index"
+    (index / "chromosomes").mkdir(parents=True)
+    (index / "diagnostics").mkdir()
+    (index / "chromosomes" / "my_notes.txt").write_text("precious\n")
+    (index / "diagnostics" / "notes.txt").write_text("notes\n")
+    before = _tree(index)
+
+    # Refused with and without --overwrite; a refused attempt leaves no .build/ that would make
+    # the directory look like an interrupted index to the next attempt.
+    for overwrite in (False, True):
+        with pytest.raises(FileExistsError, match="nonempty but invalid"):
+            _build_index(index_inputs, index, monkeypatch, overwrite=overwrite)
+        assert not (index / ".build").exists()
+
+    # Only the failure marker of the refused --overwrite attempt is added.
+    assert _tree(index) == before | {"RUN_FAILED.txt"}
+    assert (index / "chromosomes" / "my_notes.txt").read_text() == "precious\n"
+    assert (index / "diagnostics" / "notes.txt").read_text() == "notes\n"
+
+
 def test_a_failure_during_publication_leaves_an_index_no_reader_accepts(tmp_path, index_inputs, monkeypatch):
     from ldsc._ldscore.gene_index import build as gene_index_build
     from ldsc._ldscore.gene_index.artifact import load_gene_ldscore_index

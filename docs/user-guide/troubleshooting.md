@@ -543,7 +543,10 @@ If a failed build leaves only that marker, rerun the corrected command in the sa
 Preflight preserves the marker, and a successful build removes it.
 Versions before this retry fix incorrectly rejected marker-only directories even with `--overwrite`; update the package rather than deleting the directory.
 
-If the current version still reports this error, the directory contains an incomplete index or other unrecognized contents. The marker does not grant permission to replace those contents. Preserve them for inspection and choose a fresh output directory, or explicitly resolve the conflicting files. A valid existing index still requires `--overwrite`.
+If the current version still reports this error, the directory contains unrecognized contents: unrelated files or directories, a symlink, or index component names (`metadata.json`, `gene_catalog.parquet`, `chromosomes/`, `diagnostics/`) without a loadable index and without the hidden `.build/` directory that an interrupted build leaves.
+The marker does not grant permission to replace those contents, and neither does `--overwrite`.
+Preserve them for inspection and choose a fresh output directory, or explicitly resolve the conflicting files.
+A valid existing index still requires `--overwrite`.
 
 ### `build-gene-ldscore-index`: baseline/PLINK identifier intersection fails
 

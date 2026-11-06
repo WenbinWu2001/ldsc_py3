@@ -13,6 +13,7 @@ import logging
 import pandas as pd
 
 from ..errors import LDSCInputError, LDSCUserError
+from .artifacts import declared_member
 from .input_issues import INPUT_ISSUE_COLUMNS, input_issue
 from .paths import discover_plink_members, resolve_file_group, split_cli_path_tokens, normalize_path_tokens, resolve_exact_file, resolve_scalar_path
 from .progress import PhaseProgress
@@ -100,6 +101,15 @@ class InputGate:
         if self.causes:
             raise error from ExceptionGroup('Input validation failures', self.causes)
         raise error
+
+
+def _outside_member(metadata_path, role, name):
+    raise LDSCInputError(
+        f"Saved artifact metadata {metadata_path} lists files.{role}={name!r}, which is not a file name inside "
+        "its directory: listed files are named relative to the directory, without `..`. Restore this saved "
+        "artifact directory with its original metadata and data from the same run, or regenerate the upstream "
+        "artifact."
+    )
 
 
 def check_readable(path):
@@ -197,7 +207,12 @@ def inspect_declared_inputs(*, files=(), scalar_files=(), plink=None, chromosome
 
 
 def inspect_artifact_paths(directory, *, metadata_file="metadata.json"):
-    """Check files explicitly listed by a saved artifact's metadata manifest."""
+    """Check that every file a saved artifact's metadata manifest lists is readable.
+
+    Each listed name is read by ``_runtime.artifacts.declared_member``, with
+    symbolic links allowed as in LD-score directories; a name that is
+    absolute or contains ``..`` is reported as an input issue.
+    """
     import json
     root = Path(directory)
     with (root/metadata_file).open() as stream:
@@ -212,7 +227,10 @@ def inspect_artifact_paths(directory, *, metadata_file="metadata.json"):
     for role, member in metadata.get('files', {}).items():
         for name in ([member] if isinstance(member, str) else member if isinstance(member, list) else []):
             if isinstance(name, str):
-                path = root/name
-                gate.check(role, path, lambda path=path: check_readable(path))
+                path = declared_member(root, name, external_links=True)
+                if path is None:
+                    gate.check(role, root/name, lambda: _outside_member(root/metadata_file, role, name))
+                else:
+                    gate.check(role, path, lambda: check_readable(path))
     gate.finish()
     return metadata

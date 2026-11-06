@@ -19,8 +19,7 @@ explicit in the figure; no estimate is refitted or converted by plotting.
 from __future__ import annotations
 
 from .._runtime.cli_help import CLIHelpFormatter, output_directory_argument, add_log_level_argument
-from .._runtime.artifacts import atomic_write_json
-from .._runtime.result_files import declared_result_file
+from .._runtime.artifacts import atomic_write_json, declared_result_file
 
 import argparse
 from dataclasses import dataclass

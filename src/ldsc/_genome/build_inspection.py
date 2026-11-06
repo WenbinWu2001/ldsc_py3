@@ -17,7 +17,7 @@ import pyarrow.parquet as pq
 
 from .._core.coordinates import normalize_chr_pos_frame
 from .build_policy import R2_PARQUET_GLOB, _SAMPLE_ROWS, _table_frames, _text_options, r2_sidecar_path
-from .._runtime.result_files import declared_result_file
+from .._runtime.artifacts import declared_result_file
 from .._core.columns import (
     RESTRICTION_CHRPOS_SPEC_MAP, RESTRICTION_HG19_POS_SPEC, RESTRICTION_HG38_POS_SPEC,
     normalize_genome_build, resolve_optional_column,

@@ -94,8 +94,7 @@ The lazily exported workflows in `ldsc/__init__.py` and the per-command modules 
 | `ldsc._runtime.preflight` | the declared-input gate (`InputGate`, `inspect_declared_inputs` and its result `DeclaredInputs`: resolved files and check results by role, plus discovered PLINK members), companion and saved-manifest checks; domains plug in their own declaration and header checks, and scientific content validators stay with their owners |
 | `ldsc._runtime.input_issues` | the input-issue row schema (`INPUT_ISSUE_COLUMNS`) and its one constructor `input_issue`, whose repair text every caller supplies; used by every input gate, including PLINK discovery in `ldsc._runtime.paths` |
 | `ldsc._runtime.scratch` | `ScratchWorkspace`, the owner of one hidden `.ldsc-annotation-*` scratch directory below an output directory for a run or a query batch; `FrameSpool`; and the `DiagnosticRows` protocol (`frames()`, `write_to(path)`) shared by spooled, file-staged (`TsvDiagnostics`) and in-memory (`MemoryDiagnostics`) diagnostic rows |
-| `ldsc._runtime.artifacts` | `ArtifactFamily` declarations shared by workflow preflight, final writes, metadata file entries and cleanup, plus `atomic_replace()`, the one temporary-sibling-then-rename publication, which the atomic table and JSON writers, the failure marker and the legacy summary-statistics audit use |
-| `ldsc._runtime.result_files` | contained declared-result input paths and atomic JSON publication for `h2_scale` and plotting |
+| `ldsc._runtime.artifacts` | `ArtifactFamily` declarations shared by workflow preflight, final writes, metadata file entries and cleanup; `declared_member()`, the one reader of metadata `files` entries (a relative name without `..`, with symbolic links either allowed anywhere, for LD-score directories and the saved-artifact preflight, or kept inside the directory, for `declared_result_file()`, which `h2_scale`, plotting and `infer-genome-build` use); plus `atomic_replace()`, the one temporary-sibling-then-rename publication, which the atomic table and JSON writers, the failure marker and the legacy summary-statistics audit use |
 | `ldsc._runtime.progress` | phase boundaries and time-throttled progress through existing logger routes; bounded counters, current objects, and elapsed time |
 | `ldsc._runtime.workflow_logging` | shared workflow logging context, `LDSC` logger level handling (`LOG_LEVEL_CHOICES` and `normalize_log_level()`, the one log-level check that `GlobalConfig` also uses), lifecycle audit lines, CLI console-handler routing (file-authoritative, console error-only) with run-aborting traceback capture, durable authorized-overwrite failure markers without rollback, and log-only formatting helpers |
 | `ldsc._runtime.cli_help` | shared `CLIHelpFormatter` keeps flag names and paths intact when help descriptions wrap; `CHROMOSOME_PATH_HELP` and `SCALAR_PATH_HELP` supply verified path syntax; `add_output_dir_argument()` and `add_log_level_argument()` add the shared `--output-dir` and `--log-level` options with each command's help text; workflow parsers own their descriptions and argument groups |
@@ -288,9 +287,8 @@ Each test folder has an `__init__.py`, which makes those full module paths impor
 
 `AnnotationBundle.validate()` validates row alignment and annotation names; identity cleanup occurs during builder construction. It no longer accepts an ignored identifier argument. Column-name inference uses `infer_chr_pos_columns`; numerical window construction uses `get_block_lefts`. Their former forwarding spellings are removed without changing accepted input column aliases or legacy formats.
 
-`ldsc._runtime.result_files` owns contained declared-result input paths and atomic JSON publication for `h2_scale` and plotting.
+`ldsc._runtime.artifacts` reads declared result files (`declared_result_file()`) beside the `ArtifactFamily` declarations that write them, and publishes JSON for `h2_scale` and plotting as for every writer.
 Each workflow retains its metadata interpretation, table loading and scientific dispatch.
-The result writers keep their separate JSON serialization of NumPy/dataclass payloads in `ldsc._runtime.artifacts`.
 
 ## Domain contracts and decision history
 
@@ -303,7 +301,7 @@ The result writers keep their separate JSON serialization of NumPy/dataclass pay
 | munging and liftover | [munging](../reference/munge-sumstats.md), [liftover](../reference/snp-identity-and-genome-build.md#liftover) | `_sumstats.munger.SumstatsMunger`; `_sumstats.munge_input.resolve_munge_plan`, `.resolve_raw_schema`, `.prepare_munge_input`; `_sumstats.munge_kernel`; `_sumstats.liftover.apply_sumstats_liftover`; `_sumstats.outputs.curated_sumstats_frame`, `.SumstatsDirectoryWriter` |
 | regression and overlap | [configuration](../reference/regression-options.md), [partitioned results](../reference/results/partitioned-h2.md) | `_regression.runner.RegressionRunner`; `_ldscore.overlap_table`; `_regression.overlap_model`; `_regression.estimators` |
 | indexed gene queries | [index](../reference/gene-ldscore-index.md), [mathematics](../reference/methods/gene-ldscore-index-math.md) | `_ldscore.gene_index.build`, `.artifact`, `.scoring`; `_ldscore.gene_index.atoms` |
-| derived results | [plotting](design/plotting.md), [quantile projection](../reference/results/quantile-h2.md) | `_plotting.dispatch`, `_regression.h2_scale`, `_regression.quantile_h2`; shared `_runtime.result_files` |
+| derived results | [plotting](design/plotting.md), [quantile projection](../reference/results/quantile-h2.md) | `_plotting.dispatch`, `_regression.h2_scale`, `_regression.quantile_h2`; shared `_runtime.artifacts` |
 
 `query-r2-matrix` requires `--output-dir`; `QueryR2MatrixDirectoryWriter` writes its result directory.
 Region presets affect the regression SNPs and their weights, not the reference SNPs.

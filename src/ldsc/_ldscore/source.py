@@ -28,6 +28,7 @@ from .._core.snp_identity import (
     is_allele_aware_mode,
     validate_identity_artifact_metadata,
 )
+from .._runtime.artifacts import declared_member
 from .._runtime.paths import normalize_path_token
 
 _QUERY_BATCH_FILE_RE = re.compile(r"ldscore\.query\.batch\d{5}\.parquet")
@@ -540,20 +541,21 @@ def read_ldscore_manifest(ldscore_dir) -> LDScoreManifest:
 def _declared_file(root: Path, key: str, value, *, required: bool) -> Path:
     """Return the declared file ``root / value``, raising ``LDSCInputError`` when it cannot be one of ``root``'s files.
 
-    Containment is checked on the declared name, not on its resolved target:
-    a declared file or folder may be a symbolic link, for example to a large
-    table on shared storage. ``required`` files must exist as regular files.
+    The name must pass ``_runtime.artifacts.declared_member``: containment is
+    checked on the declared name, not on its resolved target, so a declared
+    file or folder may be a symbolic link, for example to a large table on
+    shared storage. ``required`` files must exist as regular files.
     """
-    token = Path(value) if isinstance(value, str) and value.strip() else None
-    if token is None or token.is_absolute() or ".." in token.parts:
-        problem = "is not a file name" if token is None else "points outside the directory"
+    path = declared_member(root, value, external_links=True)
+    if path is None:
+        problem = ("points outside the directory" if isinstance(value, str) and value.strip()
+                   else "is not a file name")
         raise LDSCInputError(
             f"Could not load LD-score directory '{root}': `files.{key}`={value!r} {problem}: declared files are "
             "named relative to the directory, without `..`. Most likely metadata.json was edited by hand or "
             "copied from another run. Restore the complete LD-score directory from the same run, or regenerate it "
             f"with `ldsc ldscore`. Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
         )
-    path = root / token
     if (required or path.exists()) and not path.is_file():
         raise LDSCInputError(
             f"Could not load LD-score directory '{root}': `files.{key}`={value!r} declares '{path}', which is "

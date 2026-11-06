@@ -46,7 +46,7 @@ def test_without_written_input_table_primary_error_keeps_each_input(tmp_path):
 
 
 def test_missing_saved_result_file_identifies_artifact_and_repair(tmp_path):
-    from ldsc._runtime.result_files import declared_result_file
+    from ldsc._runtime.artifacts import declared_result_file
 
     with pytest.raises(LDSCInputError) as failure:
         declared_result_file(tmp_path, {"files": {"summary": "h2.tsv"}},

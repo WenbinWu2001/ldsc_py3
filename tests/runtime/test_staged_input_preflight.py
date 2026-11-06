@@ -426,3 +426,19 @@ def test_r2_chromosome_run_keeps_another_chromosome_input_repair_tables(tmp_path
     result = r2_matrix_builder.run_build_r2_matrix_from_args(chromosome_args('22'))
     assert result.chromosomes == ['22']
     assert [path.read_text() for path in issue_paths] == tables
+
+
+def test_manifest_names_are_read_with_the_ldscore_link_rule(tmp_path):
+    import json
+    from ldsc._runtime.preflight import inspect_artifact_paths
+    outside = tmp_path/'shared.tsv'
+    outside.write_text('x\n')
+    model = tmp_path/'model'
+    model.mkdir()
+    (model/'linked.tsv').symlink_to(outside)
+    (model/'metadata.json').write_text(json.dumps({'files': {'linked': 'linked.tsv'}}))
+    assert inspect_artifact_paths(model)['files'] == {'linked': 'linked.tsv'}
+    (model/'metadata.json').write_text(json.dumps({'files': {'table': '../shared.tsv'}}))
+    with pytest.raises(LDSCInputError) as failure:
+        inspect_artifact_paths(model)
+    assert "files.table='../shared.tsv', which is not a file name inside its directory" in str(failure.value)

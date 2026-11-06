@@ -1,6 +1,6 @@
 # Plotting and Heritability-Scale Post-processing
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-06
 
 This document is the developer-facing contract for the plotting layer and the post-fit observed-to-liability-scale conversion workflow. For scientist-facing commands and interpretation, see [the plotting results manual](../../user-guide/workflows/plotting.md).
 
@@ -144,7 +144,7 @@ Old `h2` results without the table hard-fail with rerun guidance.
 
 `convert_h2_scale` requires one canonical `h2_result`, follows `files.summary`, and loads exactly one row containing `trait_name`, `total_h2_obs`, and `total_h2_obs_se`. It never uses already-populated liability fields as source values.
 
-The workflow calls `ldsc._regression.estimators.liability_conversion_factor`; it does not duplicate the formula. The estimate and block-jackknife SE are multiplied by the same factor. Population prevalence is treated as fixed, so prevalence uncertainty is not propagated.
+The workflow checks `samp_prev` and the population prevalence, or both range endpoints, with `ldsc.config.validate_prevalences` and raises `LDSCConfigError` naming the values it was given, then calls `ldsc._regression.estimators.liability_conversion_factor`; it does not duplicate the formula. The estimate and block-jackknife SE are multiplied by the same factor. Population prevalence is treated as fixed, so prevalence uncertainty is not propagated.
 
 - Exact mode accepts one `pop_prev`, writes one row, and never imports Matplotlib.
 - Sensitivity mode accepts an inclusive `(MIN, MAX)` range, uses `num_points=201` by default, and writes one linearly spaced row per prevalence plus a figure.

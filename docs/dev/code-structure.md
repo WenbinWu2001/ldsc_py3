@@ -82,7 +82,7 @@ The lazily exported workflows in `ldsc/__init__.py` and the per-command modules 
 | Module | Responsibility |
 | --- | --- |
 | `ldsc.cli` | unified `ldsc` command; the `_COMMANDS` table maps each subcommand to its workflow module and entry functions |
-| `ldsc.config` | frozen public config dataclasses and basic validation, including the one binary-trait prevalence rule (`normalize_prevalence_pair()`) and the one LD-window rule that `LDScoreConfig`, `R2MatrixBuildConfig` and `GeneLDScoreIndexBuildConfig` share (`LDWindow`, returned by their `ld_window` property) |
+| `ldsc.config` | frozen public config dataclasses and basic validation, including the one binary-trait prevalence rule (`validate_prevalences()`, vectorized, which `normalize_prevalence_pair()`, `liability_conversion_factor()` and `convert-h2-scale` call) and the one LD-window rule that `LDScoreConfig`, `R2MatrixBuildConfig` and `GeneLDScoreIndexBuildConfig` share (`LDWindow`, returned by their `ld_window` property) |
 | `ldsc._core.chromosomes` | canonical chromosome normalization and ordering |
 | `ldsc._core.columns` | resolve header aliases and normalize identifier/build tokens |
 | `ldsc._core.coordinates` | `CHR:POS` keys and coordinate-frame normalization |
@@ -210,7 +210,7 @@ The lazily exported workflows in `ldsc/__init__.py` and the per-command modules 
 | change annotation-name validation or continuous-annotation classification | `src/ldsc/_annotation/semantics.py`, then `src/ldsc/_ldscore/workflow.py`, `src/ldsc/_ldscore/calculator.py` and `src/ldsc/_ldscore/outputs.py` |
 | change target quantiles, standardized coefficients, or post-fit alignment | `src/ldsc/_regression/quantile_h2.py`, then `src/ldsc/_regression/outputs.py` and `docs/reference/results/quantile-h2.md` |
 | change LDSC estimators | `src/ldsc/_regression/estimators.py` |
-| change binary-trait prevalence parsing or observed-to-liability conversion | `src/ldsc/config.py` (`normalize_prevalence_pair()`, the per-trait rule) and `src/ldsc/_regression/prevalence.py` (`rg` list and manifest parsing), then `src/ldsc/_regression/fitting.py` (summary/metadata wiring) and `src/ldsc/_regression/estimators.py` (`liability_conversion_factor`) |
+| change binary-trait prevalence parsing or observed-to-liability conversion | `src/ldsc/config.py` (`validate_prevalences()`, the rule, and `normalize_prevalence_pair()`, one trait's pair) and `src/ldsc/_regression/prevalence.py` (`rg` list and manifest parsing), then `src/ldsc/_regression/fitting.py` (summary/metadata wiring) and `src/ldsc/_regression/estimators.py` (`liability_conversion_factor`) |
 | change post-fit heritability scale conversion or sensitivity output | `src/ldsc/_regression/h2_scale.py`, then `src/ldsc/_regression/estimators.py` only if the shared numerical primitive itself changes |
 | change plot dispatch, supported result contracts, or visual semantics | `src/ldsc/_plotting/dispatch.py`, `src/ldsc/_plotting/builders.py`, then `docs/dev/design/plotting.md` and `docs/user-guide/workflows/plotting.md` |
 | change owned artifact declarations | `src/ldsc/_runtime/artifacts.py`, then the domain writer: `src/ldsc/_annotation/outputs.py`, `src/ldsc/_refpanel/outputs.py`, `src/ldsc/_ldscore/outputs.py` or `src/ldsc/_regression/outputs.py` |

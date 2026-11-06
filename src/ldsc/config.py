@@ -29,6 +29,8 @@ from os import PathLike
 from typing import Literal
 import warnings
 
+import numpy as np
+
 from ._core.snp_identity import identity_mode_family, normalize_snp_identifier_mode
 from ._core.columns import normalize_genome_build
 from .errors import LDSCConfigError
@@ -1194,12 +1196,11 @@ class MungeConfig:
 def normalize_prevalence_pair(samp_prev, pop_prev) -> tuple[float | None, float | None]:
     """Return one trait's ``(samp_prev, pop_prev)``, or ``(None, None)`` for a quantitative trait.
 
-    NaN and ``None`` both mark a missing prevalence. A binary trait needs both
-    values, each a number in the open interval ``(0, 1)``; one missing value,
-    a value outside that interval, or a value that is not a number raises
-    ``LDSCConfigError``. ``RegressionConfig`` and the ``rg`` prevalence
-    parsers apply this rule, so a half-specified pair fails before any fit
-    instead of leaving the trait silently on the observed scale.
+    NaN and ``None`` both mark a missing prevalence. A value that is not a
+    number raises ``LDSCConfigError``; the pair is then checked by
+    :func:`validate_prevalences`. ``RegressionConfig`` and the ``rg``
+    prevalence parsers apply this rule, so a half-specified pair fails before
+    any fit instead of leaving the trait silently on the observed scale.
     """
     values = []
     for value in (samp_prev, pop_prev):
@@ -1217,20 +1218,64 @@ def normalize_prevalence_pair(samp_prev, pop_prev) -> tuple[float | None, float 
                 value = None
         values.append(value)
     samp, pop = values
-    if (samp is None) != (pop is None):
-        raise LDSCConfigError(
-            "A trait has exactly one of sample/population prevalence specified "
-            f"(samp_prev={samp!r}, pop_prev={pop!r}). "
-            "Set both for a binary trait, or leave both unset (`nan`) for a quantitative trait."
-        )
-    if samp is not None and not (0 < samp < 1 and 0 < pop < 1):
-        raise LDSCConfigError(
-            "Liability-scale conversion received a prevalence outside the open interval (0, 1) "
-            f"(samp_prev={samp!r}, pop_prev={pop!r}). "
-            "Most likely `--samp-prev`/`--pop-prev` was given a value <= 0 or >= 1. "
-            "Pass a probability strictly between 0 and 1, or `nan` for a quantitative trait."
-        )
+    validate_prevalences(math.nan if samp is None else samp, math.nan if pop is None else pop)
     return samp, pop
+
+
+def validate_prevalences(samp_prev, pop_prev, *, pop_name: str = "pop_prev", allow_quantitative: bool = True) -> None:
+    """Check sample and population prevalences element-wise: the one binary-trait prevalence rule.
+
+    Parameters
+    ----------
+    samp_prev, pop_prev : float or array_like
+        Sample and population prevalences; they broadcast against each other.
+        A binary trait needs both values in the open interval ``(0, 1)``.
+    pop_name : str, optional
+        Name of the population-prevalence argument in messages, for example
+        ``"pop_prev_range"`` for the endpoints of a sensitivity grid. Its
+        command-line flag is the name with hyphens. Default ``"pop_prev"``.
+    allow_quantitative : bool, optional
+        Accept a trait whose two values are both NaN as a quantitative trait.
+        Default ``True``; liability-scale conversion of a saved estimate
+        passes ``False``, because it needs both prevalences.
+
+    Raises
+    ------
+    LDSCConfigError
+        If a value is not a number, exactly one value of a trait is NaN, or a
+        value lies outside ``(0, 1)``. Messages list the given values, with a
+        missing (NaN) value shown as ``None``.
+    """
+    try:
+        samp, pop = np.broadcast_arrays(np.asarray(samp_prev, dtype=np.float64), np.asarray(pop_prev, dtype=np.float64))
+    except (TypeError, ValueError):
+        raise LDSCConfigError(
+            f"A prevalence is not a number (samp_prev={samp_prev!r}, {pop_name}={pop_prev!r}). "
+            "Pass a probability strictly between 0 and 1, or `nan` for a quantitative trait."
+        ) from None
+    shown = f"(samp_prev={_prevalence_text(samp_prev)}, {pop_name}={_prevalence_text(pop_prev)})"
+    quantitative = np.zeros(samp.shape, dtype=bool)
+    if allow_quantitative:
+        if np.any(np.isnan(samp) != np.isnan(pop)):
+            raise LDSCConfigError(
+                f"A trait has exactly one of sample/population prevalence specified {shown}. "
+                "Set both for a binary trait, or leave both unset (`nan`) for a quantitative trait."
+            )
+        quantitative = np.isnan(samp)
+    if not np.all(quantitative | ((samp > 0) & (samp < 1) & (pop > 0) & (pop < 1))):
+        raise LDSCConfigError(
+            f"Liability-scale conversion received a prevalence outside the open interval (0, 1) {shown}. "
+            f"Most likely `--samp-prev`/`--{pop_name.replace('_', '-')}` was given a value <= 0 or >= 1. "
+            "Pass a probability strictly between 0 and 1"
+            + (", or `nan` for a quantitative trait." if allow_quantitative else ".")
+        )
+
+
+def _prevalence_text(value) -> str:
+    """Return a prevalence, or a list of them, as messages show it: ``None`` for a missing value."""
+    values = np.asarray(value, dtype=np.float64)
+    shown = [None if math.isnan(item) else item for item in values.ravel().tolist()]
+    return repr(shown[0] if values.ndim == 0 else shown)
 
 
 @dataclass(frozen=True)

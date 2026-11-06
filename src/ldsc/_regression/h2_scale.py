@@ -34,7 +34,7 @@ import pandas as pd
 
 from .estimators import liability_conversion_factor
 from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
-from ..config import get_global_config
+from ..config import get_global_config, validate_prevalences
 from ..errors import LDSCInputError, LDSCUsageError
 from .._runtime.paths import (
     ensure_output_directory,
@@ -142,9 +142,12 @@ def convert_h2_scale(
     LDSCInputError
         If the source is not a current canonical h2 result or its observed-scale
         estimate and standard error are unavailable or invalid.
+    LDSCConfigError
+        If ``samp_prev``, ``pop_prev`` or an endpoint of ``pop_prev_range`` is
+        not a number strictly between 0 and 1.
     LDSCUsageError
-        If prevalence arguments are missing, mutually incompatible, outside
-        ``(0, 1)``, or define an invalid sensitivity grid.
+        If both or neither of ``pop_prev`` and ``pop_prev_range`` are given, or
+        they define an invalid sensitivity grid.
     FileExistsError
         If a fixed conversion artifact exists and ``overwrite`` is ``False``.
 
@@ -166,6 +169,7 @@ def convert_h2_scale(
     summary_path = declared_result_file(source_dir, source_metadata, "summary", context="Canonical h2 metadata")
     source_row = _read_observed_h2(summary_path)
     prevalences, mode = _population_prevalence_grid(
+        samp_prev=samp_prev,
         pop_prev=pop_prev,
         pop_prev_range=pop_prev_range,
         num_points=num_points,
@@ -426,6 +430,7 @@ def _finite_float(value: object, label: str) -> float:
 
 def _population_prevalence_grid(
     *,
+    samp_prev: float,
     pop_prev: float | None,
     pop_prev_range: tuple[float, float] | None,
     num_points: int,
@@ -436,17 +441,15 @@ def _population_prevalence_grid(
             "Supply --pop-prev for one probability or --pop-prev-range for a lower/upper range, not both."
         )
     if pop_prev is not None:
-        value = _finite_float(pop_prev, "pop_prev")
-        liability_conversion_factor(0.5, value)
-        return np.asarray([value], dtype=np.float64), "exact"
+        validate_prevalences(samp_prev, pop_prev, allow_quantitative=False)
+        return np.asarray([pop_prev], dtype=np.float64), "exact"
     if len(pop_prev_range) != 2:
         raise LDSCUsageError(
             "convert-h2-scale cannot read the population-prevalence range: exactly two endpoints are required. "
             "Supply the lower and upper probabilities with --pop-prev-range."
         )
-    lower = _finite_float(pop_prev_range[0], "pop_prev_range lower endpoint")
-    upper = _finite_float(pop_prev_range[1], "pop_prev_range upper endpoint")
-    liability_conversion_factor(0.5, np.asarray([lower, upper]))
+    validate_prevalences(samp_prev, list(pop_prev_range), pop_name="pop_prev_range", allow_quantitative=False)
+    lower, upper = (float(value) for value in pop_prev_range)
     if lower >= upper:
         raise LDSCUsageError(
             f"convert-h2-scale population-prevalence range must be strictly increasing; got {lower} to {upper}. "

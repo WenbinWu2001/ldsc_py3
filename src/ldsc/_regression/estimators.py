@@ -18,6 +18,7 @@ from contextlib import contextmanager
 import numpy as np
 import pandas as pd
 from scipy.stats import norm, chi2
+from ..config import validate_prevalences
 from ..errors import LDSCConfigError, LDSCInternalError, LDSCUsageError
 from . import jackknife as jk
 from .irwls import IRWLS
@@ -135,28 +136,12 @@ def liability_conversion_factor(samp_prev, pop_prev):
     ------
     LDSCConfigError
         If any element of ``samp_prev`` or ``pop_prev`` is outside ``(0, 1)`` and
-        not NaN, or if a single element has exactly one of ``P``/``K`` NaN.
+        not NaN, or if a single element has exactly one of ``P``/``K`` NaN
+        (``ldsc.config.validate_prevalences``).
     """
-    P = np.asarray(samp_prev, dtype=np.float64)
-    K = np.asarray(pop_prev, dtype=np.float64)
-    P_b, K_b = np.broadcast_arrays(P, K)
-    nan_P, nan_K = np.isnan(P_b), np.isnan(K_b)
-    if np.any(nan_P != nan_K):
-        raise LDSCConfigError(
-            "Liability-scale conversion received a trait with exactly one of sample/population "
-            f"prevalence missing (samp_prev={samp_prev!r}, pop_prev={pop_prev!r}). "
-            "Most likely a `nan` was placed in only one of `--samp-prev`/`--pop-prev`. "
-            "Set both to numbers in (0, 1) for a binary trait, or both to `nan` for a quantitative trait."
-        )
-    finite = ~nan_P
-    bad = finite & (((P_b <= 0) | (P_b >= 1)) | ((K_b <= 0) | (K_b >= 1)))
-    if np.any(bad):
-        raise LDSCConfigError(
-            "Liability-scale conversion received a prevalence outside the open interval (0, 1) "
-            f"(samp_prev={samp_prev!r}, pop_prev={pop_prev!r}). "
-            "Most likely `--samp-prev`/`--pop-prev` was given a value <= 0 or >= 1. "
-            "Pass a probability strictly between 0 and 1, or `nan` for a quantitative trait."
-        )
+    validate_prevalences(samp_prev, pop_prev)
+    P_b, K_b = np.broadcast_arrays(np.asarray(samp_prev, dtype=np.float64), np.asarray(pop_prev, dtype=np.float64))
+    finite = ~np.isnan(P_b)
     # Substitute in-range values for quantitative traits; the final np.where
     # replaces their unused factors with 1.
     K_safe = np.where(finite, K_b, 0.5)

@@ -156,3 +156,29 @@ def test_conversion_cli_has_no_output_dir_and_writes_default_family(tmp_path):
                 str(tmp_path / "bad"),
             ]
         )
+
+
+@pytest.mark.parametrize(
+    ("prevalences", "shown", "flag"),
+    [
+        ({"samp_prev": 0.3, "pop_prev": 1.5}, "(samp_prev=0.3, pop_prev=1.5)", "`--samp-prev`/`--pop-prev`"),
+        ({"samp_prev": 0.0, "pop_prev": 0.01}, "(samp_prev=0.0, pop_prev=0.01)", "`--samp-prev`/`--pop-prev`"),
+        ({"samp_prev": 0.3, "pop_prev": float("nan")}, "(samp_prev=0.3, pop_prev=None)", "`--samp-prev`/`--pop-prev`"),
+        ({"samp_prev": 0.3, "pop_prev_range": (0.0, 0.2)}, "(samp_prev=0.3, pop_prev_range=[0.0, 0.2])",
+         "`--samp-prev`/`--pop-prev-range`"),
+        ({"samp_prev": 1.2, "pop_prev_range": (0.01, 0.2)}, "(samp_prev=1.2, pop_prev_range=[0.01, 0.2])",
+         "`--samp-prev`/`--pop-prev-range`"),
+    ],
+)
+def test_conversion_reports_the_prevalences_it_was_given(tmp_path, prevalences, shown, flag):
+    from ldsc._regression.h2_scale import convert_h2_scale
+    from ldsc.errors import LDSCConfigError
+
+    result_dir = _write_h2_result(tmp_path)
+    with pytest.raises(LDSCConfigError) as failure:
+        convert_h2_scale(result_dir, **prevalences)
+    message = str(failure.value)
+    assert f"outside the open interval (0, 1) {shown}." in message
+    assert f"Most likely {flag} was given a value <= 0 or >= 1." in message
+    assert "array(" not in message and "quantitative trait" not in message
+    assert not (result_dir / "postprocessing").exists()

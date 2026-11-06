@@ -21,7 +21,8 @@ Design Notes
   ``None`` marks a quantitative trait (no liability scale).
 - Range/consistency validation delegates to ``ldsc.config.normalize_prevalence_pair``,
   which ``RegressionConfig`` also applies to the scalar ``h2``/``partitioned-h2``
-  pair, so the (0, 1)-or-NaN rule lives in one place.
+  pair. Both reach ``ldsc.config.validate_prevalences``, where the (0, 1)-or-NaN
+  rule lives in one place.
 - Manifest lookup is by exact munged trait name; supersets are allowed, while
   missing resolved traits and (under the manifest scheme) duplicate resolved
   names are hard errors.

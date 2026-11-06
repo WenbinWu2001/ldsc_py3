@@ -433,6 +433,7 @@ The `h2`, `partitioned-h2`, and `rg` reporting paths consume these values direct
 `_fit_policy()` resolves the fixed intercepts and the requested two-step cutoff from a `RegressionConfig` once, and `_FitPolicy.two_step_cutoff()` applies legacy LDSC's single-annotation default of 30, for the `h2` and `rg` fits and their metadata.
 Result metadata is built from the same values: `_dataset_metadata()` and `_fit_metadata()` record a fitted dataset's settings and a fit's counts, cap and cutoff for `h2`, `partitioned-h2` models and `rg` pairs, and `_ldscore_dir_of()` records the LD-score directory that was read.
 Prevalences reach the fits checked: `RegressionConfig` and `estimate_rg_pairs()` apply `ldsc.config.normalize_prevalence_pair()`, so a quantitative trait is `(None, None)` throughout.
+`normalize_prevalence_pair()` and the conversion factor `liability_conversion_factor()` check values with the one vectorized rule `ldsc.config.validate_prevalences()`, which `convert-h2-scale` also calls on its given `samp_prev` and population prevalence or range endpoints before converting.
 `estimate_rg_pairs()` reads the per-trait pairs from its `prevalences` argument only and rejects a `RegressionConfig` that sets `samp_prev` or `pop_prev`, which would otherwise be ignored; `ldsc rg` and `run_rg()` resolve their prevalence lists or manifest into that argument and build the config without them.
 Output diagnostics remain owned by the workflow rather than being attached dynamically to numerical kernel objects.
 

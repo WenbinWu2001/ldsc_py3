@@ -1,9 +1,50 @@
 # Status
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-06
 
-Branch `restructure`; checked on 2026-11-04.
+Branch `restructure`; checked on 2026-11-06.
 Nothing below is in progress; each open item needs the user's go-ahead.
+
+## Completed: audit-fix program (2026-11-04 to 2026-11-06)
+
+The program fixed the findings of a package-wide audit in 294 commits, `e1f22c2..6adf7d3e` on `restructure`; the first 248, through `7612eed8`, are on `origin/restructure`, and the last 46 are not pushed.
+Work ran in lanes on separate git worktrees, each implemented test-first, reviewed adversarially and fixed, then cherry-picked onto `restructure` with a full suite and an output-comparison harness of 207 cases at every merge.
+The decision record (47 numbered coordinator entries plus lane decisions) and the harness are kept outside the repository in the coordinator's scratch folder; the user-visible consequences are recorded in the reference pages and below.
+
+### What changed
+
+- Batch 1 (D1-D3, D5-D7): restriction before identity cleanup on every PLINK route (`de753731`); munging uppercases alleles in every mode (`636ed2e0`) and keeps NaN for missing base-mode alleles (`559cbf8b`); an `rg` pair with a heritability estimate that is not positive is `unestimable` (`24eb7b8a`); `quantile-h2` reads R² matrix sidecars as reference metadata (`0f494419`); gene LD-score index format version 6 with float64 counts, stored annotation kinds and `snp_universe_policy`, and earlier versions rejected with a rebuild message (`23610614`, `06f3e287`).
+- Batch 2: dead code removed (several `!` commits), about 100 function-level imports hoisted with the remaining deferred imports listed in `tests/package/test_layering.py`, and every LD-score chromosome written as one Parquet row group.
+- Batches 3-4: one `MungeConfig` for `SumstatsMunger.run` and `infer_raw_sumstats` (`bbec1ca2`, breaking) and one munging plan shared with `--infer-only`; the regression runner split into `_regression` modules behind the unchanged `RegressionRunner`; `--query-batch-size` is a usage error with exit status 2 for bad values; region presets follow `--genome-build` in rsID-family `ldscore` (D10).
+- Batch 5: gene LD-score index construction runs its baseline pass through `compute_chromosome` and writes per-chromosome worker logs; every PLINK route shares one chromosome selection and stops on a missing, non-numeric, nonpositive or non-integral BIM `BP`; `RefPanelConfig` rejects a genetic map with an R² matrix at construction; `quantile-h2` checks the fitted LD-score directory in an input gate; corrupt LD-score metadata raises `LDSCInputError` instead of raw decoder errors.
+- Batch 6: every input-issue row carries a repair; gene coordinate catalog failures name their defects and write `diagnostics/gene_catalog_issues.tsv`; one prevalence rule and one log-level rule; workflow notices are printed only by the command line (`214e005c`, breaking for the private `_console_notices` flag); shared atomic writers and one metadata-file reader.
+- C12: architecture, data-flow, code-structure and reference pages brought up to date, and the proposed term "gene-index construction" recorded in `docs/dev/DOCS_VOCABULARY.md`.
+- Final review (15 confirmed findings) and fixes (`7612eed8..6adf7d3e`):
+  - `build-gene-ldscore-index` refuses a symlinked or unusable `.build/`, treats `.build/` as its own only when it holds the builder's lock or log file, rechecks the destination under the lock just before publication, removes `.build/` through a directory descriptor so a symlink swapped in never redirects the removal (`6adf7d3e`), and logs each PLINK identity-cleanup warning once.
+  - A keep file is a set of individuals: a repeated IID counts once, IIDs match as exact text (`01003` no longer matches `1003`, and `NA` is an ordinary IID), a keep IID naming several `.fam` rows stops the run, and BED reads reject out-of-range indices; `index_id` changes only for panels whose IIDs were reformatted by numeric parsing or are missing-value words such as `NA`.
+  - LD-score directories with an unreadable or incomplete overlap table, invalid `overlap_config` totals, or missing or null index provenance raise `LDSCInputError`.
+  - `infer_raw_sumstats()` returns the same suggested options as `--infer-only`.
+  - Annotation files take `SNP`, `CM`, `MAF`, `A1` and `A2` only by canonical name or listed alias (the user's decision of 2026-11-06), so columns such as `lowMAF` or `eQTL_SNP` stay annotations; this replaces the earlier note that `MAF` resolves by suffix in annotation files.
+
+### Evidence
+
+- Full suite on a detached tree at `6adf7d3e`: 3040 passed, 5 skipped (the external `resources/` directory is absent), 0 failed; at `c4deec18`, before the last fix, 3039 passed.
+- Harness at `c4deec18` against `7612eed8`: 204 of 207 cases identical; the 3 that differ are the intended `--keep-indivs-file` help sentence, and the other differences are log order and traceback line numbers.
+- Harness at `6adf7d3e` against `c4deec18`: all 207 cases identical.
+- Each merge before it passed its full suite (2941 passed at `c7bbd459`) and showed only intended harness differences.
+- Security review of `src/` over `e1f22c2..7612eed8`: no finding at confidence 8 of 10 or higher.
+- Security review of the fix commits `7612eed8..c4deec18`: one regression scored 5-6 of 10, the symlink-following `.build/` cleanup from `f4aac520`, fixed test-first in `6adf7d3e`; a probe that swaps `.build/` for a symlink mid-removal leaves the link target untouched.
+- Not run: tests that need the external `resources/` directory (5 skipped) and any HPC or full-genome check.
+
+### Waiting for the user
+
+- Confirm or reverse: `run_ldscore()` and `run_quantile_h2()` also write `diagnostics/gene_catalog_issues.tsv`, as their CLI runs do.
+- Confirm or reverse six Python-API changes from batch 6: Python `run_ldscore()` and `run_annotate()` log query notices; an invalid `log_level` raises `LDSCConfigError` instead of `LDSCUsageError`; `LDScoreDirectoryWriter.write_batches` no longer applies the gene-list viability gate; `PartitionedH2DirectoryWriter` writes the declared `coefficient_delete_values.parquet` with per-query output; the legacy converter may report several defects in a different order; `declared_result_file` rejects `..` names.
+- Confirm or revert a mechanical line-number refresh inside the proposed "dropped-SNP table" vocabulary row.
+- Decide history items: the 186 program commits made before 2026-11-06 lack the co-author trailer, 48 subjects exceed 50 characters, some breaking commits lack `!` (for example `23610614` and `c9feb7dd`), and commits `97e492a3` through `acc08452` are not bisectable; all of these commits are already on `origin/restructure`, so rewriting them needs a force push.
+- Decide whether to guard real annotation metadata under a non-alias name (such as `GENETIC_MAP_CM` or `EUR_MAF`), which now becomes an annotation without a message, and whether SNP restriction files and annotation `CHR`/`POS` should stop matching by suffix too.
+- Approved vocabulary entry "LD-score producer" names `_DirectProducer` in `calculator.py`; it now lives in `src/ldsc/_ldscore/direct_batches.py`.
+- Open defects reported but not fixed: rsID `ldscore` examples in `docs/user-guide/workflows/ld-scores.md` omit `--genome-build`; `run_ldscore()` in rsID-family modes cannot use default region exclusions; `InputGate.check` may replace other chained error messages; a `.build` symlink planted between preflight and lock is still followed; `MungeConfig.column_hints` alias keys are undocumented; `test_completed_chromosome_is_durably_staged_before_other_workers_finish` can fail under heavy load.
 
 ## Completed: A/T and C/G SNPs are valid identities (2026-11-04)
 

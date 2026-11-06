@@ -810,3 +810,21 @@ def test_ref_panel_config_has_no_chromosome_list():
     # R2 matrix chromosomes come from its files and PLINK chromosomes from the .bim contents.
     with pytest.raises(TypeError, match="chromosomes"):
         RefPanelConfig(backend="r2_matrix", r2_matrix_dir="r2", chromosomes=("1",))
+
+
+@pytest.mark.parametrize("name, sep", [("table.tsv", None), ("table.tsv.gz", "\t")])
+def test_identity_table_skips_only_its_identity_lines(tmp_path, name, sep):
+    import gzip
+    from ldsc._core.identifiers import open_identity_table
+
+    text = "# ldsc:artifact_type=ref_panel_metadata\n# ldsc:genome_build=hg19\n#CHROM\tPOS\nchr1\t10\n"
+    path = tmp_path / name
+    with gzip.open(path, "wt", encoding="utf-8") if name.endswith(".gz") else open(path, "w", encoding="utf-8") as stream:
+        stream.write(text)
+
+    with open_identity_table(path, sep=sep) as (identity, header, stream):
+        rows = stream.read()
+
+    assert identity == {"artifact_type": "ref_panel_metadata", "genome_build": "hg19"}
+    assert header == ["#CHROM", "POS"]
+    assert rows == "chr1\t10\n"

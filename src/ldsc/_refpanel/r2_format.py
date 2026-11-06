@@ -24,7 +24,7 @@ import pandas as pd
 
 from .._core.chromosomes import chrom_sort_key, normalize_chromosome
 from .._core.columns import normalize_genome_build
-from .._core.identifiers import read_identity_lines, validate_retained_identifier_uniqueness
+from .._core.identifiers import open_identity_table, validate_retained_identifier_uniqueness
 from .._core.snp_identity import (
     effective_merge_key_series,
     identity_artifact_metadata,
@@ -264,9 +264,7 @@ def read_r2_sidecar(path: str | PathLike[str], *, rows: bool = True) -> tuple[di
     the header is :data:`SIDECAR_COLUMNS`; otherwise the frame is ``None``.
     CHR, SNP, A1 and A2 are read as text.
     """
-    with gzip.open(path, "rt", encoding="utf-8") as stream:
-        identity, line = read_identity_lines(stream)
-        header = line.rstrip("\r\n").split("\t")
+    with open_identity_table(path, sep="\t") as (identity, header, stream):
         if not rows or tuple(header) != SIDECAR_COLUMNS:
             return identity, header, None
         try:

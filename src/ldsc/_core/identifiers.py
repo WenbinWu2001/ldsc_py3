@@ -25,9 +25,9 @@ read_global_snp_restriction :
 read_global_chr_pos_restriction_key_set :
     Stream a coordinate restriction file into packed uint64 CHR/POS keys for
     memory-sensitive chunk filtering.
-read_identity_lines :
-    Consume the leading ``# ldsc:`` identity lines of a package-written text
-    table, such as an R2 matrix sidecar.
+open_identity_table :
+    Open a package-written text table, such as an R2 matrix sidecar, past
+    its leading ``# ldsc:`` identity lines.
 
 Design Notes
 ------------
@@ -42,6 +42,7 @@ Design Notes
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import csv
 import itertools
 import gzip
@@ -385,27 +386,39 @@ def open_text(path: str | PathLike[str]):
     return open(path, "rt", encoding="utf-8")
 
 
-def read_identity_lines(stream) -> tuple[dict[str, str], str]:
-    """Consume the leading ``# ldsc:<key>=<value>`` identity lines of an open text table.
+@contextmanager
+def open_identity_table(path: str | PathLike[str], *, sep: str | None = None):
+    """Open a text table past its leading ``# ldsc:<key>=<value>`` identity lines.
 
     Package-written text tables, such as R2 matrix sidecars, start with these
     lines. Only lines with that exact prefix are consumed, so any other line,
-    including a ``#CHROM`` header, is returned as the header.
+    including a ``#CHROM`` header, is read as the header. The file is opened
+    with :func:`open_text`, so it is UTF-8 text, plain or gzip-compressed.
 
-    Returns
-    -------
-    tuple[dict[str, str], str]
-        The identity lines as ``{key: value}``, and the next line of
-        ``stream``: the table header, unparsed, or ``""`` at the end of the
-        file. ``stream`` is left at the first row after the header.
+    Parameters
+    ----------
+    path : str or os.PathLike[str]
+        The table.
+    sep : str or None, optional
+        Header delimiter. ``None`` (default) splits on runs of whitespace.
+
+    Yields
+    ------
+    tuple[dict[str, str], list[str], typing.TextIO]
+        The identity lines as ``{key: value}``; the header names, split but
+        otherwise unparsed; and the open stream, at the first row after the
+        header, for example for ``pandas.read_csv(stream, header=None,
+        names=...)``.
     """
-    identity: dict[str, str] = {}
-    line = stream.readline()
-    while line.startswith("# ldsc:"):
-        key, _, value = line.removeprefix("# ldsc:").strip().partition("=")
-        identity[key] = value
+    with open_text(path) as stream:
+        identity: dict[str, str] = {}
         line = stream.readline()
-    return identity, line
+        while line.startswith("# ldsc:"):
+            key, _, value = line.removeprefix("# ldsc:").strip().partition("=")
+            identity[key] = value
+            line = stream.readline()
+        header = line.split() if sep is None else line.rstrip("\r\n").split(sep)
+        yield identity, header, stream
 
 
 def _detect_delimiter(sample_line: str) -> str | None:

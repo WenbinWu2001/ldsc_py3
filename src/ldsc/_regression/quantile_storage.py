@@ -16,7 +16,7 @@ from .._core.columns import (
     A1_COLUMN_SPEC, A2_COLUMN_SPEC, CHR_COLUMN_SPEC, MAF_COLUMN_SPEC, POS_COLUMN_SPEC,
     SNP_COLUMN_SPEC, resolve_optional_column, resolve_required_column,
 )
-from .._core.identifiers import open_text, read_identity_lines
+from .._core.identifiers import open_identity_table
 from ..errors import LDSCInputError
 from .outputs import SNP_ALIGNMENT_ISSUE_COLUMNS
 
@@ -139,9 +139,7 @@ def reference_chunks(paths):
     """
     for path in paths:
         try:
-            with open_text(path) as stream:
-                _, header_line = read_identity_lines(stream)
-                header = header_line.split()
+            with open_identity_table(path) as (_, header, stream):
                 rename = _reference_columns(header, path)
                 with pd.read_csv(stream, sep=r"\s+", header=None, names=header, usecols=list(rename),
                                  chunksize=ROW_CHUNK_SIZE) as reader:

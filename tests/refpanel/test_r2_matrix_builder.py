@@ -96,7 +96,7 @@ class GeneticMapParserTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            genetic_map = genetic_maps.load_genetic_map(path)
+            genetic_map = genetic_maps.load_genetic_map(path, command="build-r2-matrix")
 
             self.assertEqual(genetic_map.columns.tolist(), ["CHR", "POS", "CM"])
             self.assertEqual(genetic_map["CHR"].tolist(), ["X", "X"])
@@ -113,7 +113,7 @@ class GeneticMapParserTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            genetic_map = genetic_maps.load_genetic_map(path)
+            genetic_map = genetic_maps.load_genetic_map(path, command="build-r2-matrix")
 
             self.assertEqual(genetic_map["CHR"].tolist(), ["1", "1"])
             self.assertEqual(genetic_map["POS"].tolist(), [100, 200])
@@ -129,7 +129,7 @@ class GeneticMapParserTest(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(LDSCInputError, "M' or 'MT"):
-                genetic_maps.load_genetic_map(path)
+                genetic_maps.load_genetic_map(path, command="build-r2-matrix")
 
     def test_load_genetic_map_rejects_unsorted_rows(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -142,7 +142,7 @@ class GeneticMapParserTest(unittest.TestCase):
             )
 
             with self.assertRaises(LDSCInputError):
-                genetic_maps.load_genetic_map(path)
+                genetic_maps.load_genetic_map(path, command="build-r2-matrix")
 
     def test_load_genetic_map_rejects_duplicate_positions(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -155,7 +155,7 @@ class GeneticMapParserTest(unittest.TestCase):
             )
 
             with self.assertRaises(LDSCInputError):
-                genetic_maps.load_genetic_map(path)
+                genetic_maps.load_genetic_map(path, command="build-r2-matrix")
 
 
 class GeneticMapInterpolationTest(unittest.TestCase):
@@ -172,6 +172,7 @@ class GeneticMapInterpolationTest(unittest.TestCase):
             chrom="1",
             positions=np.array([50, 150, 300, 500], dtype=np.int64),
             genetic_map=genetic_map,
+            command="build-r2-matrix",
         )
 
         np.testing.assert_allclose(interpolated, np.array([0.0, 0.5, 2.0, 3.0]))

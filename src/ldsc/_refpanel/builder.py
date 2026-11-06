@@ -515,8 +515,8 @@ class R2MatrixBuilder:
                 f"Supply --genetic-map-{source_build}-sources when building an R2 matrix intended for cM windows."
             )
         return _BuildState(
-            genetic_map_hg19=None if hg19_files is None else load_genetic_map_group(hg19_files),
-            genetic_map_hg38=None if hg38_files is None else load_genetic_map_group(hg38_files),
+            genetic_map_hg19=None if hg19_files is None else load_genetic_map_group(hg19_files, command="build-r2-matrix"),
+            genetic_map_hg38=None if hg38_files is None else load_genetic_map_group(hg38_files, command="build-r2-matrix"),
             liftover_chain_paths={
                 ("hg19", "hg38"): config.liftover_chain_hg19_to_hg38_file,
                 ("hg38", "hg19"): config.liftover_chain_hg38_to_hg19_file,
@@ -728,9 +728,9 @@ class R2MatrixBuilder:
             )
 
             cm_values = (
-                interpolate_genetic_map_cm(chrom, build_positions, build_state.genetic_map_hg19)
+                interpolate_genetic_map_cm(chrom, build_positions, build_state.genetic_map_hg19, command="build-r2-matrix")
                 if build == "hg19" and build_state.genetic_map_hg19 is not None
-                else interpolate_genetic_map_cm(chrom, build_positions, build_state.genetic_map_hg38)
+                else interpolate_genetic_map_cm(chrom, build_positions, build_state.genetic_map_hg38, command="build-r2-matrix")
                 if build == "hg38" and build_state.genetic_map_hg38 is not None
                 else None
             )

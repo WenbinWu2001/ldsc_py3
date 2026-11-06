@@ -560,6 +560,28 @@ Earlier releases kept build state beside the index: hidden `.<index-name>.build-
 The current builder ignores all of them, so it does not wait for a build started by an earlier release.
 Let any such build finish before building the same destination, then remove those directories and the lock manually if you no longer need their logs.
 
+### `build-gene-ldscore-index`: a genetic map cannot be used
+
+**Symptom:** `build-gene-ldscore-index could not load genetic map ...` / `...could not combine genetic map inputs...`
+
+The builder reads a genetic map only with `--ld-wind-cm`, and only the map for `--genome-build`.
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | The map repeats CHR/POS rows, or two map files overlap | Look for repeated chromosome and position pairs within and across the files |
+| 2 | The map rows are not sorted by chromosome and position | Sort a copy by chromosome and position and compare it with the file |
+| 3 | The map is for the other genome build or lacks a chromosome of the index | Compare the map's CHR values and positions with `--genome-build` and the PLINK chromosomes |
+
+**Remedies:**
+
+1. Deduplicate the map and sort it by chromosome and position, or pass non-overlapping map files.
+2. Pass the map for `--genome-build`, covering every chromosome of the index.
+3. Use `--ld-wind-kb` or `--ld-wind-snps` and omit the map when no usable map is available; this builds a different index.
+
+**Developer reference:** `_ldscore.gene_index.build._load_builder_genetic_map()` and `_refpanel.genetic_map` · **Exception:** `LDSCInputError`
+
 ### `build-gene-ldscore-index`: required identity or build option is missing
 
 **Symptom:** parsing reports a missing `--snp-identifier`, `--genome-build`, or LD-window option.
@@ -813,6 +835,28 @@ or missing — it cannot define a genetic-distance window, and `--yes-really` do
    With an R² matrix, use the R² matrix's own window unit, no wider than its build window.
 4. In rsID-family modes, `ldscore` cannot yet select a PLINK genetic map, and the run stops asking for `--genome-build` even when it was passed.
    Use remedy 2 or 3, or a coordinate-family mode (`--snp-identifier chr_pos_allele_aware` with `--genome-build`).
+
+### `ldscore`: a genetic map cannot be used
+
+**Symptom:** `ldscore could not load genetic map ...` / `...could not combine genetic map inputs...` / `...could not interpolate cM positions for chromosome N...`
+
+`ldscore` reads a genetic map only for a PLINK reference panel with `--ld-wind-cm`, and only the map for the run's genome build.
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | The map repeats CHR/POS rows, or two map files overlap | Look for repeated chromosome and position pairs within and across the files |
+| 2 | The map rows are not sorted by chromosome and position | Sort a copy by chromosome and position and compare it with the file |
+| 3 | The map is for the other genome build or lacks a chromosome of the reference panel | Compare the map's CHR values and positions with `--genome-build` and the `.bim` chromosomes |
+
+**Remedies:**
+
+1. Deduplicate the map and sort it by chromosome and position, or pass non-overlapping map files.
+2. Pass the map for the run's build with `--genetic-map-hg19-sources` or `--genetic-map-hg38-sources`, covering every chromosome of the reference panel.
+3. Use `--ld-wind-kb` or `--ld-wind-snps` when no usable map is available; this computes LD scores over a different window.
+
+**Developer reference:** `_refpanel.adapters._resolve_genetic_map()`, `PlinkRefPanel.prepare_chromosome()` and `_refpanel.genetic_map` · **Exception:** `LDSCInputError`
 
 ## `build-r2-matrix`
 

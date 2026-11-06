@@ -402,6 +402,7 @@ class PlinkRefPanel(RefPanel):
                 if genetic_map is not None:
                     metadata["CM"] = interpolate_genetic_map_cm(
                         normalize_chromosome(chrom), metadata["POS"].to_numpy(dtype=np.int64), genetic_map,
+                        command="ldscore",
                     )
                 else:
                     assert_cm_usable(metadata["CM"], chrom)
@@ -664,7 +665,7 @@ def _resolve_genetic_map(panel, chrom, metadata):
     check = GenomeBuildCheck(build, context="PLINK genetic map", logger=LOGGER)
     check.paths(f"--genetic-map-{build}-sources", sources)
     check.resolve()
-    return load_genetic_map_group(split_cli_path_tokens(sources))
+    return load_genetic_map_group(split_cli_path_tokens(sources), command="ldscore")
 
 
 _PANEL_FILTER_OPTIONS = {"ref_panel_snps_file": "--ref-panel-snps-file", "maf_floor": "--maf-min"}

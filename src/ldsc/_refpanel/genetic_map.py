@@ -2,8 +2,10 @@
 
 ``ldscore`` (``PlinkRefPanel``), ``build-gene-ldscore-index`` and
 ``build-r2-matrix`` read genetic maps through these functions. Each command
-keeps its own policy for which map files it accepts and when it needs them;
-the input gate checks map headers with ``GENETIC_MAP_HEADER_CHECKS``.
+keeps its own policy for which map files it accepts and when it needs them,
+and passes its name as ``command``, so an error names the running command and
+links its troubleshooting section (``GENETIC_MAP_TROUBLESHOOTING``). The
+input gate checks map headers with ``GENETIC_MAP_HEADER_CHECKS``.
 """
 
 from __future__ import annotations
@@ -18,9 +20,14 @@ from .._core.chromosomes import chrom_sort_key, normalize_chromosome
 from .._core.columns import CHR_COLUMN_SPEC, POS_COLUMN_SPEC, ColumnSpec, resolve_required_column
 from ..errors import LDSCInputError
 
-_BUILD_REF_PANEL_LIFTOVER_DOC = (
-    "docs/user-guide/troubleshooting.md#build-r2-matrix-liftover-or-genetic-map-configuration-is-incomplete"
-)
+# Troubleshooting section for genetic-map errors, by the command that reads the map.
+GENETIC_MAP_TROUBLESHOOTING = {
+    "build-r2-matrix":
+        "docs/user-guide/troubleshooting.md#build-r2-matrix-liftover-or-genetic-map-configuration-is-incomplete",
+    "ldscore": "docs/user-guide/troubleshooting.md#ldscore-a-genetic-map-cannot-be-used",
+    "build-gene-ldscore-index":
+        "docs/user-guide/troubleshooting.md#build-gene-ldscore-index-a-genetic-map-cannot-be-used",
+}
 
 
 GENETIC_MAP_CM_SPEC = ColumnSpec(
@@ -50,8 +57,8 @@ def _read_text_table(path: str | PathLike[str]) -> pd.DataFrame:
     return pd.read_csv(text_path, sep=r"\s+", compression=compression)
 
 
-def load_genetic_map(path: str | PathLike[str]) -> pd.DataFrame:
-    """Load one genetic map table into canonical `CHR/POS/CM` columns."""
+def load_genetic_map(path: str | PathLike[str], *, command: str) -> pd.DataFrame:
+    """Load one genetic map table into canonical `CHR/POS/CM` columns; errors name ``command``."""
 
     df = _read_text_table(path)
     context = str(path)
@@ -71,16 +78,16 @@ def load_genetic_map(path: str | PathLike[str]) -> pd.DataFrame:
     duplicated = out.duplicated(subset=["CHR", "POS"], keep=False)
     if duplicated.any():
         raise LDSCInputError(
-            f"build-r2-matrix could not load genetic map '{path}': duplicate CHR/POS "
+            f"{command} could not load genetic map '{path}': duplicate CHR/POS "
             "rows were found. Most likely the map file contains repeated positions. "
             "Deduplicate the map or provide a clean genetic map. "
-            f"Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
+            f"Other causes & fixes: {GENETIC_MAP_TROUBLESHOOTING[command]}"
         )
 
     chrom_order = out["CHR"].map(chrom_sort_key)
     if not chrom_order.equals(chrom_order.sort_values(ignore_index=True)):
         raise LDSCInputError(
-            f"build-r2-matrix could not load genetic map '{path}': rows are not sorted "
+            f"{command} could not load genetic map '{path}': rows are not sorted "
             "by chromosome. Most likely map shards were concatenated out of order. Sort "
             "the file by chromosome and position, or pass correctly ordered map shards."
         )
@@ -88,7 +95,7 @@ def load_genetic_map(path: str | PathLike[str]) -> pd.DataFrame:
         positions = chrom_frame["POS"].reset_index(drop=True)
         if not positions.equals(positions.sort_values(ignore_index=True)):
             raise LDSCInputError(
-                f"build-r2-matrix could not load genetic map '{path}': positions are not "
+                f"{command} could not load genetic map '{path}': positions are not "
                 f"sorted within chromosome {chrom}. Most likely this chromosome's map rows "
                 "were shuffled. Sort the map by chromosome and position before rerunning."
             )
@@ -96,25 +103,25 @@ def load_genetic_map(path: str | PathLike[str]) -> pd.DataFrame:
     return out.reset_index(drop=True)
 
 
-def load_genetic_map_group(paths: Sequence[str | PathLike[str]]) -> pd.DataFrame:
-    """Load and combine one or more genetic map files into one canonical table."""
+def load_genetic_map_group(paths: Sequence[str | PathLike[str]], *, command: str) -> pd.DataFrame:
+    """Load and combine one or more genetic map files into one canonical table; errors name ``command``."""
 
     if not paths:
         raise LDSCInputError(
-            "build-r2-matrix could not load a genetic map group because no map paths "
+            f"{command} could not load a genetic map group because no map paths "
             "were supplied. Most likely an empty path token reached the kernel. Pass at "
             "least one genetic map file or omit cM-window output."
         )
-    frames = [load_genetic_map(path) for path in paths]
+    frames = [load_genetic_map(path, command=command) for path in paths]
     combined = pd.concat(frames, axis=0, ignore_index=True)
     combined = combined.sort_values(by=["CHR", "POS"], key=lambda col: col.map(chrom_sort_key) if col.name == "CHR" else col, kind="mergesort")
     duplicated = combined.duplicated(subset=["CHR", "POS"], keep=False)
     if duplicated.any():
         raise LDSCInputError(
-            "build-r2-matrix could not combine genetic map inputs: duplicate CHR/POS "
+            f"{command} could not combine genetic map inputs: duplicate CHR/POS "
             "rows were found across map files. Most likely overlapping map shards were "
             "supplied. Use non-overlapping shards or a single deduplicated genetic map. "
-            f"Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
+            f"Other causes & fixes: {GENETIC_MAP_TROUBLESHOOTING[command]}"
         )
     return combined.reset_index(drop=True)
 
@@ -123,17 +130,19 @@ def interpolate_genetic_map_cm(
     chrom: str,
     positions: np.ndarray,
     genetic_map: pd.DataFrame,
+    *,
+    command: str,
 ) -> np.ndarray:
-    """Interpolate cumulative cM values for `positions` on one chromosome."""
+    """Interpolate cumulative cM values for `positions` on one chromosome; errors name ``command``."""
 
     chrom = normalize_chromosome(chrom)
     chrom_map = genetic_map.loc[genetic_map["CHR"] == chrom, ["POS", "CM"]].reset_index(drop=True)
     if len(chrom_map) == 0:
         raise LDSCInputError(
-            f"build-r2-matrix could not interpolate cM positions for chromosome {chrom}: "
+            f"{command} could not interpolate cM positions for chromosome {chrom}: "
             "the genetic map contains no rows for that chromosome. Most likely the wrong "
             "map build or incomplete chromosome shard was supplied. Pass a map that covers "
-            f"chromosome {chrom}. Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
+            f"chromosome {chrom}. Other causes & fixes: {GENETIC_MAP_TROUBLESHOOTING[command]}"
         )
     return np.interp(
         np.asarray(positions, dtype=np.int64),

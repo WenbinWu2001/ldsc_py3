@@ -1340,7 +1340,7 @@ def _load_builder_genetic_map(config: GeneLDScoreIndexBuildConfig, genetic_map_s
     check = GenomeBuildCheck(build, context="gene-index genetic map", logger=LOGGER)
     check.paths("genetic map", sources)
     check.resolve()
-    return load_genetic_map_group(split_cli_path_tokens(sources))
+    return load_genetic_map_group(split_cli_path_tokens(sources), command="build-gene-ldscore-index")
 
 
 def _retained_baseline_content_sha256(

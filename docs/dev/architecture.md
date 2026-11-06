@@ -495,7 +495,9 @@ Each directory writer exposes `artifact_family()` as the single declaration of i
 Persistent `PartitionedH2FitArtifacts` default to copying.
 The writer stores run metadata once, and `_regression.quantile_h2.load_fitted_partitioned_model()` resolves the query's relative `global_metadata` reference before applying model-specific fields.
 `_regression/outputs.py` spells the fitted-model file names and the `global_metadata` reference once: `fitted_model_files()` locates one fitted model, its expected `artifact_type` and its manifest root for `quantile-h2` (the aggregate root only for a folder under `diagnostics/query_annotations`, so the root never leaves the directory given), and `published_query_artifacts()` names the published per-query files for `PartitionedH2BatchResult`.
-`tests/regression/test_partitioned_publication.py` and `tests/regression/test_quantile_streaming.py` cover this writer-to-reader contract, relocation, and publication failure cleanup.
+The `partitioned-h2` per-query tree and the `rg` pair tree are published by one helper, `_publish_staged_tree()`: the writer fills a hidden staging sibling of `diagnostics/query_annotations` or `diagnostics/pairs` and writes its root files, then swaps the staging directory into place; an overwrite moves the previous tree to a backup that is restored only when a failure leaves no final tree.
+Both writers also share the zero-padded ordinal folder names and the name slugs of their detail folders.
+`tests/regression/test_partitioned_publication.py` and `tests/regression/test_quantile_streaming.py` cover this writer-to-reader contract, relocation, and publication failure cleanup; `tests/runtime/test_output.py` covers the swap rollback of both trees.
 
 | Module and symbol | Responsibility |
 | --- | --- |

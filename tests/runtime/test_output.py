@@ -878,6 +878,24 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
             self.assertEqual(metadata["coefficient_delete_block_count"], 2)
             self.assertEqual(metadata["retained_ld_columns"], ["base"])
 
+    def test_per_query_tree_writes_every_declared_root_file(self):
+        delete_values = pd.DataFrame({"delete_block": [0, 1], "base": [0.4, 0.6]})
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "partitioned"
+            PartitionedH2DirectoryWriter().write(
+                self.make_summary(),
+                PartitionedH2OutputConfig(output_dir=output_dir, write_per_query_results=True),
+                per_query_artifacts=self.make_fit_artifacts(),
+                coefficient_delete_values=delete_values,
+            )
+
+            metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
+            for relative in metadata["files"].values():
+                self.assertTrue((output_dir / relative).exists(), relative)
+            pd.testing.assert_frame_equal(
+                pd.read_parquet(output_dir / "diagnostics" / "coefficient_delete_values.parquet"), delete_values,
+            )
+
     def test_writes_per_query_tree_with_sanitized_manifest(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "partitioned"
@@ -997,6 +1015,36 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
             self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
             self.assertFalse((output_dir / "metadata.json").exists())
             self.assertIn("coefficient", (output_dir / "partitioned_h2.tsv").read_text(encoding="utf-8"))
+
+    def test_failed_query_tree_swap_restores_the_previous_tree(self):
+        from ldsc._regression import outputs
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "partitioned"
+            PartitionedH2DirectoryWriter().write(
+                self.make_summary(),
+                PartitionedH2OutputConfig(output_dir=output_dir, write_per_query_results=True),
+                per_query_artifacts=self.make_fit_artifacts(),
+            )
+            queries = output_dir / "diagnostics" / "query_annotations"
+            before = {path.relative_to(queries): path.read_bytes() for path in queries.rglob("*") if path.is_file()}
+            original = outputs.os.replace
+
+            def replace(source, destination):
+                if ".query_annotations.tmp." in str(source) and Path(destination) == queries:
+                    raise OSError("injected publication failure")
+                return original(source, destination)
+
+            with mock.patch.object(outputs.os, "replace", replace):
+                with self.assertRaisesRegex(OSError, "injected publication failure"):
+                    PartitionedH2DirectoryWriter().write(
+                        self.make_summary(),
+                        PartitionedH2OutputConfig(output_dir=output_dir, overwrite=True, write_per_query_results=True),
+                        per_query_artifacts=self.make_fit_artifacts(),
+                    )
+            after = {path.relative_to(queries): path.read_bytes() for path in queries.rglob("*") if path.is_file()}
+            self.assertEqual(after, before)
+            self.assertEqual(list(queries.parent.glob(".query_annotations.*")), [])
 
     def test_aggregate_only_refuses_stale_per_query_tree_without_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:

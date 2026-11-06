@@ -507,10 +507,10 @@ def stage_partitioned_h2_fit(directory, category_table, delete_values, metadata)
 def _query_records(summary: pd.DataFrame) -> list[dict[str, object]]:
     """Return ordered query records with deterministic safe folder names."""
     records: list[dict[str, object]] = []
-    width = max(4, len(str(len(summary))))
     for idx, query_name in enumerate(summary["category"].astype(str).tolist(), start=1):
-        slug = _slugify_query_name(query_name)
-        records.append({"ordinal": idx, "query_annotation": query_name, "slug": slug, "folder": f"{idx:0{width}d}_{slug}"})
+        slug = _slugify(query_name, "annotation")
+        records.append({"ordinal": idx, "query_annotation": query_name, "slug": slug,
+                        "folder": _ordinal_folder(idx, len(summary), slug)})
     return records
 
 
@@ -718,12 +718,9 @@ class PartitionedH2DirectoryWriter:
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
         if query_status is not None:
             self.write_query_status(output_dir, query_status)
-        if not output_config.write_per_query_results:
-            atomic_write_dataframe(
-                root_summary,
-                summary_path,
-                na_rep="NaN",
-            )
+
+        def write_root_files():
+            atomic_write_dataframe(root_summary, summary_path, na_rep="NaN")
             if coefficient_delete_values is not None:
                 coefficient_delete_values.to_parquet(coefficient_delete_path, index=False)
             if legacy_sumstats_drops is not None:
@@ -732,14 +729,16 @@ class PartitionedH2DirectoryWriter:
                 result_metadata(metadata_payload, artifact_type="partitioned_h2_result", files=root_files),
                 metadata_path,
             )
+
+        if not output_config.write_per_query_results:
+            write_root_files()
             remove_output_artifacts(stale_paths)
             return paths
 
         query_records = _query_records(summary)
         root_summary["query_result_dir"] = [f"{QUERY_RESULT_ROOT}/{record['folder']}" for record in query_records]
-        staging_dir = Path(tempfile.mkdtemp(prefix=".query_annotations.tmp.", dir=str(diagnostics_dir)))
-        backup_dir: Path | None = None
-        try:
+
+        def populate(staging_dir):
             manifest_rows = self._write_staged_query_tree(
                 staging_dir,
                 query_records,
@@ -747,32 +746,9 @@ class PartitionedH2DirectoryWriter:
                 per_query_artifacts or {},
             )
             atomic_write_dataframe(pd.DataFrame(manifest_rows), staging_dir / "manifest.tsv", na_rep="NaN")
-            atomic_write_dataframe(
-                root_summary,
-                summary_path,
-                na_rep="NaN",
-            )
-            if legacy_sumstats_drops is not None:
-                _write_legacy_sumstats_audit(legacy_sumstats_drops, family.paths["legacy_sumstats_drops"])
-            atomic_write_json(
-                result_metadata(metadata_payload, artifact_type="partitioned_h2_result", files=root_files),
-                metadata_path,
-            )
-            if output_config.overwrite and query_root.exists():
-                backup_dir = Path(tempfile.mkdtemp(prefix=".query_annotations.backup.", dir=str(diagnostics_dir)))
-                backup_dir.rmdir()
-                os.replace(query_root, backup_dir)
-            os.replace(staging_dir, query_root)
-        except Exception:
-            if staging_dir.exists():
-                shutil.rmtree(staging_dir, ignore_errors=True)
-            if backup_dir is not None and backup_dir.exists() and not query_root.exists():
-                os.replace(backup_dir, query_root)
-            raise
-        else:
-            if backup_dir is not None and backup_dir.exists():
-                shutil.rmtree(backup_dir, ignore_errors=True)
+            write_root_files()
 
+        _publish_staged_tree(query_root, populate, overwrite=output_config.overwrite)
         remove_output_artifacts(stale_paths)
         paths["per_query_root"] = str(query_root)
         paths["per_query_manifest"] = str(query_root / "manifest.tsv")
@@ -960,43 +936,28 @@ class RgDirectoryWriter:
         stale_paths = family.preflight(overwrite=output_config.overwrite)
         paths = {name: str(path) for name, path in family.paths.items() if name != "pairs"}
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
-        if not output_config.write_per_pair_detail:
+
+        def write_root_files():
             atomic_write_dataframe(rg, rg_path, na_rep="NaN")
             atomic_write_dataframe(rg_full, full_path, na_rep="NaN")
             atomic_write_dataframe(h2_per_trait, h2_path, na_rep="NaN")
             if legacy_drops is not None:
                 _write_legacy_sumstats_audit(legacy_drops, family.paths["legacy_sumstats_drops"])
             atomic_write_json(_rg_root_metadata(result, files=family.metadata_files()), metadata_path)
+
+        if not output_config.write_per_pair_detail:
+            write_root_files()
             remove_output_artifacts(stale_paths)
             return paths
 
         pair_records = self._pair_records(rg_full, per_pair_metadata)
-        staging_dir = Path(tempfile.mkdtemp(prefix=".pairs.tmp.", dir=str(diagnostics_dir)))
-        backup_dir: Path | None = None
-        try:
+
+        def populate(staging_dir):
             manifest_rows = self._write_staged_pair_tree(staging_dir, pair_records, rg_full)
             atomic_write_dataframe(pd.DataFrame(manifest_rows), staging_dir / "manifest.tsv", na_rep="NaN")
-            atomic_write_dataframe(rg, rg_path, na_rep="NaN")
-            atomic_write_dataframe(rg_full, full_path, na_rep="NaN")
-            atomic_write_dataframe(h2_per_trait, h2_path, na_rep="NaN")
-            if legacy_drops is not None:
-                _write_legacy_sumstats_audit(legacy_drops, family.paths["legacy_sumstats_drops"])
-            atomic_write_json(_rg_root_metadata(result, files=family.metadata_files()), metadata_path)
-            if output_config.overwrite and pairs_root.exists():
-                backup_dir = Path(tempfile.mkdtemp(prefix=".pairs.backup.", dir=str(diagnostics_dir)))
-                backup_dir.rmdir()
-                os.replace(pairs_root, backup_dir)
-            os.replace(staging_dir, pairs_root)
-        except Exception:
-            if staging_dir.exists():
-                shutil.rmtree(staging_dir, ignore_errors=True)
-            if backup_dir is not None and backup_dir.exists() and not pairs_root.exists():
-                os.replace(backup_dir, pairs_root)
-            raise
-        else:
-            if backup_dir is not None and backup_dir.exists():
-                shutil.rmtree(backup_dir, ignore_errors=True)
+            write_root_files()
 
+        _publish_staged_tree(pairs_root, populate, overwrite=output_config.overwrite)
         remove_output_artifacts(stale_paths)
         paths["pairs_root"] = str(pairs_root)
         paths["pairs_manifest"] = str(pairs_root / "manifest.tsv")
@@ -1004,14 +965,13 @@ class RgDirectoryWriter:
 
     def _pair_records(self, rg_full: pd.DataFrame, per_pair_metadata: list[dict[str, object]]) -> list[dict[str, object]]:
         """Return ordered pair records with deterministic safe folder names."""
-        width = max(4, len(str(len(rg_full))))
         records: list[dict[str, object]] = []
         for idx, (_, row) in enumerate(rg_full.iterrows(), start=1):
             metadata = dict(per_pair_metadata[idx - 1])
             trait_1 = str(row["trait_1"])
             trait_2 = str(row["trait_2"])
-            slug = f"{_slugify_rg_trait_name(trait_1)}_vs_{_slugify_rg_trait_name(trait_2)}"
-            folder = f"{idx:0{width}d}_{slug}"
+            slug = f"{_slugify(trait_1, 'trait')}_vs_{_slugify(trait_2, 'trait')}"
+            folder = _ordinal_folder(idx, len(rg_full), slug)
             records.append(
                 {
                     "ordinal": idx,
@@ -1112,18 +1072,46 @@ def _rg_root_metadata(result: RgResultFamily, *, files: dict[str, str]) -> dict[
     return payload
 
 
-def _slugify_query_name(value: str) -> str:
-    """Return a filesystem-safe slug for a query annotation name."""
-    normalized = unicodedata.normalize("NFKD", str(value)).encode("ascii", "ignore").decode("ascii")
-    slug = re.sub(r"[^a-z0-9._-]+", "_", normalized.lower()).strip("._-")
-    return slug or "annotation"
+def _publish_staged_tree(final_root: Path, populate, *, overwrite: bool) -> None:
+    """Populate a staged sibling of ``final_root``, then swap it into place.
+
+    ``populate(staging_dir)`` writes the tree and may write root files of the
+    result; a failure there leaves the previous tree in place. With
+    ``overwrite``, the previous tree moves to a backup that is restored only
+    when the final tree is missing after a failure, and removed after success.
+    Staging and backup directories are hidden siblings in the same parent.
+    """
+    parent, name = final_root.parent, final_root.name
+    staging_dir = Path(tempfile.mkdtemp(prefix=f".{name}.tmp.", dir=str(parent)))
+    backup_dir: Path | None = None
+    try:
+        populate(staging_dir)
+        if overwrite and final_root.exists():
+            backup_dir = Path(tempfile.mkdtemp(prefix=f".{name}.backup.", dir=str(parent)))
+            backup_dir.rmdir()
+            os.replace(final_root, backup_dir)
+        os.replace(staging_dir, final_root)
+    except Exception:
+        if staging_dir.exists():
+            shutil.rmtree(staging_dir, ignore_errors=True)
+        if backup_dir is not None and backup_dir.exists() and not final_root.exists():
+            os.replace(backup_dir, final_root)
+        raise
+    else:
+        if backup_dir is not None and backup_dir.exists():
+            shutil.rmtree(backup_dir, ignore_errors=True)
 
 
-def _slugify_rg_trait_name(value: str) -> str:
-    """Return a filesystem-safe slug for an rg trait name."""
+def _ordinal_folder(ordinal: int, count: int, slug: str) -> str:
+    """Return a detail folder name: the zero-padded ordinal (at least four digits) and ``slug``."""
+    return f"{ordinal:0{max(4, len(str(count)))}d}_{slug}"
+
+
+def _slugify(value: str, fallback: str) -> str:
+    """Return a filesystem-safe slug for a query annotation or trait name, or ``fallback``."""
     normalized = unicodedata.normalize("NFKD", str(value)).encode("ascii", "ignore").decode("ascii")
     slug = re.sub(r"[^a-z0-9._-]+", "_", normalized.lower()).strip("._-")
-    return slug or "trait"
+    return slug or fallback
 
 
 def _select_columns(df: pd.DataFrame, columns: list[str], *, label: str) -> pd.DataFrame:

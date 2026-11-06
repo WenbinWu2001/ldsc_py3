@@ -534,7 +534,9 @@ def _build(
     the failure-marker scope. The output preflight is read-only and runs
     before the lock creates the build directory, so a refused destination is
     left as it was; only a build directory that an earlier attempt left is
-    cleaned for this one.
+    cleaned for this one. The preflight, lock, build directory and
+    publication all use the one destination path set here; the configuration
+    has already expanded ``~`` and environment variables in it.
     """
     started = time.perf_counter()
     chromosomes = index_artifact.INDEX_CHROMOSOMES
@@ -601,6 +603,7 @@ def _build(
                 published_path = _run_gene_ldscore_index_build(
                     config,
                     chromosomes,
+                    index_path=index_path,
                     genetic_map_sources=genetic_map_sources,
                     overwrite=overwrite,
                     log_level=log_level,
@@ -754,6 +757,7 @@ def _run_gene_ldscore_index_build(
     config: GeneLDScoreIndexBuildConfig,
     chromosomes: tuple[str, ...],
     *,
+    index_path: Path,
     genetic_map_sources: dict[str, str | None],
     overwrite: bool,
     log_level: str,
@@ -770,7 +774,7 @@ def _run_gene_ldscore_index_build(
     # The index independently records the explicit projection build.
     global_config = index_global_config(config.snp_identifier, config.genome_build)
     regression_path = Path(config.regr_snps_file or packaged_hm3_curated_map_path())
-    build_dir = _gene_index_build_dir(Path(config.output_dir))
+    build_dir = _gene_index_build_dir(index_path)
     gate = InputGate('Reference/control content validation', build_dir/'input_issues.tsv')
     with PhaseProgress(LOGGER, 'validation', 'PLINK, regression restriction, and genetic map content'):
         regression_keys = gate.check('regression SNPs', regression_path,
@@ -834,7 +838,7 @@ def _run_gene_ldscore_index_build(
         chromosome_logs = _chromosome_log_dir(build_dir)
         chromosome_logs.mkdir()
         LOGGER.info("Chromosome logs: %s; a successful build moves them to %s.",
-                    chromosome_logs, Path(config.output_dir) / CHROMOSOME_LOG_DIR)
+                    chromosome_logs, index_path / CHROMOSOME_LOG_DIR)
         max_workers = resolve_worker_count(config.workers, len(chromosomes))
         with chromosome_pool(max_workers, operation="build-gene-ldscore-index chromosome construction",
                              initializer=initialize_worker, initargs=(log_level,)) as pool:
@@ -895,7 +899,6 @@ def _run_gene_ldscore_index_build(
         evidence_by_chrom,
         chromosome_prefixes,
     )
-    index_path = Path(config.output_dir)
     index_id = calculate_index_id(index_identity)
     # Indexed ldscore output records these exactly as a direct run on the same inputs would.
     annotation_types = combine_annotation_types(
@@ -1020,8 +1023,8 @@ def _gene_index_build_lock(index_path: Path):
     lock, so a lock taken on a file that is no longer at the lock path is
     retried on a fresh lock file.
     """
-    destination = index_path.expanduser().resolve()
-    lock_path = _gene_index_build_dir(destination) / _LOCK_FILE
+    destination = index_path.absolute()
+    lock_path = _gene_index_build_dir(index_path) / _LOCK_FILE
     for _attempt in range(3):
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         handle = lock_path.open("a+", encoding="utf-8")
@@ -1151,7 +1154,7 @@ _LOG_FILE = "build-gene-ldscore-index.log"
 
 def _gene_index_build_dir(index_path: Path) -> Path:
     """Return the hidden build directory inside the index directory."""
-    return index_path.expanduser() / _BUILD_DIR
+    return index_path / _BUILD_DIR
 
 
 def _chromosome_log_dir(build_dir: Path) -> Path:

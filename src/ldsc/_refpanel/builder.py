@@ -42,10 +42,9 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
-from .._runtime.artifacts import atomic_write_json
 from .._runtime.serial_calculation import serial_calculation
 from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP, output_directory_argument
-from .._runtime.workflow_logging import FAILURE_MARKER, LOG_LEVEL_HELP
+from .._runtime.workflow_logging import LOG_LEVEL_HELP
 from .._core.snp_identity import (
     RestrictionIdentityKeys,
     coerce_identity_drop_frame,
@@ -60,7 +59,7 @@ from ..config import (
     DEFAULT_SNP_BATCH_SIZE, GlobalConfig, R2MatrixBuildConfig, get_global_config, print_global_config_banner,
 )
 from .._runtime.progress import report_phase, PhaseProgress
-from .._runtime.paths import ensure_output_directory, preflight_output_artifact_family, remove_output_artifacts, resolve_file_group, inspect_plink_inputs, resolve_scalar_path
+from .._runtime.paths import ensure_output_directory, remove_output_artifacts, resolve_file_group, inspect_plink_inputs, resolve_scalar_path
 from .._runtime.workflow_logging import (
     log_inputs,
     log_outputs,
@@ -73,8 +72,8 @@ from .._core.chromosomes import chrom_sort_key
 from .plink import PlinkBEDFile
 from .plink_source import KeepIndividuals, read_keep_individuals, select_plink_chromosome
 from . import build_kernel as kernel_builder
+from .outputs import BUILD_R2_MATRIX_LOG, R2MatrixBuildDirectoryWriter
 from .r2_format import (
-    R2_MATRIX_FILE_GLOBS,
     build_runtime_metadata_table,
     r2_matrix_file_paths,
     round_to_sidecar_precision,
@@ -182,161 +181,6 @@ def _emitted_genome_builds(config: R2MatrixBuildConfig) -> list[str]:
     return [source_build] if matching_chain is None else [source_build, target_build]
 
 
-def _resolve_build_ref_panel_log_path(
-    workflow_log_path: Path | None,
-    config: R2MatrixBuildConfig,
-    chrom_sources: Sequence[tuple[str, str]],
-) -> Path | None:
-    """Return a collision-resistant workflow log path for chromosome-scoped runs."""
-    if workflow_log_path is None:
-        return None
-    if len(chrom_sources) != 1:
-        return workflow_log_path
-    if "@" in str(config.plink_prefix):
-        return workflow_log_path
-    chrom = chrom_sources[0][1]
-    return workflow_log_path.with_name(f"{workflow_log_path.stem}.chr{chrom}{workflow_log_path.suffix}")
-
-
-def _is_chromosome_scoped_invocation(
-    config: R2MatrixBuildConfig,
-    chrom_sources: Sequence[tuple[str, str]],
-) -> bool:
-    """Return whether this run is scoped to one concrete chromosome input."""
-    return len(chrom_sources) == 1 and "@" not in str(config.plink_prefix)
-
-
-def _resolve_build_metadata_path(
-    output_dir: Path,
-    config: R2MatrixBuildConfig,
-    chrom_sources: Sequence[tuple[str, str]],
-) -> Path:
-    """Return a metadata path that does not collide across parallel chromosome runs."""
-    if _is_chromosome_scoped_invocation(config, chrom_sources):
-        chrom = chrom_sources[0][1]
-        return output_dir / "diagnostics" / f"metadata.chr{chrom}.json"
-    return output_dir / "diagnostics" / "metadata.json"
-
-
-def _failure_marker_name(
-    config: R2MatrixBuildConfig,
-    chrom_sources: Sequence[tuple[str, str]],
-) -> str:
-    """Return the failure marker of a run, scoped like its metadata so parallel chromosome runs keep their own."""
-    if _is_chromosome_scoped_invocation(config, chrom_sources):
-        return f"RUN_FAILED.chr{chrom_sources[0][1]}.txt"
-    return FAILURE_MARKER
-
-
-def _expected_ref_panel_output_paths(
-    config: R2MatrixBuildConfig,
-    chromosomes: Sequence[str],
-    *,
-    metadata_path: Path,
-) -> list[Path]:
-    """Return deterministic R2 matrix artifact paths that may be written.
-
-    The conservative preflight list includes build-specific R2 Parquet files and
-    metadata sidecars for every emitted chromosome/build pair.
-    """
-    out_root = Path(config.output_dir)
-    paths: list[Path] = [metadata_path]
-    for chrom in chromosomes:
-        for build in _emitted_genome_builds(config):
-            paths.extend(r2_matrix_file_paths(out_root / build, chrom))
-        # The per-chromosome dropped-SNP sidecar is class-1: always written
-        # for every chromosome this invocation processes, even when header-only.
-        paths.append(out_root / "diagnostics" / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz")
-    return paths
-
-
-def _ref_panel_output_family(
-    output_dir: Path,
-    produced_paths: Sequence[Path] = (),
-    *,
-    chromosomes: Sequence[str] | None = None,
-) -> list[Path]:
-    """Return the build-r2-matrix artifact package owned by this invocation.
-
-    When ``chromosomes`` is ``None``, the package spans the full output
-    directory contract and is appropriate for a full ``@`` chromosome-suite
-    build. When a concrete chromosome list is supplied, only those chromosomes'
-    R2 Parquet, metadata, dropped-SNP, and chromosome-scoped diagnostic paths are owned
-    so concurrent per-chromosome runs do not treat sibling chromosome outputs as
-    stale.
-    """
-    scoped_chromosomes = None if chromosomes is None else [str(chrom) for chrom in chromosomes]
-    diagnostics_dir = output_dir / "diagnostics"
-    if scoped_chromosomes is None:
-        paths: list[Path] = [diagnostics_dir / "metadata.json"]
-        paths.extend(sorted(diagnostics_dir.glob("metadata.chr*.json")))
-    else:
-        paths = [diagnostics_dir / f"metadata.chr{chrom}.json" for chrom in scoped_chromosomes]
-    for build_subdir_name in ("hg19", "hg38"):
-        build_subdir = output_dir / build_subdir_name
-        if not build_subdir.is_dir():
-            continue
-        if scoped_chromosomes is None:
-            for pattern in R2_MATRIX_FILE_GLOBS:
-                paths.extend(sorted(build_subdir.glob(pattern)))
-        else:
-            for chrom in scoped_chromosomes:
-                paths.extend(r2_matrix_file_paths(build_subdir, chrom))
-    dropped_dir = output_dir / "diagnostics" / "dropped_snps"
-    if dropped_dir.is_dir():
-        if scoped_chromosomes is None:
-            paths.extend(sorted(dropped_dir.glob("chr*_dropped.tsv.gz")))
-        else:
-            paths.extend(dropped_dir / f"chr{chrom}_dropped.tsv.gz" for chrom in scoped_chromosomes)
-    if scoped_chromosomes is None:
-        paths.extend(sorted(diagnostics_dir.glob("build-r2-matrix*.log")))
-    else:
-        paths.extend(diagnostics_dir / f"build-r2-matrix.chr{chrom}.log" for chrom in scoped_chromosomes)
-    paths.extend(Path(path) for path in produced_paths)
-    return paths
-
-
-@report_phase(LOGGER, 'publication', 'R2 matrix metadata')
-def _write_build_metadata(
-    path: Path,
-    *,
-    config: R2MatrixBuildConfig,
-    global_config: GlobalConfig,
-    chromosomes: Sequence[str],
-    output_paths: dict[str, list[str]],
-    resolved_plink_prefixes: Sequence[str],
-) -> None:
-    """Write diagnostic metadata for an R2 matrix output directory."""
-    output_dir = Path(config.output_dir)
-    files = {
-        key: [_relative_to_output_dir(item, output_dir) for item in values]
-        for key, values in output_paths.items()
-        if key != "metadata"
-    }
-    payload = {
-        "artifact_type": "r2_matrix_build",
-        "files": files,
-        "snp_identifier": global_config.snp_identifier,
-        "genome_build": global_config.genome_build,
-        "source_genome_build": config.source_genome_build,
-        "emitted_genome_builds": _emitted_genome_builds(config),
-        "chromosomes": [str(chrom) for chrom in chromosomes],
-        "plink_prefix": config.plink_prefix,
-        "resolved_plink_prefixes": [str(prefix) for prefix in resolved_plink_prefixes],
-        "ref_panel_snps_file": None if config.ref_panel_snps_file is None else str(config.ref_panel_snps_file),
-    }
-    atomic_write_json(payload, path)
-
-
-def _relative_to_output_dir(path: str, output_dir: Path) -> str:
-    """Return output-relative path strings when possible."""
-    candidate = Path(path)
-    try:
-        return str(candidate.relative_to(output_dir))
-    except ValueError:
-        return str(candidate)
-
-
 class R2MatrixBuilder:
     """Build R2 matrices from PLINK input."""
 
@@ -432,13 +276,14 @@ class R2MatrixBuilder:
         workflow_log_path: Path | None,
     ) -> R2MatrixBuildResult:
         """Build from inspected inputs in one worker; shared by the direct API and the parsed workflow."""
-        workflow_log_path = _resolve_build_ref_panel_log_path(workflow_log_path, config, chrom_sources)
-        if workflow_log_path is not None:
-            scope = [chrom for _, chrom in chrom_sources] if _is_chromosome_scoped_invocation(config, chrom_sources) else None
-            preflight_output_artifact_family(
-                [workflow_log_path], _ref_panel_output_family(output_dir, [workflow_log_path], chromosomes=scope),
-                overwrite=config.overwrite, label="R2 matrix output artifact",
-            )
+        writer = R2MatrixBuildDirectoryWriter()
+        chromosomes = [chrom for _, chrom in chrom_sources]
+        scope = writer.chromosome_scope(config.plink_prefix, chromosomes)
+        log_paths = [] if workflow_log_path is None else [writer.log_path(workflow_log_path, scope)]
+        workflow_log_path = log_paths[0] if log_paths else None
+        if log_paths:
+            writer.artifact_family(output_dir, scope=scope).preflight(
+                overwrite=config.overwrite, additional_paths=log_paths)
         try:
             config = self._resolve_source_genome_build(config, resolved_prefixes)
         except (LDSCInputError, LDSCConfigError):
@@ -447,20 +292,12 @@ class R2MatrixBuilder:
                 raise
         snp_identifier_mode = normalize_snp_identifier_mode(self.global_config.snp_identifier)
 
-        chromosomes = [chrom for _, chrom in chrom_sources]
-        metadata_path = _resolve_build_metadata_path(output_dir, config, chrom_sources)
-        produced_paths = _expected_ref_panel_output_paths(config, chromosomes, metadata_path=metadata_path)
-        if workflow_log_path is not None:
-            produced_paths.append(workflow_log_path)
-        owned_chromosomes = chromosomes if _is_chromosome_scoped_invocation(config, chrom_sources) else None
-        stale_paths = preflight_output_artifact_family(
-            produced_paths,
-            _ref_panel_output_family(output_dir, produced_paths, chromosomes=owned_chromosomes),
-            overwrite=config.overwrite,
-            label="R2 matrix output artifact",
-        )
+        family = writer.artifact_family(
+            output_dir, scope=scope, builds=_emitted_genome_builds(config), chromosomes=chromosomes)
+        metadata_path = family.paths["metadata"]
+        stale_paths = family.preflight(overwrite=config.overwrite, additional_paths=log_paths)
         (output_dir / "diagnostics").mkdir(parents=True, exist_ok=True)
-        if owned_chromosomes is None:
+        if scope is None:
             # A chromosome run leaves the shared tables to its siblings; a whole-panel run clears them.
             for name in ("input_issues.tsv", "plink_input_issues.tsv"):
                 (output_dir / "diagnostics" / name).unlink(missing_ok=True)
@@ -502,14 +339,16 @@ class R2MatrixBuilder:
             output_keys = sorted({key for _, paths in chrom_records for key in paths})
             output_paths = {key: [paths[key] for _, paths in chrom_records] for key in output_keys}
             output_paths["metadata"] = [str(metadata_path)]
-            _write_build_metadata(
-                metadata_path,
-                config=config,
-                global_config=self.global_config,
-                chromosomes=[chrom for chrom, _ in chrom_records],
-                output_paths=output_paths,
-                resolved_plink_prefixes=resolved_prefixes,
-            )
+            writer.write_metadata(metadata_path, output_dir, output_paths, {
+                "snp_identifier": self.global_config.snp_identifier,
+                "genome_build": self.global_config.genome_build,
+                "source_genome_build": config.source_genome_build,
+                "emitted_genome_builds": _emitted_genome_builds(config),
+                "chromosomes": [str(chrom) for chrom, _ in chrom_records],
+                "plink_prefix": config.plink_prefix,
+                "resolved_plink_prefixes": [str(prefix) for prefix in resolved_prefixes],
+                "ref_panel_snps_file": None if config.ref_panel_snps_file is None else str(config.ref_panel_snps_file),
+            })
             result = R2MatrixBuildResult(
                 matrix_name=Path(config.output_dir).name,
                 chromosomes=[chrom for chrom, _ in chrom_records],
@@ -726,7 +565,7 @@ class R2MatrixBuilder:
         rows cover source identity cleanup and liftover-stage drops;
         restriction-file drops are outside that audit vocabulary.
         """
-        sidecar_path = Path(config.output_dir) / "diagnostics" / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz"
+        sidecar_path = R2MatrixBuildDirectoryWriter.dropped_snps_path(config.output_dir, chrom)
         source = select_plink_chromosome(
             prefix, chrom, self.global_config.snp_identifier,
             restriction=build_state.restriction_keys, keep_individuals=build_state.keep_individuals,
@@ -735,7 +574,7 @@ class R2MatrixBuilder:
         selection = _ChromosomeSelection(source.bim, source.fam, np.empty(0, dtype=int), source.keep_indivs,
                                          sidecar_path, source.panel_rows)
         if source.restricted_rows == 0:
-            _write_dropped_sidecar(empty_identity_drop_frame(), sidecar_path, chrom)
+            R2MatrixBuildDirectoryWriter.write_dropped_snps(empty_identity_drop_frame(), sidecar_path, chrom)
             return dataclass_replace(selection, empty_stage="SNP restriction")
 
         dropped_frames: list[pd.DataFrame] = []
@@ -751,7 +590,7 @@ class R2MatrixBuilder:
         rows = source.metadata.set_index("_raw_index").loc[:, ["SNP", "POS"]]
         keep_snps = rows.index.to_numpy(dtype=int)
         if len(keep_snps) == 0:
-            _write_dropped_sidecar(concat_identity_drop_frames(dropped_frames), sidecar_path, chrom)
+            R2MatrixBuildDirectoryWriter.write_dropped_snps(concat_identity_drop_frames(dropped_frames), sidecar_path, chrom)
             return dataclass_replace(selection, empty_stage="identity cleanup")
 
         keep_snps, hg19_lookup, hg38_lookup, liftover_drop_frame = self._resolve_mappable_snp_positions(
@@ -783,7 +622,7 @@ class R2MatrixBuilder:
                     "because they collided in at least one emitted build.",
                     synchronized_drop_count,
                 )
-        _write_dropped_sidecar(concat_identity_drop_frames(dropped_frames), sidecar_path, chrom)
+        R2MatrixBuildDirectoryWriter.write_dropped_snps(concat_identity_drop_frames(dropped_frames), sidecar_path, chrom)
         return dataclass_replace(
             selection, keep_snps=keep_snps, hg19_lookup=hg19_lookup, hg38_lookup=hg38_lookup,
             empty_stage=None if len(keep_snps) else "liftover and duplicate-position filtering",
@@ -1296,23 +1135,6 @@ def _resolve_unique_snp_set(
     return cleaned, dropped_df
 
 
-def _write_dropped_sidecar(dropped_df: pd.DataFrame, path: Path, chrom: str) -> None:
-    """Write the always-owned dropped-SNP audit sidecar for one chromosome."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    dropped_df = coerce_identity_drop_frame(dropped_df, default_stage="ref_panel_liftover")
-    dropped_df.to_csv(path, sep="\t", index=False, compression="gzip", na_rep="")
-    n_dropped = len(dropped_df)
-    if n_dropped == 0:
-        LOGGER.info(f"No SNPs dropped on chromosome {chrom}; audit sidecar at '{path}'.")
-        return
-    counts = dropped_df["reason"].value_counts(sort=False)
-    count_text = ", ".join(f"{reason}={int(count)}" for reason, count in counts.items())
-    LOGGER.info(
-        f"R2 matrix dropped SNPs: {n_dropped} SNPs on chromosome {chrom} "
-        f"({count_text}); audit sidecar at '{path}'."
-    )
-
-
 def build_parser() -> argparse.ArgumentParser:
     """Build the feature parser for R2 matrix generation."""
     parser = argparse.ArgumentParser(allow_abbrev=False)
@@ -1543,11 +1365,12 @@ def _build(
         output_dir,
         overwrite=build_config.overwrite,
         command=f"Python API: {command}",
-        marker_name=_failure_marker_name(build_config, chrom_sources),
+        marker_name=R2MatrixBuildDirectoryWriter.failure_marker(R2MatrixBuildDirectoryWriter.chromosome_scope(
+            build_config.plink_prefix, [chrom for _, chrom in chrom_sources])),
     ):
         return builder._run(
             build_config, output_dir, chrom_sources, resolved_prefixes,
-            workflow_log_path=output_dir / "diagnostics" / "build-r2-matrix.log",
+            workflow_log_path=output_dir / BUILD_R2_MATRIX_LOG,
         )
 
 

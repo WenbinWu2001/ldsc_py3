@@ -227,7 +227,8 @@ Gene-coordinate-catalog build selection, scientific-query pruning, and final dia
 ### `ldsc._refpanel.builder`
 
 This module builds R² matrices from PLINK inputs.
-It handles optional genetic-map loading, optional chain-file liftover selection, liftover-stage rows of the dropped-SNP table, output-path construction, and build logs under `diagnostics/`, then delegates pairwise-R² emission to the kernel.
+It handles optional genetic-map loading, optional chain-file liftover selection and liftover-stage rows of the dropped-SNP table, then delegates pairwise-R² emission to the kernel.
+`_refpanel.outputs.R2MatrixBuildDirectoryWriter` owns the output layout: its `artifact_family()` declares the files a run writes and owns (one chromosome's files, with chromosome-scoped metadata, log and failure-marker names, for a concrete single-chromosome run; the whole directory for an `@` suite run), and it writes the build metadata and the dropped-SNP tables in the shared identity-drop columns.
 Each chromosome's SNPs come from `_refpanel.plink_source.select_plink_chromosome()`, the selection stage `ldscore --plink-prefix` also uses (SNP restriction, then identity cleanup of the rows it keeps, and the keep list mapped to `.fam` rows); the builder adds liftover and duplicate-position filtering on the rows it returns.
 The SNP restriction and the keep list are read once per run, in `_prepare_build_state()`.
 PLINK source build is explicit or inferred locally; a matching chain emits the opposite build only in `chr_pos`-family modes, while `rsid`-family builds are source-build-only.
@@ -451,7 +452,7 @@ See [parallel execution](../reference/parallel-execution.md) for the complete co
 
 ### Result writers
 
-Each domain writes its own result directories on the shared `ldsc._runtime.artifacts` base: `ldsc._annotation.outputs` for `annotate`, `ldsc._refpanel.outputs` for `query-r2-matrix`, `ldsc._ldscore.outputs` for LD scores and `ldsc._regression.outputs` for regression results.
+Each domain writes its own result directories on the shared `ldsc._runtime.artifacts` base: `ldsc._annotation.outputs` for `annotate`, `ldsc._refpanel.outputs` for `build-r2-matrix` (metadata, dropped-SNP tables and the owned-file declaration; `r2_format` writes the R² Parquet files and sidecars) and `query-r2-matrix`, `ldsc._ldscore.outputs` for LD scores and `ldsc._regression.outputs` for regression results.
 `ldsc._ldscore.outputs` owns fixed files inside `output_dir`: `metadata.json`, `ldscore.baseline.parquet`, optional single or numbered query batch files, and an optional `ldscore.overlap.parquet` (the long-form annotation overlap matrix, written only
 for runs with two or more annotation columns). Each LD-score file spans the calculated chromosomes with one row group per chromosome; root `metadata.json.query_batches` records the ordered query files, query columns, and row groups. Direct/indexed writing workflows return `LDScoreSource` without retained query tables. Older LD-score directories without the current manifest require regeneration.
 `ldsc._regression.outputs` owns the regression results: for `h2`, root `h2.tsv` plus diagnostic

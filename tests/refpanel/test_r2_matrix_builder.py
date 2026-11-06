@@ -29,6 +29,7 @@ from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSC
 from ldsc._ldscore import workflow as ldscore_workflow
 from ldsc import reset_global_config, set_global_config
 from ldsc._refpanel import builder as r2_matrix_builder
+from ldsc._refpanel.outputs import R2MatrixBuildDirectoryWriter
 
 
 # --- columnar pair-emission test helpers -------------------------------------
@@ -2492,7 +2493,8 @@ class RefPanelOutputFamilyTest(unittest.TestCase):
             existing_drop.write_text("drop\n", encoding="utf-8")
             existing_log.write_text("log\n", encoding="utf-8")
 
-            family = r2_matrix_builder._ref_panel_output_family(out, [produced])
+            family = R2MatrixBuildDirectoryWriter.artifact_family(
+                out, scope=None, builds=["hg19"], chromosomes=["6"]).owned_paths
 
             self.assertIn(existing_r2, family)
             self.assertIn(existing_meta, family)
@@ -2507,9 +2509,29 @@ class RefPanelOutputFamilyTest(unittest.TestCase):
             scratch.parent.mkdir(parents=True)
             scratch.write_text("unknown\n", encoding="utf-8")
 
-            family = r2_matrix_builder._ref_panel_output_family(out, [])
+            family = R2MatrixBuildDirectoryWriter.artifact_family(out, scope=None).owned_paths
 
             self.assertNotIn(scratch, family)
+
+    def test_chromosome_scoped_family_owns_only_its_chromosome(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "out"
+            sibling = out / "hg38" / "chr2_r2.parquet"
+            sibling.parent.mkdir(parents=True)
+            sibling.write_text("r2\n", encoding="utf-8")
+            writer = R2MatrixBuildDirectoryWriter
+            scope = writer.chromosome_scope("panel.1", ["1"])
+
+            family = writer.artifact_family(out, scope=scope, builds=["hg38"], chromosomes=["1"])
+
+            self.assertEqual(scope, "1")
+            self.assertIsNone(writer.chromosome_scope("panel.@", ["1"]))
+            self.assertEqual(family.paths["metadata"], out / "diagnostics" / "metadata.chr1.json")
+            self.assertIn(out / "diagnostics" / "build-r2-matrix.chr1.log", family.owned_paths)
+            self.assertNotIn(sibling, family.owned_paths)
+            self.assertEqual(writer.failure_marker(scope), "RUN_FAILED.chr1.txt")
+            self.assertEqual(writer.log_path(out / "diagnostics" / "build-r2-matrix.log", scope).name,
+                             "build-r2-matrix.chr1.log")
 
 
 class R2MatrixBuilderSourceOnlySmokeTest(unittest.TestCase):

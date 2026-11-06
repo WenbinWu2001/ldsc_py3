@@ -286,7 +286,7 @@ Gene-list runs of `annotate`, `ldscore` and `quantile-h2`, and the Python `Annot
 A defect that leaves the catalog without one usable genome build or without parseable rows stops the run; the message names the first five defects with their catalog line, field, reason, value and repair, and counts the rest.
 A header without every required column stops the run with a message that lists all the missing columns instead.
 `build-gene-ldscore-index` stops on every catalog defect, with `is not canonical` in the message.
-A gene LD-score index whose stored catalog fails these checks gives an `Embedded gene coordinate catalog` message; rebuild the index with `build-gene-ldscore-index` from a valid catalog.
+A gene LD-score index whose stored catalog is empty, has invalid `catalog_line` values or is not canonical gives an `Embedded gene coordinate catalog` message; rebuild the index with `build-gene-ldscore-index` from a valid catalog.
 `annotate`, `ldscore` and `quantile-h2`, and their Python functions `run_annotate()`, `run_ldscore()` and `run_quantile_h2()`, write every defect to `diagnostics/gene_catalog_issues.tsv` in the output directory; `build-gene-ldscore-index` writes them to `<index-dir>/.build/gene_coordinate_catalog_issues.tsv.gz`.
 The Python `AnnotationBuilder` writes no table; the exception's `issues` attribute holds the same rows.
 

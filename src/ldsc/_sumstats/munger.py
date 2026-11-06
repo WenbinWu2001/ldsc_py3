@@ -1265,7 +1265,7 @@ def _render_inference_report(
     lines.append(f"  Runnable: {'yes' if inference.runnable else 'no'}")
     lines.append("  Missing fields: " + (", ".join(inference.missing_fields) if inference.missing_fields else "none"))
     lines.append("  Suggested command:")
-    lines.append(_format_shell_command(command, base_indent="    ", option_indent="      "))
+    lines.append(_format_shell_command(command))
     return "\n".join(lines)
 
 
@@ -1284,11 +1284,9 @@ def _in_help_order(args: list[str]) -> list[str]:
     return [token for option in options for token in option]
 
 
-def _format_shell_command(command: list[str], *, base_indent: str = "  ", option_indent: str = "    ") -> str:
-    """Return a copy-pasteable multi-line shell command."""
-    if len(command) <= 2:
-        return base_indent + " ".join(shlex.quote(part) for part in command)
-    lines = [f"{base_indent}{shlex.quote(command[0])} {shlex.quote(command[1])} \\"]
+def _format_shell_command(command: list[str]) -> str:
+    """Return the suggested ``ldsc munge-sumstats ...`` command as indented, copy-pasteable lines."""
+    lines = [f"    {shlex.quote(command[0])} {shlex.quote(command[1])} \\"]
     idx = 2
     while idx < len(command):
         token = command[idx]
@@ -1299,7 +1297,7 @@ def _format_shell_command(command: list[str], *, base_indent: str = "  ", option
             rendered = shlex.quote(token)
             idx += 1
         suffix = " \\" if idx < len(command) else ""
-        lines.append(f"{option_indent}{rendered}{suffix}")
+        lines.append(f"      {rendered}{suffix}")
     return "\n".join(lines)
 
 

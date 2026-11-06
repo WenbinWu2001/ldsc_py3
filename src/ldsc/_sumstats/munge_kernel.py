@@ -3,6 +3,7 @@
 # Performance enhancement and python3 adaption by Anthony Abrantes 2024.
 # Modified 2026-05 for workflow/kernel separation and 2026-09 for resolved
 # inputs and QC results. Removed banner attribution restored 2026-09-10.
+# Modified 2026-11-06: removed the unreachable multi-column INFO filter.
 # See NOTICE for attribution and dated modifications.
 
 """Summary-statistics QC over resolved raw inputs.
@@ -228,21 +229,13 @@ def filter_pvals(P, *, warning_counts=None):
 
 
 def filter_info(info, qc: MungeQC, *, warning_counts=None):
-    '''Remove INFO < qc.info_min and complain about out-of-bounds INFO.'''
-    if type(info) is pd.Series:  # one INFO column
-        jj = ((info > 2.0) | (info < 0)) & info.notnull()
-        ii = info >= qc.info_min
-    elif type(info) is pd.DataFrame:  # several INFO columns
-        jj = (((info > 2.0) & info.notnull()).any(axis=1) | (
-            (info < 0) & info.notnull()).any(axis=1))
-        ii = (info.sum(axis=1) >= qc.info_min * (len(info.columns)))
-    else:
-        raise LDSCInternalError(
-            "munge-sumstats stopped unexpectedly while checking imputation-quality (INFO) values: "
-            "the parser supplied an unsupported data object instead of a column or table. "
-            "Report the command, LDSC3 version, and saved traceback; --log-level DEBUG adds troubleshooting detail."
-        )
+    '''Remove INFO < qc.info_min and complain about out-of-bounds INFO.
 
+    ``info`` is the one INFO column; the raw schema stops a run that maps two
+    raw columns to INFO.
+    '''
+    jj = ((info > 2.0) | (info < 0)) & info.notnull()
+    ii = info >= qc.info_min
     bad_info = jj.sum()
     _record_invalid_values("INFO", bad_info, "[0,2]", warning_counts)
 
@@ -372,24 +365,18 @@ def parse_dat(dat_gen, request: ResolvedMungeInput) -> _ParsedChunks:
             if qc.info_min is not None:
                 old = ii.sum()
                 ii &= filter_info(dat['INFO'], qc, warning_counts=warning_counts)
-                new = ii.sum()
-                drops['INFO'] += old - new
-                old = new
+                drops['INFO'] += old - ii.sum()
 
             if qc.maf_min is not None:
                 old = ii.sum()
                 ii &= filter_frq(dat['FRQ'], qc, warning_counts=warning_counts)
-                new = ii.sum()
-                drops['FRQ'] += old - new
-                old = new
+                drops['FRQ'] += old - ii.sum()
 
-            old = ii.sum()
             if 'INFO' in dat.columns:
                 del dat['INFO']
+            old = ii.sum()
             ii &= filter_pvals(dat.P, warning_counts=warning_counts)
-            new = ii.sum()
-            drops['P'] += old - new
-            old = new
+            drops['P'] += old - ii.sum()
             for allele in ('A1', 'A2'):
                 if allele in dat.columns:
                     dat[allele] = _canonical_alleles(dat[allele], mode)
@@ -722,10 +709,9 @@ def process_n(dat, qc: MungeQC):
         if not keep.all():
             dat = dat.take(np.flatnonzero(keep))
             dat.index = pd.RangeIndex(len(dat))
-        new = len(dat)
-        LOGGER.info(f"Removed {old - new} SNPs with N < {N_min} ({new} SNPs remain).")
+        LOGGER.info(f"Removed {old - len(dat)} SNPs with N < {N_min} ({len(dat)} SNPs remain).")
 
-    elif 'NSTUDY' in dat.columns and 'N' not in dat.columns:
+    elif 'NSTUDY' in dat.columns:
         nstudy_min = qc.nstudy_min if qc.nstudy_min else dat.NSTUDY.max()
         old = len(dat)
         keep = (dat.NSTUDY >= nstudy_min).to_numpy()
@@ -733,8 +719,7 @@ def process_n(dat, qc: MungeQC):
             dat = dat.take(np.flatnonzero(keep))
             dat.index = pd.RangeIndex(len(dat))
         del dat['NSTUDY']
-        new = len(dat)
-        LOGGER.info(f"Removed {old - new} SNPs with NSTUDY < {nstudy_min} ({new} SNPs remain).")
+        LOGGER.info(f"Removed {old - len(dat)} SNPs with NSTUDY < {nstudy_min} ({len(dat)} SNPs remain).")
 
     if 'N' not in dat.columns:
         if qc.N:

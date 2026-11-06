@@ -109,10 +109,8 @@ def _liftover_drop_frame(
     drop_mask: Sequence[bool] | np.ndarray,
     *,
     reason: str,
-    chrom_col: str = "CHR",
-    source_pos_col: str | None = "POS",
+    source_pos_col: str,
     target_pos_col: str | None = None,
-    snp_col: str = "SNP",
 ) -> pd.DataFrame:
     """Build dropped-SNP table rows, stage ``liftover``, from one filtered frame slice."""
     mask = np.asarray(drop_mask, dtype=bool)
@@ -126,16 +124,9 @@ def _liftover_drop_frame(
         return empty_identity_drop_frame()
     dropped = frame.loc[mask]
     output = pd.DataFrame(index=dropped.index)
-    output["CHR"] = dropped[chrom_col] if chrom_col in dropped.columns else pd.NA
-    output["SNP"] = dropped[snp_col] if snp_col in dropped.columns else pd.NA
-    if source_pos_col is not None and source_pos_col in dropped.columns:
-        output["source_pos"] = dropped[source_pos_col]
-    else:
-        output["source_pos"] = pd.NA
-    if target_pos_col is not None and target_pos_col in dropped.columns:
-        output["target_pos"] = dropped[target_pos_col]
-    else:
-        output["target_pos"] = pd.NA
+    for column, source in (("CHR", "CHR"), ("SNP", "SNP"), ("source_pos", source_pos_col),
+                           ("target_pos", target_pos_col)):
+        output[column] = dropped[source] if source is not None and source in dropped.columns else pd.NA
     output["reason"] = reason
     return coerce_identity_drop_frame(output, default_stage="liftover")
 
@@ -325,14 +316,11 @@ def _normalized_coordinate_frame(
     drop_missing: bool = False,
     logger: logging.Logger | None = None,
 ) -> tuple[pd.DataFrame, Any]:
-    """Return a copy with complete normalized CHR/POS columns for liftover."""
-    missing_columns = [column for column in ("CHR", "POS") if column not in frame.columns]
-    if missing_columns:
-        raise LDSCInputError(
-            f"Cannot apply summary-statistics liftover: missing CHR/POS column(s) {missing_columns}. "
-            "Most likely the raw summary statistics were parsed without coordinate columns. "
-            "Provide CHR and POS columns or use a chr_pos-compatible input format."
-        )
+    """Return a copy with complete normalized CHR/POS columns for liftover.
+
+    Liftover runs only in coordinate-family modes, whose munged rows always
+    carry ``CHR`` and ``POS`` columns.
+    """
     return normalize_chr_pos_frame(
         frame,
         context="sumstats liftover",
@@ -371,7 +359,7 @@ def _apply_hm3_liftover(
     mapping: pd.DataFrame | None,
     *,
     source_build: str,
-    logger: logging.Logger | None = None,
+    logger: logging.Logger,
 ) -> tuple[pd.DataFrame, int, pd.DataFrame]:
     """Apply coordinate-only HM3 map liftover and return unmapped sidecar rows."""
     if mapping is None:
@@ -391,19 +379,18 @@ def _apply_hm3_liftover(
         frame,
         unmapped_mask,
         reason="unmapped_liftover",
-        source_pos_col="_ldsc_source_POS" if "_ldsc_source_POS" in frame.columns else "POS",
+        source_pos_col="_ldsc_source_POS",
     )
-    if logger is not None:
-        log_liftover_drop_report(
-            logger,
-            liftover_drop_report(
-                frame,
-                unmapped_mask,
-                reason="unmapped_liftover",
-                source_pos_col="_ldsc_source_POS" if "_ldsc_source_POS" in frame.columns else "POS",
-            ),
-            workflow_label="Summary-statistics liftover",
-        )
+    log_liftover_drop_report(
+        logger,
+        liftover_drop_report(
+            frame,
+            unmapped_mask,
+            reason="unmapped_liftover",
+            source_pos_col="_ldsc_source_POS",
+        ),
+        workflow_label="Summary-statistics liftover",
+    )
     lifted = frame.take(np.flatnonzero(~unmapped_mask))
     lifted["POS"] = joined.loc[~unmapped, target_column].to_numpy(dtype=np.int64)
     return lifted, int(unmapped.sum()), drop_frame
@@ -414,7 +401,7 @@ def _apply_chain_liftover(
     request: SumstatsLiftoverRequest,
     *,
     source_build: str,
-    logger: logging.Logger | None = None,
+    logger: logging.Logger,
 ) -> tuple[pd.DataFrame, int, int, pd.DataFrame]:
     """Apply chain-file liftover and return unmapped/cross-chromosome sidecar rows."""
     translator = LiftOverTranslator(
@@ -438,7 +425,7 @@ def _apply_chain_liftover(
                 group,
                 unmapped_mask,
                 reason="unmapped_liftover",
-                source_pos_col="_ldsc_source_POS" if "_ldsc_source_POS" in group.columns else "POS",
+                source_pos_col="_ldsc_source_POS",
             )
         )
         drop_frames.append(
@@ -446,33 +433,30 @@ def _apply_chain_liftover(
                 group,
                 cross_chrom_mask,
                 reason="cross_chromosome_liftover",
-                source_pos_col="_ldsc_source_POS" if "_ldsc_source_POS" in group.columns else "POS",
+                source_pos_col="_ldsc_source_POS",
             )
         )
-        if logger is not None:
-            log_liftover_drop_report(
-                logger,
-                liftover_drop_report(
-                    group,
-                    unmapped_mask,
-                    reason="unmapped_liftover",
-                    source_pos_col="_ldsc_source_POS" if "_ldsc_source_POS" in group.columns else "POS",
-                ),
-                workflow_label="Summary-statistics liftover",
-            )
-            log_liftover_drop_report(
-                logger,
-                liftover_drop_report(
-                    group,
-                    cross_chrom_mask,
-                    reason="cross_chromosome_liftover",
-                    source_pos_col="_ldsc_source_POS" if "_ldsc_source_POS" in group.columns else "POS",
-                ),
-                workflow_label="Summary-statistics liftover",
-            )
+        log_liftover_drop_report(
+            logger,
+            liftover_drop_report(
+                group,
+                unmapped_mask,
+                reason="unmapped_liftover",
+                source_pos_col="_ldsc_source_POS",
+            ),
+            workflow_label="Summary-statistics liftover",
+        )
+        log_liftover_drop_report(
+            logger,
+            liftover_drop_report(
+                group,
+                cross_chrom_mask,
+                reason="cross_chromosome_liftover",
+                source_pos_col="_ldsc_source_POS",
+            ),
+            workflow_label="Summary-statistics liftover",
+        )
         kept = group.loc[result.keep_mask].copy()
         kept["POS"] = result.translated_positions.astype(np.int64)
         lifted_parts.append(kept)
-    if not lifted_parts:
-        return frame.iloc[0:0].copy(), unmapped_count, cross_chrom_count, concat_identity_drop_frames(drop_frames)
     return pd.concat(lifted_parts, axis=0), unmapped_count, cross_chrom_count, concat_identity_drop_frames(drop_frames)

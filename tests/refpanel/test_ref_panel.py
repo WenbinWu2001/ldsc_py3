@@ -237,6 +237,22 @@ class PlinkRefPanelTest(unittest.TestCase):
         self.assertIn("MAF", metadata.columns)
         self.assertTrue((metadata["MAF"] > 0.2).all())
 
+    @unittest.skipUnless(_has_module("bitarray"), "bitarray is not installed")
+    def test_build_reader_applies_keep_snps_and_maf_override(self):
+        panel = PlinkRefPanel(
+            GlobalConfig(snp_identifier="rsid"),
+            RefPanelConfig(backend="plink", plink_prefix=str(PLINK_PREFIX)),
+        )
+        reader = panel.build_reader("22", keep_snps={PLINK_SNPS[0]})
+        try:
+            self.assertEqual(reader.m, 1)
+        finally:
+            reader.close()
+        reader = panel.build_reader("22", maf_min=0.2)
+        try:
+            self.assertTrue((reader.maf > 0.2).all())
+        finally:
+            reader.close()
 
 
 @unittest.skipUnless(_has_module("bitarray"), "bitarray is not installed")
@@ -323,6 +339,20 @@ class ParquetRefPanelTest(unittest.TestCase):
             _write_r2(build_dir)[1].unlink()
             with self.assertRaisesRegex(LDSCInputError, "the sidecar .*chr1_meta.tsv.gz' is missing"):
                 _r2_ref_panel(build_dir).load_metadata("1")
+
+    def test_build_reader_streams_the_restricted_sidecar_pairs(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            write_r2_matrix_chromosome(build_dir, _r2_panel(), [{"i": 0, "j": 1, "R2": 0.25, "sign": "+"}],
+                                       snp_identifier="chr_pos", genome_build="hg38")
+            reader = _r2_ref_panel(build_dir).build_reader("1")
+            try:
+                self.assertEqual(reader.m, 2)
+                values = np.concatenate([batch for _, _, batch in reader.iter_all_pairs()])
+            finally:
+                reader.close()
+            self.assertEqual(len(values), 1)
+            self.assertAlmostEqual(abs(float(values[0])), 0.25, places=4)
 
     def test_r2_matrix_dir_loads_sidecar_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:

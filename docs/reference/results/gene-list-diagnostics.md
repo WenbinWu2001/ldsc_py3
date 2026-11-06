@@ -27,10 +27,10 @@ Change the gene coordinate catalog only when catalog line evidence shows that it
 | `diagnostics/gene_catalog_issues.tsv` | Direct gene-list LD scores with catalog defects, on successful publication or diagnostic-only gene gates; also a direct `ldscore` or `quantile-h2` run stopped by a structurally invalid catalog | Complete catalog defects; the log summarizes the count of latent ones, and a stopping error names the first five. Uses the existing standalone annotate catalog-issue schema. |
 | `<index-dir>/.build/gene_coordinate_catalog_issues.tsv.gz` | A gene LD-score index build whose catalog is noncanonical | Every detected source-catalog defect. It is in the index directory's hidden build directory, not part of a published index. |
 
-A structural catalog failure may prevent reliable gene-list matching, so it
-does not create a synthetic gene-list audit.
-It writes `diagnostics/gene_catalog_issues.tsv` instead, and its error names the first five defects; see [Troubleshooting](../../user-guide/troubleshooting.md#common-gene-coordinate-catalog-is-not-valid). A Gate A identifier failure writes
-the audit and summary but not query status or root scientific artifacts.
+A structural catalog failure may prevent reliable gene-list matching, so it does not create a synthetic gene-list audit.
+Instead, `annotate`, direct `ldscore` and `quantile-h2`, on the command line or through their `run_*` Python functions, write `diagnostics/gene_catalog_issues.tsv`, and the error names the first five defects; see [Troubleshooting](../../user-guide/troubleshooting.md#common-gene-coordinate-catalog-is-not-valid).
+The in-memory `AnnotationBuilder` writes no table.
+A Gate A identifier failure writes the audit and summary but not query status or root scientific artifacts.
 After Gate B, a successful CLI invocation prints one bounded notice naming the
 affected query outcomes and the three diagnostic paths. The complete gene-level
 record remains in the audit and log. Python callers receive the same structured

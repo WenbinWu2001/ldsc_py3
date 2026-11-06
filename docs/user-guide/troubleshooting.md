@@ -683,10 +683,9 @@ mode. Remove `--padding-bp` entirely rather than passing a zero value. Validatio
 is completed before canonical scientific output publication. Restore
 or rebuild the index, or remove `--gene-ldscore-index-dir` and supply the
 full direct-mode inputs explicitly.
-Older gene LD-score index formats are not loaded by the current strict reader and must be rebuilt.
-LD-score directories already produced from an earlier index still load, but they record `unknown` baseline `annotation_types` and no `snp_universe_policy`, and their counts of continuous baseline annotations were summed in float32; regenerate them from the rebuilt index before refitting.
-An `Unsupported gene LD-score index format version` error for versions 2 to 5 means the index predates the current format 6: version 3 introduced exact PLINK LD windows, version 4 stores each chromosome's reference-SNP funnel, version 5 gives each SNP's minor allele as `A1`, and version 6 sums baseline annotation counts in float64 and stores the `annotation_types` and `snp_universe_policy` that indexed `ldscore` output records.
-Rebuild it with the current `ldsc build-gene-ldscore-index`.
+A gene LD-score index in another format is not loaded by the strict reader and must be rebuilt.
+An `Unsupported gene LD-score index format version` error means the index records a format other than the current format 1; an index built before the format numbering was reset on 2026-11-06 records 2 to 6.
+Rebuild it with the current `ldsc build-gene-ldscore-index`, and regenerate any LD-score directory produced from it before refitting.
 
 **Developer reference:** integrity checks include metadata IDs, mode/build agreement, the ordered published-row metadata digest, chromosome coverage, duplicate effective identities, Parquet rows, NPZ members, CSR structure/dtypes, and dimensions.
 

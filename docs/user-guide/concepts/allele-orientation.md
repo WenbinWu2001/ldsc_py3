@@ -1,6 +1,6 @@
 # Allele orientation
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-06
 
 Every file with `A1` and `A2` columns names the two alleles of a SNP, but which allele is `A1` depends on the file.
 In summary statistics `A1` is the effect allele; in files the package derives from reference-panel genotypes it is the minor allele; in inputs and in `annotate` output it keeps the order of the source.
@@ -29,7 +29,7 @@ The meaning in each file type is listed in [What A1 means in each file type](../
   - `build-r2-matrix` writes its sidecars and correlation signs in this orientation.
   - `ldscore` writes the reference panel's `A1` and `A2` in every LD-score directory, whether the LD scores come from a PLINK reference panel, an R² matrix or a gene LD-score index, and in every SNP identifier mode; the alleles of annotation files take part only in matching.
   - `ldscore --plink-prefix ... --export-ref-metadata` writes `ref_metadata/chr<N>_meta.tsv.gz` in this orientation, so these files match the sidecars that `build-r2-matrix` writes for the same panel.
-  - `build-gene-ldscore-index` stores its SNP rows in this orientation from format version 5; the loader reads only the current format version 6, so earlier indexes must be rebuilt.
+  - `build-gene-ldscore-index` stores its SNP rows in this orientation.
 - **Inputs and `annotate` output:** `A1` and `A2` keep the order of the source and only identify SNPs.
   This covers PLINK `.bim` files, annotation files, SNP restriction files, the packaged HM3 map, `query-r2-matrix` pair files and `quantile-h2` inputs.
   `annotate` reads no genotypes, so it writes the alleles of its annotation SNP grid in their source order.

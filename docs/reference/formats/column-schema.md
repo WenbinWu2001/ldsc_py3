@@ -230,7 +230,7 @@ Their meaning depends on the file type:
 | R² matrix sidecar (`chr<N>_meta.tsv.gz`) | The minor allele in the retained reference individuals, so `MAF = freq(A1) ≤ 0.5`; a tie at 0.5 keeps the `.bim` order | The major allele | `build-r2-matrix` swaps `A1` and `A2` where the `.bim` `A2` is the minor allele (see [allele orientation](#allele-orientation-and-frequency-a1-a2-maf-frq)) |
 | Exported reference metadata (`ref_metadata/chr<N>_meta.tsv.gz` from `ldscore --export-ref-metadata`) | The minor allele in the retained reference individuals, as in the R² matrix sidecar | The major allele | PLINK panel preparation, with the rule of `build-r2-matrix` |
 | LD-score directory written by `ldscore` | The reference panel's minor allele, whether the LD scores come from a PLINK reference panel, an R² matrix or a gene LD-score index, in every SNP identifier mode | The major allele | The prepared reference panel; the alleles of annotation files take part only in matching |
-| Gene LD-score index rows | The minor allele in the retained reference individuals | The major allele | PLINK panel preparation during `build-gene-ldscore-index` (from format version 5) |
+| Gene LD-score index rows | The minor allele in the retained reference individuals | The major allele | PLINK panel preparation during `build-gene-ldscore-index` |
 | PLINK reference panel (`.bim`) | The `.bim` `A1` as PLINK wrote it: usually, but not always, the minor allele | The `.bim` `A2` | PLINK; LDSC3 orients the files it derives from the panel and never rewrites the `.bim` |
 | Annotation files | The allele in the source file's `A1` column; `annotate` writes the alleles of its annotation SNP grid in their source order | The allele in the source file's `A2` column | The annotation source |
 

@@ -127,7 +127,7 @@ SNP-count windows use the retained SNP order after identity cleanup, the baselin
 cM windows require informative BIM CM values or matching `--genetic-map-hg19-sources` / `--genetic-map-hg38-sources`; kb and SNP-count windows need no map.
 The builder rejects whole-chromosome windows and exposes no override.
 Window unit and value are stored in the immutable index identity, the value as an integer for SNP counts and a float for kb and cM windows.
-An integer `ld_wind_kb` or `ld_wind_cm` passed from Python is therefore recorded as the same float the command line gives, and indexes built from Python with an integer kb or cM window before 2026-11-03 have a different `index_id` from a new build with the same settings; they also predate format version 6, so the loader rejects them and they must be rebuilt.
+An integer `ld_wind_kb` or `ld_wind_cm` passed from Python is therefore recorded as the same float the command line gives, so both routes give the same `index_id` for the same settings.
 Indexed `ldscore` output records the index's window as `ld_window` in `metadata.json`.
 
 ### Baseline reference-SNP caveat
@@ -208,27 +208,24 @@ It covers the baseline values on the retained reference SNPs (after genotype QC)
 Batching, workers, logging, output path, and overwrite are resource or publication controls and do not change the identity.
 The input fingerprints behind `index_id` (baseline content on the retained reference SNPs, whole PLINK BED file bytes, parsed BIM metadata, selected individual IDs, sorted regression keys, and the genetic map) only define the identity; indexed scoring never re-reads those inputs to check them again.
 Identical inputs and settings must produce identical fingerprints and the same `index_id`; changing what a fingerprint covers changes the identity of every index.
-Earlier builds fingerprinted the baseline/PLINK match before genotype QC, so a format-version-6 index built before that change has a different `index_id` from a new build of the same inputs; it stays loadable and scores the same, and only comparisons of `index_id` values across the change differ.
-An index of an earlier format version is rejected by the loader regardless and must be rebuilt.
+An index of another format version is rejected by the loader and must be rebuilt.
 
-Root and chromosome metadata record `format_version: 6` and repeat the immutable SNP identifier mode and hg19/hg38 build.
+Root and chromosome metadata record `format_version: 1` and repeat the immutable SNP identifier mode and hg19/hg38 build.
 Root metadata also stores two records that indexed `ldscore` copies into its `metadata.json` ([LD-score metadata](formats/artifact-metadata.md#ldscore)), outside `index_identity`:
 
 - `annotation_types` classifies each baseline column as `binary` or `quantitative`, as direct `ldscore` classifies it: a column is `quantitative` when any chromosome has a value other than 0 or 1 among its reference SNPs.
   Indexed output adds `gene_control` and the gene-list queries as `binary`, because they are Boolean unions of atoms.
 - `snp_universe_policy` records the reference SNPs and the regression SNPs of the build in the form direct `ldscore` writes: no reference-panel restriction file, the `--regr-snps-file` path as given at build time (or the HM3 map), the region-exclusion presets, and the regression SNPs before and after the region subtraction.
 
-Version 6 sums the baseline counts in float64, as direct `ldscore` does, where earlier versions summed them in float32, and adds the two root records; `index_id` hashes only the inputs, so a version-5 index of the same inputs has the same `index_id`, and the version is what separates them.
-Version 5 gives each row's minor allele as `A1`, as other files derived from PLINK genotypes do.
-Version 4 added each chromosome's reference-SNP funnel, `reference_snp_funnel.parquet`, which indexed `ldscore` reports; version 3 introduced exact PLINK LD windows, and version 2 operators used legacy LDSC's batch-rounded windows.
-The loader rejects every earlier version and asks for a rebuild.
+Baseline counts are summed in float64, as direct `ldscore` does, and each row gives the minor allele as `A1`, as other files derived from PLINK genotypes do.
+`index_id` hashes only the inputs, so a change to what an index stores needs a new format version; the loader rejects every other version and asks for a rebuild.
 Each chromosome records `published_row_metadata_sha256` over ordered `CHR SNP POS A1 A2` metadata for regression SNPs only.
 Both allele columns are required.
 This one digest covers the effective SNP identity in all four SNP identifier modes; the redundant `effective_identity_sha256` field is no longer written or required.
 The strict loader retains its mode/build, duplicate-effective-identity, canonical-order, schema, and row-metadata checks.
 These fingerprints identify declared inputs/settings and verify row metadata; they do not checksum numerical LD-score or sparse-matrix payloads.
 
-Earlier index formats are unsupported and must be rebuilt completely with the current package.
+An index of another format version is unsupported and must be rebuilt completely with the current package.
 There is no compatibility adapter, migration, or partial component reuse.
 The semantic `index_id` retains content-based identity, now including the selected window unit/value and allele-aware identity where applicable.
 Together with the R² matrix sidecar binding ([R² matrix format](formats/r2-matrices.md#4-index--sidecar-binding)), these are the package's only hashes; routine provenance hashes are not computed.

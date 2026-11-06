@@ -338,9 +338,9 @@ Before chromosome workers start, `_validate_baseline_plink_inputs()` compares ea
 Each worker passes its baseline shard, in canonical (`POS`, `SNP`) order, to `PlinkRefPanel.prepare_chromosome()` as the annotation SNP grid, as direct `ldscore` does, so the panel's selection, identity cleanup and grid match are the only ones; the chromosome's `baseline_plink_intersection` counts come from the reference-SNP funnel and the identity drops (`_baseline_plink_evidence()`), PLINK `CHR/POS/SNP/A1/A2` metadata is authoritative, and physical BIM/BED rows are preserved.
 The coordinator builds one `PlinkRefPanel` per run, reading the keep list once, and sends it to the workers.
 The private kernel owns disjoint half-open atoms, Boolean gene-to-atom CSR membership, bounded SNP-by-atom blocks, sufficient statistics, and float64 `Y @ z` assembly.
-Each index directory is one immutable format-version-6 artifact with no restart, resume, incremental update, component reuse, or legacy-index loader.
+Each index directory is one immutable artifact of the current index format (`format_version` 1) with no restart, resume, incremental update, component reuse, or legacy-index loader.
 The builder computes each chromosome's baseline LD scores, regression weights, counts, overlaps and `annotation_types` with direct `ldscore`'s `_ldscore.compute.compute_chromosome()`, then traverses the genotypes again for each atom batch of the operator; it builds its root `annotation_types` and `snp_universe_policy` with the helpers direct `ldscore` uses (`_annotation.semantics.combine_annotation_types()`, `_ldscore.outputs.snp_universe_policy_record()`), so indexed metadata matches a direct run.
-Earlier formats require a complete rebuild.
+An index of another format version requires a complete rebuild.
 Indexed output is still a self-contained LD-score directory written by `LDScoreDirectoryWriter`; it inherits identity/build and rejects live overrides.
 Architecture invariant: online assembly uses only the explicitly named complete index and never discovers an index or falls back to live computation.
 

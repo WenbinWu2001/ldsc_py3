@@ -1,6 +1,6 @@
 # Exact gene LD-score index: mathematical algorithm
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-06
 
 This document gives the input-to-output mathematical specification for the gene LD-score index used by `ldsc ldscore`.
 It describes the online indexed algorithm in full and the offline `build-gene-ldscore-index` construction more concisely.
@@ -420,7 +420,7 @@ compared under the validation tolerance rather than by requiring bitwise
 identity. Annotation membership, identities, row/column order, binary counts,
 and query statuses remain exact contracts. Continuous baseline overlap values
 obey the same formulas and use a validated absolute tolerance of $10^{-7}$.
-Continuous baseline counts are float64 sums in both runs (index format version 6); they can differ from a direct run only in float64 rounding, because the row tiles of the sums depend on the number of annotation columns read together.
+Continuous baseline counts are float64 sums in both runs; they can differ from a direct run only in float64 rounding, because the row tiles of the sums depend on the number of annotation columns read together.
 
 **Validation evidence (August 3 and 5, 2026).**
 On chromosome 22 of `1000G.EUR.QC` (hg19; 141,123 reference SNPs; 17,380 regression SNPs after HM3 restriction and region exclusion; 838 atoms; $\mathrm{nnz}(Y)=614{,}523$), direct and indexed runs were compared for the `rsid` and `chr_pos` SNP identifier modes.

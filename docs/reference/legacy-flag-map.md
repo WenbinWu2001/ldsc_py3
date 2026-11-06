@@ -89,7 +89,7 @@ The current PLINK backend keeps the chunked computation but drops every pair out
 Its LD scores equal legacy LDSC run with `--chunk-size 1` and use the same window rule as the R² matrix backend, which always used exact windows.
 The two backends still differ slightly, because an R² matrix stores R² as int16 and an `--ld-wind-snps` window on an R² matrix counts R² matrix rows rather than retained SNPs.
 A cM window also differs when the R² matrix's `CM`, interpolated from a genetic map, differs from the `.bim` `CM` the PLINK run uses.
-Gene LD-score indexes built with the earlier rounded windows (`format_version` 2) are rejected and must be rebuilt.
+Gene LD-score indexes use the same exact windows as `ldscore`.
 Published legacy LD scores remain usable unchanged through `ldsc convert-legacy-ldscores`.
 
 Measurement (2026-10-27; former kernel ported from legacy LDSC at `c67b40e` versus the exact kernel introduced with this section), on 1000G.EUR.QC chromosome 22 (489 individuals, 141,123 SNPs), `--ld-wind-cm 1`, 17,489 HapMap3 output SNPs:

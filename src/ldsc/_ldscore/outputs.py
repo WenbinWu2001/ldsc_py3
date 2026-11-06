@@ -490,6 +490,9 @@ class LDScoreDirectoryWriter:
         failure closes the producer before removing owned staging. Staging
         adds no rollback for a later filesystem publication failure, and
         completed batches are not resumable checkpoints.
+        The writer applies no gene-list viability gate itself: a caller that
+        yields its own gene-list batches instead of ``run_query_batches``
+        must raise on ``gene_viability_errors`` after the last batch.
         """
         root = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
         self.artifact_family(root).preflight(overwrite=output_config.overwrite)

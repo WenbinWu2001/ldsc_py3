@@ -21,7 +21,7 @@ import pytest
 
 
 from ldsc.config import ConfigMismatchError, GlobalConfig, LDWindow
-from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
+from ldsc.errors import LDSCInputError, LDSCInternalError, LDSCUsageError
 from ldsc._annotation.query_outcomes import QueryAnnotationStatus, emit_gene_gate_b_notice
 
 from ldsc import (
@@ -1833,7 +1833,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             "--ld-wind-snps", "10",
         ])
 
-        with self.assertRaisesRegex(LDSCConfigError, r"keep_indivs_file \(`--keep-indivs-file`\) applies only to a PLINK"):
+        with self.assertRaisesRegex(LDSCUsageError, "ldscore cannot use `--keep-indivs-file` with `--r2-matrix-dir`"):
             ldscore_workflow.run_ldscore_from_args(args)
 
     def test_run_ldscore_from_args_fails_when_the_grid_misses_a_whole_chromosome(self):

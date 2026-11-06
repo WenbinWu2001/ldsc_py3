@@ -373,7 +373,7 @@ ldsc ldscore \
   becomes public only after complete reload validation. Stages cannot be
   resumed or used for incremental chromosome updates.
 
-**Genetic coordinates:** a cM window with PLINK input needs informative BIM CM values or a matching explicit genetic map through `--genetic-map-hg19-sources` (comma-separated exact paths). With R² input, CM comes from the required matching `chrN_meta.tsv.gz` sidecars. Genetic-map flags do not replace those sidecar values. See [effective CM coordinates](workflows/ld-scores.md#plink-input).
+**Genetic coordinates:** a cM window with PLINK input needs informative BIM CM values or a matching explicit genetic map through `--genetic-map-hg19-sources` (comma-separated exact paths). With R² input, CM comes from the required matching `chrN_meta.tsv.gz` sidecars, and `ldscore` rejects the genetic-map flags (and `--keep-indivs-file`) together with `--r2-matrix-dir`. See [effective CM coordinates](workflows/ld-scores.md#plink-input).
 
 **Outputs:**
 

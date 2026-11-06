@@ -149,7 +149,7 @@ The full definitions are in [reference and regression SNPs](../../reference/ldsc
 | `--maf-min` | Removes reference SNPs with MAF below the value (keeps MAF at or above it); removed SNPs contribute nothing. Default: no filter. |
 | `--common-maf-min` | Sets the MAF threshold, inclusive, of the common-SNP count; it does not remove any SNP. Default: 0.05. |
 | `--ref-panel-snps-file` | Restricts the reference SNPs to a headered SNP identity table. |
-| `--keep-indivs-file` | PLINK only: keeps the individuals listed, one IID per row. |
+| `--keep-indivs-file` | PLINK only (rejected with `--r2-matrix-dir`): keeps the individuals listed, one IID per row. |
 | `--regr-snps-file` | Replaces the HM3 map as the source of regression SNPs, using a headered SNP identity table. |
 | `--regr-snps-exclude-regions` | Region-exclusion preset removed from the regression SNPs: `none`, `mhc`, `centromeres` or `mhc-and-centromeres` (default). Reference SNPs and counts are unchanged. |
 
@@ -163,7 +163,7 @@ Give exactly one of `--ld-wind-cm`, `--ld-wind-kb` or `--ld-wind-snps`; each is 
 
 - `--ld-wind-cm` needs usable `CM` values.
   With PLINK input, supply `--genetic-map-hg19-sources` or `--genetic-map-hg38-sources` (comma-separated exact file paths) when the `.bim` `CM` column is uninformative; an all-zero or constant `CM` stops the run, and `--yes-really` does not override that check ([troubleshooting](../troubleshooting.md#ldscore-unusable-cm-for-ld-wind-cm)).
-  With an R² matrix, `CM` comes from the sidecar and the genetic-map options do not apply.
+  With an R² matrix, `CM` comes from the sidecar, and `ldscore` stops with an error when `--genetic-map-hg19-sources`, `--genetic-map-hg38-sources` or `--keep-indivs-file` is combined with `--r2-matrix-dir`.
 - With an R² matrix, the LD window must use the unit the R² matrix was built with and be no wider than the R² matrix's LD window.
 - `--ld-wind-snps` counts retained SNPs with PLINK input but sidecar rows with an R² matrix, so the two differ when a run keeps only part of the R² matrix; every R² matrix run with `--ld-wind-snps` writes the per-chromosome counts to `diagnostics/ld_window_snp_counts.tsv`.
 - `--yes-really` allows an LD window that covers a whole chromosome, which is otherwise rejected.

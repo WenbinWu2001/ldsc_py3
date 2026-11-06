@@ -26,16 +26,18 @@ BACKEND = (
     "supplied, or neither was supplied. Pass exactly one of `--r2-matrix-dir` for R2 matrix mode or "
     "`--plink-prefix` for PLINK mode."
 )
-PLINK_ONLY_REMEDY = "Remove the PLINK-only options, or use backend='plink' with plink_prefix (`--plink-prefix`)."
 KEEP_WITH_R2 = (
-    "Could not construct RefPanelConfig(backend='r2_matrix'): keep_indivs_file (`--keep-indivs-file`) applies only "
-    "to a PLINK reference panel, because individuals can be filtered only before PLINK genotype LD calculation. "
-    + PLINK_ONLY_REMEDY
+    "ldscore cannot use `--keep-indivs-file` with `--r2-matrix-dir`: individuals can be filtered only before PLINK "
+    "genotype LD calculation. Remove this option, or rerun in PLINK mode with `--plink-prefix`."
 )
 MAP_WITH_R2 = (
-    "Could not construct RefPanelConfig(backend='r2_matrix'): genetic_map_hg19_sources (`--genetic-map-hg19-sources`) "
-    "applies only to a PLINK reference panel, because the R2 matrix sidecars already hold the CM of every SNP. "
-    + PLINK_ONLY_REMEDY
+    "ldscore cannot use `--genetic-map-hg19-sources` with `--r2-matrix-dir`: the R2 matrix sidecars already hold "
+    "the CM of every SNP. Remove this option, or rerun in PLINK mode with `--plink-prefix`."
+)
+KEEP_AND_MAPS_WITH_R2 = (
+    "ldscore cannot use `--keep-indivs-file`, `--genetic-map-hg19-sources`, `--genetic-map-hg38-sources` with "
+    "`--r2-matrix-dir`: individuals can be filtered only before PLINK genotype LD calculation; the R2 matrix "
+    "sidecars already hold the CM of every SNP. Remove these options, or rerun in PLINK mode with `--plink-prefix`."
 )
 R2_BUILD_MISSING = (
     "ldscore cannot run R2 matrix mode with a coordinate-family SNP identifier mode without a genome build. "
@@ -125,10 +127,15 @@ CLI_CASES = {
     "both-backends": ([*PLINK_RUN, "--r2-matrix-dir", "{tmp}/r2"], "LDSCUsageError", BACKEND),
     # --keep-indivs-file with an R2 matrix
     "keep-with-r2": (["--genome-build", "hg38", "--r2-matrix-dir", "{tmp}/r2", "--keep-indivs-file",
-                      "{tmp}/keep.txt", "--ld-wind-kb", "1000"], "LDSCConfigError", KEEP_WITH_R2),
+                      "{tmp}/keep.txt", "--ld-wind-kb", "1000"], "LDSCUsageError", KEEP_WITH_R2),
     # a genetic map with an R2 matrix
     "map-with-r2": (["--genome-build", "hg38", "--r2-matrix-dir", "{tmp}/r2", "--genetic-map-hg19-sources",
-                     "{tmp}/map.txt", "--ld-wind-cm", "1"], "LDSCConfigError", MAP_WITH_R2),
+                     "{tmp}/map.txt", "--ld-wind-cm", "1"], "LDSCUsageError", MAP_WITH_R2),
+    # every PLINK-only option with an R2 matrix: one error names them all
+    "keep-and-maps-with-r2": (["--genome-build", "hg38", "--r2-matrix-dir", "{tmp}/r2", "--keep-indivs-file",
+                               "{tmp}/keep.txt", "--genetic-map-hg19-sources", "{tmp}/map19.txt",
+                               "--genetic-map-hg38-sources", "{tmp}/map38.txt", "--ld-wind-cm", "1"],
+                              "LDSCUsageError", KEEP_AND_MAPS_WITH_R2),
     # build missing
     "r2-build-missing": (["--snp-identifier", "chr_pos", "--r2-matrix-dir", "{tmp}/r2", "--ld-wind-kb", "1000"],
                          "LDSCUsageError", R2_BUILD_MISSING),
@@ -181,7 +188,7 @@ KWARGS_CASES = {
     "neither-backend": (None, {"ld_wind_kb": 1000}, "LDSCUsageError", BACKEND),
     # --keep-indivs-file with an R2 matrix
     "keep-with-r2": (None, {"r2_matrix_dir": "{tmp}/r2", "keep_indivs_file": "{tmp}/keep.txt", "ld_wind_kb": 1000},
-                     "LDSCConfigError", KEEP_WITH_R2),
+                     "LDSCUsageError", KEEP_WITH_R2),
     # range values
     "maf-min": (None, {**PLINK_KWARGS, "maf_min": 0.7}, "LDSCConfigError", MAF.format(0.7)),
     "common-maf-min": (None, {**PLINK_KWARGS, "common_maf_min": 0.6}, "LDSCConfigError", COMMON_MAF.format(0.6)),

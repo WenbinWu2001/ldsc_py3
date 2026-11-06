@@ -558,6 +558,32 @@ def _config_from_options(config_type, **fields):
         raise
 
 
+# PLINK-only ldscore options, with why an R2 matrix run cannot use them.
+_PLINK_ONLY_OPTIONS = {
+    "keep_indivs_file": "individuals can be filtered only before PLINK genotype LD calculation",
+    "genetic_map_hg19_sources": "the R2 matrix sidecars already hold the CM of every SNP",
+    "genetic_map_hg38_sources": "the R2 matrix sidecars already hold the CM of every SNP",
+}
+
+
+def _reject_plink_only_options(args: argparse.Namespace) -> None:
+    """Name every PLINK-only option supplied with ``--r2-matrix-dir`` in one command-worded error.
+
+    ``RefPanelConfig`` rejects the same fields for Python callers; this words
+    the rule with the options a command-line user typed.
+    """
+    supplied = [name for name in _PLINK_ONLY_OPTIONS if getattr(args, name)]
+    if not supplied:
+        return
+    options = ", ".join(f"`--{name.replace('_', '-')}`" for name in supplied)
+    reasons = "; ".join(dict.fromkeys(_PLINK_ONLY_OPTIONS[name] for name in supplied))
+    raise LDSCUsageError(
+        f"ldscore cannot use {options} with `--r2-matrix-dir`: {reasons}. "
+        f"Remove {'these options' if len(supplied) > 1 else 'this option'}, "
+        "or rerun in PLINK mode with `--plink-prefix`."
+    )
+
+
 def _configs_from_args(args: argparse.Namespace) -> "_DirectConfigs | _IndexedConfigs":
     """Check the input-mode rules and build every configuration of one ``ldscore`` run.
 
@@ -586,6 +612,7 @@ def _configs_from_args(args: argparse.Namespace) -> "_DirectConfigs | _IndexedCo
     snp_identifier = normalize_snp_identifier_mode(args.snp_identifier)
     genome_build = normalize_genome_build(args.genome_build)
     if r2_matrix_dir:
+        _reject_plink_only_options(args)
         if identity_mode_family(snp_identifier) == "chr_pos" and genome_build is None:
             raise LDSCUsageError(
                 "ldscore cannot run R2 matrix mode with a coordinate-family SNP identifier mode "

@@ -283,6 +283,34 @@ class QuantileH2WorkflowTest(unittest.TestCase):
         self.assertFalse((diagnostics / "gene_list_resolution_summary.tsv").exists())
         self.assertFalse((diagnostics / "gene_list_audit.tsv.gz").exists())
 
+    def test_invalid_gene_catalog_names_its_defects_and_writes_the_catalog_table(self):
+        catalog = self.root / "genes.tsv"
+        catalog.write_text("gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\nG1\tONE\t1\t15\t25\tGRCh-38\n",
+                           encoding="utf-8")
+        genes = self.root / "query.txt"
+        genes.write_text("G1\n", encoding="utf-8")
+        self.args.query_annot_gene_list_sources = [str(genes)]
+        self.args.gene_coordinate_file = str(catalog)
+
+        with self.assertRaises(LDSCInputError) as caught:
+            run_quantile_h2_from_args(self.args)
+
+        message = str(caught.exception)
+        self.assertIn("is not structurally valid: found 1 defect(s): line 2, genome_build: "
+                      "unsupported_genome_build, value 'GRCh-38'", message)
+        self.assertIn("troubleshooting.md#common-gene-coordinate-catalog-is-not-valid", message)
+        diagnostics = Path(self.args.output_dir) / "diagnostics"
+        issues = pd.read_csv(diagnostics / "gene_catalog_issues.tsv", sep="\t", keep_default_na=False)
+        self.assertEqual(issues["reason"].tolist(), ["unsupported_genome_build"])
+        self.assertEqual(issues["source"].tolist(), ["genes.tsv"])
+
+        # The table belongs to the output directory, so a corrected overwrite removes it.
+        self.args.query_annot_gene_list_sources = self.args.gene_coordinate_file = None
+        self.args.overwrite = True
+        result = run_quantile_h2_from_args(self.args)
+        self.assertFalse((diagnostics / "gene_catalog_issues.tsv").exists())
+        self.assertNotIn("gene_catalog_issues", result.output_paths)
+
     def test_run_quantile_h2_takes_the_command_option_names(self):
         # Single path tokens may be plain strings, as in the documented example.
         options = {

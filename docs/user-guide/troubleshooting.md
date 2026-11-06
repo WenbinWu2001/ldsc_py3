@@ -278,6 +278,36 @@ All four also write each affected file to `diagnostics/input_issues.tsv` in the 
 
 **Developer reference:** `_annotation.preflight.require_usable_bed_query_names()` · **Exception:** `LDSCInputError`
 
+### Common: gene coordinate catalog is not valid
+
+**Symptom:** `Gene coordinate catalog '<file>' is not structurally valid: found <n> defect(s): line <L>, <field>: <reason> ...`
+
+Gene-list runs of `annotate`, `ldscore` and `quantile-h2`, and the Python `AnnotationBuilder`, check the whole gene coordinate catalog before any gene list is resolved.
+A defect that leaves the catalog without one usable genome build or without parseable rows stops the run; the message names the first five defects with their catalog line, field, reason, value and repair, and counts the rest.
+`build-gene-ldscore-index` stops on every catalog defect, with `is not canonical` in the message.
+`annotate`, `ldscore` and `quantile-h2` write every defect to `diagnostics/gene_catalog_issues.tsv` in the output directory; `build-gene-ldscore-index` writes them to `<index-dir>/.build/gene_coordinate_catalog_issues.tsv.gz`.
+The Python `AnnotationBuilder` writes no table; the exception's `issues` attribute holds the same rows.
+
+**Likely causes & how to check:**
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | A `genome_build` value is not one of `hg19`, `hg37`, `GRCh37`, `hg38` or `GRCh38` (reason `unsupported_genome_build`) | Compare the `observed_value` column with the accepted spellings |
+| 2 | A row has no `genome_build` (reason `missing_genome_build`) | Look for rows with an empty last column |
+| 3 | The catalog mixes hg19 and hg38 rows (reason `conflicting_genome_build`) | Count the distinct `genome_build` values in the catalog |
+| 4 | A row has a different number of fields than the header, often a space instead of a tab (reason `malformed_catalog_row`) | The `details` column gives the expected and found field counts |
+| 5 | The file is not a readable, UTF-8, tab-separated table, or is empty (reasons `catalog_unreadable`, `catalog_unparseable`) | Open the file named in the message; a `.gz` name must hold a gzip stream |
+
+**Remedies:**
+
+1. Regenerate the catalog from one source in one genome build, with one tab-separated value per header column on every row.
+2. Repair every row in the table, not only the ones the message shows; then rerun with `--overwrite` or a fresh output directory.
+   A row labeled `validation_incomplete` means the row checks could not run yet, so more defects may appear after the structural repair.
+
+See [gene-list formats](../reference/formats/gene-lists.md) for the catalog columns.
+
+**Developer reference:** `_annotation.gene_lists.GeneCatalog.load()` and `catalog_defect_message()` · **Exception:** `GeneCatalogValidationError` (an `LDSCInputError`)
+
 ## `munge-sumstats`
 
 ### `munge-sumstats`: could not map a required column

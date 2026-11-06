@@ -23,6 +23,7 @@ from .._runtime.serial_calculation import serial_calculation
 from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, output_directory_argument
 from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
 from ..errors import LDSCInputError
+from .._annotation.gene_lists import GeneCatalogValidationError
 from .._annotation.outputs import AnnotationDirectoryWriter
 from .._runtime.scratch import ScratchWorkspace
 from .quantile_inputs import QuantileTarget, prepare_quantile_statistics
@@ -744,6 +745,8 @@ def _run_quantile_h2(
                 # The gene-list audit is staged in the workspace, so it is written before the workspace closes.
                 if getattr(exc, "gene_list_batch", None) is not None:
                     AnnotationDirectoryWriter().write_diagnostics(output_dir, batch=exc.gene_list_batch)
+                if isinstance(exc, GeneCatalogValidationError):
+                    writer.write_gene_catalog_issues(output_dir, exc.issues)
                 raise
         common_maf_min = inputs.common_maf_min
         samp_prev = pd.to_numeric(model.summary.get("samp_prev", pd.Series([np.nan])), errors="coerce").iloc[0]

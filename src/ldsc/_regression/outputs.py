@@ -359,8 +359,12 @@ class QuantileH2DirectoryWriter:
     """
 
     @staticmethod
-    def artifact_family(output_dir) -> ArtifactFamily:
-        """Declare quantile outputs, alignment diagnostics, and the derived plot root."""
+    def artifact_family(output_dir, *, catalog_issues=False) -> ArtifactFamily:
+        """Declare quantile outputs, alignment diagnostics, and the derived plot root.
+
+        ``catalog_issues`` selects ``diagnostics/gene_catalog_issues.tsv``,
+        which only a run stopped by an invalid gene coordinate catalog writes.
+        """
         return declare_artifacts(output_dir, {
             "quantile_h2": ("quantile_h2.tsv", True),
             "standardized_coefficients": ("standardized_coefficients.tsv", True),
@@ -370,7 +374,20 @@ class QuantileH2DirectoryWriter:
             "input_issues": ("diagnostics/input_issues.tsv", False),
             "gene_list_audit": ("diagnostics/gene_list_audit.tsv.gz", False),
             "gene_list_resolution_summary": ("diagnostics/gene_list_resolution_summary.tsv", False),
+            "gene_catalog_issues": ("diagnostics/gene_catalog_issues.tsv", catalog_issues),
         }, label="quantile-h2 output artifact")
+
+    def write_gene_catalog_issues(self, output_dir, issues: pd.DataFrame) -> str:
+        """Write the defect table of a gene coordinate catalog that stopped the run.
+
+        The workflow has already run the output-family preflight; earlier owned
+        outputs stay in place, and a later successful run removes this file.
+        Returns the written path.
+        """
+        path = self.artifact_family(output_dir, catalog_issues=True).paths["gene_catalog_issues"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        issues.to_csv(path, sep="\t", index=False, na_rep="")
+        return str(path)
 
     def write(
         self,

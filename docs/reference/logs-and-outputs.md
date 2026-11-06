@@ -1,6 +1,6 @@
 # Logs and Outputs
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-06
 
 This page describes what a logged workflow writes besides its scientific results: logs, console messages, output preflight and failure markers.
 The rules for writing log and error messages, and the logging API boundary, are in [logging design](../dev/design/logging.md).
@@ -191,6 +191,7 @@ Genes intentionally excluded by region policy: role=focal; sources=5607; input r
 ```
 
 The counts are illustrative. Rejection summaries point to the gene row audit or resolution summary, and query outcome summaries point to `diagnostics/query_annotation_status.tsv`. Live LD-score catalog defects also have a complete `diagnostics/gene_catalog_issues.tsv` table, using the existing catalog-issue schema shared with standalone `annotate`. This additive diagnostic is owned by the LD-score writer and linked from root metadata when present; scientific table schemas are unchanged.
+When a structurally invalid catalog stops `ldscore` or `quantile-h2`, the command's own writer still writes this table, the error names the first five defects, and earlier owned outputs stay in place; it is never an entry of result `output_paths`.
 Mechanisms: [`_annotation/sources.py`](../../src/ldsc/_annotation/sources.py), `prepare_annotation_sources()`; [`_annotation/parsing.py`](../../src/ldsc/_annotation/parsing.py), `normalize_annotation_chunk()`; [`_annotation/query_outcomes.py`](../../src/ldsc/_annotation/query_outcomes.py), `log_gene_list_rejections()`.
 
 ## LD-score chromosome diagnostics

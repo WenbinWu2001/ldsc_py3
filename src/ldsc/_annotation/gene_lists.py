@@ -94,6 +94,8 @@ RESOLVED_ONLY_REASONS = frozenset(
         "outside_supported_chromosome",
     }
 )
+_CATALOG_TROUBLESHOOTING = "docs/user-guide/troubleshooting.md#common-gene-coordinate-catalog-is-not-valid"
+_SHOWN_CATALOG_DEFECTS = 5
 _BUILD_ALIASES = {
     "hg19": "hg19",
     "hg37": "hg19",
@@ -109,6 +111,10 @@ class GeneCatalogValidationError(LDSCInputError):
     def __init__(self, message: str, issues: pd.DataFrame):
         super().__init__(message)
         self.issues = issues.loc[:, CATALOG_ISSUE_COLUMNS].copy()
+
+    def __reduce__(self):
+        # quantile-h2 loads the catalog in a worker process; the table must survive the return trip.
+        return type(self), (self.args[0], self.issues)
 
 
 @dataclass(frozen=True)
@@ -167,14 +173,12 @@ class GeneCatalog:
 
         frame, parse_issues = _parse_catalog_text(text, source)
         if frame is None:
-            reasons = ", ".join(sorted(set(parse_issues["reason"].astype(str))))
             if parse_issues["reason"].eq("missing_required_column").any():
                 missing = ", ".join(parse_issues.loc[parse_issues["reason"].eq("missing_required_column"), "field"])
                 message = f"Gene coordinate catalog '{source}' is missing required columns: {missing}."
             else:
-                message = (
-                    f"Gene coordinate catalog '{source}' is structurally unusable ({reasons}); "
-                    "repair the catalog before resolving gene lists."
+                message = catalog_defect_message(
+                    f"Gene coordinate catalog '{source}' is structurally unusable", parse_issues
                 )
             raise GeneCatalogValidationError(
                 message,
@@ -197,8 +201,7 @@ class GeneCatalog:
         if structural.any() or (require_canonical and not issues.empty):
             scope = "canonical" if require_canonical else "structurally valid"
             raise GeneCatalogValidationError(
-                f"Gene coordinate catalog '{source}' is not {scope}: found {len(issues)} defect(s).",
-                issues,
+                catalog_defect_message(f"Gene coordinate catalog '{source}' is not {scope}", issues), issues
             )
         genome_build = str(normalized["genome_build"].dropna().iloc[0])
         return cls(
@@ -272,7 +275,9 @@ class GeneCatalog:
                 pd.DataFrame(issue_rows, columns=CATALOG_ISSUE_COLUMNS)
             )
             raise GeneCatalogValidationError(
-                f"Embedded gene coordinate catalog '{source}' has invalid catalog_line values.",
+                catalog_defect_message(
+                    f"Embedded gene coordinate catalog '{source}' has invalid catalog_line values", issues
+                ),
                 issues,
             )
         prepared = frame.loc[:, CATALOG_REQUIRED_COLUMNS].copy()
@@ -281,7 +286,7 @@ class GeneCatalog:
         issues = _sort_catalog_issues(issues)
         if not issues.empty:
             raise GeneCatalogValidationError(
-                f"Embedded gene coordinate catalog '{source}' is not canonical: found {len(issues)} defect(s).",
+                catalog_defect_message(f"Embedded gene coordinate catalog '{source}' is not canonical", issues),
                 issues,
             )
         return cls(
@@ -812,6 +817,36 @@ def _mhc_overlap_mask(frame: pd.DataFrame, genome_build: str) -> pd.Series:
             )
         result.loc[same_chrom] = overlap
     return result
+
+
+def catalog_defect_message(prefix: str, issues: pd.DataFrame) -> str:
+    """Return a self-contained catalog failure message naming the first defects.
+
+    ``prefix`` states what failed. The message adds the defect count, the
+    first ``_SHOWN_CATALOG_DEFECTS`` rows of ``issues`` in table order (line,
+    field, reason, details, observed value and repair), the number not shown,
+    and the troubleshooting anchor.
+    """
+    shown = [_describe_catalog_issue(row) for _, row in issues.head(_SHOWN_CATALOG_DEFECTS).iterrows()]
+    message = f"{prefix}: found {len(issues)} defect(s): " + "; ".join(shown)
+    omitted = len(issues) - len(shown)
+    if omitted:
+        message += f"; {omitted} more defect(s) not shown"
+    return f"{message}. Other causes & fixes: {_CATALOG_TROUBLESHOOTING}"
+
+
+def _describe_catalog_issue(row: pd.Series) -> str:
+    line = pd.to_numeric(pd.Series([row["catalog_line"]]), errors="coerce").iloc[0]
+    text = (f"line {int(line)}, " if pd.notna(line) else "") + f"{row['field']}: {row['reason']}"
+    if _issue_text(row["details"]):
+        text += f" ({_issue_text(row['details'])})"
+    if _issue_text(row["observed_value"]):
+        text += f", value {_issue_text(row['observed_value'])!r}"
+    return f"{text}. Repair: {_issue_text(row['repair']).rstrip('.')}"
+
+
+def _issue_text(value: Any) -> str:
+    return "" if pd.isna(value) else str(value)
 
 
 def _single_catalog_issue(

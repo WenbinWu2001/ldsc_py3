@@ -24,11 +24,12 @@ Change the gene coordinate catalog only when catalog line evidence shows that it
 | `diagnostics/chromosome_scope.json` | After input-scope assessment, including failures | Effective validated input chromosomes, analysis scope, validation status, and glob-selection caveat or index identity. |
 | `diagnostics/input_issues.tsv` | Input-integrity or preparation failures | Consolidated required-artifact issues and repair guidance. |
 | `diagnostics/ldscore.log` | Every ordinary `ldscore` workflow | Aggregate counts and diagnostic pointers, numbered batches and chromosome progress, plus specific failure details. Full successful query/source logging requires DEBUG. |
-| `diagnostics/gene_catalog_issues.tsv` | Direct gene-list LD scores with catalog defects, on successful publication or diagnostic-only gene gates | Complete latent catalog defects; the log summarizes their count. Uses the existing standalone annotate catalog-issue schema. |
+| `diagnostics/gene_catalog_issues.tsv` | Direct gene-list LD scores with catalog defects, on successful publication or diagnostic-only gene gates; also a direct `ldscore` or `quantile-h2` run stopped by a structurally invalid catalog | Complete catalog defects; the log summarizes the count of latent ones, and a stopping error names the first five. Uses the existing standalone annotate catalog-issue schema. |
 | `<index-dir>/.build/gene_coordinate_catalog_issues.tsv.gz` | A gene LD-score index build whose catalog is noncanonical | Every detected source-catalog defect. It is in the index directory's hidden build directory, not part of a published index. |
 
 A structural catalog failure may prevent reliable gene-list matching, so it
-does not create a synthetic gene-list audit. A Gate A identifier failure writes
+does not create a synthetic gene-list audit.
+It writes `diagnostics/gene_catalog_issues.tsv` instead, and its error names the first five defects; see [Troubleshooting](../../user-guide/troubleshooting.md#common-gene-coordinate-catalog-is-not-valid). A Gate A identifier failure writes
 the audit and summary but not query status or root scientific artifacts.
 After Gate B, a successful CLI invocation prints one bounded notice naming the
 affected query outcomes and the three diagnostic paths. The complete gene-level

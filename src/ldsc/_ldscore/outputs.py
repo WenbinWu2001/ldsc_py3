@@ -248,13 +248,16 @@ class QueryDiagnostics:
 
     The only input of the writer's diagnostics methods, which write each
     record that is present: ``chromosome_scope.json``, ``input_issues.tsv``,
-    the query statuses, and the gene-list audit and resolution summary.
+    the query statuses, the gene-list audit and resolution summary, and
+    ``gene_catalog_issues.tsv`` for a gene coordinate catalog that could not
+    be loaded (``catalog_issues``, the ``GeneCatalogValidationError`` table).
     """
 
     chromosome_scope: dict
     query_statuses: tuple[QueryAnnotationStatus, ...] = ()
     gene_list_batch: StagedGeneListBatch | None = None
     input_issues: pd.DataFrame | None = None
+    catalog_issues: pd.DataFrame | None = None
 
 
 @dataclass(slots=True)
@@ -395,7 +398,8 @@ class LDScoreDirectoryWriter:
             "gene_list_audit": ("diagnostics/gene_list_audit.tsv.gz", batch is not None),
             "gene_list_resolution_summary": ("diagnostics/gene_list_resolution_summary.tsv", batch is not None),
             "gene_catalog_issues": ("diagnostics/gene_catalog_issues.tsv",
-                                    batch is not None and batch.catalog is not None and not batch.catalog.issues.empty),
+                                    (batch is not None and batch.catalog is not None and not batch.catalog.issues.empty)
+                                    or (diagnostics is not None and diagnostics.catalog_issues is not None)),
             "ld_window_snp_counts": (LD_WINDOW_SNP_COUNTS_FILE,
                                      scientific and publication.ld_window_snp_counts is not None),
             "reference_snp_funnel": (REFERENCE_SNP_FUNNEL_FILE,
@@ -688,6 +692,9 @@ class LDScoreDirectoryWriter:
             )
         if result.gene_list_batch is not None:
             LDScoreDirectoryWriter._write_gene_list_diagnostic_files(result.gene_list_batch, paths)
+        elif "gene_catalog_issues" in paths:
+            paths["gene_catalog_issues"].parent.mkdir(parents=True, exist_ok=True)
+            result.catalog_issues.to_csv(paths["gene_catalog_issues"], sep="\t", index=False, na_rep="")
 
     @staticmethod
     def _write_gene_list_diagnostic_files(batch: StagedGeneListBatch, paths: dict[str, Path]) -> None:

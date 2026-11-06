@@ -94,7 +94,7 @@ from .._annotation.query_outcomes import (
     emit_bed_query_notice, emit_gene_gate_b_notice, emit_resolved_only_notice,
 )
 from .._genome.build_policy import GenomeBuildCheck
-from .._annotation.gene_lists import GeneCatalog
+from .._annotation.gene_lists import GeneCatalog, GeneCatalogValidationError
 from .._annotation.interval_projection import ChromosomeProjector
 from .._annotation.gene_query_storage import resolve_gene_lists_staged, persistent_gene_diagnostics
 from .._annotation.preflight import (
@@ -728,7 +728,13 @@ def _run_direct_ldscore(configs: _DirectConfigs) -> "LDScoreSource":
                                            annotation_columns(declared_inputs), issues_path)
             batch = catalog = None
             if configs.has_gene_lists:
-                catalog = GeneCatalog.load(annotation_config.gene_coordinate_file)
+                try:
+                    catalog = GeneCatalog.load(annotation_config.gene_coordinate_file)
+                except GeneCatalogValidationError as exc:
+                    # An input defect found before any calculation: earlier owned outputs stay in place.
+                    LDScoreDirectoryWriter.write_input_preflight_diagnostics(
+                        QueryDiagnostics({}, catalog_issues=exc.issues), output_dir)
+                    raise
                 batch = resolve_gene_lists_staged(list(annotation_config.query_annot_gene_list_sources), catalog,
                     workspace, existing_columns=annotation_columns(declared_inputs),
                     control_path=annotation_config.control_gene_list_file,

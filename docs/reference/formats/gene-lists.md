@@ -1,6 +1,6 @@
 # Gene-list query input
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-06
 
 `ldsc ldscore` accepts one or more focal gene lists through `--query-annot-gene-list-sources`.
 Direct mode requires an explicit gene coordinate catalog; indexed mode uses only the catalog embedded in the gene LD-score index.
@@ -88,6 +88,10 @@ build is combined with available baseline/reference evidence, and conflicting
 evidence stops the run. No implicit liftover occurs. A plausible catalog whose
 rows secretly mix builds cannot be detected reliably; generate it from one
 authoritative single-build source.
+
+A catalog without one usable genome build or without parseable rows stops every gene-list workflow before any list is resolved.
+The error names the first five defects (catalog line, field, reason, value and repair) and counts the rest.
+`annotate`, `ldscore` and `quantile-h2` write all of them to `diagnostics/gene_catalog_issues.tsv`; see [Troubleshooting](../../user-guide/troubleshooting.md#common-gene-coordinate-catalog-is-not-valid).
 
 ## Strict and exploratory resolution
 

@@ -85,13 +85,6 @@ def add_h2_arguments(parser) -> None:
     parser.formatter_class = CLIHelpFormatter
     parser.description = "Estimate heritability from munged summary statistics and LD scores."
     sections = _add_regression_sections(parser, include_h2_intercept=True)
-    sections.inputs.add_argument(
-        '--trait-name', default=None,
-        help=(
-            'Trait label used in summaries. If omitted, use the stored trait name or derive one from the '
-            'input filename.'
-        ),
-    )
     _add_regression_output_arguments(sections.output)
     _add_scalar_prevalence_arguments(sections.scale)
     _add_regression_model_arguments(sections, include_h2_intercept=True)
@@ -104,13 +97,6 @@ def add_partitioned_h2_arguments(parser) -> None:
     parser.formatter_class = CLIHelpFormatter
     parser.description = "Estimate partitioned heritability with independent query models."
     sections = _add_regression_sections(parser, include_h2_intercept=True)
-    sections.inputs.add_argument(
-        '--trait-name', default=None,
-        help=(
-            'Trait label used in summaries. If omitted, use the stored trait name or derive one from the '
-            'input filename.'
-        ),
-    )
     _add_regression_output_arguments(sections.output)
     sections.output.add_argument(
         '--continue-on-query-error', action='store_true', default=False,
@@ -763,6 +749,14 @@ def _add_regression_sections(parser, include_h2_intercept: bool) -> SimpleNamesp
             'predictors, regression weights, and SNP counts.'
         ),
     )
+    if include_h2_intercept:
+        sections.inputs.add_argument(
+            '--trait-name', default=None,
+            help=(
+                'Trait label used in summaries. If omitted, use the stored trait name or derive one from the '
+                'input filename.'
+            ),
+        )
     return sections
 
 
@@ -801,6 +795,21 @@ def _add_regression_model_arguments(sections: SimpleNamespace, include_h2_interc
                 'Cannot be combined with an explicit --two-step-cutoff. If omitted, estimate the intercept.'
             ),
         )
+        sections.advanced.add_argument(
+            '--two-step-cutoff', type=float, default=None, metavar='VALUE',
+            help=(
+                'First-step chi-square cutoff, including the boundary. Requires a single-annotation model with '
+                'a free intercept; cannot be combined with --intercept-h2. If omitted, use 30 '
+                'for such models; otherwise disable two-step estimation.'
+            ),
+        )
+        sections.advanced.add_argument(
+            '--chisq-max', type=float, default=None, metavar='VALUE',
+            help=(
+                'Keep SNPs with chi-square at or below this value. If omitted, use max(0.001 * maximum N, 80) '
+                'for multi-annotation models; single-annotation models have no chi-square cap.'
+            ),
+        )
     else:
         sections.advanced.add_argument(
             '--intercept-h2', type=float, default=None, metavar='VALUE',
@@ -819,23 +828,6 @@ def _add_regression_model_arguments(sections: SimpleNamespace, include_h2_interc
                 'with this fixed value. If omitted, estimate the covariance intercepts.'
             ),
         )
-    if include_h2_intercept:
-        sections.advanced.add_argument(
-            '--two-step-cutoff', type=float, default=None, metavar='VALUE',
-            help=(
-                'First-step chi-square cutoff, including the boundary. Requires a single-annotation model with '
-                'a free intercept; cannot be combined with --intercept-h2. If omitted, use 30 '
-                'for such models; otherwise disable two-step estimation.'
-            ),
-        )
-        sections.advanced.add_argument(
-            '--chisq-max', type=float, default=None, metavar='VALUE',
-            help=(
-                'Keep SNPs with chi-square at or below this value. If omitted, use max(0.001 * maximum N, 80) '
-                'for multi-annotation models; single-annotation models have no chi-square cap.'
-            ),
-        )
-    else:
         sections.advanced.add_argument(
             '--two-step-cutoff', type=float, default=None, metavar='VALUE',
             help=(

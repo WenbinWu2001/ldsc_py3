@@ -345,6 +345,8 @@ def summarize_total_h2(
     obs = _scalar(hsq.tot)
     obs_se = _scalar(hsq.tot_se)
     liab, liab_se = _liability_pair(obs, obs_se, samp_prev, pop_prev)
+    # Selecting the declared columns raises KeyError when a key below is
+    # misspelled, instead of adding an all-NaN declared column.
     return pd.DataFrame(
         [
             {
@@ -363,9 +365,8 @@ def summarize_total_h2(
                 "ratio": _numeric_scalar(getattr(hsq, "ratio", None)),
                 "ratio_se": _numeric_scalar(getattr(hsq, "ratio_se", None)),
             }
-        ],
-        columns=H2_SUMMARY_COLUMNS,
-    )
+        ]
+    ).loc[:, H2_SUMMARY_COLUMNS]
 
 
 def summarize_ld_score_regression_bins(

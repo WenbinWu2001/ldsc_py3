@@ -1,7 +1,7 @@
 
 # Lessons
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-06
 
 ## Refactoring must preserve attribution outside removable banners
 
@@ -157,6 +157,9 @@ Last updated on: 2026-11-04
 ## Float32 reduction order can invalidate aggregate metadata
 
 - Summary/root cause/correction: A completion audit found batch-dependent quantitative annotation counts after column-major inputs became detached row-major reads and row tiles were reduced separately in float32; reduce normalized annotation values in float64 and verify signed/high-offset counts against independent `math.fsum` values across batch widths and C/F layouts without loosening tolerances. LD-score equivalence on binary fixtures does not establish quantitative count equivalence. The completion review that found it was removed from the tree; see `git show 479fc4d:docs/audits/annotation-memory/completion-review.md`.
+- Recurrence (2026-11-04): `build-gene-ldscore-index` still summed baseline counts in float32 through `compute_counts`, so a continuous baseline column gave counts about 1e-5 off the direct `ldscore` counts (`23610614` takes them from the float64 `annotation_statistics` call).
+  The direct-versus-indexed parity test used only an all-ones `base` column, so it could not see the gap.
+  Any parity test of counts or annotation metadata needs a continuous annotation column checked against `math.fsum`.
 
 ## Optional coordinates must not shift frequency columns in TSV
 
@@ -247,6 +250,9 @@ Last updated on: 2026-11-04
 
 - Summary/root cause/correction: A missing literal sumstats path fell through chromosome-suite expansion and became a bare pathname, while the input gate discarded the original exception; guard suite expansion by an explicit `@`, retain captured causes, and report the failed path check and repair without duplicating its pathname.
   Verify the CLI, diagnostic table, and chained file traceback with synthetic inputs, and preserve failure counts and subsecond elapsed time in short runs.
+- Recurrence (2026-11-06): `InputGate.check` reports an `LDSCInputError` chained from a `FileNotFoundError` with the generic "path resolution found no matching file" wording, which replaced the LD-score manifest's own message naming the missing query Parquet (`86b57aa4` raises it without that chain).
+  Changing the cause chain also changed the issue's `reason` and repair columns, because the gate classifies by the cause; assert the reason column whenever an error's chain changes.
+  Other errors chained this way inside a gate were not audited.
 
 ## Batch width does not bound fragments produced before consumption
 
@@ -261,6 +267,9 @@ Last updated on: 2026-11-04
 - Summary/root cause/correction: Quantile tests supplied hand-built query metadata without `files`, hiding a preflight path error.
   The real partitioned writer records file paths relative to the aggregate result root, but the reader prepended the nested query directory again and rejected valid files.
   Resolve those manifest paths from the aggregate root and test annotation, BED, and gene-list quantile reconstruction from actual writer-produced artifacts, including shared metadata.
+- Recurrence (2026-11-04): R² matrix sidecars start with `# ldsc:<key>=<value>` identity lines, and `quantile-h2` read `--ref-metadata-sources` with a private pandas reader that did not skip them, so the documented R² matrix route failed with a misleading missing-column error.
+  Three readers of the same files kept their own header handling, and no consumer test used a file from the real writer.
+  `0f494419` reads them through a shared `_core.identifiers` helper, `open_identity_table` since `479d900d`, and tests with a sidecar written by the production writer.
 
 ## Reusable annotation families must share the cleaned grid
 
@@ -359,3 +368,66 @@ Last updated on: 2026-11-04
   The rule was also wrong for science: an A/T pair is a valid SNP identity, and only signed comparisons need its strand.
   Identity now accepts A/T and C/G, cleanup runs before validation in every mode, and `tests/ldscore/test_strand_ambiguous_snps.py` and `tests/ldscore/test_unusable_panel_alleles.py` relabel fixture alleles to cover these classes.
   When a rule filters a class of rows, test it with a fixture that contains that class on every route, and order cleanup before any strict validation of the same rows.
+
+## Suffix column matching is unsafe where leftover columns are data
+
+- Summary/root cause/correction: Annotation readers took optional `SNP`, `CM` and `MAF` metadata columns by case-insensitive suffix and dropped them from the model, so annotation columns such as `lowMAF` and `eQTL_SNP`, and through the short SNP aliases `RS` and `ID` also `Enhancers` or `Thyroid`, silently left partitioned-heritability models.
+  The annotation reader reused the permissive column specifications written for external inputs, where a suffix match only renames a column, while in an annotation file every column that is not metadata is a value.
+  `a3d9b70a` takes the `SNP`, `CM`, `MAF`, `A1` and `A2` annotation metadata columns only by canonical name or listed alias (`allow_suffix_match=False` specifications kept in the `_core/columns.py` registry), as the user decided on 2026-11-06, while the required `CHR` and `POS` keep the shared suffix ranking.
+  Before a reader resolves columns by suffix, check whether the columns it does not claim are scientific values; then exact names and aliases are the only safe rule, and real metadata under another name becomes data, which the documentation must say.
+
+## Identifier files must be read and matched as exact text
+
+- Summary/root cause/correction: A keep file that listed an IID twice shifted every later selected `.fam` row by one, so `ldscore`, `build-r2-matrix` and `build-gene-ldscore-index` kept individuals the file does not list and could read the unused bits at the end of a BED SNP record as a sample; the BED reader also accepted index `n`.
+  Pandas inferred numeric ID columns, so `01003` matched `1003`, and a numeric keep list matched nothing in a `.fam` that also held text IIDs; `dtype=str` alone still turned `NA`, `nan` and `NULL` into NaN, and `merge` and `isin` match NaN with NaN.
+  A review claim that the old `merge` "failed loudly" on a dtype mismatch was false when run: both sides were object columns and it matched nothing silently.
+  A keep file is now a set (`cb37030c`), indices outside `[0, n)` are rejected (`c816dca1` for `n` and above, `1df446b3` for negative indices), IDs are read with `dtype=str` and `na_filter=False` and matched as text (`5eb034f8`, `ecccfb0c`), and a keep IID naming several `.fam` rows stops the run (`b225a77e`).
+  Read identifier files as text at read time, not by converting at match time, and check claims about earlier failure modes by running the earlier code.
+
+## Restriction and identity cleanup do not commute in allele-aware modes
+
+- Summary/root cause/correction: `0a03f69` moved PLINK identity cleanup before `--ref-panel-snps-file`, so an allele-bearing restriction that listed one allele pair of a multi-allelic position made `ldscore --plink-prefix` drop both rows while `build-r2-matrix` kept the listed one.
+  The two steps commute in base modes and with allele-free restrictions, because base-key restrictions keep all rows of a position or none, but not when an allele-aware restriction keeps a subset of a position's allele pairs; the harness had no multi-allelic site under a restriction.
+  `de753731` restricts first and cleans second on every PLINK route.
+  Before reordering two filters, check whether they commute in every SNP identifier mode, and test the order with a fixture where they do not.
+
+## Removing a round trip can remove the normalizations it carried
+
+- Summary/root cause/correction: Replacing the `build_gene_ldscore_index()` namespace round trip with a typed call dropped two normalizations the round trip applied implicitly: joining and resplitting path tokens removed blank tokens and split comma lists.
+  The first repair split after expanding environment variables, which breaks values that contain commas; `6f2d5ca0` splits the raw text first and expands once.
+  Before removing a serialization step that looks redundant, list each transformation it applies and move each one, in the same order, to the new boundary; test blank tokens, trailing commas and variable values containing commas on both routes.
+
+## Hoisting an import moves the test patch seam
+
+- Summary/root cause/correction: After `e8b2f86e` hoisted function-level imports, tests that patched a name on its source module stopped reaching the consumer, because the consumer had bound the original object at import time, so the patch silently no longer applied.
+  Patch the attribute on the consuming module, or import the provider as a module and call `module.name(...)` where a test needs to patch it.
+
+## A nullable-dtype round trip changes missing values in memory
+
+- Summary/root cause/correction: Uppercasing base-mode alleles through the pandas `string` dtype (`636ed2e0`) returned missing alleles as `pd.NA` instead of float NaN, so the `rg` allele comparison raised "boolean value of NA is ambiguous" on munged tables passed in memory.
+  The tests reloaded munged files from disk, which turns nulls back into NaN, so only the in-memory Python route failed; `559cbf8b` restores the original missing sentinel.
+  When a normalization goes through a nullable dtype, restore the missing sentinel and test the in-memory route (`SumstatsMunger.run` into `estimate_rg_pairs`) as well as the written files.
+
+## A test that undoes its patches before asserting can pass for the wrong reason
+
+- Summary/root cause/correction: A gene LD-score index test injected a publication failure after root `metadata.json` was written, then called `monkeypatch.undo()` before loading the index; undo restored the 22-chromosome loader, which rejected the narrowed fixture index whatever its state, so "no reader accepts the interrupted index" passed while the index was complete.
+  The test now fails publication at the `os.replace` of root `metadata.json` and asserts while the narrowing is in place.
+  Inject a failure at the step under test, assert before undoing patches, and prefer a real filesystem failure (a non-writable subdirectory) to patching a removal call, which goes stale when the code removes things another way.
+
+## Entry points documented to agree must be compared whole
+
+- Summary/root cause/correction: `infer_raw_sumstats()` was documented to return the `--infer-only` report, but its test compared only `missing_fields` and notes, so the Python `suggested_args` lacked the request's QC thresholds, constants, and output and logging options that only the CLI added; the first repair then missed the alias column-hint keys `N`, `N_cas`, `N_con` and `signed_sumstats` that `MungeConfig.column_hints` accepts but the parser never produces (`e52089cc`, `ebe0c293`).
+  Compare the whole report object between the two entry points, and build a preview from every key the run reads, not only the keys the parser sets.
+
+## Test a worktree's code, not the editable install, and never change a checkout while its suite runs
+
+- Summary/root cause/correction: The editable install points at the main checkout, so tests in another git worktree import the main checkout's code unless `PYTHONPATH=<worktree>/src` is set, and `python -I` ignores `PYTHONPATH` and silently imports the main checkout again.
+  A full suite running in the main checkout was invalidated when commits were cherry-picked into that checkout during the run, and `pytest ... | tail` hid a failing exit status before a commit.
+  Print `ldsc.__file__` before trusting a worktree run, run long suites on a detached tree that nothing else changes, and check pytest's own exit status.
+
+## Replacing `shutil.rmtree` with a loop drops its symlink protection
+
+- Summary/root cause/correction: To remove the gene LD-score index build lock file last, `f4aac520` replaced `shutil.rmtree(.build)` with a loop over `build_dir.iterdir()`; `shutil.rmtree` refuses a symlinked top directory, but the loop listed and removed entries through the path, so a `.build/` swapped for a symlink after the lock had the link target emptied after publication.
+  A security review of the fix commits found it, and both skeptics reproduced the deletion with synthetic data.
+  `6adf7d3e` opens the directory with `O_NOFOLLOW` and removes entries with `dir_fd`, which also defeats a swap during the removal.
+  When hand-written removal replaces `shutil.rmtree`, keep its guarantees: never follow a symlink at the top or inside, and remove relative to a descriptor of the directory that was checked.

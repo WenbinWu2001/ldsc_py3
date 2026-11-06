@@ -282,7 +282,9 @@ Like the run, the previews stop at the first stage of the munging plan that find
 Both previews, like the run, warn when an explicit sample-size column overrides automatically inferred sample-size columns.
 They check the build and liftover options against the SNP identifier mode with the run's own check, which raises the run's error.
 The two previews return the same report; the CLI also prints a suggested command.
-The report's `suggested_args` hold the flags of that command: `infer_raw_sumstats()` takes the options from the `MungeConfig` fields and the `GlobalConfig` log level as `--infer-only` takes them from the command line, so a request suggests the same flags in both previews.
+The report's `suggested_args` hold the flags of that command.
+Both previews take these options from the `MungeConfig` fields and the `GlobalConfig` SNP identifier mode and log level, which `--infer-only` builds from the command line, so a request suggests the same flags in both previews.
+The flags carry the values the run uses, so `--source-genome-build GRCh37` is suggested as `--source-genome-build hg19` and an `--ignore` or `--info-list` list is suggested without spaces.
 
 `--infer-only` diagnoses the input without writing artifacts. It requires nonempty `--raw-sumstats-file` and `--output-dir` values, but does not create the output directory. Suggested commands preserve column overrides, sample-size constants, filters, and other effective CLI options alongside resolved format/build choices.
 

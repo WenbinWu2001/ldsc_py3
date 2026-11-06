@@ -46,7 +46,7 @@ class ScratchWorkspace:
 
     def require_open(self) -> None:
         if self.closed:
-            raise ValueError("Annotation workspace is closed.")
+            raise ValueError("Scratch workspace is closed.")
 
     def close(self) -> None:
         if not self.closed:

@@ -1,6 +1,7 @@
 # Derived from legacy LDSC ldscore/irwls.py; licensed under GPLv3 (LICENSE).
 # Modified 2024 for Python 3; 2026 for package imports and error reporting;
-# 2026-11 removed the unused slow-jackknife option.
+# 2026-11 removed the unused slow-jackknife option and shape checks that
+# repeated those of IRWLS.__init__.
 # See NOTICE for attribution and dated modifications.
 
 '''
@@ -104,21 +105,9 @@ class IRWLS(object):
         jknife : jk.LstsqJackknifeFast
             Block jackknife regression with the final IRWLS weights.
 
-        '''
-        (n, p) = x.shape
-        if y.shape != (n, 1):
-            raise LDSCInternalError(
-                f"Regression IRWLS setup received response with shape {y.shape}, expected ({n}, 1). "
-                "Most likely regression preprocessing passed a misaligned response vector. "
-                "Re-run with `--log-level DEBUG` and report the traceback."
-            )
-        if w.shape != (n, 1):
-            raise LDSCInternalError(
-                f"Regression IRWLS setup received weights with shape {w.shape}, expected ({n}, 1). "
-                "Most likely regression preprocessing passed a misaligned weight vector. "
-                "Re-run with `--log-level DEBUG` and report the traceback."
-            )
+        Shapes are checked by ``IRWLS.__init__``, the only package caller.
 
+        '''
         w = np.sqrt(w)
         for i in range(2):  # update this later
             new_w = np.sqrt(update_func(cls.wls(x, y, w)))
@@ -155,20 +144,6 @@ class IRWLS(object):
             Output of np.linalg.lstsq
 
         '''
-        (n, p) = x.shape
-        if y.shape != (n, 1):
-            raise LDSCInternalError(
-                f"Regression weighted least squares received response with shape {y.shape}, expected ({n}, 1). "
-                "Most likely regression preprocessing passed a misaligned response vector. "
-                "Re-run with `--log-level DEBUG` and report the traceback."
-            )
-        if w.shape != (n, 1):
-            raise LDSCInternalError(
-                f"Regression weighted least squares received weights with shape {w.shape}, expected ({n}, 1). "
-                "Most likely regression preprocessing passed a misaligned weight vector. "
-                "Re-run with `--log-level DEBUG` and report the traceback."
-            )
-
         x = cls._weight(x, w)
         y = cls._weight(y, w)
         coef = np.linalg.lstsq(x, y, rcond=None)

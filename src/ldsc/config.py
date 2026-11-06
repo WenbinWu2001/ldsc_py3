@@ -1224,24 +1224,26 @@ def validate_prevalences(samp_prev, pop_prev, *, pop_name: str = "pop_prev", all
     allow_quantitative : bool, optional
         Accept a trait whose two values are both NaN as a quantitative trait.
         Default ``True``; liability-scale conversion of a saved estimate
-        passes ``False``, because it needs both prevalences.
+        passes ``False``, because it needs both prevalences, and then any NaN
+        is reported as a missing prevalence.
 
     Raises
     ------
     LDSCConfigError
-        If a value is not a number, exactly one value of a trait is NaN, or a
-        value lies outside ``(0, 1)``. Messages list the given values, with a
-        missing (NaN) value shown as ``None``.
+        If a value is not a number, a value is NaN where the trait cannot be
+        quantitative, or a value lies outside ``(0, 1)``. Messages list the
+        given values, with a missing (NaN) value shown as ``None``.
     """
+    quantitative_hint = ", or `nan` for a quantitative trait." if allow_quantitative else "."
     try:
         samp, pop = np.broadcast_arrays(np.asarray(samp_prev, dtype=np.float64), np.asarray(pop_prev, dtype=np.float64))
     except (TypeError, ValueError):
         raise LDSCConfigError(
             f"A prevalence is not a number (samp_prev={samp_prev!r}, {pop_name}={pop_prev!r}). "
-            "Pass a probability strictly between 0 and 1, or `nan` for a quantitative trait."
+            f"Pass a probability strictly between 0 and 1{quantitative_hint}"
         ) from None
     shown = f"(samp_prev={_prevalence_text(samp_prev)}, {pop_name}={_prevalence_text(pop_prev)})"
-    quantitative = np.zeros(samp.shape, dtype=bool)
+    flags = f"`--samp-prev`/`--{pop_name.replace('_', '-')}`"
     if allow_quantitative:
         if np.any(np.isnan(samp) != np.isnan(pop)):
             raise LDSCConfigError(
@@ -1249,12 +1251,18 @@ def validate_prevalences(samp_prev, pop_prev, *, pop_name: str = "pop_prev", all
                 "Set both for a binary trait, or leave both unset (`nan`) for a quantitative trait."
             )
         quantitative = np.isnan(samp)
+    else:
+        if np.any(np.isnan(samp) | np.isnan(pop)):
+            raise LDSCConfigError(
+                f"Liability-scale conversion received a missing (NaN) prevalence {shown}. "
+                f"Give both {flags.replace('/', ' and ')} a probability strictly between 0 and 1."
+            )
+        quantitative = np.zeros(samp.shape, dtype=bool)
     if not np.all(quantitative | ((samp > 0) & (samp < 1) & (pop > 0) & (pop < 1))):
         raise LDSCConfigError(
             f"Liability-scale conversion received a prevalence outside the open interval (0, 1) {shown}. "
-            f"Most likely `--samp-prev`/`--{pop_name.replace('_', '-')}` was given a value <= 0 or >= 1. "
-            "Pass a probability strictly between 0 and 1"
-            + (", or `nan` for a quantitative trait." if allow_quantitative else ".")
+            f"Most likely {flags} was given a value <= 0 or >= 1. "
+            f"Pass a probability strictly between 0 and 1{quantitative_hint}"
         )
 
 

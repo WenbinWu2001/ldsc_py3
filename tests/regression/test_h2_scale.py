@@ -163,7 +163,6 @@ def test_conversion_cli_has_no_output_dir_and_writes_default_family(tmp_path):
     [
         ({"samp_prev": 0.3, "pop_prev": 1.5}, "(samp_prev=0.3, pop_prev=1.5)", "`--samp-prev`/`--pop-prev`"),
         ({"samp_prev": 0.0, "pop_prev": 0.01}, "(samp_prev=0.0, pop_prev=0.01)", "`--samp-prev`/`--pop-prev`"),
-        ({"samp_prev": 0.3, "pop_prev": float("nan")}, "(samp_prev=0.3, pop_prev=None)", "`--samp-prev`/`--pop-prev`"),
         ({"samp_prev": 0.3, "pop_prev_range": (0.0, 0.2)}, "(samp_prev=0.3, pop_prev_range=[0.0, 0.2])",
          "`--samp-prev`/`--pop-prev-range`"),
         ({"samp_prev": 1.2, "pop_prev_range": (0.01, 0.2)}, "(samp_prev=1.2, pop_prev_range=[0.01, 0.2])",
@@ -181,4 +180,65 @@ def test_conversion_reports_the_prevalences_it_was_given(tmp_path, prevalences, 
     assert f"outside the open interval (0, 1) {shown}." in message
     assert f"Most likely {flag} was given a value <= 0 or >= 1." in message
     assert "array(" not in message and "quantitative trait" not in message
+    assert not (result_dir / "postprocessing").exists()
+
+
+@pytest.mark.parametrize(
+    ("prevalences", "shown", "flag"),
+    [
+        ({"samp_prev": 0.3, "pop_prev": float("nan")}, "(samp_prev=0.3, pop_prev=None)", "`--samp-prev` and `--pop-prev`"),
+        ({"samp_prev": None, "pop_prev": 0.01}, "(samp_prev=None, pop_prev=0.01)", "`--samp-prev` and `--pop-prev`"),
+        ({"samp_prev": 0.3, "pop_prev_range": (0.01, float("nan"))}, "(samp_prev=0.3, pop_prev_range=[0.01, None])",
+         "`--samp-prev` and `--pop-prev-range`"),
+    ],
+)
+def test_conversion_names_a_missing_prevalence_as_missing(tmp_path, prevalences, shown, flag):
+    # A missing value is neither <= 0 nor >= 1, and conversion has no quantitative-trait form.
+    from ldsc._regression.h2_scale import convert_h2_scale
+    from ldsc.errors import LDSCConfigError
+
+    result_dir = _write_h2_result(tmp_path)
+    with pytest.raises(LDSCConfigError) as failure:
+        convert_h2_scale(result_dir, **prevalences)
+    message = str(failure.value)
+    assert f"received a missing (NaN) prevalence {shown}." in message
+    assert f"Give both {flag} a probability strictly between 0 and 1." in message
+    assert "<= 0 or >= 1" not in message and "quantitative trait" not in message
+    assert not (result_dir / "postprocessing").exists()
+
+
+def test_conversion_reports_a_prevalence_that_is_not_a_number_without_the_quantitative_hint(tmp_path):
+    from ldsc._regression.h2_scale import convert_h2_scale
+    from ldsc.errors import LDSCConfigError
+
+    result_dir = _write_h2_result(tmp_path)
+    with pytest.raises(LDSCConfigError) as failure:
+        convert_h2_scale(result_dir, samp_prev=0.3, pop_prev="abc")
+    message = str(failure.value)
+    assert message == (
+        "A prevalence is not a number (samp_prev=0.3, pop_prev='abc'). "
+        "Pass a probability strictly between 0 and 1."
+    )
+    assert not (result_dir / "postprocessing").exists()
+
+
+@pytest.mark.parametrize(
+    ("prevalences", "shown"),
+    [
+        ({"samp_prev": 0.3, "pop_prev": [0.01, 0.02]}, "(samp_prev=0.3, pop_prev=[0.01, 0.02])"),
+        ({"samp_prev": [0.3, 0.4], "pop_prev": 0.01}, "(samp_prev=[0.3, 0.4], pop_prev=0.01)"),
+        ({"samp_prev": 0.3, "pop_prev_range": ([0.01], [0.2])}, "(samp_prev=0.3, pop_prev_range=([0.01], [0.2]))"),
+    ],
+)
+def test_conversion_rejects_a_prevalence_that_is_not_a_single_number_before_writing(tmp_path, prevalences, shown):
+    # A list used to pass the element-wise check and fail later in pandas, after the output folder was made.
+    from ldsc._regression.h2_scale import convert_h2_scale
+    from ldsc.errors import LDSCConfigError
+
+    result_dir = _write_h2_result(tmp_path)
+    with pytest.raises(LDSCConfigError) as failure:
+        convert_h2_scale(result_dir, **prevalences)
+    message = str(failure.value)
+    assert f"needs a single number for each prevalence {shown}." in message
+    assert "--pop-prev-range" in message
     assert not (result_dir / "postprocessing").exists()

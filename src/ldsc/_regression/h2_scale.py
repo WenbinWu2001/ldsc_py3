@@ -35,7 +35,7 @@ import pandas as pd
 from .estimators import liability_conversion_factor
 from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from ..config import get_global_config, validate_prevalences
-from ..errors import LDSCInputError, LDSCUsageError
+from ..errors import LDSCConfigError, LDSCInputError, LDSCUsageError
 from .._runtime.paths import ensure_output_directory, output_directory_path, remove_output_artifacts
 
 
@@ -154,7 +154,8 @@ def convert_h2_scale(
         estimate and standard error are unavailable or invalid.
     LDSCConfigError
         If ``samp_prev``, ``pop_prev`` or an endpoint of ``pop_prev_range`` is
-        not a number strictly between 0 and 1.
+        not a single number strictly between 0 and 1, for example a list or
+        NaN.
     LDSCUsageError
         If both or neither of ``pop_prev`` and ``pop_prev_range`` are given, or
         they define an invalid sensitivity grid.
@@ -433,6 +434,7 @@ def _population_prevalence_grid(
             "Supply --pop-prev for one probability or --pop-prev-range for a lower/upper range, not both."
         )
     if pop_prev is not None:
+        _require_single_prevalences(samp_prev, pop_prev, "pop_prev", [samp_prev, pop_prev])
         validate_prevalences(samp_prev, pop_prev, allow_quantitative=False)
         return np.asarray([pop_prev], dtype=np.float64), "exact"
     if len(pop_prev_range) != 2:
@@ -440,6 +442,7 @@ def _population_prevalence_grid(
             "convert-h2-scale cannot read the population-prevalence range: exactly two endpoints are required. "
             "Supply the lower and upper probabilities with --pop-prev-range."
         )
+    _require_single_prevalences(samp_prev, pop_prev_range, "pop_prev_range", [samp_prev, *pop_prev_range])
     validate_prevalences(samp_prev, list(pop_prev_range), pop_name="pop_prev_range", allow_quantitative=False)
     lower, upper = (float(value) for value in pop_prev_range)
     if lower >= upper:
@@ -453,6 +456,17 @@ def _population_prevalence_grid(
             "Set --num-points (num_points in Python) to an integer of at least 2 to include both endpoints."
         )
     return np.linspace(lower, upper, num_points, dtype=np.float64), "sensitivity"
+
+
+def _require_single_prevalences(samp_prev, pop_value, pop_name: str, values: list) -> None:
+    """Reject a list or array where conversion needs one number, before the element-wise prevalence check."""
+    if any(np.ndim(value) != 0 for value in values):
+        raise LDSCConfigError(
+            f"convert-h2-scale needs a single number for each prevalence (samp_prev={samp_prev!r}, "
+            f"{pop_name}={pop_value!r}). Pass one sample prevalence and one population prevalence; "
+            "for several population prevalences give the lower and upper probabilities with --pop-prev-range "
+            "(pop_prev_range in Python)."
+        )
 
 
 def _load_pyplot():

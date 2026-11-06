@@ -246,7 +246,7 @@ Public indexes require a canonical catalog and complete autosomal coverage. Cons
 
 Repeated rows that resolve to the same canonical gene are deduplicated within each source under all four combinations. Genes removed by an explicitly selected gene-region exclusion are recorded as `excluded`, not `rejected`. Neither condition alone triggers strict rejection; subsequent query/control viability checks still apply.
 
-Implementation references: [`_annotation/gene_lists.py`](../../../src/ldsc/_annotation/gene_lists.py), `RESOLVED_ONLY_REASONS`, `resolve_gene_rows()`, and `GeneCatalog.from_embedded_frame()`; [`_ldscore/gene_index/artifact.py`](../../../src/ldsc/_ldscore/gene_index/artifact.py), `load_gene_ldscore_index()`; [`_annotation/gene_query_storage.py`](../../../src/ldsc/_annotation/gene_query_storage.py), `resolve_gene_lists_staged()` and `StagedGeneListBatch.audit_frames()`.
+Implementation references: [`_annotation/gene_lists.py`](../../../src/ldsc/_annotation/gene_lists.py), `RESOLVED_ONLY_REASONS`, `resolve_gene_rows()`, and `GeneCatalog.from_embedded_frame()`; [`_ldscore/gene_index/artifact.py`](../../../src/ldsc/_ldscore/gene_index/artifact.py), `load_gene_ldscore_index()`; [`_annotation/gene_query_storage.py`](../../../src/ldsc/_annotation/gene_query_storage.py), `resolve_gene_lists_staged()` (which also applies the query-name check of `_annotation/preflight.py`, `validate_gene_query_names()`) and `StagedGeneListBatch.audit_frames()`.
 
 ### Viability checks after resolution
 

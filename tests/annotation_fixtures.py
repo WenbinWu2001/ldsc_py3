@@ -95,10 +95,14 @@ def replace_fixture_queries(bundle, *, query_annotations, query_columns=None):
                                   config_snapshot=bundle.config_snapshot)
 
 
-def resolve_gene_fixture(focal_paths, catalog, *, output_dir, **kwargs):
-    """Stage gene fixtures under the test framework's owned output parent."""
+def resolve_gene_fixture(focal_paths, catalog, *, output_dir, existing_columns=(), **kwargs):
+    """Stage gene fixtures under the test framework's owned output parent.
+
+    ``existing_columns`` defaults to none, so only reserved query names collide.
+    """
     from ldsc._annotation.gene_query_storage import resolve_gene_lists_staged
-    return resolve_gene_lists_staged(focal_paths, catalog, ScratchWorkspace(output_dir), **kwargs)
+    return resolve_gene_lists_staged(focal_paths, catalog, ScratchWorkspace(output_dir),
+                                     existing_columns=existing_columns, **kwargs)
 
 
 def fixture_gene_audit(batch):

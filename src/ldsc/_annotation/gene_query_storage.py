@@ -24,6 +24,7 @@ from .gene_lists import (
     AUDIT_COLUMNS, SUMMARY_COLUMNS, RESOLVED_ONLY_REASONS, GeneSourceSelection,
     gene_list_query_name, resolution_candidates, resolve_gene_rows, summary_source_masks,
 )
+from .preflight import validate_gene_query_names
 from ..errors import LDSCInputError
 from .._runtime.paths import normalize_path_token
 
@@ -226,12 +227,19 @@ def _source_chunks(declaration, chunk_rows):
 
 
 @report_phase(LOGGER, 'validation/staging', 'gene-list content and identifier resolution')
-def resolve_gene_lists_staged(focal_paths, catalog, workspace, *, control_path=None, resolution_policy='strict', gene_exclude_regions='none', chunk_rows=4096):
-    """Resolve all safely readable sources with bounded rows and staged audits.
+def resolve_gene_lists_staged(focal_paths, catalog, workspace, *, existing_columns, control_path=None, resolution_policy='strict', gene_exclude_regions='none', chunk_rows=4096):
+    """Run gene-list Gate A: resolve every source and check its query name.
 
+    Resolves all safely readable sources with bounded rows and staged audits.
     Deduplication retains each canonical gene's first source line, including
     duplicates crossing chunks. A late decoding/decompression failure marks
     the entire source unreadable and discards its partial resolution records.
+    Query names are then checked against ``existing_columns`` (the
+    annotation columns the queries must not duplicate: the supplied files'
+    columns, or an index's baseline columns) and the reserved names
+    (``preflight.validate_gene_query_names``). The caller stops the run when
+    the returned batch's ``has_fatal_gate_a_issues`` is set, writing its own
+    diagnostics.
     """
     if resolution_policy not in {'strict', 'resolved-only'} or gene_exclude_regions not in {'none', 'mhc'}:
         raise LDSCInputError('Use strict/resolved-only resolution and none/mhc gene exclusion.')
@@ -317,4 +325,5 @@ def resolve_gene_lists_staged(focal_paths, catalog, workspace, *, control_path=N
     for column in ('nonblank_input_rows','uniquely_resolved_rows','rejected_rows','unique_resolved_genes','duplicate_rows','excluded_genes'):
         summary[column] = pd.to_numeric(summary[column],errors='coerce').astype('Int64')
     summary['resolution_fraction'] = summary['resolution_fraction'].astype(object)
-    return StagedGeneListBatch(catalog, path, tuple(declarations), tuple(spools), summary, resolution_policy, fatal)
+    batch = StagedGeneListBatch(catalog, path, tuple(declarations), tuple(spools), summary, resolution_policy, fatal)
+    return validate_gene_query_names(batch, existing_columns)

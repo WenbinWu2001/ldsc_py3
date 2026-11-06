@@ -23,7 +23,7 @@ def test_exclusion_log_summarizes_roles_across_sources_and_audit_chunks(tmp_path
     other.write_text("MHC2\n")
     with ScratchWorkspace(tmp_path / "out") as workspace:
         batch = resolve_gene_lists_staged([focal, retained, other], GeneCatalog.load(catalog_path), workspace,
-                                         control_path=focal, gene_exclude_regions="mhc",
+                                         existing_columns=(), control_path=focal, gene_exclude_regions="mhc",
                                          resolution_policy="resolved-only", chunk_rows=chunk_rows)
         before = pd.concat(batch.audit_frames(), ignore_index=True)
         with caplog.at_level("INFO", logger="LDSC"):
@@ -53,7 +53,8 @@ def test_streamed_resolution_deduplicates_aliases_across_chunks(tmp_path):
     empty.write_text('')
     catalog = GeneCatalog.load(catalog_path)
     with ScratchWorkspace(tmp_path / 'output') as workspace:
-        batch = resolve_gene_lists_staged([genes, empty], catalog, workspace, resolution_policy='resolved-only', chunk_rows=1)
+        batch = resolve_gene_lists_staged([genes, empty], catalog, workspace, existing_columns=(),
+                                          resolution_policy='resolved-only', chunk_rows=1)
         assert not batch.has_fatal_gate_a_issues
         audit = pd.concat(batch.audit_frames(), ignore_index=True)
         assert audit['line'].tolist() == [1, 3, 4, 5]
@@ -68,3 +69,24 @@ def test_streamed_resolution_deduplicates_aliases_across_chunks(tmp_path):
         assert audit['reference_snp_count'].isna().all()
         assert audit['annotation_snp_count'].tolist()[:3] == [2, 0, 2]
         assert audit.loc[1, 'reason'] == 'zero_annotation_snp_support'
+
+
+def test_staged_resolution_checks_query_names_against_existing_columns(tmp_path):
+    from ldsc._annotation.gene_query_storage import resolve_gene_lists_staged
+
+    catalog_path = tmp_path / "catalog.tsv"
+    pd.DataFrame([['G1', 'ONE', '1', 101, 110, 'hg19']],
+                 columns=['gene_id', 'gene_name', 'chrom', 'start', 'end', 'genome_build']).to_csv(catalog_path, sep='\t', index=False)
+    colliding, fine, reserved = (tmp_path / f'{name}.txt' for name in ('base', 'pathway', 'SNP'))
+    for path in (colliding, fine, reserved):
+        path.write_text('G1\n')
+    with ScratchWorkspace(tmp_path / 'output') as workspace:
+        with pytest.raises(TypeError, match='existing_columns'):
+            resolve_gene_lists_staged([fine], GeneCatalog.load(catalog_path), workspace)
+        batch = resolve_gene_lists_staged([colliding, fine, reserved], GeneCatalog.load(catalog_path), workspace,
+                                          existing_columns=('base',))
+        assert batch.has_fatal_gate_a_issues
+        summary = batch.summary.set_index('query')
+        assert summary.loc['base', 'source_reasons'] == 'annotation_name_collision'
+        assert summary.loc['SNP', 'source_reasons'] == 'annotation_name_collision'
+        assert summary.loc['pathway', 'source_status'] == 'ok'

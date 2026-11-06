@@ -20,7 +20,7 @@ from .._core.snp_identity import emit_dropped_snps_notice, identity_mode_family
 from .._runtime.workflow_logging import workflow_logging, materializing_overwrite_guard, log_inputs, log_outputs
 from .preflight import (
     annotation_columns, gene_list_gate_a_error, inspect_annotation_inputs, require_usable_bed_query_names,
-    resolve_projection_build, validate_gene_query_names,
+    resolve_projection_build,
 )
 from ..config import AnnotationBuildConfig, GlobalConfig, get_global_config, print_global_config_banner
 from ..errors import LDSCInputError, LDSCUsageError
@@ -154,10 +154,10 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                 except GeneCatalogValidationError as exc:
                     writer.write_diagnostics(output, catalog_issues=exc.issues)
                     raise
-                batch = resolve_gene_lists_staged(genes, catalog, workspace, resolution_policy=spec.gene_list_resolution_policy, gene_exclude_regions=spec.gene_exclude_regions)
-                # Names depend on declarations and validated headers, not resolved genes or grid rows;
-                # duplicate-query reasons are already recorded by the resolver.
-                batch = validate_gene_query_names(batch, annotation_columns(declared_inputs))
+                # Query names depend on declarations and validated headers, not resolved genes or grid rows.
+                batch = resolve_gene_lists_staged(genes, catalog, workspace, existing_columns=annotation_columns(declared_inputs),
+                                                  resolution_policy=spec.gene_list_resolution_policy,
+                                                  gene_exclude_regions=spec.gene_exclude_regions)
                 writer.write_diagnostics(output, batch=batch, catalog_issues=catalog.issues)
                 log_gene_catalog_issues(catalog.issues)
                 log_gene_list_rejections(batch)

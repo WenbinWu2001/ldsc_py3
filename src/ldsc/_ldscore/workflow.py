@@ -100,7 +100,6 @@ from .._annotation.gene_query_storage import resolve_gene_lists_staged, persiste
 from .._annotation.preflight import (
     annotation_columns,
     require_usable_bed_query_names,
-    validate_gene_query_names,
     inspect_annotation_inputs,
 )
 from .._runtime.preflight import InputGate
@@ -730,10 +729,10 @@ def _run_direct_ldscore(configs: _DirectConfigs) -> "LDScoreSource":
             if configs.has_gene_lists:
                 catalog = GeneCatalog.load(annotation_config.gene_coordinate_file)
                 batch = resolve_gene_lists_staged(list(annotation_config.query_annot_gene_list_sources), catalog,
-                    workspace, control_path=annotation_config.control_gene_list_file,
+                    workspace, existing_columns=annotation_columns(declared_inputs),
+                    control_path=annotation_config.control_gene_list_file,
                     resolution_policy=annotation_config.gene_list_resolution_policy,
                     gene_exclude_regions=annotation_config.gene_exclude_regions)
-                batch = validate_gene_query_names(batch, annotation_columns(declared_inputs))
                 if batch.has_fatal_gate_a_issues:
                     fail_gene_list_resolution(batch, output_config)
             global_config, gene_catalog_build = _resolve_build(configs, gene_catalog=catalog)

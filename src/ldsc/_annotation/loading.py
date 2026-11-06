@@ -7,7 +7,7 @@ from .gene_lists import GeneCatalog
 from .interval_queries import build_query_shards, prepare_bed_queries, require_readable_bed_sources
 from .preflight import (
     annotation_columns, gene_list_gate_a_error, inspect_annotation_inputs, require_usable_bed_query_names,
-    resolve_projection_build, validate_gene_query_names,
+    resolve_projection_build,
 )
 from .sources import prepare_annotation_sources
 from .gene_query_storage import resolve_gene_lists_staged
@@ -45,10 +45,10 @@ def build_annotation_shards(spec, config, workspace, *, projection_genome_build=
         config = replace(config, genome_build=projection_build)
     if spec.query_annot_gene_list_sources:
         batch = resolve_gene_lists_staged(spec.query_annot_gene_list_sources, catalog, workspace,
+                                         existing_columns=annotation_columns(declared),
                                          control_path=spec.control_gene_list_file,
                                          resolution_policy=spec.gene_list_resolution_policy,
                                          gene_exclude_regions=spec.gene_exclude_regions)
-        batch = validate_gene_query_names(batch, annotation_columns(declared))
         if batch.has_fatal_gate_a_issues:
             raise gene_list_gate_a_error(batch)
     else:

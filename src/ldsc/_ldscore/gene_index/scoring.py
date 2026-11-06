@@ -24,7 +24,6 @@ from ...errors import LDSCInputError
 from ..._runtime.preflight import inspect_declared_inputs
 from ..._annotation.gene_query_storage import resolve_gene_lists_staged
 from ..._annotation.query_outcomes import gene_query_statuses, gene_control_errors, gene_viability_errors
-from ..._annotation.preflight import validate_gene_query_names
 from ..diagnostics import (
     fail_gene_list_resolution,
     fail_unusable_queries,
@@ -183,12 +182,12 @@ def _run_indexed_ldscore_in_workspace(
         query_gene_list_sources,
         catalog,
         workspace,
+        existing_columns=index.baseline_columns,
         control_path=control_gene_list_file,
         resolution_policy=gene_list_resolution_policy,
         gene_exclude_regions=gene_policy,
     )
     output_config = LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite)
-    batch = validate_gene_query_names(batch, index.baseline_columns)
     if batch.has_fatal_gate_a_issues:
         fail_gene_list_resolution(batch, output_config)
     batch, coverage_errors = batch.with_coverage(index.chromosomes)

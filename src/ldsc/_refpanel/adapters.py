@@ -379,7 +379,7 @@ class PlinkRefPanel(RefPanel):
                     assert_cm_usable(metadata["CM"], chrom)
             block_left = _prepare_window(metadata, chrom, config, self.global_config.snp_identifier)
             return PreparedChromosome(
-                backend="plink", reader=geno, metadata=metadata,
+                reader=geno, metadata=metadata,
                 annotations=values, block_left=block_left,
                 baseline_columns=list(annotations.baseline_columns), query_columns=list(annotations.query_columns),
                 reference_rows_before_genotype_qc=input_rows,
@@ -534,7 +534,7 @@ class R2MatrixRefPanel(RefPanel):
             reader.close()
             raise
         return PreparedChromosome(
-            backend="r2_matrix", reader=reader, metadata=metadata,
+            reader=reader, metadata=metadata,
             annotations=mapped_annotations, block_left=block_left,
             baseline_columns=list(annotations.baseline_columns), query_columns=list(annotations.query_columns),
             cm_source="parquet_sidecar", reference_snp_funnel=funnel.frame(),

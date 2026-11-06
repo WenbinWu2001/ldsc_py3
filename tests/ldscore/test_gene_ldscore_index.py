@@ -440,7 +440,7 @@ def test_prepared_plink_chromosome_is_reused_by_direct_ldscore():
         prepared.annotations.read()[:, 0],
         prepared.metadata["POS"].to_numpy(dtype=np.float64),
     )
-    prepared.reader._currentSNP = 0
+    prepared.reader.rewind()
     reused_scores = kernel_ldscore.ld_scores_from_genotypes(
         prepared.reader,
         prepared.block_left,
@@ -482,13 +482,13 @@ def test_direct_plink_projects_annotations_and_regression_weights_in_one_travers
     regression_mask = kernel_ldscore.regression_mask_from_keys(
         prepared.metadata, regression_keys, panel.global_config.snp_identifier
     )
-    prepared.reader._currentSNP = 0
+    prepared.reader.rewind()
     expected_ld_scores = kernel_ldscore.ld_scores_from_genotypes(
         prepared.reader,
         prepared.block_left, config.snp_batch_size, annot=prepared.annotations.read()
     )
     assert prepared.reader._currentSNP == prepared.reader.m
-    prepared.reader._currentSNP = 0
+    prepared.reader.rewind()
     expected_w_ld = kernel_ldscore.ld_scores_from_genotypes(
         prepared.reader,
         prepared.block_left, config.snp_batch_size, annot=regression_mask.reshape(-1, 1)
@@ -718,12 +718,12 @@ def test_plink_index_fuses_baseline_and_regression_weights_but_keeps_atom_batche
         prepared.metadata, regression_keys, panel.global_config.snp_identifier
     ).astype(bool)
     baseline64 = np.asarray(prepared.annotations.read(), dtype=np.float64)
-    prepared.reader._currentSNP = 0
+    prepared.reader.rewind()
     expected_baseline = kernel_ldscore.ld_scores_from_genotypes(
         prepared.reader,
         prepared.block_left, config.snp_batch_size, annot=baseline64
     )
-    prepared.reader._currentSNP = 0
+    prepared.reader.rewind()
     expected_weights = kernel_ldscore.ld_scores_from_genotypes(
         prepared.reader,
         prepared.block_left, config.snp_batch_size, annot=persisted.reshape(-1, 1)
@@ -1306,7 +1306,7 @@ def test_plink_operator_matches_independent_dense_adjusted_r2_reference(snp_batc
         atom_batch_size=2,
     )
     prepared = panel.prepare_chromosome("1", bundle, config)
-    prepared.reader._currentSNP = 0
+    prepared.reader.rewind()
     x = prepared.reader.nextSNPs(prepared.reader.m)
     correlation = x.T @ x / prepared.reader.n
     adjusted_r2 = correlation**2 - (1.0 - correlation**2) / (prepared.reader.n - 2)

@@ -2,7 +2,7 @@
 # Upstream authors and Python 3 port credit are in NOTICE. Modified 2026-06:
 # extracted readers and added selective streaming; 2026-09: reader lifetime;
 # 2026-10: exact LD windows independent of the chunk size; LD-score block
-# sums moved to _ldscore/compute.py.
+# sums moved to _ldscore/compute.py; 2026-11: rewind().
 # See NOTICE for attribution and dated modifications.
 
 """PLINK genotype reader.
@@ -76,6 +76,10 @@ class __GenotypeArrayInMemory__(object):
             error.genotype_qc_removed, error.maf_removed = self.genotype_qc_removed, self.maf_removed
             raise error
         self.maf = np.minimum(self.freq, np.ones(self.m) - self.freq)
+
+    def rewind(self):
+        """Restart ``nextSNPs`` at the first retained SNP for another traversal."""
+        self._currentSNP = 0
 
     def __read__(self, fname, m, n):
         """Read the backend-specific genotype representation into memory."""

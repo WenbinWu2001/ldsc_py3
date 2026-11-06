@@ -35,7 +35,7 @@ def _build(keep_snps=None, keep_indivs=None, maf_min=None):
 
 
 def _decode_all(geno):
-    geno._currentSNP = 0
+    geno.rewind()
     cols = [geno.nextSNPs(1, dtype=np.float64).ravel() for _ in range(geno.m)]
     return np.column_stack(cols) if cols else np.zeros((geno.n, 0))
 
@@ -115,7 +115,7 @@ def test_streaming_matches_in_ram_with_keep_indivs():
 
 def test_streaming_rewind_replays_identically():
     streamed = _build_streaming()
-    first = _decode_all(streamed)   # _decode_all resets _currentSNP to 0
+    first = _decode_all(streamed)   # _decode_all rewinds the reader first
     second = _decode_all(streamed)  # rewind + replay
     np.testing.assert_allclose(first, second, rtol=0, atol=0)
 

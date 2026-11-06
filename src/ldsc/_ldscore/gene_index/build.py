@@ -1586,7 +1586,7 @@ def build_plink_index_chromosome(
             atom_model.n_atoms,
             atom_batch_size,
         ):
-            geno._currentSNP = 0
+            geno.rewind()
             block_scores = np.asarray(
                 kernel_ldscore.ld_scores_from_genotypes(
                     geno,

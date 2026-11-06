@@ -357,15 +357,15 @@ def compute_chromosome(
                    else _QueryColumns(prepared.annotations, tuple(prepared.query_columns)))
     options = dict(output_rows=output_rows, n_baseline=n_baseline if include_baseline else 0,
                    query_batch_size=query_batch_size, weight_mask=regression_mask if include_baseline else None)
-    if prepared.backend == "plink":
-        prepared.reader._currentSNP = 0
-        combined_scores = np.asarray(ld_scores_from_genotypes(
-            prepared.reader, prepared.block_left, snp_batch_size, annot=annotations, **options,
-        ), dtype=np.float32)
-    else:
+    if isinstance(prepared.reader, SortedR2BlockReader):
         combined_scores = ld_score_streaming_from_r2_reader(
             block_left=prepared.block_left, annot=annotations, block_reader=prepared.reader, **options,
         )
+    else:
+        prepared.reader.rewind()
+        combined_scores = np.asarray(ld_scores_from_genotypes(
+            prepared.reader, prepared.block_left, snp_batch_size, annot=annotations, **options,
+        ), dtype=np.float32)
     n_columns = annotations.shape[1]
     M, M_5_50, overlap, kinds = annotation_statistics(metadata, prepared.annotations, n_baseline,
         common_maf_min=common_maf_min, query_batch_size=query_batch_size, include_baseline=include_baseline)

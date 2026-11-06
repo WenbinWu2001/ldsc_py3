@@ -48,7 +48,6 @@ class PreparedChromosome:
     (``ldsc._refpanel.funnel``); it survives ``close``.
     """
 
-    backend: str
     reader: object
     metadata: pd.DataFrame
     annotations: object

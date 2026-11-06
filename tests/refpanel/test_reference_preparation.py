@@ -250,7 +250,7 @@ def test_prepared_chromosome_close_releases_state_once():
 
     calls = []
     reader = SimpleNamespace(close=lambda: calls.append(1))
-    prepared = PreparedChromosome("plink", reader, pd.DataFrame({"POS": [1]}),
+    prepared = PreparedChromosome(reader, pd.DataFrame({"POS": [1]}),
                                  np.ones((1, 1)), np.array([0]), ["base"], [],
                                  identity_drops=pd.DataFrame({"SNP": ["duplicate"]}))
     prepared.close()

@@ -1,9 +1,4 @@
-"""
-prevalence.py
-
-Overview
---------
-Parse and validate the binary-trait prevalence inputs (``--samp-prev``,
+"""Parse and validate the binary-trait prevalence inputs (``--samp-prev``,
 ``--pop-prev``, and the rg ``--prevalence-manifest``) into a normalized per-trait
 structure consumed by the regression summary layer for observed-to-liability
 scale conversion. Validation is fail-fast: range and consistency are checked
@@ -26,10 +21,6 @@ Design Notes
 - Manifest lookup is by exact munged trait name; supersets are allowed, while
   missing resolved traits and (under the manifest scheme) duplicate resolved
   names are hard errors.
-
-Dependencies
-------------
-- numpy
 """
 from __future__ import annotations
 

@@ -43,7 +43,7 @@ from .._runtime.paths import (
 from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from .._runtime.preflight import inspect_declared_inputs, inspect_artifact_paths
 from .estimators import liability_conversion_factor
-from .._runtime.workflow_kwargs import run_from_kwargs
+from .._runtime.workflow_kwargs import command_parser, run_from_kwargs
 from .._ldscore.source import read_ldscore_manifest
 from ..config import AnnotationBuildConfig, get_global_config
 
@@ -583,13 +583,6 @@ def add_quantile_h2_arguments(parser: argparse.ArgumentParser) -> None:
     add_log_level_argument(logs)
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """Build the standalone ``quantile-h2`` parser used by ``run_quantile_h2``."""
-    parser = argparse.ArgumentParser(allow_abbrev=False)
-    add_quantile_h2_arguments(parser)
-    return parser
-
-
 @materializing_overwrite_guard(
     args_output_scope,
     command="run_quantile_h2_from_args(...)",
@@ -877,6 +870,6 @@ def run_quantile_h2(**kwargs) -> QuantileH2Result:
     ``RUN_FAILED.txt`` naming this call.
     """
     return run_from_kwargs(
-        "run_quantile_h2", build_parser(), run_quantile_h2_from_args, kwargs,
+        "run_quantile_h2", command_parser(add_quantile_h2_arguments), run_quantile_h2_from_args, kwargs,
         registered=get_global_config(),
     )

@@ -686,7 +686,7 @@ def _project_legacy_sumstats_to_panel(
             LOGGER.warning(
                 "Legacy summary-statistics file '%s' has %d nonnumeric, infinite, or out-of-range FRQ value(s); "
                 "they were retained as missing because regression does not consume FRQ.",
-                table.source_path or table.trait_name or "sumstats",
+                label,
                 invalid_frq_count,
             )
 
@@ -771,7 +771,7 @@ def _project_legacy_sumstats_to_panel(
     if accepted_rows.empty:
         counts = reasons.dropna().value_counts().to_dict()
         raise LDSCInputError(
-            f"Legacy summary-statistics file '{table.source_path or table.trait_name or 'sumstats'}' retained no SNPs "
+            f"Legacy summary-statistics file '{label}' retained no SNPs "
             f"after projection onto the regression SNPs in the LD-score directory (drop counts: {counts})."
         )
     projected_frame = source.take(accepted_rows.to_numpy())
@@ -806,14 +806,14 @@ def _project_legacy_sumstats_to_panel(
     if not drop_counts.empty:
         LOGGER.warning(
             "Legacy summary-statistics file '%s' projection dropped %d row(s): %s.",
-            table.source_path or table.trait_name or "sumstats",
+            label,
             len(drops),
             ", ".join(f"{reason}={int(count)}" for reason, count in drop_counts.items()),
         )
     LOGGER.info(
         "Projected %d legacy summary-statistics row(s) from '%s' onto panel SNP identifier mode %s; dropped %d.",
         len(projected_frame),
-        table.source_path or table.trait_name or "sumstats",
+        label,
         projected_snapshot.snp_identifier,
         len(drops),
     )

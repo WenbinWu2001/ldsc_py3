@@ -311,11 +311,9 @@ def _prev_cell(value):
     return float("nan") if value is None else float(value)
 
 
-def _config_prevalence(config: "RegressionConfig | None") -> tuple[float | None, float | None]:
-    """Scalar (samp_prev, pop_prev) from a regression config, or (None, None)."""
-    if config is None:
-        return None, None
-    return getattr(config, "samp_prev", None), getattr(config, "pop_prev", None)
+def _config_prevalence(config: RegressionConfig) -> tuple[float | None, float | None]:
+    """Scalar (samp_prev, pop_prev) of a regression config; ``None`` for an observed-scale fit."""
+    return config.samp_prev, config.pop_prev
 
 
 def _scale_label(*prevalences) -> str:

@@ -289,8 +289,8 @@ class H2DirectoryWriter:
 
         Raises
         ------
-        ValueError
-            If the summary or diagnostic table lacks required columns.
+        LDSCInternalError
+            If the diagnostic table lacks required columns.
         FileExistsError
             If an owned h2 artifact exists and overwrite is disabled.
 
@@ -691,8 +691,9 @@ class PartitionedH2DirectoryWriter:
 
         Raises
         ------
-        ValueError
-            If ``summary`` lacks the required ``Category`` column.
+        LDSCInternalError
+            If ``summary`` lacks ``category`` or another
+            ``PARTITIONED_H2_COLUMNS`` column.
         FileExistsError
             If a final output path already exists and overwrite is disabled.
         """
@@ -900,7 +901,7 @@ class RgDirectoryWriter:
 
         Raises
         ------
-        ValueError
+        LDSCInternalError
             If required result columns are missing or the pair metadata length
             does not match ``rg_full`` when detail output is requested.
         FileExistsError

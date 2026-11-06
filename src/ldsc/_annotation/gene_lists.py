@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import csv
 from dataclasses import dataclass
-import glob
 import gzip
 from pathlib import Path
 from typing import Any, Sequence
@@ -18,9 +17,9 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
+from .._core.chromosomes import AUTOSOMES
 from .._core.regions import load_preset_intervals
 from ..errors import LDSCInputError
-from .._runtime.paths import normalize_path_token
 
 
 CATALOG_REQUIRED_COLUMNS = ("gene_id", "gene_name", "chrom", "start", "end", "genome_build")
@@ -95,7 +94,6 @@ RESOLVED_ONLY_REASONS = frozenset(
         "outside_supported_chromosome",
     }
 )
-_AUTOSOMES = frozenset(str(value) for value in range(1, 23))
 _BUILD_ALIASES = {
     "hg19": "hg19",
     "hg37": "hg19",
@@ -321,27 +319,6 @@ def gene_list_query_name(path: str | Path) -> str:
     return name
 
 
-def _expand_focal_gene_list_sources(
-    tokens: Sequence[str | Path],
-) -> tuple[str, ...]:
-    """Expand focal globs deterministically while retaining unresolved tokens for Gate A."""
-    expanded: list[str] = []
-    for raw_token in tokens:
-        token = normalize_path_token(raw_token)
-        if Path(token).is_file():
-            matches = [token]
-        elif glob.has_magic(token):
-            matches = sorted(path for path in glob.glob(token) if Path(path).is_file())
-            if not matches:
-                matches = [token]
-        else:
-            matches = [token]
-        expanded.extend(matches)
-    return tuple(expanded)
-
-
-
-
 def select_index_eligible_gene_indices(
     catalog: GeneCatalog,
     *,
@@ -538,7 +515,7 @@ def _validate_catalog_rows(
         )
     invalid_chrom = raw["chrom"].ne("") & chrom_numeric.isna()
     add_mask(invalid_chrom, "chrom", "invalid_chromosome", "Use an autosomal chromosome label from 1 through 22.")
-    outside_chrom = chrom_numeric.notna() & ~normalized["chrom"].isin(_AUTOSOMES)
+    outside_chrom = chrom_numeric.notna() & ~normalized["chrom"].isin(AUTOSOMES)
     add_mask(outside_chrom, "chrom", "outside_supported_chromosome", "Remove non-autosomal rows for this workflow.")
     invalid_start = normalized["start"].isna() | normalized["start"].lt(1)
     add_mask(invalid_start, "start", "invalid_start", "Use an integer one-based start greater than or equal to 1.")
@@ -665,7 +642,7 @@ _CANDIDATE_COLUMNS = [
 ]
 
 
-def _resolution_candidates(catalog: GeneCatalog) -> pd.DataFrame:
+def resolution_candidates(catalog: GeneCatalog) -> pd.DataFrame:
     """Return the catalog rows that submitted identifiers are matched against, with their catalog index."""
     return catalog.frame.reset_index().rename(columns={"index": "_catalog_index"}).loc[:, _CANDIDATE_COLUMNS]
 
@@ -687,13 +664,19 @@ def summary_source_masks(summary: pd.DataFrame):
     return mask
 
 
-def _resolve_rows(
+def resolve_gene_rows(
     rows: pd.DataFrame,
     catalog: GeneCatalog,
     candidates: pd.DataFrame,
     gene_exclude_regions: str,
 ) -> pd.DataFrame:
-    """Resolve submitted rows against ``candidates``, the run's ``_resolution_candidates(catalog)``."""
+    """Resolve one chunk of submitted rows against ``candidates``, the run's ``resolution_candidates(catalog)``.
+
+    Each row gets its own match, disposition and reason. Rows that resolve to
+    a gene already seen are not marked here: the staged resolver
+    (``gene_query_storage.resolve_gene_lists_staged``) marks every later
+    occurrence of a gene across the whole source as a duplicate.
+    """
     if rows.empty:
         return pd.DataFrame(columns=AUDIT_COLUMNS)
     working = rows.copy().reset_index(drop=True)
@@ -808,51 +791,9 @@ def _resolve_rows(
         audit.loc[excluded_indices, "reason"] = "excluded_gene_region"
         audit.loc[excluded_indices, "details"] = "Unpadded gene interval overlaps the MHC exclusion."
 
-    resolved = audit["canonical_gene_id"].notna() & ~audit["disposition"].eq("rejected")
-    duplicate_rank = audit.loc[resolved].groupby(
-        ["input_role", "source_ordinal", "canonical_gene_id"], sort=False
-    ).cumcount()
-    duplicate_indices = duplicate_rank.index[duplicate_rank.gt(0)]
-    if len(duplicate_indices):
-        first_lines = audit.loc[resolved].groupby(
-            ["input_role", "source_ordinal", "canonical_gene_id"], sort=False
-        )["line"].transform("first")
-        audit.loc[duplicate_indices, "disposition"] = "duplicate"
-        audit.loc[duplicate_indices, "reason"] = "duplicate_canonical_gene"
-        audit.loc[duplicate_indices, "details"] = (
-            "first occurrence at line " + first_lines.loc[duplicate_indices].astype(str)
-        )
     audit["_role_order"] = audit["input_role"].map({"focal": 0, "control": 1})
     audit = audit.sort_values(["_role_order", "source_ordinal", "line"], kind="stable").drop(columns="_role_order")
     return audit.reindex(columns=AUDIT_COLUMNS).reset_index(drop=True)
-
-
-def _empty_source_summaries(source_seed: pd.DataFrame, resolution_policy: str) -> pd.DataFrame:
-    """Return one summary row per gene-list source before any row is read.
-
-    Readable sources start with zero row and gene counts; support counts and
-    the resolution fraction stay missing. The staged resolver adds each
-    source's counts as it reads the source's chunks.
-    """
-    seed_columns = ["argument", "input_role", "query", "source", "source_ordinal", "source_status", "source_reasons"]
-    summary = source_seed.loc[:, seed_columns].copy()
-    summary["resolution_policy"] = resolution_policy
-    readable = summary["source_status"].eq("ok")
-    for column in (
-        "nonblank_input_rows",
-        "uniquely_resolved_rows",
-        "rejected_rows",
-        "unique_resolved_genes",
-        "duplicate_rows",
-        "excluded_genes",
-    ):
-        summary[column] = pd.Series(pd.NA, index=summary.index, dtype="Int64")
-        summary.loc[readable, column] = 0
-    summary["zero_support_genes"] = pd.NA
-    summary["genes_with_snp_support"] = pd.NA
-    summary["resolution_fraction"] = pd.NA
-    summary["_role_order"] = summary["input_role"].map({"focal": 0, "control": 1})
-    return summary.sort_values(["_role_order", "source_ordinal"], kind="stable").drop(columns="_role_order").reindex(columns=SUMMARY_COLUMNS)
 
 
 def _mhc_overlap_mask(frame: pd.DataFrame, genome_build: str) -> pd.Series:

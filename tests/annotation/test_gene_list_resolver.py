@@ -176,7 +176,7 @@ def test_many_sources_resolve_with_bounded_rows(tmp_path, monkeypatch):
         source = tmp_path / f"pathway-{index:03d}.txt"
         source.write_text("GENEA\n" * 25, encoding="utf-8")
         paths.append(source)
-    real_resolve_rows = gene_list_resolver._resolve_rows
+    real_resolve_rows = gene_list_resolver.resolve_gene_rows
     calls = []
 
     def count_bulk_pass(*args, **kwargs):
@@ -184,7 +184,7 @@ def test_many_sources_resolve_with_bounded_rows(tmp_path, monkeypatch):
         calls.append(len(args[0]))
         return real_resolve_rows(*args, **kwargs)
 
-    monkeypatch.setattr(_gene_query_storage, "_resolve_rows", count_bulk_pass)
+    monkeypatch.setattr(_gene_query_storage, "resolve_gene_rows", count_bulk_pass)
 
     result = resolve_gene_fixture(paths, _catalog(tmp_path), resolution_policy="resolved-only", output_dir=tmp_path)
 

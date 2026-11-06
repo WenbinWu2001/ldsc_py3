@@ -7,6 +7,7 @@ into an all-pathway interval matrix.
 
 from dataclasses import dataclass, replace
 from functools import cached_property
+import glob
 import gzip
 import logging
 from pathlib import Path
@@ -21,8 +22,7 @@ from .._runtime.progress import report_phase, advance
 from .._runtime.scratch import FrameSpool
 from .gene_lists import (
     AUDIT_COLUMNS, SUMMARY_COLUMNS, RESOLVED_ONLY_REASONS, GeneSourceSelection,
-    _empty_source_summaries, _expand_focal_gene_list_sources, _resolution_candidates, _resolve_rows,
-    gene_list_query_name, summary_source_masks,
+    gene_list_query_name, resolution_candidates, resolve_gene_rows, summary_source_masks,
 )
 from ..errors import LDSCInputError
 from .._runtime.paths import normalize_path_token
@@ -162,6 +162,51 @@ class StagedGeneListBatch:
                 pd.DataFrame(columns=columns).to_csv(stream, sep='\t', index=False)
 
 
+def _expand_focal_gene_list_sources(tokens) -> tuple[str, ...]:
+    """Expand focal globs deterministically while retaining unresolved tokens for Gate A."""
+    expanded: list[str] = []
+    for raw_token in tokens:
+        token = normalize_path_token(raw_token)
+        if Path(token).is_file():
+            matches = [token]
+        elif glob.has_magic(token):
+            matches = sorted(path for path in glob.glob(token) if Path(path).is_file())
+            if not matches:
+                matches = [token]
+        else:
+            matches = [token]
+        expanded.extend(matches)
+    return tuple(expanded)
+
+
+def _empty_source_summaries(source_seed: pd.DataFrame, resolution_policy: str) -> pd.DataFrame:
+    """Return one summary row per gene-list source before any row is read.
+
+    Readable sources start with zero row and gene counts; support counts and
+    the resolution fraction stay missing. The staged resolver adds each
+    source's counts as it reads the source's chunks.
+    """
+    seed_columns = ["argument", "input_role", "query", "source", "source_ordinal", "source_status", "source_reasons"]
+    summary = source_seed.loc[:, seed_columns].copy()
+    summary["resolution_policy"] = resolution_policy
+    readable = summary["source_status"].eq("ok")
+    for column in (
+        "nonblank_input_rows",
+        "uniquely_resolved_rows",
+        "rejected_rows",
+        "unique_resolved_genes",
+        "duplicate_rows",
+        "excluded_genes",
+    ):
+        summary[column] = pd.Series(pd.NA, index=summary.index, dtype="Int64")
+        summary.loc[readable, column] = 0
+    summary["zero_support_genes"] = pd.NA
+    summary["genes_with_snp_support"] = pd.NA
+    summary["resolution_fraction"] = pd.NA
+    summary["_role_order"] = summary["input_role"].map({"focal": 0, "control": 1})
+    return summary.sort_values(["_role_order", "source_ordinal"], kind="stable").drop(columns="_role_order").reindex(columns=SUMMARY_COLUMNS)
+
+
 def _source_chunks(declaration, chunk_rows):
     path = Path(declaration['source_path'])
     opener = gzip.open if path.name.lower().endswith('.gz') else open
@@ -205,7 +250,7 @@ def resolve_gene_lists_staged(focal_paths, catalog, workspace, *, control_path=N
     seed = pd.DataFrame([{**declaration, 'source_status': 'ok', 'source_reasons': ''} for declaration in declarations],
                         columns=SUMMARY_COLUMNS[:7])
     empty_summaries = _empty_source_summaries(seed, resolution_policy)
-    candidates = _resolution_candidates(catalog)
+    candidates = resolution_candidates(catalog)
     summaries, spools, fatal = [], [], False
     for source_index, declaration in enumerate(declarations):
         label = f"{declaration['input_role']}-{declaration['source_ordinal']}"
@@ -222,7 +267,7 @@ def resolve_gene_lists_staged(focal_paths, catalog, workspace, *, control_path=N
                 # prevents repeated ambiguous identifiers from multiplying the
                 # catalog candidate table before their audit rows are replayed.
                 unique = rows.drop_duplicates(['input_gene', '_malformed']).reset_index(drop=True)
-                resolved = _resolve_rows(unique, catalog, candidates, gene_exclude_regions)
+                resolved = resolve_gene_rows(unique, catalog, candidates, gene_exclude_regions)
                 resolved['_malformed'] = unique['_malformed'].to_numpy()
                 audit = rows.merge(resolved.loc[:, ['input_gene', '_malformed', *AUDIT_COLUMNS[7:]]],
                                    on=['input_gene', '_malformed'], how='left', sort=False).reindex(columns=AUDIT_COLUMNS)

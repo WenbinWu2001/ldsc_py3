@@ -26,12 +26,10 @@ from __future__ import annotations
 from contextlib import contextmanager
 from functools import wraps
 import logging
-import os
 from pathlib import Path
 import re
 import shlex
 import sys
-import tempfile
 import threading
 import time
 import traceback
@@ -41,6 +39,7 @@ from types import TracebackType
 from typing import Any, Callable
 
 from ..errors import LDSCConfigError
+from .artifacts import atomic_replace
 from .paths import output_directory_path
 
 
@@ -299,15 +298,7 @@ def _atomic_write_failure_marker(
         "Next action: Inspect the detailed log and the active result directory, correct the failure, then rerun "
         "the command with --overwrite. A successful retry removes this marker.\n"
     )
-    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
-    os.close(descriptor)
-    temporary_path = Path(temporary_name)
-    try:
-        temporary_path.write_text(content, encoding="utf-8")
-        os.replace(temporary_path, path)
-    except Exception:
-        temporary_path.unlink(missing_ok=True)
-        raise
+    atomic_replace(path, lambda temporary_path: temporary_path.write_text(content, encoding="utf-8"))
 
 
 def materializing_overwrite_guard(

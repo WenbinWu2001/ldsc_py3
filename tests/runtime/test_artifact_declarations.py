@@ -87,3 +87,20 @@ def test_atomic_json_writer_serializes_and_ends_with_newline(tmp_path):
     assert json.loads(text) == {"path": str(tmp_path / "x.tsv"), "values": [1, 2]}
     assert sorted(p.name for p in tmp_path.iterdir()) == ["metadata.json"]
 
+
+@pytest.mark.parametrize("error", [OSError("disk full"), KeyboardInterrupt()])
+def test_atomic_replace_keeps_the_old_file_when_the_write_fails(tmp_path, error):
+    from ldsc._runtime.artifacts import atomic_replace
+
+    path = tmp_path / "table.tsv"
+    path.write_text("previous run\n")
+
+    def write(temporary):
+        temporary.write_text("half")
+        raise error
+
+    with pytest.raises(type(error)):
+        atomic_replace(path, write)
+    assert path.read_text() == "previous run\n"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["table.tsv"]
+

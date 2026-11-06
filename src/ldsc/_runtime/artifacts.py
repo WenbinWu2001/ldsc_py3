@@ -2,8 +2,10 @@
 
 Each workflow writer declares the files it owns as an ``ArtifactFamily``,
 which output preflight, final writes, metadata file entries and stale-file
-cleanup all share. The atomic writers publish tables and JSON through a
-temporary sibling file, so a reader never sees a partly written file.
+cleanup all share. ``atomic_replace`` publishes a file through a temporary
+sibling, so a reader never sees a partly written file; the table and JSON
+writers here, the failure marker and the legacy summary-statistics audit use
+it.
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ import tempfile
 from dataclasses import asdict, dataclass, is_dataclass
 from os import PathLike
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 import numpy as np
 import pandas as pd
@@ -103,33 +105,37 @@ def result_metadata(
     return payload
 
 
-def atomic_write_dataframe(df: pd.DataFrame, path: Path, *, na_rep: str | None = None) -> None:
-    """Write a dataframe through a temporary sibling file, then replace."""
+def atomic_replace(path: Path, write: Callable[[Path], None]) -> None:
+    """Publish ``path`` atomically: ``write`` fills a temporary sibling, which then replaces ``path``.
+
+    The temporary file ``.<name>.<random>.tmp`` lies in ``path``'s directory,
+    so the replacement is one rename on the same file system. If ``write`` or
+    the rename fails, or the run is interrupted, the temporary file is removed
+    and ``path`` keeps its previous content.
+    """
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
     os.close(fd)
     tmp_path = Path(tmp_name)
     try:
-        kwargs = {"sep": "\t", "index": False}
-        if na_rep is not None:
-            kwargs["na_rep"] = na_rep
-        df.to_csv(tmp_path, **kwargs)
+        write(tmp_path)
         os.replace(tmp_path, path)
-    except Exception:
+    except BaseException:
         tmp_path.unlink(missing_ok=True)
         raise
+
+
+def atomic_write_dataframe(df: pd.DataFrame, path: Path, *, na_rep: str | None = None) -> None:
+    """Write a dataframe as a tab-separated table through :func:`atomic_replace`."""
+    kwargs = {"sep": "\t", "index": False}
+    if na_rep is not None:
+        kwargs["na_rep"] = na_rep
+    atomic_replace(path, lambda tmp_path: df.to_csv(tmp_path, **kwargs))
 
 
 def atomic_write_json(payload: dict[str, object], path: Path) -> None:
-    """Publish serializable JSON through a temporary sibling, cleaning it on failure."""
-    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
-    os.close(fd)
-    tmp_path = Path(tmp_name)
-    try:
-        tmp_path.write_text(json.dumps(to_serializable(payload), indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        os.replace(tmp_path, path)
-    except Exception:
-        tmp_path.unlink(missing_ok=True)
-        raise
+    """Publish serializable JSON through :func:`atomic_replace`."""
+    text = json.dumps(to_serializable(payload), indent=2, sort_keys=True) + "\n"
+    atomic_replace(path, lambda tmp_path: tmp_path.write_text(text, encoding="utf-8"))
 
 
 def to_serializable(value: Any) -> Any:

@@ -67,6 +67,7 @@ from ..config import normalize_required_path
 from ..errors import LDSCInternalError
 from .._runtime.artifacts import (
     ArtifactFamily,
+    atomic_replace,
     atomic_write_dataframe,
     atomic_write_json,
     declare_artifacts,
@@ -1072,15 +1073,12 @@ def _write_legacy_sumstats_audit(drops: pd.DataFrame, path: Path) -> None:
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     text = drops.reindex(columns=LEGACY_SUMSTATS_DROP_COLUMNS).to_csv(sep="\t", index=False, na_rep="")
-    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
-    tmp_path = Path(tmp_name)
-    try:
-        with os.fdopen(fd, "wb") as handle, gzip.GzipFile(str(path), "wb", fileobj=handle, mtime=0) as archive:
+
+    def write(tmp_path: Path) -> None:
+        with tmp_path.open("wb") as handle, gzip.GzipFile(str(path), "wb", fileobj=handle, mtime=0) as archive:
             archive.write(text.encode("utf-8"))
-        os.replace(tmp_path, path)
-    except BaseException:
-        tmp_path.unlink(missing_ok=True)
-        raise
+
+    atomic_replace(path, write)
 
 
 def _rg_root_metadata(result: RgResultFamily, *, files: dict[str, str]) -> dict[str, object]:

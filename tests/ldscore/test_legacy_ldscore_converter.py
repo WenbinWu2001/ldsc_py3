@@ -78,7 +78,6 @@ def _write_partitioned_suite(reference: Path, weights: Path, frequencies: Path) 
 
 def test_converter_is_public_and_cli_has_the_approved_minimal_arguments() -> None:
     assert callable(ldsc.convert_legacy_ldscores)
-    assert ldsc.LegacyLDScoreConverter is not None
 
     args = parse_command(
         [

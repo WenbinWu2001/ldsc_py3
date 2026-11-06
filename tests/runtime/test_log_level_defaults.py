@@ -8,7 +8,7 @@ import ldsc
 from ldsc._ldscore.gene_index import build as gene_ldscore_index
 from ldsc._regression import h2_scale
 from ldsc._plotting import dispatch as plotting
-from ldsc._ldscore.legacy_converter import LegacyLDScoreConverter
+from ldsc._ldscore import legacy_converter
 from tests.regression.test_python_regression_workflows import _inputs
 
 
@@ -52,13 +52,8 @@ def _convert_scale(h2_result, monkeypatch, **level):
 def _convert_ldscores(h2_result, monkeypatch, **level):
     # The conversion body runs in a spawned child with its own default config,
     # so the level must already be resolved when the parent hands it over.
-    _stop_with_level(monkeypatch, LegacyLDScoreConverter, "_convert", lambda self, **kwargs: kwargs["log_level"])
+    _stop_with_level(monkeypatch, legacy_converter, "_convert", lambda **kwargs: kwargs["log_level"])
     ldsc.convert_legacy_ldscores(legacy_reference_dir="ref", legacy_weight_dir="w", output_dir="out", **level)
-
-
-def _converter_method(h2_result, monkeypatch, **level):
-    _stop_with_level(monkeypatch, LegacyLDScoreConverter, "_convert", lambda self, **kwargs: kwargs["log_level"])
-    LegacyLDScoreConverter().convert(legacy_reference_dir="ref", legacy_weight_dir="w", output_dir="out", **level)
 
 
 def _build_index(h2_result, monkeypatch, **level):
@@ -70,7 +65,7 @@ def _build_index(h2_result, monkeypatch, **level):
     ldsc.build_gene_ldscore_index(config, **level)
 
 
-_CALLS = [_plot, _convert_scale, _convert_ldscores, _converter_method, _build_index]
+_CALLS = [_plot, _convert_scale, _convert_ldscores, _build_index]
 
 
 @pytest.mark.parametrize("call", _CALLS, ids=lambda call: call.__name__.lstrip("_"))

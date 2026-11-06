@@ -1,6 +1,6 @@
 # Legacy LD-Score Suite Conversion
 
-Last updated on: 2026-10-31
+Last updated on: 2026-11-06
 
 Conversion runs serially in one worker with **1 BLAS thread**, including reconstructed annotation overlap products.
 See [parallel execution](../parallel-execution.md) for native-limit verification and Python process startup.
@@ -214,9 +214,7 @@ A diagnostics-only failed directory is not a consumable LD-score directory and a
 
 ## Module Boundary
 
-Legacy LDSC discovery, parsing, validation, and conversion belong to a small public
-workflow-layer `LegacyLDScoreConverter`, with a convenience
-`convert_legacy_ldscores()` function and structured conversion result.
+Legacy LDSC discovery, parsing, validation, and conversion belong to the public workflow function `convert_legacy_ldscores()`, which returns a structured conversion result.
 It reuses the pure overlap calculation and the LD-score directory writer.
 No legacy LD-score reader is added to regression and no legacy file parsing or emission is added to the computation modules; after conversion, the ordinary canonical `load_ldscore_from_dir()` path consumes the result.
 

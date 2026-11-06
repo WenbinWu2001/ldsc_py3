@@ -1078,7 +1078,7 @@ an explicit build only when it is known; an explicit declaration that conflicts
 with decisive evidence is rejected. See
 `docs/reference/formats/legacy-ldscores.md` for the complete contract.
 
-**Developer reference:** `_ldscore.legacy_converter.LegacyLDScoreConverter` · **Exception:** `LDSCInputError`
+**Developer reference:** `_ldscore.legacy_converter.convert_legacy_ldscores` · **Exception:** `LDSCInputError`
 
 ## regression
 

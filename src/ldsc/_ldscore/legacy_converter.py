@@ -101,481 +101,397 @@ class LegacyLDScoreConversionResult:
     output_paths: dict[str, str]
 
 
-class LegacyLDScoreConverter:
-    """Convert a reusable legacy LDSC reference/weight suite into LDSC3 format.
-
-    Source directories are treated as immutable. Matching across legacy
-    families uses rsID; output coordinates come from the reference LD-score
-    table. The converter accepts only allele-unaware ``rsid`` and ``chr_pos``
-    SNP identifier modes and fixes legacy common-SNP count semantics at ``0.05``.
-    """
-
-    @materializing_overwrite_guard(
-        lambda self, **kwargs: (
-            (kwargs["output_dir"], kwargs.get("overwrite", False))
-            if kwargs.get("output_dir")
-            else None
-        ),
-        command="LegacyLDScoreConverter.convert(...)",
+@serial_calculation
+def _convert(
+    *,
+    legacy_reference_dir: str | Path,
+    legacy_weight_dir: str | Path,
+    output_dir: str | Path,
+    legacy_frequency_dir: str | Path | None,
+    snp_identifier: str,
+    genome_build: str | None,
+    overwrite: bool,
+    log_level: str,
+) -> LegacyLDScoreConversionResult:
+    """Run ``convert_legacy_ldscores`` with a resolved log level in the worker."""
+    mode = normalize_snp_identifier_mode(snp_identifier)
+    if mode not in {"rsid", "chr_pos"}:
+        raise LDSCUsageError(
+            "convert-legacy-ldscores accepts only allele-unaware --snp-identifier rsid or chr_pos; "
+            "legacy LD-score suites do not contain authoritative alleles."
+        )
+    build_hint = normalize_genome_build(genome_build)
+    reference_root = _existing_directory(legacy_reference_dir, "legacy reference directory")
+    weight_root = _existing_directory(legacy_weight_dir, "legacy weight directory")
+    frequency_root = (
+        None
+        if legacy_frequency_dir is None
+        else _existing_directory(legacy_frequency_dir, "legacy frequency directory")
     )
-    def convert(
-        self,
-        *,
-        legacy_reference_dir: str | Path,
-        legacy_weight_dir: str | Path,
-        output_dir: str | Path,
-        legacy_frequency_dir: str | Path | None = None,
-        snp_identifier: str = "rsid",
-        genome_build: str | None = "auto",
-        overwrite: bool = False,
-        log_level: str | None = None,
-    ) -> LegacyLDScoreConversionResult:
-        """Convert one complete autosomal legacy suite.
-
-        Conversion runs in one worker with 1 BLAS thread, including
-        annotation overlap reconstruction for baseline-partitioned suites.
-
-        Parameters
-        ----------
-        legacy_reference_dir, legacy_weight_dir : path-like
-            Directories containing exactly one coherent autosomal LD-score
-            family for the reference and regression-weight roles.
-        output_dir : path-like
-            New LDSC3 LD-score directory.
-        legacy_frequency_dir : path-like, optional
-            Required only for baseline partitioned conversion.
-        snp_identifier : {"rsid", "chr_pos"}, optional
-            Allele-unaware output identity. Default is ``"rsid"``.
-        genome_build : {"auto", "hg19", "hg38"}, optional
-            Build provenance. ``chr_pos`` with ``"auto"`` requires decisive
-            inference from reference coordinates. Default is ``"auto"``.
-        overwrite : bool, optional
-            Replace converter-owned outputs when true. Source files are never
-            changed. Default is false.
-        log_level : {"DEBUG", "INFO", "WARNING", "ERROR"}, optional
-            Workflow log threshold. Default is ``None``: use the registered
-            ``GlobalConfig.log_level`` (``"INFO"`` unless changed).
-
-        Returns
-        -------
-        LegacyLDScoreConversionResult
-            Profile, retained row count, columns, and written paths.
-
-        Raises
-        ------
-        LDSCInputError
-            If family discovery, legacy schemas, counts, coordinates, or
-            cross-family invariants are invalid.
-        LDSCUsageError
-            If an allele-aware output mode is requested.
-        """
-        # The conversion child starts with the package-default GlobalConfig,
-        # so the session's log level is resolved here, in the caller.
-        return self._convert(
-            legacy_reference_dir=legacy_reference_dir,
-            legacy_weight_dir=legacy_weight_dir,
-            output_dir=output_dir,
-            legacy_frequency_dir=legacy_frequency_dir,
-            snp_identifier=snp_identifier,
-            genome_build=genome_build,
-            overwrite=overwrite,
-            log_level=get_global_config().log_level if log_level is None else log_level,
+    output_root = ensure_output_directory(output_dir, label="converted LD-score output directory")
+    (output_root / "diagnostics").mkdir(parents=True, exist_ok=True)
+    issue_path = output_root / CONVERSION_ISSUES_FILE
+    log_path = output_root / CONVERSION_LOG
+    LDScoreDirectoryWriter.artifact_family(output_root).preflight(
+        overwrite=overwrite, additional_paths=[issue_path, log_path],
+    )
+    issues: list[dict[str, object]] = []
+    with workflow_logging("convert-legacy-ldscores", str(log_path), log_level=log_level):
+        log_inputs(
+            legacy_reference_dir=str(reference_root),
+            legacy_weight_dir=str(weight_root),
+            legacy_frequency_dir=None if frequency_root is None else str(frequency_root),
         )
-
-    @serial_calculation
-    def _convert(
-        self,
-        *,
-        legacy_reference_dir: str | Path,
-        legacy_weight_dir: str | Path,
-        output_dir: str | Path,
-        legacy_frequency_dir: str | Path | None,
-        snp_identifier: str,
-        genome_build: str | None,
-        overwrite: bool,
-        log_level: str,
-    ) -> LegacyLDScoreConversionResult:
-        """Run :meth:`convert` with a resolved log level in the worker."""
-        mode = normalize_snp_identifier_mode(snp_identifier)
-        if mode not in {"rsid", "chr_pos"}:
-            raise LDSCUsageError(
-                "convert-legacy-ldscores accepts only allele-unaware --snp-identifier rsid or chr_pos; "
-                "legacy LD-score suites do not contain authoritative alleles."
-            )
-        build_hint = normalize_genome_build(genome_build)
-        reference_root = _existing_directory(legacy_reference_dir, "legacy reference directory")
-        weight_root = _existing_directory(legacy_weight_dir, "legacy weight directory")
-        frequency_root = (
-            None
-            if legacy_frequency_dir is None
-            else _existing_directory(legacy_frequency_dir, "legacy frequency directory")
-        )
-        output_root = ensure_output_directory(output_dir, label="converted LD-score output directory")
-        (output_root / "diagnostics").mkdir(parents=True, exist_ok=True)
-        issue_path = output_root / CONVERSION_ISSUES_FILE
-        log_path = output_root / CONVERSION_LOG
-        LDScoreDirectoryWriter.artifact_family(output_root).preflight(
-            overwrite=overwrite, additional_paths=[issue_path, log_path],
-        )
-        issues: list[dict[str, object]] = []
-        with workflow_logging("convert-legacy-ldscores", str(log_path), log_level=log_level):
-            log_inputs(
-                legacy_reference_dir=str(reference_root),
-                legacy_weight_dir=str(weight_root),
-                legacy_frequency_dir=None if frequency_root is None else str(frequency_root),
-            )
-            try:
-                result = self._convert_validated(
-                    reference_root=reference_root,
-                    weight_root=weight_root,
-                    frequency_root=frequency_root,
-                    output_root=output_root,
-                    mode=mode,
-                    build_hint=build_hint,
-                    overwrite=overwrite,
-                    issues=issues,
-                )
-            except Exception as exc:
-                if isinstance(exc, LDSCInputError):
-                    issues.append(
-                        _issue(
-                            "error",
-                            "converter",
-                            reason="conversion_error",
-                            details=str(exc),
-                        )
-                    )
-                _write_issues(issue_path, issues)
-                raise
-            _write_issues(issue_path, issues)
-            output_paths = {**result.output_paths, "issues": str(issue_path), "log": str(log_path)}
-            log_outputs(**output_paths)
-            return LegacyLDScoreConversionResult(
-                profile=result.profile,
-                n_rows=result.n_rows,
-                baseline_columns=result.baseline_columns,
-                output_paths=output_paths,
-            )
-
-    def _convert_validated(
-        self,
-        *,
-        reference_root: Path,
-        weight_root: Path,
-        frequency_root: Path | None,
-        output_root: Path,
-        mode: str,
-        build_hint: str | None,
-        overwrite: bool,
-        issues: list[dict[str, object]],
-    ) -> LegacyLDScoreConversionResult:
-        reference_family = _discover_ldscore_family(reference_root, "reference", issues)
-        weight_family = _discover_ldscore_family(weight_root, "weight", issues)
-        reference_prefix = reference_family.prefix
-        annotation_family = _discover_associated_family(
-            reference_root,
-            reference_prefix,
-            suffixes=(".annot.gz", ".annot"),
-            issues=issues,
-        )
-        present_annotations = sorted(annotation_family)
-        if present_annotations and present_annotations != list(_CHROMS):
-            missing = sorted(set(_CHROMS) - set(present_annotations))
-            raise LDSCInputError(
-                "Legacy reference suite contains a partial annotation family; baseline conversion requires "
-                f"all chromosomes 1-22 (missing {missing}) and cannot fall back to unpartitioned conversion. "
-                "Place '<reference-prefix><chrom>.annot(.gz)' directly in the reference directory with the "
-                f"same prefix as the selected LD scores ('{reference_prefix}'). "
-                "Restore missing shards or rename misnamed copies from the matching source suite."
-            )
-
-        build_check = GenomeBuildCheck(build_hint, context="convert-legacy-ldscores", logger=LOGGER)
-        for role, paths in (("reference", reference_family.paths), ("weight", weight_family.paths),
-                            ("annotation", annotation_family)):
-            for path in paths.values():
-                build_check.table(f"legacy {role}", path, infer_unlabeled=(role == "reference" and mode == "chr_pos"))
-        if mode == "chr_pos" or build_check.explicit or any(not entry.unchecked for entry in build_check.evidence):
-            build_check.resolve()
-        first_reference = _read_legacy_table(reference_family.paths[1], "reference LD-score", 1)
-        reference_columns = _scientific_columns(first_reference)
-        if not reference_columns:
-            raise LDSCInputError(
-                f"Legacy reference LD-score table '{reference_family.paths[1]}' has no numeric scientific LD-score column. "
-                "Supply the original .l2.ldscore(.gz) reference tables containing LD scores, rather than SNP metadata or weight-only files."
-            )
-        if present_annotations:
-            if frequency_root is None:
-                raise LDSCInputError(
-                    "Baseline partitioned legacy LDSC conversion requires --legacy-frequency-dir so common-SNP counts and "
-                    "overlap can be reconstructed with the fixed legacy 0.05 threshold. "
-                    "Pass a directory containing '<prefix><chrom>.frq(.gz)' for chromosomes 1-22."
-                )
-            return self._convert_baseline_partitioned(
+        try:
+            result = _convert_validated(
                 reference_root=reference_root,
                 weight_root=weight_root,
                 frequency_root=frequency_root,
                 output_root=output_root,
-                reference_family=reference_family,
-                weight_family=weight_family,
-                annotation_family=annotation_family,
-                reference_columns=reference_columns,
                 mode=mode,
                 build_hint=build_hint,
-                build_check=build_check,
                 overwrite=overwrite,
                 issues=issues,
             )
-        if len(reference_columns) != 1:
-            raise LDSCInputError(
-                "Unpartitioned legacy reference suite must have exactly one scientific LD-score column when no "
-                f"complete annotation family is present; found {reference_columns}."
-            )
-        frames: list[pd.DataFrame] = []
-        common_total = 0.0
-        all_total = 0.0
-        all_available = True
-        selected_files: list[Path] = []
-        intersections: dict[str, dict[str, int]] = {}
-        count_origins: dict[str, dict[str, str]] = {}
-        seen_reference: set[str] = set()
-        seen_weight: set[str] = set()
-        for chrom in _CHROMS:
-            reference, weight, weight_column = _read_reference_weight(
-                chrom, reference_family, weight_family, reference_columns, seen_reference, seen_weight,
-            )
-            merged = _join_reference_weight(reference, weight, reference_columns, weight_column, chrom, issues)
-            frames.append(merged.rename(columns={reference_columns[0]: "base"}))
-            intersections[str(chrom)] = _intersection_counts(reference, weight, merged)
-            common_path = _common_count_path(reference_root, reference_prefix, chrom)
-            common_total += _read_count_vector(common_path, 1, chrom, "M_5_50")[0]
-            all_path = reference_root / f"{reference_prefix}{chrom}.l2.M"
-            if all_path.exists():
-                all_total += _read_count_vector(all_path, 1, chrom, "M")[0]
-                all_origin = "legacy_unvalidated"
-                selected_files.append(all_path)
-            else:
-                all_available = False
-                all_origin = "missing"
-            count_origins[str(chrom)] = {"base_all": all_origin, "base_common": "legacy_unvalidated"}
-            selected_files.extend((reference_family.paths[chrom], weight_family.paths[chrom], common_path))
+        except Exception as exc:
+            if isinstance(exc, LDSCInputError):
+                issues.append(
+                    _issue(
+                        "error",
+                        "converter",
+                        reason="conversion_error",
+                        details=str(exc),
+                    )
+                )
+            _write_issues(issue_path, issues)
+            raise
+        _write_issues(issue_path, issues)
+        output_paths = {**result.output_paths, "issues": str(issue_path), "log": str(log_path)}
+        log_outputs(**output_paths)
+        return LegacyLDScoreConversionResult(
+            profile=result.profile,
+            n_rows=result.n_rows,
+            baseline_columns=result.baseline_columns,
+            output_paths=output_paths,
+        )
 
-        return _publish_conversion(
-            frames,
-            profile="unpartitioned",
-            context="legacy reference LD-score suite",
-            baseline_columns=["base"],
-            count_records=[count_record("baseline", "base", all_total if all_available else None, common_total)],
-            overlap=None,
+def _convert_validated(
+    *,
+    reference_root: Path,
+    weight_root: Path,
+    frequency_root: Path | None,
+    output_root: Path,
+    mode: str,
+    build_hint: str | None,
+    overwrite: bool,
+    issues: list[dict[str, object]],
+) -> LegacyLDScoreConversionResult:
+    reference_family = _discover_ldscore_family(reference_root, "reference", issues)
+    weight_family = _discover_ldscore_family(weight_root, "weight", issues)
+    reference_prefix = reference_family.prefix
+    annotation_family = _discover_associated_family(
+        reference_root,
+        reference_prefix,
+        suffixes=(".annot.gz", ".annot"),
+        issues=issues,
+    )
+    present_annotations = sorted(annotation_family)
+    if present_annotations and present_annotations != list(_CHROMS):
+        missing = sorted(set(_CHROMS) - set(present_annotations))
+        raise LDSCInputError(
+            "Legacy reference suite contains a partial annotation family; baseline conversion requires "
+            f"all chromosomes 1-22 (missing {missing}) and cannot fall back to unpartitioned conversion. "
+            "Place '<reference-prefix><chrom>.annot(.gz)' directly in the reference directory with the "
+            f"same prefix as the selected LD scores ('{reference_prefix}'). "
+            "Restore missing shards or rename misnamed copies from the matching source suite."
+        )
+
+    build_check = GenomeBuildCheck(build_hint, context="convert-legacy-ldscores", logger=LOGGER)
+    for role, paths in (("reference", reference_family.paths), ("weight", weight_family.paths),
+                        ("annotation", annotation_family)):
+        for path in paths.values():
+            build_check.table(f"legacy {role}", path, infer_unlabeled=(role == "reference" and mode == "chr_pos"))
+    if mode == "chr_pos" or build_check.explicit or any(not entry.unchecked for entry in build_check.evidence):
+        build_check.resolve()
+    first_reference = _read_legacy_table(reference_family.paths[1], "reference LD-score", 1)
+    reference_columns = _scientific_columns(first_reference)
+    if not reference_columns:
+        raise LDSCInputError(
+            f"Legacy reference LD-score table '{reference_family.paths[1]}' has no numeric scientific LD-score column. "
+            "Supply the original .l2.ldscore(.gz) reference tables containing LD scores, rather than SNP metadata or weight-only files."
+        )
+    if present_annotations:
+        if frequency_root is None:
+            raise LDSCInputError(
+                "Baseline partitioned legacy LDSC conversion requires --legacy-frequency-dir so common-SNP counts and "
+                "overlap can be reconstructed with the fixed legacy 0.05 threshold. "
+                "Pass a directory containing '<prefix><chrom>.frq(.gz)' for chromosomes 1-22."
+            )
+        return _convert_baseline_partitioned(
+            reference_root=reference_root,
+            weight_root=weight_root,
+            frequency_root=frequency_root,
+            output_root=output_root,
+            reference_family=reference_family,
+            weight_family=weight_family,
+            annotation_family=annotation_family,
+            reference_columns=reference_columns,
             mode=mode,
             build_hint=build_hint,
             build_check=build_check,
-            output_root=output_root,
             overwrite=overwrite,
-            provenance_sources=dict(
-                reference_root=reference_root, weight_root=weight_root, frequency_root=None,
-                reference_family=reference_family, weight_family=weight_family, frequency_prefix=None,
-                selected_files=selected_files, intersections=intersections, count_origins=count_origins,
-                issues=issues,
-            ),
+            issues=issues,
         )
+    if len(reference_columns) != 1:
+        raise LDSCInputError(
+            "Unpartitioned legacy reference suite must have exactly one scientific LD-score column when no "
+            f"complete annotation family is present; found {reference_columns}."
+        )
+    frames: list[pd.DataFrame] = []
+    common_total = 0.0
+    all_total = 0.0
+    all_available = True
+    selected_files: list[Path] = []
+    intersections: dict[str, dict[str, int]] = {}
+    count_origins: dict[str, dict[str, str]] = {}
+    seen_reference: set[str] = set()
+    seen_weight: set[str] = set()
+    for chrom in _CHROMS:
+        reference, weight, weight_column = _read_reference_weight(
+            chrom, reference_family, weight_family, reference_columns, seen_reference, seen_weight,
+        )
+        merged = _join_reference_weight(reference, weight, reference_columns, weight_column, chrom, issues)
+        frames.append(merged.rename(columns={reference_columns[0]: "base"}))
+        intersections[str(chrom)] = _intersection_counts(reference, weight, merged)
+        common_path = _common_count_path(reference_root, reference_prefix, chrom)
+        common_total += _read_count_vector(common_path, 1, chrom, "M_5_50")[0]
+        all_path = reference_root / f"{reference_prefix}{chrom}.l2.M"
+        if all_path.exists():
+            all_total += _read_count_vector(all_path, 1, chrom, "M")[0]
+            all_origin = "legacy_unvalidated"
+            selected_files.append(all_path)
+        else:
+            all_available = False
+            all_origin = "missing"
+        count_origins[str(chrom)] = {"base_all": all_origin, "base_common": "legacy_unvalidated"}
+        selected_files.extend((reference_family.paths[chrom], weight_family.paths[chrom], common_path))
 
-    def _convert_baseline_partitioned(
-        self,
-        *,
-        reference_root: Path,
-        weight_root: Path,
-        frequency_root: Path,
-        output_root: Path,
-        reference_family: "_DiscoveredFamily",
-        weight_family: "_DiscoveredFamily",
-        annotation_family: dict[int, Path],
-        reference_columns: list[str],
-        mode: str,
-        build_hint: str | None,
-        build_check,
-        overwrite: bool,
-        issues: list[dict[str, object]],
-    ) -> LegacyLDScoreConversionResult:
-        """Convert a self-contained full baseline suite chromosome by chromosome."""
-        frequency_family = _discover_frequency_family(frequency_root, issues)
-        annotation_columns: list[str] | None = None
-        column_mapping: dict[str, str] | None = None
-        frames: list[pd.DataFrame] = []
-        all_counts = np.zeros(len(reference_columns), dtype=float)
-        common_counts = np.zeros(len(reference_columns), dtype=float)
-        overlap_all = np.zeros((len(reference_columns), len(reference_columns)), dtype=float)
-        overlap_common = np.zeros_like(overlap_all)
-        n_all = 0
-        n_common = 0
-        selected_files: list[Path] = []
-        intersections: dict[str, dict[str, int]] = {}
-        count_origins: dict[str, dict[str, str]] = {}
-        seen_reference: set[str] = set()
-        seen_weight: set[str] = set()
-        seen_annotations: set[str] = set()
-        seen_frequency: set[str] = set()
-        for chrom in _CHROMS:
-            annotation_path = annotation_family[chrom]
-            frequency_path = frequency_family.paths[chrom]
-            reference, weight, weight_column = _read_reference_weight(
-                chrom, reference_family, weight_family, reference_columns, seen_reference, seen_weight,
-            )
-            annotation = _read_legacy_table(annotation_path, "annotation", chrom)
-            frequency = _read_legacy_table(frequency_path, "frequency", chrom)
-            _require_columns(annotation, {"CHR", "SNP", "BP", "CM"}, "annotation", annotation_path, chrom)
-            annot_science = _scientific_columns(annotation)
-            if annotation_columns is None:
-                annotation_columns = annot_science
-                column_mapping = _resolve_annotation_mapping(reference_columns, annotation_columns)
-            elif annot_science != annotation_columns:
-                raise LDSCInputError(
-                    f"Baseline annotation columns differ on chromosome {chrom}: expected {annotation_columns}, "
-                    f"observed {annot_science} in '{annotation_path}'."
-                )
-            assert column_mapping is not None
-            _validate_annotation_rows(annotation, annotation_columns, annotation_path, chrom)
-            _validate_global_source_ids(annotation["SNP"], seen_annotations, "annotation", annotation_path, chrom)
-            _audit_coordinate_disagreements(reference, annotation, chrom, annotation_path, issues)
+    return _publish_conversion(
+        frames,
+        profile="unpartitioned",
+        context="legacy reference LD-score suite",
+        baseline_columns=["base"],
+        count_records=[count_record("baseline", "base", all_total if all_available else None, common_total)],
+        overlap=None,
+        mode=mode,
+        build_hint=build_hint,
+        build_check=build_check,
+        output_root=output_root,
+        overwrite=overwrite,
+        provenance_sources=dict(
+            reference_root=reference_root, weight_root=weight_root, frequency_root=None,
+            reference_family=reference_family, weight_family=weight_family, frequency_prefix=None,
+            selected_files=selected_files, intersections=intersections, count_origins=count_origins,
+            issues=issues,
+        ),
+    )
 
-            freq_column = _frequency_column(frequency, frequency_path, chrom)
-            _validate_frequency_rows(frequency, freq_column, frequency_path, chrom)
-            _validate_global_source_ids(
-                frequency["SNP"], seen_frequency, "frequency", frequency_path, chrom
+def _convert_baseline_partitioned(
+    *,
+    reference_root: Path,
+    weight_root: Path,
+    frequency_root: Path,
+    output_root: Path,
+    reference_family: "_DiscoveredFamily",
+    weight_family: "_DiscoveredFamily",
+    annotation_family: dict[int, Path],
+    reference_columns: list[str],
+    mode: str,
+    build_hint: str | None,
+    build_check,
+    overwrite: bool,
+    issues: list[dict[str, object]],
+) -> LegacyLDScoreConversionResult:
+    """Convert a self-contained full baseline suite chromosome by chromosome."""
+    frequency_family = _discover_frequency_family(frequency_root, issues)
+    annotation_columns: list[str] | None = None
+    column_mapping: dict[str, str] | None = None
+    frames: list[pd.DataFrame] = []
+    all_counts = np.zeros(len(reference_columns), dtype=float)
+    common_counts = np.zeros(len(reference_columns), dtype=float)
+    overlap_all = np.zeros((len(reference_columns), len(reference_columns)), dtype=float)
+    overlap_common = np.zeros_like(overlap_all)
+    n_all = 0
+    n_common = 0
+    selected_files: list[Path] = []
+    intersections: dict[str, dict[str, int]] = {}
+    count_origins: dict[str, dict[str, str]] = {}
+    seen_reference: set[str] = set()
+    seen_weight: set[str] = set()
+    seen_annotations: set[str] = set()
+    seen_frequency: set[str] = set()
+    for chrom in _CHROMS:
+        annotation_path = annotation_family[chrom]
+        frequency_path = frequency_family.paths[chrom]
+        reference, weight, weight_column = _read_reference_weight(
+            chrom, reference_family, weight_family, reference_columns, seen_reference, seen_weight,
+        )
+        annotation = _read_legacy_table(annotation_path, "annotation", chrom)
+        frequency = _read_legacy_table(frequency_path, "frequency", chrom)
+        _require_columns(annotation, {"CHR", "SNP", "BP", "CM"}, "annotation", annotation_path, chrom)
+        annot_science = _scientific_columns(annotation)
+        if annotation_columns is None:
+            annotation_columns = annot_science
+            column_mapping = _resolve_annotation_mapping(reference_columns, annotation_columns)
+        elif annot_science != annotation_columns:
+            raise LDSCInputError(
+                f"Baseline annotation columns differ on chromosome {chrom}: expected {annotation_columns}, "
+                f"observed {annot_science} in '{annotation_path}'."
             )
-            frequency_payload = frequency.loc[:, ["SNP", freq_column]]
-            # Only SNP and the frequency are read from the join, so join on the SNP column alone.
-            annotation_with_frequency = pd.merge(
-                annotation.loc[:, ["SNP"]],
-                frequency_payload,
-                how="left",
-                on="SNP",
-                sort=False,
-                validate="one_to_one",
-            )
-            missing_frequency = annotation_with_frequency[freq_column].isna()
-            if missing_frequency.any():
-                sample = annotation_with_frequency.loc[missing_frequency, "SNP"].astype(str).head(10).tolist()
-                for snp in annotation_with_frequency.loc[missing_frequency, "SNP"].astype(str):
-                    issues.append(
-                        _issue(
-                            "error",
-                            "frequency",
-                            file=frequency_path,
-                            chromosome=chrom,
-                            snp=snp,
-                            reason="missing_frequency",
-                        )
-                    )
-                raise LDSCInputError(
-                    f"Legacy frequency file '{frequency_path}' is missing {int(missing_frequency.sum())} "
-                    f"baseline annotation SNP(s) on chromosome {chrom}; cause SNPs: {sample}."
-                )
-            annotation_ids = set(annotation["SNP"].astype(str))
-            for snp in sorted(set(frequency["SNP"].astype(str)) - annotation_ids):
+        assert column_mapping is not None
+        _validate_annotation_rows(annotation, annotation_columns, annotation_path, chrom)
+        _validate_global_source_ids(annotation["SNP"], seen_annotations, "annotation", annotation_path, chrom)
+        _audit_coordinate_disagreements(reference, annotation, chrom, annotation_path, issues)
+
+        freq_column = _frequency_column(frequency, frequency_path, chrom)
+        _validate_frequency_rows(frequency, freq_column, frequency_path, chrom)
+        _validate_global_source_ids(
+            frequency["SNP"], seen_frequency, "frequency", frequency_path, chrom
+        )
+        frequency_payload = frequency.loc[:, ["SNP", freq_column]]
+        # Only SNP and the frequency are read from the join, so join on the SNP column alone.
+        annotation_with_frequency = pd.merge(
+            annotation.loc[:, ["SNP"]],
+            frequency_payload,
+            how="left",
+            on="SNP",
+            sort=False,
+            validate="one_to_one",
+        )
+        missing_frequency = annotation_with_frequency[freq_column].isna()
+        if missing_frequency.any():
+            sample = annotation_with_frequency.loc[missing_frequency, "SNP"].astype(str).head(10).tolist()
+            for snp in annotation_with_frequency.loc[missing_frequency, "SNP"].astype(str):
                 issues.append(
                     _issue(
-                        "warning",
+                        "error",
                         "frequency",
                         file=frequency_path,
                         chromosome=chrom,
                         snp=snp,
-                        reason="extra_frequency_rsid",
+                        reason="missing_frequency",
                     )
                 )
+            raise LDSCInputError(
+                f"Legacy frequency file '{frequency_path}' is missing {int(missing_frequency.sum())} "
+                f"baseline annotation SNP(s) on chromosome {chrom}; cause SNPs: {sample}."
+            )
+        annotation_ids = set(annotation["SNP"].astype(str))
+        for snp in sorted(set(frequency["SNP"].astype(str)) - annotation_ids):
+            issues.append(
+                _issue(
+                    "warning",
+                    "frequency",
+                    file=frequency_path,
+                    chromosome=chrom,
+                    snp=snp,
+                    reason="extra_frequency_rsid",
+                )
+            )
 
-            # Fill the float64 matrix column by column in the column-major layout that
-            # DataFrame.to_numpy() returns, so sums and products see the same memory order.
-            matrix = np.empty((len(annotation), len(reference_columns)), dtype=float, order="F")
-            for index, column in enumerate(reference_columns):
-                matrix[:, index] = annotation[column_mapping[column]].to_numpy(dtype=float)
-            frequency_values = annotation_with_frequency[freq_column].to_numpy(dtype=float)
-            if freq_column.upper() == "MAF":
-                common_mask = frequency_values > 0.05
-            else:
-                common_mask = (frequency_values > 0.05) & (frequency_values < 0.95)
-            common_matrix = matrix[common_mask]
-            reconstructed_all = matrix.sum(axis=0)
-            reconstructed_common = common_matrix.sum(axis=0)
-            overlap_all += matrix.T @ matrix
-            overlap_common += common_matrix.T @ common_matrix
-            n_all += len(matrix)
-            n_common += int(common_mask.sum())
+        # Fill the float64 matrix column by column in the column-major layout that
+        # DataFrame.to_numpy() returns, so sums and products see the same memory order.
+        matrix = np.empty((len(annotation), len(reference_columns)), dtype=float, order="F")
+        for index, column in enumerate(reference_columns):
+            matrix[:, index] = annotation[column_mapping[column]].to_numpy(dtype=float)
+        frequency_values = annotation_with_frequency[freq_column].to_numpy(dtype=float)
+        if freq_column.upper() == "MAF":
+            common_mask = frequency_values > 0.05
+        else:
+            common_mask = (frequency_values > 0.05) & (frequency_values < 0.95)
+        common_matrix = matrix[common_mask]
+        reconstructed_all = matrix.sum(axis=0)
+        reconstructed_common = common_matrix.sum(axis=0)
+        overlap_all += matrix.T @ matrix
+        overlap_common += common_matrix.T @ common_matrix
+        n_all += len(matrix)
+        n_common += int(common_mask.sum())
 
-            common_path = _common_count_path(reference_root, reference_family.prefix, chrom)
-            legacy_common = _read_count_vector(common_path, len(reference_columns), chrom, "M_5_50")
+        common_path = _common_count_path(reference_root, reference_family.prefix, chrom)
+        legacy_common = _read_count_vector(common_path, len(reference_columns), chrom, "M_5_50")
+        _validate_reconstructed_counts(
+            legacy_common,
+            reconstructed_common,
+            matrix,
+            reference_columns,
+            chrom,
+            "M_5_50",
+            common_path,
+            issues,
+        )
+        common_counts += legacy_common
+        all_path = reference_root / f"{reference_family.prefix}{chrom}.l2.M"
+        if all_path.exists():
+            legacy_all = _read_count_vector(all_path, len(reference_columns), chrom, "M")
             _validate_reconstructed_counts(
-                legacy_common,
-                reconstructed_common,
+                legacy_all,
+                reconstructed_all,
                 matrix,
                 reference_columns,
                 chrom,
-                "M_5_50",
-                common_path,
+                "M",
+                all_path,
                 issues,
             )
-            common_counts += legacy_common
-            all_path = reference_root / f"{reference_family.prefix}{chrom}.l2.M"
-            if all_path.exists():
-                legacy_all = _read_count_vector(all_path, len(reference_columns), chrom, "M")
-                _validate_reconstructed_counts(
-                    legacy_all,
-                    reconstructed_all,
-                    matrix,
-                    reference_columns,
-                    chrom,
-                    "M",
-                    all_path,
-                    issues,
-                )
-                all_counts += legacy_all
-                all_origins = {column: "legacy_validated" for column in reference_columns}
-                selected_files.append(all_path)
-            else:
-                all_counts += reconstructed_all
-                all_origins = {column: "reconstructed" for column in reference_columns}
-            count_origins[str(chrom)] = {
-                **{f"{column}_all": origin for column, origin in all_origins.items()},
-                **{f"{column}_common": "legacy_validated" for column in reference_columns},
-            }
+            all_counts += legacy_all
+            all_origins = {column: "legacy_validated" for column in reference_columns}
+            selected_files.append(all_path)
+        else:
+            all_counts += reconstructed_all
+            all_origins = {column: "reconstructed" for column in reference_columns}
+        count_origins[str(chrom)] = {
+            **{f"{column}_all": origin for column, origin in all_origins.items()},
+            **{f"{column}_common": "legacy_validated" for column in reference_columns},
+        }
 
-            merged = _join_reference_weight(reference, weight, reference_columns, weight_column, chrom, issues)
-            frames.append(merged)
-            intersections[str(chrom)] = _intersection_counts(reference, weight, merged)
-            selected_files.extend((reference_family.paths[chrom], weight_family.paths[chrom],
-                                   annotation_path, frequency_path, common_path))
+        merged = _join_reference_weight(reference, weight, reference_columns, weight_column, chrom, issues)
+        frames.append(merged)
+        intersections[str(chrom)] = _intersection_counts(reference, weight, merged)
+        selected_files.extend((reference_family.paths[chrom], weight_family.paths[chrom],
+                               annotation_path, frequency_path, common_path))
 
-        overlap = LDScoreOverlap(
-            baseline_block_all=pd.DataFrame(overlap_all, index=reference_columns, columns=reference_columns),
-            baseline_block_common=pd.DataFrame(
-                overlap_common, index=reference_columns, columns=reference_columns
-            ),
-            query_diagonal_all=pd.Series(dtype=float),
-            query_diagonal_common=pd.Series(dtype=float),
-            total_all_reference_snps=float(n_all),
-            total_common_reference_snps=float(n_common),
-        )
-        return _publish_conversion(
-            frames,
-            profile="baseline_partitioned",
-            context="legacy baseline reference LD-score suite",
-            baseline_columns=list(reference_columns),
-            count_records=[
-                count_record("baseline", column, all_counts[index], common_counts[index])
-                for index, column in enumerate(reference_columns)
-            ],
-            overlap=overlap,
-            mode=mode,
-            build_hint=build_hint,
-            build_check=build_check,
-            output_root=output_root,
-            overwrite=overwrite,
-            provenance_sources=dict(
-                reference_root=reference_root, weight_root=weight_root, frequency_root=frequency_root,
-                reference_family=reference_family, weight_family=weight_family,
-                frequency_prefix=frequency_family.prefix, selected_files=selected_files,
-                intersections=intersections, count_origins=count_origins, issues=issues,
-            ),
-        )
+    overlap = LDScoreOverlap(
+        baseline_block_all=pd.DataFrame(overlap_all, index=reference_columns, columns=reference_columns),
+        baseline_block_common=pd.DataFrame(
+            overlap_common, index=reference_columns, columns=reference_columns
+        ),
+        query_diagonal_all=pd.Series(dtype=float),
+        query_diagonal_common=pd.Series(dtype=float),
+        total_all_reference_snps=float(n_all),
+        total_common_reference_snps=float(n_common),
+    )
+    return _publish_conversion(
+        frames,
+        profile="baseline_partitioned",
+        context="legacy baseline reference LD-score suite",
+        baseline_columns=list(reference_columns),
+        count_records=[
+            count_record("baseline", column, all_counts[index], common_counts[index])
+            for index, column in enumerate(reference_columns)
+        ],
+        overlap=overlap,
+        mode=mode,
+        build_hint=build_hint,
+        build_check=build_check,
+        output_root=output_root,
+        overwrite=overwrite,
+        provenance_sources=dict(
+            reference_root=reference_root, weight_root=weight_root, frequency_root=frequency_root,
+            reference_family=reference_family, weight_family=weight_family,
+            frequency_prefix=frequency_family.prefix, selected_files=selected_files,
+            intersections=intersections, count_origins=count_origins, issues=issues,
+        ),
+    )
 
 
 @dataclass(frozen=True)
@@ -584,6 +500,11 @@ class _DiscoveredFamily:
     paths: dict[int, Path]
 
 
+@materializing_overwrite_guard(
+    lambda **kwargs: (kwargs["output_dir"], kwargs.get("overwrite", False)) if kwargs.get("output_dir") else None,
+    # The failure marker keeps the command text it has always recorded.
+    command="LegacyLDScoreConverter.convert(...)",
+)
 def convert_legacy_ldscores(
     *,
     legacy_reference_dir: str | Path,
@@ -597,35 +518,55 @@ def convert_legacy_ldscores(
 ) -> LegacyLDScoreConversionResult:
     """Convert one selected legacy LD-score suite to an LDSC3 LD-score directory.
 
+    Source directories are treated as immutable. Matching across legacy
+    families uses rsID; output coordinates come from the reference LD-score
+    table. Conversion runs in one worker with 1 BLAS thread, including
+    annotation overlap reconstruction for baseline-partitioned suites.
+
     Parameters
     ----------
     legacy_reference_dir, legacy_weight_dir : path-like
-        Complete chromosomes 1-22 legacy reference and weight directories.
+        Directories containing exactly one coherent chromosome 1-22 LD-score
+        family for the reference and regression-weight roles.
     output_dir : path-like
         Destination for the LDSC3 LD-score directory.
     legacy_frequency_dir : path-like, optional
-        Complete frequency family required by baseline partitioned conversion.
+        Complete frequency family, required only for baseline partitioned
+        conversion.
     snp_identifier : {"rsid", "chr_pos"}, optional
         Allele-unaware output identity. Default is ``"rsid"``.
     genome_build : {"auto", "hg19", "hg38"}, optional
-        Reference coordinate interpretation. Default is ``"auto"``.
+        Build provenance of the reference coordinates. ``chr_pos`` with
+        ``"auto"`` requires decisive inference from reference coordinates.
+        Default is ``"auto"``.
     overwrite : bool, optional
-        Replace converter-owned destination files. Default is false.
+        Replace converter-owned outputs when true. Source files are never
+        changed. Default is false.
     log_level : {"DEBUG", "INFO", "WARNING", "ERROR"}, optional
-        Converter log threshold. Default is ``None``: use the registered
+        Workflow log threshold. Default is ``None``: use the registered
         ``GlobalConfig.log_level`` (``"INFO"`` unless changed).
 
     Returns
     -------
     LegacyLDScoreConversionResult
-        Detected profile, retained rows, columns, and output paths.
+        Detected profile, retained row count, columns, and written paths.
+
+    Raises
+    ------
+    LDSCInputError
+        If family discovery, legacy schemas, counts, coordinates, or
+        cross-family invariants are invalid.
+    LDSCUsageError
+        If an allele-aware output mode is requested.
 
     Notes
     -----
-    This function mirrors :meth:`LegacyLDScoreConverter.convert` and
-    intentionally has no configurable common-MAF threshold.
+    Common-SNP counts keep the legacy semantics, a fixed MAF threshold of
+    ``0.05``; there is no configurable common-MAF threshold.
     """
-    return LegacyLDScoreConverter().convert(
+    # The conversion child starts with the package-default GlobalConfig,
+    # so the session's log level is resolved here, in the caller.
+    return _convert(
         legacy_reference_dir=legacy_reference_dir,
         legacy_weight_dir=legacy_weight_dir,
         output_dir=output_dir,
@@ -633,7 +574,7 @@ def convert_legacy_ldscores(
         snp_identifier=snp_identifier,
         genome_build=genome_build,
         overwrite=overwrite,
-        log_level=log_level,
+        log_level=get_global_config().log_level if log_level is None else log_level,
     )
 
 
@@ -1471,5 +1412,3 @@ def _decompressed_bytes(path: Path) -> bytes:
             return handle.read()
     return path.read_bytes()
 
-
-__all__ = ["LegacyLDScoreConverter", "LegacyLDScoreConversionResult", "convert_legacy_ldscores"]

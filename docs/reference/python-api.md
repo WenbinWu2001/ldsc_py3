@@ -2,7 +2,7 @@
 
 Last updated on: 2026-11-06
 
-The supported Python interface is the set of names exported by the `ldsc` package (`ldsc.__all__`, 83 names on 2026-11-06).
+The supported Python interface is the set of names exported by the `ldsc` package (`ldsc.__all__`, 82 names on 2026-11-06).
 Modules whose names start with an underscore, including the domain packages such as `ldsc._ldscore`, are private even when a name defined there is re-exported.
 This page lists every exported name with the first paragraph of its docstring, taken from the installed package; `help(ldsc.<name>)` shows the full docstring, and a future documentation build will generate this page.
 Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and the command-line equivalents in the [command-line reference](cli.md).
@@ -13,7 +13,6 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | --- | --- |
 | `AnnotationBuilder` | Prepare chromosome-backed annotations under explicit resource ownership. |
 | `LDScoreCalculator` | Orchestrate chromosome-wise LD-score calculation. |
-| `LegacyLDScoreConverter` | Convert a reusable legacy LDSC reference/weight suite into LDSC3 format. |
 | `R2MatrixBuilder` | Build R2 matrices from PLINK input. |
 | `RegressionRunner` | Assemble regression datasets and fit in workers with 1 BLAS thread each. |
 | `SumstatsMunger` | Run legacy-compatible munging through a typed workflow interface. |

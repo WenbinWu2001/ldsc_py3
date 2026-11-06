@@ -100,7 +100,6 @@ _LAZY_EXPORTS = {
     "load_sumstats": ("._sumstats.table", "load_sumstats"),
     "load_ldscore_from_dir": ("._ldscore.source", "load_ldscore_from_dir"),
     "LDScoreSource": ("._ldscore.source", "LDScoreSource"),
-    "LegacyLDScoreConverter": ("._ldscore.legacy_converter", "LegacyLDScoreConverter"),
     "LegacyLDScoreConversionResult": ("._ldscore.legacy_converter", "LegacyLDScoreConversionResult"),
     "convert_legacy_ldscores": ("._ldscore.legacy_converter", "convert_legacy_ldscores"),
     "RegressionDataset": ("._regression.results", "RegressionDataset"),

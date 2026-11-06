@@ -103,6 +103,24 @@ LEGACY_SUMSTATS_DROP_COLUMNS = [
     "panel_candidate_count",
 ]
 
+# The one-row total-heritability summary of h2 (h2.tsv); rg's h2_per_trait.tsv
+# has these columns followed by status and error.
+H2_SUMMARY_COLUMNS = [
+    "trait_name",
+    "n_snps",
+    "total_h2_obs",
+    "total_h2_obs_se",
+    "total_h2_liab",
+    "total_h2_liab_se",
+    "samp_prev",
+    "pop_prev",
+    "intercept",
+    "intercept_se",
+    "mean_chisq",
+    "lambda_gc",
+    "ratio",
+    "ratio_se",
+]
 H2_REGRESSION_BIN_COLUMNS = [
     "bin",
     "n_snps",

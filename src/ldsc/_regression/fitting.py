@@ -44,7 +44,8 @@ from . import estimators as reg
 from .jackknife import JackknifeIdentifiabilityError
 from .kernel_values import numeric_ldsc_fit, numeric_rg_fit
 from .overlap_model import assemble_model_overlap, overlap_aware_category_table, model_collinearity_error
-from .outputs import H2_REGRESSION_BIN_COLUMNS, PARTITIONED_H2_COLUMNS, RG_FULL_COLUMNS, stage_partitioned_h2_fit
+from .outputs import (H2_REGRESSION_BIN_COLUMNS, H2_SUMMARY_COLUMNS, PARTITIONED_H2_COLUMNS, RG_FULL_COLUMNS,
+                      stage_partitioned_h2_fit)
 from .results import RegressionDataset, RegressionFit
 from .alignment import COMMON_COUNT_KEY, _dataset_from_query_values, _trait_label
 
@@ -362,7 +363,8 @@ def summarize_total_h2(
                 "ratio": _numeric_scalar(getattr(hsq, "ratio", None)),
                 "ratio_se": _numeric_scalar(getattr(hsq, "ratio_se", None)),
             }
-        ]
+        ],
+        columns=H2_SUMMARY_COLUMNS,
     )
 
 
@@ -625,17 +627,15 @@ def _failed_h2_row(
 ) -> pd.DataFrame:
     """Build the ``h2_per_trait`` row of a trait whose own ``rg`` heritability fit failed.
 
-    The columns are those of :func:`summarize_total_h2` plus ``status`` and
-    ``error``. ``n_snps`` is the trait's SNP count when its dataset was built,
-    else 0; the estimates are NaN and the prevalences are the trait's inputs.
+    The columns are ``H2_SUMMARY_COLUMNS``, those of :func:`summarize_total_h2`,
+    plus ``status`` and ``error``. ``n_snps`` is the trait's SNP count when its
+    dataset was built, else 0; the estimates are NaN and the prevalences are
+    the trait's inputs.
     """
-    estimates = ("total_h2_obs", "total_h2_obs_se", "total_h2_liab", "total_h2_liab_se")
-    diagnostics = ("intercept", "intercept_se", "mean_chisq", "lambda_gc", "ratio", "ratio_se")
-    return pd.DataFrame([{
-        "trait_name": trait_name, "n_snps": n_snps, **dict.fromkeys(estimates, math.nan),
-        "samp_prev": _prev_cell(samp_prev), "pop_prev": _prev_cell(pop_prev),
-        **dict.fromkeys(diagnostics, math.nan), "status": status, "error": error,
-    }])
+    row = dict.fromkeys(H2_SUMMARY_COLUMNS, math.nan)
+    row.update(trait_name=trait_name, n_snps=n_snps, samp_prev=_prev_cell(samp_prev), pop_prev=_prev_cell(pop_prev),
+               status=status, error=error)
+    return pd.DataFrame([row])
 
 
 def _failed_rg_full_row(

@@ -162,6 +162,14 @@ def _duplicate_identifier_details(df: pd.DataFrame, snp_ids: pd.Series, duplicat
     return "; ".join(parts)
 
 
+def _require_resolved_build(genome_build: str | None) -> None:
+    """Assert that the workflow resolved ``genome_build`` before calling a restriction reader."""
+    assert genome_build in {"hg19", "hg38", None}, (
+        f"genome_build reached kernel as {genome_build!r}; "
+        "should have been resolved at workflow entry."
+    )
+
+
 def read_global_snp_restriction(
     path: str | Path,
     snp_identifier: str,
@@ -179,10 +187,7 @@ def read_global_snp_restriction(
     """
     mode = normalize_snp_identifier_mode(snp_identifier)
     genome_build = normalize_genome_build(genome_build)
-    assert genome_build in {"hg19", "hg38", None}, (
-        f"genome_build reached kernel as {genome_build!r}; "
-        "should have been resolved at workflow entry."
-    )
+    _require_resolved_build(genome_build)
     path = Path(path)
     if identity_mode_family(mode) == "rsid":
         return _read_rsid_restriction(path)
@@ -240,10 +245,7 @@ def _compute_snp_restriction_keys(
     genome_build: str | None,
     logger,
 ) -> RestrictionIdentityKeys:
-    assert genome_build in {"hg19", "hg38", None}, (
-        f"genome_build reached kernel as {genome_build!r}; "
-        "should have been resolved at workflow entry."
-    )
+    _require_resolved_build(genome_build)
     raw_frame = _read_snp_restriction_table(path)
     if len(raw_frame.columns) == 0:
         return RestrictionIdentityKeys(
@@ -275,7 +277,7 @@ def _compute_snp_restriction_keys(
 def restriction_file_has_allele_columns(path: str | Path, *, context: str | None = None) -> bool:
     """Return whether a restriction file header has a complete A1/A2 pair."""
     path = Path(path)
-    header = _read_restriction_header(path)
+    header = _iter_restriction_rows(path)[0]
     if not header:
         return False
     _a1_col, _a2_col, has_allele_columns = _resolve_restriction_allele_columns(
@@ -300,10 +302,7 @@ def read_global_chr_pos_restriction_key_set(
     shared coordinate-policy warning and are not included in the returned set.
     """
     genome_build = normalize_genome_build(genome_build)
-    assert genome_build in {"hg19", "hg38", None}, (
-        f"genome_build reached kernel as {genome_build!r}; "
-        "should have been resolved at workflow entry."
-    )
+    _require_resolved_build(genome_build)
     path = Path(path)
     header, row_iter, _delimiter = _iter_restriction_rows(path)
     if not header:
@@ -402,19 +401,6 @@ def _iter_restriction_rows(path: Path):
     delimiter = _detect_delimiter(first)
     header = _split_restriction_row(first, delimiter)
     return header, (_split_restriction_row(line, delimiter) for line in lines), delimiter
-
-
-def _read_restriction_header(path: Path) -> list[str]:
-    """Read only the first non-comment restriction-file row as a header."""
-    with open_text(path) as handle:
-        for line in handle:
-            stripped = line.lstrip()
-            if not stripped.strip():
-                continue
-            if stripped.startswith("#") and not stripped.upper().startswith("#CHROM"):
-                continue
-            return _split_restriction_row(line.rstrip("\n"), _detect_delimiter(line))
-    return []
 
 
 def _parse_restriction_rows(path: Path) -> tuple[list[str], list[list[str]], str | None]:

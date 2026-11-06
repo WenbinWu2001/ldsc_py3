@@ -15,13 +15,12 @@ import pandas as pd
 from .parsing import normalize_annotation_chunk
 from .interval_queries import bed_query_name
 from .query_outcomes import gene_list_gate_a_message
-from .._core.chromosomes import AUTOSOMES
 from .._core.columns import normalize_genome_build
 from .._core.snp_identity import identity_mode_family
 from .._genome.build_policy import GenomeBuildCheck
 from .._runtime.preflight import InputGate, input_issue, inspect_declared_inputs
 from .._runtime.paths import (
-    normalize_path_token, normalize_path_tokens, resolve_file_group, split_cli_path_tokens,
+    expand_chromosome_suite, normalize_path_token, normalize_path_tokens, resolve_file_group, split_cli_path_tokens,
 )
 from ..errors import LDSCInputError, LDSCUsageError, LDSCUserError
 
@@ -33,8 +32,7 @@ def resolve_annotation_inputs(tokens, *, role='baseline'):
     paths, declared, issues = [], {}, []
     for raw in split_cli_path_tokens(tokens):
         token = normalize_path_token(raw)
-        members = [(token.replace('@', chrom), chrom) for chrom in AUTOSOMES] if '@' in token else [(token, '')]
-        for path, chrom in members:
+        for path, chrom in expand_chromosome_suite(token):
             try:
                 matches = resolve_file_group([path], label=f'{role} annotation')
                 for match in matches:

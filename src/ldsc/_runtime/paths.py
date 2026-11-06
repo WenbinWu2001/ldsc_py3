@@ -34,7 +34,7 @@ from os import PathLike
 from pathlib import Path
 from typing import Optional, Union
 
-from .._core.chromosomes import STANDARD_CHROMOSOMES, chrom_sort_key, normalize_chromosome
+from .._core.chromosomes import AUTOSOMES, STANDARD_CHROMOSOMES, chrom_sort_key, normalize_chromosome
 from ..errors import LDSCConfigError, LDSCInputError
 from .._core import plink_files as parse
 from .progress import PhaseProgress
@@ -114,6 +114,19 @@ def substitute_chromosome(token: str, chrom: str) -> str:
     if "@" not in token:
         raise FileNotFoundError(token)
     return token.replace("@", str(chrom))
+
+
+def expand_chromosome_suite(token: str, chromosomes: Iterable = AUTOSOMES) -> list[tuple[str, str]]:
+    """Return the ``(path, chromosome)`` members a declared input token requires.
+
+    A token with ``@`` declares one member for every chromosome of
+    ``chromosomes`` (all autosomes by default), with ``@`` replaced by that
+    chromosome; each member must exist. A token without ``@`` is one member
+    with an empty chromosome. Each caller resolves the members itself.
+    """
+    if "@" not in token:
+        return [(token, "")]
+    return [(token.replace("@", str(chrom)), str(chrom)) for chrom in chromosomes]
 
 
 def _format_input_path_resolution_message(
@@ -468,9 +481,7 @@ def _discover_plink_members(tokens, *, chromosomes, allow_chromosome_suite, requ
     members = []
     issues = []
     for token in normalize_path_tokens(tokens):
-        expanded = [(token.replace("@", str(chrom)), str(chrom)) for chrom in chromosomes] if (
-            "@" in token and allow_chromosome_suite
-        ) else [(token, "")]
+        expanded = expand_chromosome_suite(token, chromosomes) if allow_chromosome_suite else [(token, "")]
         token_members = []
         for pattern, declared in expanded:
             if pattern.endswith(suffixes):

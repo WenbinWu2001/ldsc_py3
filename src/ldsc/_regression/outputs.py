@@ -1,29 +1,11 @@
-"""Output writers for the LDSC3 workflows.
+"""Output writers for the regression and post-fit workflows.
 
-The public LD-score workflow writes one LD-score directory containing
-``metadata.json``, ``ldscore.baseline.parquet``, optional query files
-(``ldscore.query.parquet`` for one batch or numbered
-``ldscore.query.batchNNNNN.parquet`` files for multiple batches), and an optional
-``ldscore.overlap.parquet`` (the
-annotation overlap matrix required by partitioned-h2's overlap-aware annotation
-tables and read by the shared h2 collinearity guard when there are two or more
-LD-score columns; ``rg`` does not use it). The overlap sidecar is
-written only when the run has two or more annotation columns; an unpartitioned
-single-annotation run (e.g. the synthetic ``base``) omits it because the matrix
-would collapse to a SNP count already in ``metadata.json``. Query runs also
-write ``diagnostics/query_annotation_status.tsv`` and gene-list runs write a
-row-complete audit plus per-source resolution summary. Run identity comes from the chosen
-directory name;
-output filenames inside that directory are fixed. The parquet payloads are
-written with one row group per chromosome and matching metadata so
-downstream readers can load a single chromosome without scanning the whole
-table. The writer creates missing directories, reuses existing directories, and
-refuses existing canonical family files unless the caller explicitly sets
-``overwrite=True``; successful overwrites remove stale owned siblings that the
-current result did not produce. Root ``metadata.json`` is part of the
-downstream contract for LD-score directories. Regression
-metadata emitted by this module is diagnostic provenance and is written below
-``diagnostics/`` without legacy top-level ``format`` discriminators.
+Each writer creates missing directories, reuses existing directories, and
+refuses existing owned files unless the caller explicitly sets
+``overwrite=True``; successful overwrites remove stale owned siblings that
+the current result did not produce. Regression metadata emitted by this
+module is diagnostic provenance and is written below ``diagnostics/``
+without legacy top-level ``format`` discriminators.
 
 Each directory writer's ``artifact_family`` declares its owned paths and
 conditional outputs. Workflows consult that declaration for early collision

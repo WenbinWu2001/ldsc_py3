@@ -95,12 +95,9 @@ class AnnotationBuilder:
             raise
 
 
-def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
-    """Register ``ldsc annotate`` arguments on an existing parser.
-
-    This is the shared argument definition used by the unified ``ldsc`` parser
-    and by the standalone annotation parser built in this module.
-    """
+def build_parser() -> argparse.ArgumentParser:
+    """Build the parser for the arguments accepted after ``ldsc annotate``."""
+    parser = argparse.ArgumentParser(allow_abbrev=False)
     parser.prog = 'ldsc annotate'
     parser.formatter_class = CLIHelpFormatter
     parser.description = 'Create SNP annotations by finding SNPs covered by BED intervals or gene boundaries.'
@@ -219,36 +216,7 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
     add_log_level_argument(logs)
-
-
-def build_parser() -> argparse.ArgumentParser:
-    """Build the standalone parser for the annotation workflow.
-
-    Returns
-    -------
-    parser : argparse.ArgumentParser
-        Parser for arguments accepted after ``ldsc annotate``.
-    """
-    parser = argparse.ArgumentParser(allow_abbrev=False)
-    add_annotate_arguments(parser)
     return parser
-
-
-def parse_annotate_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    """Parse CLI arguments for BED or gene-list annotation.
-
-    Parameters
-    ----------
-    argv : sequence of str, optional
-        Argument vector excluding the program name. ``None`` lets argparse read
-        from ``sys.argv``.
-
-    Returns
-    -------
-    args : argparse.Namespace
-        Parsed annotation workflow arguments.
-    """
-    return build_parser().parse_args(argv)
 
 
 @materializing_overwrite_guard(
@@ -270,7 +238,7 @@ def run_annotate_from_args(args: argparse.Namespace) -> AnnotationResult:
     Parameters
     ----------
     args : argparse.Namespace
-        Namespace produced by ``parse_annotate_args()``, which ``ldsc annotate``
+        Namespace produced by ``build_parser()``, which ``ldsc annotate``
         uses.
 
     Returns
@@ -302,7 +270,7 @@ def main(argv: Sequence[str] | None = None) -> AnnotationResult:
     that want parser behavior plus the produced result object. After a
     successful run it prints the run's notices to stderr.
     """
-    result = run_annotate_from_args(parse_annotate_args(argv))
+    result = run_annotate_from_args(build_parser().parse_args(argv))
     print_notices(query_notices(result))
     emit_dropped_snps_notice([result.output_paths['dropped_snps']], command='annotate')
     return result

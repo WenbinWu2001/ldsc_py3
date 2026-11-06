@@ -218,7 +218,7 @@ See [the annotation contract](design/plotting.md#heritability-annotations-in-rg-
 
 ### `ldsc._annotation.builder`
 
-This is the public annotation API and CLI dispatch seam: `AnnotationBuilder`, `AnnotationBundle`, `AnnotationResult`, `run_annotate()`, `parse_annotate_args()`, `run_annotate_from_args()`, and `main()`.
+This is the public annotation API and CLI dispatch seam: `AnnotationBuilder`, `AnnotationBundle`, `AnnotationResult`, `run_annotate()`, `build_parser()`, `run_annotate_from_args()`, and `main()`.
 `AnnotationBuilder.run(..., output_dir=...)` prepares a chromosome-backed dataset with explicit ownership.
 `_annotation.annotate` owns standalone BED/gene validation and incremental canonical output.
 `_annotation.bim_grid` stages metadata-only BIM grids through `_annotation.sources.stage_retained_rows()`, the global identity cleanup that annotation-file preparation also uses.

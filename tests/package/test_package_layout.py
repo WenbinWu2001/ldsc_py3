@@ -233,9 +233,7 @@ print(ldsc.__file__)
             "AnnotationResult",
             "run_annotate",
             "run_annotate_from_args",
-            "add_annotate_arguments",
             "build_parser",
-            "parse_annotate_args",
             "main",
         ):
             self.assertTrue(hasattr(annotation_builder, name), f"{name} should be public")

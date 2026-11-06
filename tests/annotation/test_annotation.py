@@ -367,7 +367,7 @@ class AnnotationBuilderTest(unittest.TestCase):
         stdout = io.StringIO()
         with self.assertRaises(SystemExit):
             with contextlib.redirect_stdout(stdout):
-                annotation_builder.parse_annotate_args(["--help"])
+                annotation_builder.build_parser().parse_args(["--help"])
 
         help_text = " ".join(stdout.getvalue().split())
         self.assertIn("Required with chr_pos or chr_pos_allele_aware", help_text)
@@ -375,7 +375,7 @@ class AnnotationBuilderTest(unittest.TestCase):
         self.assertIn("Concrete builds must agree with input declarations", help_text)
 
     def test_bed_to_annot_parser_accepts_padding_bp(self):
-        args = annotation_builder.parse_annotate_args(
+        args = annotation_builder.build_parser().parse_args(
             [
                 "--query-annot-bed-sources",
                 "query.bed",

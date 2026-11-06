@@ -308,7 +308,7 @@ Relevant APIs:
 - `_annotation.builder.main(argv)`
 - `run_annotate_from_args(args)`
 - `run_annotate(...)`
-- `parse_annotate_args(argv)`
+- `_annotation.builder.build_parser()`
 - `AnnotationBuilder.run(source_spec, output_dir=...)`
 
 Accepted path forms:

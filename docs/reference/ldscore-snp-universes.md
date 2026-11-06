@@ -92,7 +92,8 @@ A row without an allele-aware SNP identity whose rsID or `CHR:POS` the restricti
 A position is multi-allelic only when the restriction keeps more than one of its allele pairs, so restriction and identity cleanup select the same rows in both commands.
 The reference SNPs can still differ, because `build-r2-matrix` also runs liftover and duplicate-position filtering, which `ldscore --plink-prefix` does not.
 A `.bim` position that is missing, non-numeric, nonpositive or not a whole number stops every PLINK command (`ldscore --plink-prefix`, `build-r2-matrix` and `build-gene-ldscore-index`) during input checks, before any computation, because truncating such a position or dropping the row would change the reference SNPs.
-The error and the run's input-issue table name the `.bim` lines, SNP labels and positions.
+The error and the run's input-issue table name up to five such SNP rows, with their SNP labels and positions, and count the rest.
+SNP rows are counted in `.bim` SNP order, which skips blank lines, so a row number can differ from the file line number.
 If cleanup removes every row the restriction keeps on a PLINK chromosome, `ldscore` skips that chromosome as described under [empty chromosomes](#empty-chromosomes); its funnel and its skip WARNING count the removed rows, and no `diagnostics/dropped_snps/` table is written for it.
 
 Sources: `inspect_plink_inputs()` and `select_plink_chromosome()` in [_refpanel/plink_source.py](../../src/ldsc/_refpanel/plink_source.py), `PlinkRefPanel._load_source()` and `RefPanel._apply_keep_restriction()` in [_refpanel/adapters.py](../../src/ldsc/_refpanel/adapters.py), `build_restriction_mask()` in [_refpanel/plink_source.py](../../src/ldsc/_refpanel/plink_source.py), `R2MatrixBuilder._select_chromosome_snps()` in [_refpanel/builder.py](../../src/ldsc/_refpanel/builder.py), `clean_identity_artifact_table()` and `emit_dropped_snps_notice()` in [_core/snp_identity.py](../../src/ldsc/_core/snp_identity.py).

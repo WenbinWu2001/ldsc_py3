@@ -677,8 +677,7 @@ def _chromosome_annotations(bundle, chrom):
 
 # Worker state shared within a pool worker process. ``regression_snps`` is set
 # once by the pool initializer so a large SNP set is transferred per worker, not
-# per task; direct task probes can pass it explicitly instead.
-_WORKER_UNSET = "__use_worker_global__"
+# per task.
 _WORKER_STATE: dict[str, Any] = {}
 
 
@@ -693,8 +692,6 @@ def _compute_one_chromosome(
     fragment_dir: str | None = None,
     export_dir: str | None = None,
     source_drops: DiagnosticRows | None = None,
-    regression_snps=_WORKER_UNSET,
-    regression_regions=_WORKER_UNSET,
     log_path=None,
     batch_label: str = "batch 1/1",
 ) -> ChromLDScoreResult | DirectChromosomeFragment | _SkippedChromosome:
@@ -703,21 +700,18 @@ def _compute_one_chromosome(
     ``ref_panel`` holds only configuration and resolved PLINK prefixes, so no
     live reader or file handle crosses the process boundary; ``global_config``
     carries the build the parent resolved, which is not checked again.
-    ``regression_snps`` and ``regression_regions`` default to the
-    pool-initializer-provided globals; direct task callers may pass them
-    explicitly. Only ``EmptyReferenceSNPs`` returns a ``_SkippedChromosome``,
-    carrying the error's reference-SNP funnel so the parent can tell a
+    The regression SNPs and regions come from the pool initializer
+    (``_init_worker``); outside a pool worker there are none. Only
+    ``EmptyReferenceSNPs`` returns a ``_SkippedChromosome``, carrying the
+    error's reference-SNP funnel so the parent can tell a
     chromosome emptied by the annotation SNP grid from one emptied by an
     explicit restriction; other failures propagate across the pool boundary.
     """
     with chromosome_log(log_path, chrom, batch_label):
-        if regression_snps == _WORKER_UNSET:
-            regression_snps = _WORKER_STATE.get("regression_snps")
-        if regression_regions == _WORKER_UNSET:
-            regression_regions = _WORKER_STATE.get("regression_regions")
         try:
             return compute_direct_chromosome(
-                chrom, chrom_bundle, ref_panel, ldscore_config, global_config, regression_snps, regression_regions,
+                chrom, chrom_bundle, ref_panel, ldscore_config, global_config,
+                _WORKER_STATE.get("regression_snps"), _WORKER_STATE.get("regression_regions"),
                 include_baseline=include_baseline, fragment_dir=fragment_dir, export_dir=export_dir,
                 source_drops=source_drops,
             )

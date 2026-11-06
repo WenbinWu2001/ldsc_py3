@@ -200,9 +200,13 @@ def test_munge_preview_trusts_the_selected_build_specific_source_column(tmp_path
 
 
 def test_converter_explicit_build_is_authoritative():
+    from ldsc._genome.build_policy import GenomeBuildCheck
     from ldsc._ldscore.legacy_converter import _resolve_output_coordinates
     original = coordinates(1, 'hg38')
-    emitted, build, provenance = _resolve_output_coordinates(original, 'chr_pos', 'hg19', context='reference')
+    check = GenomeBuildCheck('hg19', context='convert-legacy-ldscores')
+    check.frames('--legacy-reference-dir', 'reference', [original])
+    emitted, build, provenance = _resolve_output_coordinates(original, 'chr_pos', 'hg19', context='reference',
+                                                             build_check=check)
     assert build == 'hg19'
     pd.testing.assert_frame_equal(emitted, original)
     assert provenance['inferred_build'] is None

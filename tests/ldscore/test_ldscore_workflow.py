@@ -2096,9 +2096,9 @@ def test_regression_region_mask_leaves_reference_counts_and_ld_contributors_inta
     annotations = pd.DataFrame({"base": [1.0, 1.0, 0.0], "query": [0.0, 1.0, 1.0]})
     intervals = regions.load_preset_intervals(("mhc",), "hg19")
 
-    mask = kernel_ldscore.regression_mask_from_keys(
-        metadata, {"near_mhc", "in_mhc", "outside"}, "rsid", region_intervals=intervals
-    )
+    # compute_chromosome subtracts the regions from the selected regression SNPs.
+    mask = kernel_ldscore.regression_mask_from_keys(metadata, {"near_mhc", "in_mhc", "outside"}, "rsid")
+    mask = (mask.astype(bool) & np.asarray(regions.region_exclusion_keep_mask(metadata, intervals))).astype(np.float32)
     counts, common_counts, _, _ = annotation_statistics(
         metadata, ArrayAnnotations(annotations.to_numpy(dtype=np.float32), tuple(annotations.columns)), 1)
 
@@ -2171,12 +2171,10 @@ def test_gene_list_mhc_query_keeps_reference_counts_but_not_regression_row(tmp_p
     metadata["MAF"] = 0.2
     annotations = fixture_values(bundle, include_query=True)
     intervals = regions.load_preset_intervals(("mhc",), "hg38")
-    regression_mask = kernel_ldscore.regression_mask_from_keys(
-        metadata,
-        {"near_mhc", "in_hla_a", "outside"},
-        "rsid",
-        region_intervals=intervals,
-    )
+    # compute_chromosome subtracts the regions from the selected regression SNPs.
+    regression_mask = kernel_ldscore.regression_mask_from_keys(metadata, {"near_mhc", "in_hla_a", "outside"}, "rsid")
+    regression_mask = (regression_mask.astype(bool)
+                       & np.asarray(regions.region_exclusion_keep_mask(metadata, intervals))).astype(np.float32)
     counts, common_counts, overlap, _ = annotation_statistics(
         metadata, ArrayAnnotations(annotations.to_numpy(dtype=np.float32), tuple(annotations.columns)), 1)
 

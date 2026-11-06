@@ -1325,7 +1325,7 @@ def _resolve_output_coordinates(
     build_hint: str | None,
     *,
     context: str,
-    build_check=None,
+    build_check: GenomeBuildCheck,
 ) -> tuple[pd.DataFrame, str | None, dict[str, object]]:
     """Resolve every retained reference chromosome, or honor a concrete build.
 
@@ -1334,9 +1334,7 @@ def _resolve_output_coordinates(
     rsID output carries no coordinate build and requires no inference.
     """
     output = frame.copy(deep=False)  # the 0-based branch below replaces POS in this frame only
-    check = build_check or GenomeBuildCheck(build_hint, context='convert-legacy-ldscores', logger=LOGGER)
-    if build_check is None and mode != "rsid":
-        check.frames('--legacy-reference-dir', context, [output])
+    check = build_check
     if build_hint in {"hg19", "hg38"}:
         check.resolve()
         effective_build = None if mode == "rsid" else build_hint

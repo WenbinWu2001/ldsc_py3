@@ -211,7 +211,7 @@ def test_compute_one_chromosome_returns_the_chromosome_result(two_chrom_panel):
     from ldsc._ldscore.results import ChromLDScoreResult
 
     chrom, bundle, panel, ldcfg, gcfg, reg = _chrom1_inputs(two_chrom_panel)
-    outcome = _compute_one_chromosome(chrom, bundle, panel, ldcfg, gcfg, regression_snps=reg)
+    outcome = _compute_one_chromosome(chrom, bundle, panel, ldcfg, gcfg)
     assert isinstance(outcome, ChromLDScoreResult)
     assert outcome.chrom == "1"
     assert outcome.baseline_table["SNP"].tolist() == ["rs1", "rs2", "rs3", "rs4"]
@@ -235,7 +235,7 @@ def test_worker_propagates_untyped_errors_even_with_empty_intersection_wording(
     monkeypatch.setattr(direct_batches, "compute_direct_chromosome", fail)
     chrom, bundle, panel, ldcfg, gcfg, reg = _chrom1_inputs(two_chrom_panel)
     with pytest.raises(error_type) as caught:
-        direct_batches._compute_one_chromosome(chrom, bundle, panel, ldcfg, gcfg, regression_snps=reg)
+        direct_batches._compute_one_chromosome(chrom, bundle, panel, ldcfg, gcfg)
     assert caught.value is error
 
 
@@ -247,7 +247,7 @@ def test_worker_skips_typed_empty_reference_independent_of_message(two_chrom_pan
 
     monkeypatch.setattr(direct_batches, "compute_direct_chromosome", empty)
     chrom, bundle, panel, ldcfg, gcfg, reg = _chrom1_inputs(two_chrom_panel)
-    outcome = direct_batches._compute_one_chromosome(chrom, bundle, panel, ldcfg, gcfg, regression_snps=reg)
+    outcome = direct_batches._compute_one_chromosome(chrom, bundle, panel, ldcfg, gcfg)
     assert isinstance(outcome, direct_batches._SkippedChromosome)
     assert outcome.message == "The requested SNP filters retained no computational rows."
 

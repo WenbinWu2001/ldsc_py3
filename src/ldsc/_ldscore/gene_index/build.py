@@ -1483,17 +1483,18 @@ def _retained_baseline_content_sha256(
 def _genetic_map_identity(
     config: GeneLDScoreIndexBuildConfig,
     genetic_map_sources: dict[str, str | None],
-    genetic_map: pd.DataFrame | None = None,
+    genetic_map: pd.DataFrame | None,
 ) -> str | dict:
-    """Return the content-bound scientific identity of the effective cM map."""
+    """Return the content-bound scientific identity of the effective cM map.
+
+    ``genetic_map`` is the map loaded from ``genetic_map_sources``, or ``None`` without sources.
+    """
     if config.ld_wind_cm is None:
         return "not_used"
     build = config.genome_build
     sources = split_cli_path_tokens(genetic_map_sources[build])
     if not sources:
         return "bim_cm"
-    if genetic_map is None:
-        genetic_map = _load_builder_genetic_map(config, genetic_map_sources)
     return {
         "kind": f"explicit_{build}",
         "content_sha256": _canonical_frame_sha256(genetic_map, sort_by=("CHR", "POS")),

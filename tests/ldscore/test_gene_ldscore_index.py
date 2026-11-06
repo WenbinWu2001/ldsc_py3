@@ -1369,8 +1369,9 @@ def test_explicit_genetic_map_identity_is_content_bound(tmp_path):
         baseline_annot_sources=("baseline",), plink_prefix="panel", output_dir="index",
         gene_coordinate_file="genes", genome_build="hg19", snp_identifier="rsid", ld_wind_cm=1.0,
     )
-    bim_identity = _genetic_map_identity(config, {"hg19": None, "hg38": None})
-    explicit = _genetic_map_identity(config, {"hg19": f"{first},{second}", "hg38": None})
+    sources = {"hg19": f"{first},{second}", "hg38": None}
+    bim_identity = _genetic_map_identity(config, {"hg19": None, "hg38": None}, None)
+    explicit = _genetic_map_identity(config, sources, gene_ldscore_index._load_builder_genetic_map(config, sources))
 
     assert bim_identity == "bim_cm"
     # The digest the implementation at c6fb439d gave these two maps; index_id must not change.

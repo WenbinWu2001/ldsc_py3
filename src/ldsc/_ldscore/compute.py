@@ -280,9 +280,8 @@ def regression_mask_from_keys(
     metadata: pd.DataFrame,
     regression_keys: set[str] | RestrictionIdentityKeys | None,
     identifier_mode: str,
-    region_intervals: RegionIntervals | None = None,
 ) -> np.ndarray:
-    """Build the selected-regression-set mask after named region subtraction.
+    """Build the selected-regression-set mask, before named region subtraction.
 
     This is deliberately separate from the reference SNPs: callers use the
     returned mask only for written regression SNPs and the SNPs that contribute to ``w_ld``.
@@ -299,8 +298,6 @@ def regression_mask_from_keys(
     else:
         keys = identity_key_series(metadata, identifier_mode, context="LD-score SNP matching", logger=LOGGER)
         keep = keys.isin(regression_keys).to_numpy(dtype=bool)
-    if region_intervals is not None and region_intervals.intervals:
-        keep &= np.asarray(region_exclusion_keep_mask(metadata, region_intervals), dtype=bool)
     return keep.astype(np.float32)
 
 

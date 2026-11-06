@@ -58,15 +58,6 @@ class ConfigMismatchError(LDSCConfigError, ValueError):
     """Raised when two result objects carry incompatible config snapshots."""
 
 
-def _normalize_optional_path(path: str | PathLike[str] | None) -> str | None:
-    """Return ``path`` as a string or ``None``.
-
-    This helper keeps the public config dataclasses tolerant of both ``Path``
-    and ``str`` inputs while preserving ``None`` for omitted optional fields.
-    """
-    return normalize_optional_path_token(path)
-
-
 def normalize_required_path(path: str | PathLike[str]) -> str:
     """Return a required path-like value as a plain string."""
     if path is None or not str(path).strip():
@@ -78,9 +69,38 @@ def normalize_required_path(path: str | PathLike[str]) -> str:
     return normalize_path_token(path)
 
 
-def _normalize_path_tuple(values) -> tuple[str, ...]:
-    """Convert one or many path-like objects to a string tuple of tokens."""
-    return normalize_path_tokens(values)
+def _normalize_paths(config, *, required=(), optional=(), groups=()) -> None:
+    """Store a frozen config's path fields as normalized tokens, in the order given.
+
+    ``required`` fields go through :func:`normalize_required_path`, which
+    rejects a missing value; ``optional`` fields keep ``None``; ``groups``
+    hold one or many tokens and become tuples.
+    """
+    for name in required:
+        object.__setattr__(config, name, normalize_required_path(getattr(config, name)))
+    for name in optional:
+        object.__setattr__(config, name, normalize_optional_path_token(getattr(config, name)))
+    for name in groups:
+        object.__setattr__(config, name, normalize_path_tokens(getattr(config, name)))
+
+
+def _config_genome_build(
+    config_name: str,
+    field_name: str,
+    value,
+    *,
+    likely: str = "the genome build name",
+    choices: str = "'auto', 'hg19', 'hg38', 'GRCh37', or 'GRCh38'",
+) -> str | None:
+    """Return ``normalize_genome_build(value)``, naming the config field when the label is invalid."""
+    try:
+        return normalize_genome_build(value)
+    except LDSCConfigError as exc:
+        raise LDSCConfigError(
+            f"Could not construct {config_name}: {field_name}={value!r} is invalid. "
+            f"Most likely {likely} is misspelled or unsupported. "
+            f"Use {choices}."
+        ) from exc
 
 
 def normalize_trait_name(value: str | None) -> str | None:
@@ -241,18 +261,9 @@ class GlobalConfig:
 
     def __post_init__(self) -> None:
         """Normalize shared path-like fields and validate common enum values."""
-        mode = normalize_snp_identifier_mode(self.snp_identifier)
+        mode = self.snp_identifier
         family = identity_mode_family(mode)
-        object.__setattr__(self, "snp_identifier", mode)
-        try:
-            genome_build = normalize_genome_build(self.genome_build)
-        except LDSCConfigError as exc:
-            raise LDSCConfigError(
-                f"Could not construct GlobalConfig: genome_build={self.genome_build!r} is invalid. "
-                "Most likely the genome build name is misspelled or unsupported. "
-                "Use 'auto', 'hg19', 'hg38', 'GRCh37', or 'GRCh38'."
-            ) from exc
-        object.__setattr__(self, "genome_build", genome_build)
+        object.__setattr__(self, "genome_build", _config_genome_build("GlobalConfig", "genome_build", self.genome_build))
         object.__setattr__(self, "log_level", normalize_log_level(self.log_level, context="Could not construct GlobalConfig"))
         if family == "chr_pos" and self.genome_build is None:
             raise LDSCConfigError(
@@ -384,12 +395,12 @@ class AnnotationBuildConfig:
 
     def __post_init__(self) -> None:
         """Normalize annotation paths and validate query/projection settings."""
-        object.__setattr__(self, "baseline_annot_sources", _normalize_path_tuple(self.baseline_annot_sources))
-        object.__setattr__(self, "query_annot_sources", _normalize_path_tuple(self.query_annot_sources))
-        object.__setattr__(self, "query_annot_bed_sources", _normalize_path_tuple(self.query_annot_bed_sources))
-        object.__setattr__(self, "query_annot_gene_list_sources", _normalize_path_tuple(self.query_annot_gene_list_sources))
-        object.__setattr__(self, "gene_coordinate_file", _normalize_optional_path(self.gene_coordinate_file))
-        object.__setattr__(self, "control_gene_list_file", _normalize_optional_path(self.control_gene_list_file))
+        _normalize_paths(
+            self,
+            groups=("baseline_annot_sources", "query_annot_sources", "query_annot_bed_sources",
+                    "query_annot_gene_list_sources"),
+            optional=("gene_coordinate_file", "control_gene_list_file"),
+        )
         if self.gene_list_resolution_policy not in {"strict", "resolved-only"}:
             raise LDSCConfigError(
                 "Could not construct AnnotationBuildConfig: gene_list_resolution_policy must be "
@@ -429,22 +440,17 @@ class AnnotationBuildConfig:
                 f"Could not construct AnnotationBuildConfig: padding_bp={self.padding_bp!r} must be an integer. "
                 "Most likely a boolean padding value was supplied. Set padding_bp to 0 or a positive integer."
             )
-        if isinstance(self.padding_bp, Integral):
-            padding_bp = int(self.padding_bp)
-        elif isinstance(self.padding_bp, str):
-            stripped_padding = self.padding_bp.strip()
-            if not stripped_padding or stripped_padding in {"+", "-"} or not stripped_padding.lstrip("+-").isdigit():
-                raise LDSCConfigError(
-                    f"Could not construct AnnotationBuildConfig: padding_bp={self.padding_bp!r} must be an integer. "
-                    "Most likely a non-integer padding value was supplied. Set padding_bp to 0 or a positive integer."
-                )
-            padding_bp = int(stripped_padding)
-        else:
+        padding_bp = self.padding_bp
+        if isinstance(padding_bp, str):
+            stripped_padding = padding_bp.strip()
+            if stripped_padding and stripped_padding not in {"+", "-"} and stripped_padding.lstrip("+-").isdigit():
+                padding_bp = int(stripped_padding)
+        if not isinstance(padding_bp, Integral):
             raise LDSCConfigError(
                 f"Could not construct AnnotationBuildConfig: padding_bp={self.padding_bp!r} must be an integer. "
                 "Most likely a non-integer padding value was supplied. Set padding_bp to 0 or a positive integer."
             )
-        object.__setattr__(self, "padding_bp", padding_bp)
+        object.__setattr__(self, "padding_bp", int(padding_bp))
         if self.padding_bp < 0:
             raise LDSCConfigError(
                 f"Could not construct AnnotationBuildConfig: padding_bp={self.padding_bp!r} must be non-negative. "
@@ -511,12 +517,8 @@ class RefPanelConfig:
             raise LDSCConfigError(_invalid_choice_message("RefPanelConfig", "backend", self.backend, "'plink' or 'r2_matrix'"))
         if self.maf_min is not None and not 0 <= self.maf_min <= 0.5:
             raise LDSCConfigError(_range_message("RefPanelConfig", "maf_min", self.maf_min, "[0, 0.5]"))
-        object.__setattr__(self, "plink_prefix", _normalize_optional_path(self.plink_prefix))
-        object.__setattr__(self, "r2_matrix_dir", _normalize_optional_path(self.r2_matrix_dir))
-        object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
-        object.__setattr__(self, "ref_panel_snps_file", _normalize_optional_path(self.ref_panel_snps_file))
-        object.__setattr__(self, "genetic_map_hg19_sources", _normalize_optional_path(self.genetic_map_hg19_sources))
-        object.__setattr__(self, "genetic_map_hg38_sources", _normalize_optional_path(self.genetic_map_hg38_sources))
+        _normalize_paths(self, optional=("plink_prefix", "r2_matrix_dir", "keep_indivs_file", "ref_panel_snps_file",
+                                         "genetic_map_hg19_sources", "genetic_map_hg38_sources"))
         source, source_repair, other_fields, remedy = _REF_PANEL_BACKEND_FIELDS[self.backend]
         problems = []
         if getattr(self, source) is None:
@@ -649,7 +651,7 @@ class LDScoreConfig:
         if self.snp_batch_size <= 0:
             raise LDSCConfigError(_positive_number_message("LDScoreConfig", "snp_batch_size", self.snp_batch_size))
         validate_workers(self.workers, error_type=LDSCConfigError)
-        object.__setattr__(self, "regr_snps_file", _normalize_optional_path(self.regr_snps_file))
+        _normalize_paths(self, optional=("regr_snps_file",))
 
     @property
     def ld_window(self) -> LDWindow:
@@ -769,11 +771,8 @@ class GeneLDScoreIndexBuildConfig:
             self, "baseline_annot_sources",
             tuple(split_cli_path_tokens(str(sources) if isinstance(sources, PathLike) else sources)),
         )
-        object.__setattr__(self, "plink_prefix", normalize_required_path(self.plink_prefix))
-        object.__setattr__(self, "output_dir", normalize_required_path(self.output_dir))
-        object.__setattr__(self, "gene_coordinate_file", normalize_required_path(self.gene_coordinate_file))
-        object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
-        object.__setattr__(self, "regr_snps_file", _normalize_optional_path(self.regr_snps_file))
+        _normalize_paths(self, required=("plink_prefix", "output_dir", "gene_coordinate_file"),
+                         optional=("keep_indivs_file", "regr_snps_file"))
         if not self.baseline_annot_sources:
             raise LDSCConfigError(
                 "Cannot build a gene LD-score index without baseline annotations. "
@@ -921,37 +920,21 @@ class R2MatrixBuildConfig:
 
     def __post_init__(self) -> None:
         """Normalize build paths and validate liftover and LD-window settings."""
-        object.__setattr__(self, "plink_prefix", normalize_required_path(self.plink_prefix))
-        try:
-            source_genome_build = normalize_genome_build(self.source_genome_build)
-        except LDSCConfigError as exc:
-            raise LDSCConfigError(
-                f"Could not construct R2MatrixBuildConfig: source_genome_build={self.source_genome_build!r} is invalid. "
-                "Most likely the genome build name is misspelled or unsupported. "
-                "Use 'auto', 'hg19', 'hg38', 'GRCh37', or 'GRCh38'."
-            ) from exc
-        object.__setattr__(self, "source_genome_build", source_genome_build)
+        _normalize_paths(self, required=("plink_prefix",))
+        object.__setattr__(self, "source_genome_build",
+                           _config_genome_build("R2MatrixBuildConfig", "source_genome_build", self.source_genome_build))
         if self.source_genome_build is None:
             raise LDSCConfigError(
                 "Could not construct R2MatrixBuildConfig: source_genome_build=None is invalid. "
                 "Most likely the build was omitted for a coordinate reference-panel build. "
                 "Use source_genome_build='auto', 'hg19', or 'hg38'."
             )
-        object.__setattr__(self, "genetic_map_hg19_sources", _normalize_optional_path(self.genetic_map_hg19_sources))
-        object.__setattr__(self, "genetic_map_hg38_sources", _normalize_optional_path(self.genetic_map_hg38_sources))
-        object.__setattr__(
+        _normalize_paths(
             self,
-            "liftover_chain_hg19_to_hg38_file",
-            _normalize_optional_path(self.liftover_chain_hg19_to_hg38_file),
+            required=("output_dir",),
+            optional=("genetic_map_hg19_sources", "genetic_map_hg38_sources", "liftover_chain_hg19_to_hg38_file",
+                      "liftover_chain_hg38_to_hg19_file", "ref_panel_snps_file", "keep_indivs_file"),
         )
-        object.__setattr__(
-            self,
-            "liftover_chain_hg38_to_hg19_file",
-            _normalize_optional_path(self.liftover_chain_hg38_to_hg19_file),
-        )
-        object.__setattr__(self, "output_dir", normalize_required_path(self.output_dir))
-        object.__setattr__(self, "ref_panel_snps_file", _normalize_optional_path(self.ref_panel_snps_file))
-        object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
         _store_ld_window(self)
         source_map = None
         if self.source_genome_build == "hg19":
@@ -1140,40 +1123,26 @@ class MungeConfig:
             raise LDSCConfigError(_invalid_choice_message("MungeConfig", "output_format", self.output_format, "'parquet', 'tsv.gz', or 'both'"))
         if self.sumstats_format not in {"auto", "plain", "daner-old", "daner-new"}:
             raise LDSCConfigError(_invalid_choice_message("MungeConfig", "sumstats_format", self.sumstats_format, "'auto', 'plain', 'daner-old', or 'daner-new'"))
-        try:
-            source_genome_build = normalize_genome_build(self.source_genome_build)
-        except LDSCConfigError as exc:
-            raise LDSCConfigError(
-                f"Could not construct MungeConfig: source_genome_build={self.source_genome_build!r} is invalid. "
-                "Most likely the genome build name is misspelled or unsupported. "
-                "Use 'auto', 'hg19', 'hg38', 'GRCh37', or 'GRCh38'."
-            ) from exc
+        source_genome_build = _config_genome_build("MungeConfig", "source_genome_build", self.source_genome_build)
         if source_genome_build is None:
             raise LDSCConfigError(
                 "Could not construct MungeConfig: source_genome_build=None is invalid. "
                 "Most likely the raw coordinate build was omitted. "
                 "Use source_genome_build='auto', 'hg19', or 'hg38'."
             )
-        try:
-            output_genome_build = normalize_genome_build(self.output_genome_build)
-        except LDSCConfigError as exc:
-            raise LDSCConfigError(
-                f"Could not construct MungeConfig: output_genome_build={self.output_genome_build!r} is invalid. "
-                "Most likely the output genome build name is misspelled or unsupported. "
-                "Use 'hg19', 'hg38', 'GRCh37', or 'GRCh38', or omit it for rsID workflows."
-            ) from exc
+        output_genome_build = _config_genome_build(
+            "MungeConfig", "output_genome_build", self.output_genome_build, likely="the output genome build name",
+            choices="'hg19', 'hg38', 'GRCh37', or 'GRCh38', or omit it for rsID workflows",
+        )
         if output_genome_build == "auto":
             raise LDSCConfigError(
                 "Could not construct MungeConfig: output_genome_build='auto' is invalid. "
                 "Most likely an inference setting was used for an output coordinate build. "
                 "Choose a concrete output_genome_build of 'hg19' or 'hg38'."
             )
-        object.__setattr__(self, "output_dir", _normalize_optional_path(self.output_dir))
-        object.__setattr__(self, "raw_sumstats_file", _normalize_optional_path(self.raw_sumstats_file))
-        object.__setattr__(self, "sumstats_snps_file", _normalize_optional_path(self.sumstats_snps_file))
+        _normalize_paths(self, optional=("output_dir", "raw_sumstats_file", "sumstats_snps_file", "liftover_chain_file"))
         object.__setattr__(self, "source_genome_build", source_genome_build)
         object.__setattr__(self, "output_genome_build", output_genome_build)
-        object.__setattr__(self, "liftover_chain_file", _normalize_optional_path(self.liftover_chain_file))
         object.__setattr__(self, "trait_name", normalize_trait_name(self.trait_name))
         object.__setattr__(self, "ignore_columns", tuple(self.ignore_columns))
         object.__setattr__(self, "info_list_columns", tuple(self.info_list_columns))

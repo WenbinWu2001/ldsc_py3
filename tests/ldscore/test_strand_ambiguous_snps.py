@@ -21,6 +21,7 @@ from ldsc._refpanel.r2_format import R2_QUANT_SCALE
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
 RELABELLED = {3: ("A", "T"), 7: ("C", "G")}
 ALLELE_AWARE = ["chr_pos_allele_aware", "rsid_allele_aware"]
+ALL_MODES = ["rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"]
 
 
 def write_relabelled_panel(directory: Path) -> Path:
@@ -62,7 +63,8 @@ def test_plink_ldscore_keeps_a_t_and_c_g_snps(tmp_path, mode):
     assert observed_counts == expected_counts
 
 
-@pytest.mark.parametrize("mode", ALLELE_AWARE)
+# All four modes: PLINK ldscore, build-r2-matrix and R2 ldscore share one PLINK selection stage.
+@pytest.mark.parametrize("mode", ALL_MODES)
 def test_r2_matrix_keeps_a_t_and_c_g_snps_and_matches_plink_ldscores(tmp_path, mode):
     prefix = write_relabelled_panel(tmp_path / "panel")
     expected, _ = plink_ldscores(tmp_path, prefix, mode)
@@ -82,6 +84,8 @@ def test_r2_matrix_keeps_a_t_and_c_g_snps_and_matches_plink_ldscores(tmp_path, m
     assert metadata["snp_identifier"] == mode
     assert len(sidecar) == 32
     assert len(source.baseline_table) == 32
+    np.testing.assert_array_equal(np.sort(sidecar["POS"].to_numpy()), expected["POS"].to_numpy())
+    np.testing.assert_array_equal(source.baseline_table["SNP"].to_numpy(), expected["SNP"].to_numpy())
     # The R2 matrix stores each R2 as int16 / R2_QUANT_SCALE, so each of the
     # at most 31 summed pairs per SNP is off by at most half a quantization step.
     tolerance = 31 * 0.5 / R2_QUANT_SCALE

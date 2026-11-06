@@ -394,45 +394,29 @@ class R2MatrixBuilder:
         rejected in ``rsID``-family modes because row identity is the SNP label
         and cross-build coordinate emission would be ambiguous.
         """
-        hg19_files = None
-        hg38_files = None
-        if config.genetic_map_hg19_sources is not None:
-            hg19_files = resolve_file_group(
-                (config.genetic_map_hg19_sources,),
-                label="hg19 genetic map",
-                allow_chromosome_suite=True,
+        map_sources = {"hg19": config.genetic_map_hg19_sources, "hg38": config.genetic_map_hg38_sources}
+        map_files = {
+            build: None if sources is None else resolve_file_group(
+                (sources,), label=f"{build} genetic map", allow_chromosome_suite=True,
             )
-        if config.genetic_map_hg38_sources is not None:
-            hg38_files = resolve_file_group(
-                (config.genetic_map_hg38_sources,),
-                label="hg38 genetic map",
-                allow_chromosome_suite=True,
-            )
-        for build, paths in (("hg19", hg19_files), ("hg38", hg38_files)):
+            for build, sources in map_sources.items()
+        }
+        for build, paths in map_files.items():
             if paths:
                 check = GenomeBuildCheck(build, context=f"build-r2-matrix {build} genetic map", logger=LOGGER)
                 for path in paths:
                     check.table(f"--genetic-map-{build}-sources", path)
                 check.resolve()
+        # _emitted_genome_builds also rejects a source build that is not concrete.
+        opposite_build_emitted = len(_emitted_genome_builds(config)) == 2
         source_build = config.source_genome_build
-        if source_build not in {"hg19", "hg38"}:
-            raise LDSCInternalError(
-                "build-r2-matrix shared-state preparation failed: source_genome_build is "
-                f"{source_build!r}, not a concrete build. Most likely source build inference "
-                "was skipped before state preparation. Re-run with DEBUG logging and report the traceback."
-            )
         target_build = "hg38" if source_build == "hg19" else "hg19"
-        matching_chain = (
-            config.liftover_chain_hg19_to_hg38_file
-            if source_build == "hg19"
-            else config.liftover_chain_hg38_to_hg19_file
-        )
         nonmatching_chain = (
             config.liftover_chain_hg38_to_hg19_file
             if source_build == "hg19"
             else config.liftover_chain_hg19_to_hg38_file
         )
-        if matching_chain is not None and identity_mode_family(self.global_config.snp_identifier) == "rsid":
+        if opposite_build_emitted and identity_mode_family(self.global_config.snp_identifier) == "rsid":
             raise LDSCUsageError(
                 "build-r2-matrix cannot use chain liftover in rsID-family SNP identifier modes. "
                 "Most likely a matching liftover chain was supplied with `--snp-identifier rsid` "
@@ -453,21 +437,27 @@ class R2MatrixBuilder:
                     f"against source_genome_build='{source_build}' PLINK coordinates. "
                     "GlobalConfig.genome_build is ignored by build-r2-matrix."
                 )
-            restriction_keys = _read_ref_panel_snp_restriction(
-                restriction_path,
-                restriction_mode,
-                source_genome_build=source_build,
+            # Auto validation has already examined this input alongside every BIM
+            # shard; coordinate filtering prefers a source-build position column.
+            restriction_keys = kernel_identifiers.read_snp_restriction_keys(
+                restriction_path, restriction_mode, genome_build=source_build, logger=LOGGER,
             )
             message = (
                 f"Loaded {len(restriction_keys.keys)} SNP restriction identifiers "
                 f"in {restriction_mode} mode from '{restriction_path}'."
             )
             LOGGER.info(message)
-        if matching_chain is not None:
-            if config.ld_wind_cm is not None and (
-                (target_build == "hg38" and config.genetic_map_hg38_sources is None)
-                or (target_build == "hg19" and config.genetic_map_hg19_sources is None)
-            ):
+
+        def warn_missing_map(build):
+            LOGGER.warning(
+                f"No {build} genetic map was provided; "
+                f"{build} metadata CM values will be written as NA. "
+                "These missing genetic distances cannot support later cM-window LD-score calculation. "
+                f"Supply --genetic-map-{build}-sources when building an R2 matrix intended for cM windows."
+            )
+
+        if opposite_build_emitted:
+            if config.ld_wind_cm is not None and map_sources[target_build] is None:
                 raise LDSCUsageError(
                     f"build-r2-matrix cannot emit {target_build} with `--ld-wind-cm` because "
                     f"the {target_build} genetic map was not supplied. Most likely liftover "
@@ -475,31 +465,19 @@ class R2MatrixBuilder:
                     f"Pass `--genetic-map-{target_build}-sources <path>` or use an SNP/kb window. "
                     f"Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
                 )
-            if (target_build == "hg38" and config.genetic_map_hg38_sources is None) or (
-                target_build == "hg19" and config.genetic_map_hg19_sources is None
-            ):
-                LOGGER.warning(
-                    f"No {target_build} genetic map was provided; "
-                    f"{target_build} metadata CM values will be written as NA. "
-                    "These missing genetic distances cannot support later cM-window LD-score calculation. "
-                    f"Supply --genetic-map-{target_build}-sources when building an R2 matrix intended for cM windows."
-                )
-        elif matching_chain is None:
-            if nonmatching_chain is not None:
-                message = (
-                    f"No usable liftover chain was provided for {source_build} -> {target_build}; "
-                    "ignoring the opposite-direction chain and running source-build-only."
-                )
-                LOGGER.info(message)
-            else:
-                LOGGER.info(
-                    f"No liftover chain was provided for {source_build} -> {target_build}; "
-                    "running source-build-only."
-                )
-        if config.ld_wind_cm is not None and (
-            (source_build == "hg38" and config.genetic_map_hg38_sources is None)
-            or (source_build == "hg19" and config.genetic_map_hg19_sources is None)
-        ):
+            if map_sources[target_build] is None:
+                warn_missing_map(target_build)
+        elif nonmatching_chain is not None:
+            LOGGER.info(
+                f"No usable liftover chain was provided for {source_build} -> {target_build}; "
+                "ignoring the opposite-direction chain and running source-build-only."
+            )
+        else:
+            LOGGER.info(
+                f"No liftover chain was provided for {source_build} -> {target_build}; "
+                "running source-build-only."
+            )
+        if config.ld_wind_cm is not None and map_sources[source_build] is None:
             raise LDSCUsageError(
                 f"build-r2-matrix cannot use `--ld-wind-cm` because the {source_build} "
                 "genetic map was not supplied. Most likely the source-build map option "
@@ -507,18 +485,13 @@ class R2MatrixBuilder:
                 "`--ld-wind-kb` / `--ld-wind-snps`. "
                 f"Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
             )
-        if (source_build == "hg38" and config.genetic_map_hg38_sources is None) or (
-            source_build == "hg19" and config.genetic_map_hg19_sources is None
-        ):
-            LOGGER.warning(
-                f"No {source_build} genetic map was provided; "
-                f"{source_build} metadata CM values will be written as NA. "
-                "These missing genetic distances cannot support later cM-window LD-score calculation. "
-                f"Supply --genetic-map-{source_build}-sources when building an R2 matrix intended for cM windows."
-            )
+        if map_sources[source_build] is None:
+            warn_missing_map(source_build)
+        genetic_maps = {build: None if paths is None else load_genetic_map_group(paths, command="build-r2-matrix")
+                        for build, paths in map_files.items()}
         return _BuildState(
-            genetic_map_hg19=None if hg19_files is None else load_genetic_map_group(hg19_files, command="build-r2-matrix"),
-            genetic_map_hg38=None if hg38_files is None else load_genetic_map_group(hg38_files, command="build-r2-matrix"),
+            genetic_map_hg19=genetic_maps["hg19"],
+            genetic_map_hg38=genetic_maps["hg38"],
             liftover_chain_paths={
                 ("hg19", "hg38"): config.liftover_chain_hg19_to_hg38_file,
                 ("hg38", "hg19"): config.liftover_chain_hg38_to_hg19_file,
@@ -719,14 +692,10 @@ class R2MatrixBuilder:
                 snp_identifier=self.global_config.snp_identifier,
             )
 
-            cm_values = (
-                interpolate_genetic_map_cm(chrom, build_positions, build_state.genetic_map_hg19, command="build-r2-matrix")
-                if build == "hg19" and build_state.genetic_map_hg19 is not None
-                else interpolate_genetic_map_cm(chrom, build_positions, build_state.genetic_map_hg38, command="build-r2-matrix")
-                if build == "hg38" and build_state.genetic_map_hg38 is not None
-                else None
-            )
-            if cm_values is not None:
+            genetic_map = build_state.genetic_map_hg19 if build == "hg19" else build_state.genetic_map_hg38
+            cm_values = None
+            if genetic_map is not None:
+                cm_values = interpolate_genetic_map_cm(chrom, build_positions, genetic_map, command="build-r2-matrix")
                 # Window on the CM the sidecar will store, which ldscore reads back.
                 cm_values = round_to_sidecar_precision(cm_values)
             block_left = _r2_matrix_block_left(chrom, build, build_positions, cm_values, config)
@@ -805,42 +774,18 @@ class R2MatrixBuilder:
         """
         keep_snps = list(keep_snps)
         candidate_positions = rows.loc[keep_snps, "POS"].to_numpy(dtype=int)
-        if source_build == "hg19":
-            if build_state.liftover_chain_paths.get(("hg19", "hg38")) is None:
-                retained_snps = np.asarray(keep_snps, dtype=int)
-                hg19_lookup = {
-                    int(idx): int(pos)
-                    for idx, pos in zip(retained_snps, candidate_positions)
-                }
-                return retained_snps, hg19_lookup, {}, empty_identity_drop_frame()
-            mapping = self._map_positions(build_state, chrom, candidate_positions, "hg19", "hg38")
-            retained_snps = np.asarray(keep_snps, dtype=int)[mapping.keep_mask]
-            hg19_lookup = {
-                int(idx): int(pos)
-                for idx, pos in zip(retained_snps, candidate_positions[mapping.keep_mask])
-            }
-            hg38_lookup = {
-                int(idx): int(pos)
-                for idx, pos in zip(retained_snps, mapping.translated_positions)
-            }
-        else:
-            if build_state.liftover_chain_paths.get(("hg38", "hg19")) is None:
-                retained_snps = np.asarray(keep_snps, dtype=int)
-                hg38_lookup = {
-                    int(idx): int(pos)
-                    for idx, pos in zip(retained_snps, candidate_positions)
-                }
-                return retained_snps, {}, hg38_lookup, empty_identity_drop_frame()
-            mapping = self._map_positions(build_state, chrom, candidate_positions, "hg38", "hg19")
-            retained_snps = np.asarray(keep_snps, dtype=int)[mapping.keep_mask]
-            hg38_lookup = {
-                int(idx): int(pos)
-                for idx, pos in zip(retained_snps, candidate_positions[mapping.keep_mask])
-            }
-            hg19_lookup = {
-                int(idx): int(pos)
-                for idx, pos in zip(retained_snps, mapping.translated_positions)
-            }
+        target_build = "hg38" if source_build == "hg19" else "hg19"
+        retained_snps = np.asarray(keep_snps, dtype=int)
+        lookups: dict[str, dict[int, int]] = {"hg19": {}, "hg38": {}}
+        if build_state.liftover_chain_paths.get((source_build, target_build)) is None:
+            lookups[source_build] = {int(idx): int(pos) for idx, pos in zip(retained_snps, candidate_positions)}
+            return retained_snps, lookups["hg19"], lookups["hg38"], empty_identity_drop_frame()
+        mapping = self._map_positions(build_state, chrom, candidate_positions, source_build, target_build)
+        retained_snps = retained_snps[mapping.keep_mask]
+        lookups[source_build] = {
+            int(idx): int(pos) for idx, pos in zip(retained_snps, candidate_positions[mapping.keep_mask])
+        }
+        lookups[target_build] = {int(idx): int(pos) for idx, pos in zip(retained_snps, mapping.translated_positions)}
 
         dropped = len(keep_snps) - len(retained_snps)
         liftover_drop_frame = empty_identity_drop_frame()
@@ -853,63 +798,31 @@ class R2MatrixBuilder:
                 },
                 index=keep_snps,
             )
-            unmapped_mask, cross_chrom_mask = mapping.unmapped_mask, mapping.cross_chrom_mask
-            liftover_drop_frame = concat_identity_drop_frames(
-                [
-                    coerce_identity_drop_frame(
-                        pd.DataFrame(
-                            {
-                                "CHR": [chrom] * int(unmapped_mask.sum()),
-                                "SNP": drop_frame.loc[unmapped_mask, "SNP"].astype(str).tolist(),
-                                "source_pos": drop_frame.loc[unmapped_mask, "source_POS"].tolist(),
-                                "target_pos": [pd.NA] * int(unmapped_mask.sum()),
-                                "reason": ["unmapped_liftover"] * int(unmapped_mask.sum()),
-                            }
-                        ),
-                        default_stage="ref_panel_liftover",
-                    ),
-                    coerce_identity_drop_frame(
-                        pd.DataFrame(
-                            {
-                                "CHR": [chrom] * int(cross_chrom_mask.sum()),
-                                "SNP": drop_frame.loc[cross_chrom_mask, "SNP"].astype(str).tolist(),
-                                "source_pos": drop_frame.loc[cross_chrom_mask, "source_POS"].tolist(),
-                                "target_pos": [pd.NA] * int(cross_chrom_mask.sum()),
-                                "reason": ["cross_chromosome_liftover"] * int(cross_chrom_mask.sum()),
-                            }
-                        ),
-                        default_stage="ref_panel_liftover",
-                    ),
-                ]
-            )
-            log_liftover_drop_report(
-                LOGGER,
-                liftover_drop_report(
-                    drop_frame,
-                    unmapped_mask,
-                    reason="unmapped_liftover",
-                    source_pos_col="source_POS",
-                ),
-                workflow_label="R2 matrix liftover",
-                sidecar_path=sidecar_path,
-            )
-            log_liftover_drop_report(
-                LOGGER,
-                liftover_drop_report(
-                    drop_frame,
-                    cross_chrom_mask,
-                    reason="cross_chromosome_liftover",
-                    source_pos_col="source_POS",
-                ),
-                workflow_label="R2 matrix liftover",
-                sidecar_path=sidecar_path,
-            )
+            reasons = ((mapping.unmapped_mask, "unmapped_liftover"),
+                       (mapping.cross_chrom_mask, "cross_chromosome_liftover"))
+            parts = []
+            for mask, reason in reasons:
+                count = int(mask.sum())
+                parts.append(coerce_identity_drop_frame(pd.DataFrame({
+                    "CHR": [chrom] * count,
+                    "SNP": drop_frame.loc[mask, "SNP"].astype(str).tolist(),
+                    "source_pos": drop_frame.loc[mask, "source_POS"].tolist(),
+                    "target_pos": [pd.NA] * count,
+                    "reason": [reason] * count,
+                }), default_stage="ref_panel_liftover"))
+                log_liftover_drop_report(
+                    LOGGER,
+                    liftover_drop_report(drop_frame, mask, reason=reason, source_pos_col="source_POS"),
+                    workflow_label="R2 matrix liftover",
+                    sidecar_path=sidecar_path,
+                )
+            liftover_drop_frame = concat_identity_drop_frames(parts)
             message = (
                 f"Dropping {dropped} SNPs on chromosome {chrom} after liftover filtering "
                 f"({mapping.unmapped_count} unmapped, {mapping.cross_chrom_count} cross-chromosome)."
             )
             LOGGER.info(message)
-        return retained_snps, hg19_lookup, hg38_lookup, liftover_drop_frame
+        return retained_snps, lookups["hg19"], lookups["hg38"], liftover_drop_frame
 
     def _map_positions(
         self,
@@ -932,33 +845,6 @@ class R2MatrixBuilder:
             )
             build_state.translator_cache[key] = translator
         return translator.map_positions(chrom, positions)
-
-
-def _read_ref_panel_snp_restriction(
-    path: str | Path,
-    restriction_mode: str,
-    *,
-    source_genome_build: str,
-) -> RestrictionIdentityKeys:
-    """Load restriction keys using the resolved, declaration-consistent source build.
-
-    Auto validation has already examined this input alongside every BIM shard.
-    rsID filtering ignores coordinates; coordinate filtering prefers a matching
-    build-specific position column and otherwise uses generic POS.
-    """
-    return kernel_identifiers.read_snp_restriction_keys(
-        path, restriction_mode, genome_build=source_genome_build, logger=LOGGER,
-    )
-
-
-def _position_lookup_for_build(
-    genome_build: str,
-    *,
-    hg19_lookup: dict[int, int],
-    hg38_lookup: dict[int, int],
-) -> dict[int, int]:
-    """Return the retained-position lookup for one genome build."""
-    return hg19_lookup if genome_build == "hg19" else hg38_lookup
 
 
 def _r2_matrix_block_left(
@@ -989,13 +875,6 @@ def _r2_matrix_block_left(
     return get_block_lefts(coords, max_dist)
 
 
-def _metadata_with_build_positions(metadata: pd.DataFrame, positions: np.ndarray) -> pd.DataFrame:
-    """Return metadata whose ``POS`` column is aligned to one emitted build."""
-    build_metadata = metadata.copy()
-    build_metadata["POS"] = np.asarray(positions, dtype=np.int64)
-    return build_metadata
-
-
 def _validate_emitted_build_chr_pos_uniqueness(
     *,
     metadata: pd.DataFrame,
@@ -1007,7 +886,8 @@ def _validate_emitted_build_chr_pos_uniqueness(
     """Reject emitted-build coordinate collisions when building for chr_pos matching."""
     if identity_mode_family(snp_identifier) != "chr_pos":
         return
-    build_metadata = _metadata_with_build_positions(metadata, positions)
+    build_metadata = metadata.copy()
+    build_metadata["POS"] = np.asarray(positions, dtype=np.int64)
     kernel_identifiers.validate_unique_snp_ids(
         build_metadata,
         "chr_pos",
@@ -1026,11 +906,7 @@ def _sort_retained_snps_by_build_position(
     # Monotone position order here makes index i -> position monotone, which lets
     # yield_pairwise_r2_rows flush cross-batch pairs with non-decreasing IDX_1.
     keep_snps = np.asarray(keep_snps, dtype=int)
-    lookup = _position_lookup_for_build(
-        genome_build,
-        hg19_lookup=hg19_lookup,
-        hg38_lookup=hg38_lookup,
-    )
+    lookup = hg19_lookup if genome_build == "hg19" else hg38_lookup
     if not lookup:
         raise LDSCInternalError(
             f"build-r2-matrix retained SNP sorting failed for {genome_build}: no position "

@@ -23,6 +23,7 @@ from ldsc._refpanel import build_kernel as kernel_builder
 from ldsc._refpanel import genetic_map as genetic_maps, plink_source
 from ldsc._refpanel import r2_format
 from ldsc._refpanel.r2_format import build_runtime_metadata_table
+from ldsc._core.identifiers import read_snp_restriction_keys
 from ldsc._core.snp_identity import IDENTITY_DROP_COLUMNS, RestrictionIdentityKeys, empty_identity_drop_frame
 from ldsc.config import GlobalConfig, LDWindow, R2MatrixBuildConfig
 from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
@@ -2398,11 +2399,7 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
             path = Path(tmpdir) / "restrict.tsv"
             path.write_text("CHR\thg19_POS\tREF\n1\t100\tA\n", encoding="utf-8")
 
-            restriction = r2_matrix_builder._read_ref_panel_snp_restriction(
-                path,
-                "chr_pos",
-                source_genome_build="hg19",
-            )
+            restriction = read_snp_restriction_keys(path, "chr_pos", genome_build="hg19")
 
             self.assertEqual(restriction.match_kind, "base")
             self.assertEqual(restriction.keys, {"1:100"})

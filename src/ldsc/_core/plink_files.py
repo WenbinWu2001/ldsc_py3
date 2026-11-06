@@ -65,6 +65,7 @@ def __ID_List_Factory__(colnames, keepcol, fname_end, header=None, usecols=None,
             self.__fname_end__ = fname_end
             self.__header__ = header
             self.__dtype__ = dtype
+            self.fname = fname
             self.__read__(fname)
             self.n = len(self.df)
 

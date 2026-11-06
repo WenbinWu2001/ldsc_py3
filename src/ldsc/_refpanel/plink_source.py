@@ -300,6 +300,9 @@ def keep_individual_indices(keep_individuals: KeepIndividuals | None, fam) -> li
     """Return the ``.fam`` rows whose IID the keep list names, in ``.fam`` order; ``None`` keeps everyone.
 
     The keep list is a set: an IID listed more than once selects its row once.
+    IIDs match by their exact text. A listed IID that names more than one
+    ``.fam`` row (the same IID under different FIDs) is rejected, because
+    matching by IID cannot tell those individuals apart.
     """
     if keep_individuals is None:
         return None
@@ -309,6 +312,18 @@ def keep_individual_indices(keep_individuals: KeepIndividuals | None, fam) -> li
             f"PLINK reference-panel selection retained no individuals after applying keep file "
             f"'{keep_individuals.path}'. Most likely the keep-list IDs do not match the `.fam` file. "
             "Check IID/FID columns in the keep file and pass a keep list from the same PLINK sample set."
+        )
+    selected = fam.IDList.iloc[indices, 0]
+    repeated = pd.unique(selected[selected.duplicated()])
+    if len(repeated):
+        listed = ", ".join(repeated[:5])
+        more = f" and {len(repeated) - 5:,} more" if len(repeated) > 5 else ""
+        raise LDSCInputError(
+            f"PLINK reference-panel selection could not apply keep file '{keep_individuals.path}': "
+            f"{len(repeated):,} listed IID{'s name' if len(repeated) != 1 else ' names'} more than one row of "
+            f"'{fam.fname}': {listed}{more}. A keep file matches individuals by IID only, so these rows cannot be "
+            "told apart. Give each individual a unique IID in the `.fam` file, or remove these IIDs from the "
+            "keep file."
         )
     return indices.tolist()
 

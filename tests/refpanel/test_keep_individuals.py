@@ -25,6 +25,7 @@ import pyarrow.parquet as pq
 
 from ldsc.cli import run_cli
 from ldsc._core.plink_files import PlinkFAMFile
+from ldsc.errors import LDSCInputError
 from ldsc._refpanel.plink_source import keep_individual_indices, read_keep_individuals
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
@@ -153,3 +154,22 @@ def test_numeric_looking_iids_match_by_their_exact_text(tmp_path, fam_iids, keep
     selected = keep_individual_indices(read_keep_individuals(str(write_keep(tmp_path / "keep.txt", keep_iids))), fam)
 
     assert selected == expected
+
+
+def test_a_keep_iid_naming_several_fam_rows_is_rejected(tmp_path):
+    # Two .fam rows share IID S1 (different FIDs); matching by IID cannot tell them apart.
+    fam_path = write_fam(tmp_path / "panel.fam", ["S1", "S1", "S2", "S3", "S3"])
+    fam = PlinkFAMFile(str(fam_path))
+    keep = read_keep_individuals(str(write_keep(tmp_path / "keep.txt", ["S1", "S2", "S3"])))
+
+    with pytest.raises(LDSCInputError, match="more than one row") as raised:
+        keep_individual_indices(keep, fam)
+
+    message = str(raised.value)
+    assert "2 listed IIDs name" in message and "S1, S3" in message and str(fam_path) in message
+
+
+def test_a_repeated_fam_iid_the_keep_file_does_not_list_is_accepted(tmp_path):
+    fam = PlinkFAMFile(str(write_fam(tmp_path / "panel.fam", ["S1", "S1", "S2"])))
+
+    assert keep_individual_indices(read_keep_individuals(str(write_keep(tmp_path / "keep.txt", ["S2"]))), fam) == [2]

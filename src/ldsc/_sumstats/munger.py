@@ -604,8 +604,8 @@ def _munge_config_from_args(args: argparse.Namespace) -> MungeConfig:
         output_genome_build=getattr(args, "output_genome_build", None),
         liftover_chain_file=getattr(args, "liftover_chain_file", None),
         signed_sumstats_spec=getattr(args, "signed_sumstats", None),
-        ignore_columns=_ignore_columns_from_args(args),
-        info_list_columns=_info_list_columns_from_args(args),
+        ignore_columns=_comma_tokens(getattr(args, "ignore", None)),
+        info_list_columns=_comma_tokens(getattr(args, "info_list", None)),
         sumstats_format=getattr(args, "sumstats_format", "auto"),
         a1_inc=args.a1_inc,
         overwrite=getattr(args, "overwrite", False),
@@ -622,20 +622,9 @@ def _column_hints_from_args(args: argparse.Namespace) -> dict[str, str]:
     return hints
 
 
-def _ignore_columns_from_args(args: argparse.Namespace) -> tuple[str, ...]:
-    """Return normalized ``--ignore`` column tokens from parsed CLI arguments."""
-    ignore = getattr(args, "ignore", None)
-    if not ignore:
-        return ()
-    return tuple(token.strip() for token in ignore.split(",") if token.strip())
-
-
-def _info_list_columns_from_args(args: argparse.Namespace) -> tuple[str, ...]:
-    """Return normalized ``--info-list`` column tokens from parsed CLI arguments."""
-    info_list = getattr(args, "info_list", None)
-    if not info_list:
-        return ()
-    return tuple(token.strip() for token in info_list.split(",") if token.strip())
+def _comma_tokens(value: str | None) -> tuple[str, ...]:
+    """Return the nonblank, stripped column names of a comma-separated ``--ignore`` or ``--info-list`` value."""
+    return tuple(token.strip() for token in (value or "").split(",") if token.strip())
 
 
 def build_parser() -> argparse.ArgumentParser:

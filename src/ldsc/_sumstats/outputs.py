@@ -209,28 +209,19 @@ def write_sumstats_parquet(
             writer.write_table(pa.Table.from_pandas(frame, schema=schema, preserve_index=False))
             return row_groups
         complete = ~(coordinate_missing_mask(frame["CHR"]) | coordinate_missing_mask(frame["POS"]))
-        for chrom, chrom_df in frame.loc[complete].groupby("CHR", sort=False):
-            writer.write_table(pa.Table.from_pandas(chrom_df, schema=schema, preserve_index=False))
-            row_groups.append(
-                {
-                    "chrom": str(chrom),
-                    "row_group_index": len(row_groups),
-                    "row_offset": offset,
-                    "n_rows": len(chrom_df),
-                }
-            )
-            offset += len(chrom_df)
-        missing_df = frame.loc[~complete]
-        if not missing_df.empty:
-            writer.write_table(pa.Table.from_pandas(missing_df, schema=schema, preserve_index=False))
-            row_groups.append(
-                {
-                    "chrom": None,
-                    "row_group_index": len(row_groups),
-                    "row_offset": offset,
-                    "n_rows": len(missing_df),
-                }
-            )
+
+        def parts():
+            for chrom, chrom_df in frame.loc[complete].groupby("CHR", sort=False):
+                yield str(chrom), chrom_df
+            missing_df = frame.loc[~complete]
+            if not missing_df.empty:
+                yield None, missing_df
+
+        for chrom, part in parts():
+            writer.write_table(pa.Table.from_pandas(part, schema=schema, preserve_index=False))
+            row_groups.append({"chrom": chrom, "row_group_index": len(row_groups), "row_offset": offset,
+                               "n_rows": len(part)})
+            offset += len(part)
     return row_groups
 
 

@@ -329,31 +329,21 @@ def _warn_sample_size_column_suppression(message):
 
 def _resolve_sample_size_column_strategy(columns, cname_translation, source_path):
     """Apply explicit sample-size precedence; return why automatic inference is ambiguous, or ``None``."""
+    explicit = None
     if columns.get("N") is not None:
-        suppressed = [
-            source for source, target in cname_translation.items()
-            if target in {'N_CAS', 'N_CON'}
-        ]
+        explicit = f"--N-col {columns.get('N')}", "direct-N", {'N_CAS', 'N_CON'}, "N_CAS/N_CON"
+    elif columns.get("N_CAS") is not None:
+        explicit = (f"--N-cas-col {columns.get('N_CAS')} and --N-con-col {columns.get('N_CON')}", "case/control",
+                    {'N'}, "direct-N")
+    if explicit is not None:
+        flags, strategy, inferred_targets, inferred = explicit
+        suppressed = [source for source, target in cname_translation.items() if target in inferred_targets]
         for source in suppressed:
             del cname_translation[source]
         if suppressed:
             _warn_sample_size_column_suppression(
-                f"--N-col {columns.get('N')} selected the direct-N sample-size strategy; ignored automatically inferred "
-                f"N_CAS/N_CON column(s): {', '.join(suppressed)}."
-            )
-        return None
-
-    if columns.get("N_CAS") is not None:
-        suppressed = [
-            source for source, target in cname_translation.items()
-            if target == 'N'
-        ]
-        for source in suppressed:
-            del cname_translation[source]
-        if suppressed:
-            _warn_sample_size_column_suppression(
-                f"--N-cas-col {columns.get('N_CAS')} and --N-con-col {columns.get('N_CON')} selected the case/control "
-                f"sample-size strategy; ignored automatically inferred direct-N column(s): {', '.join(suppressed)}."
+                f"{flags} selected the {strategy} sample-size strategy; ignored automatically inferred "
+                f"{inferred} column(s): {', '.join(suppressed)}."
             )
         return None
 

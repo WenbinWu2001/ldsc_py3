@@ -26,7 +26,13 @@ from .._runtime.preflight import InputGate
 from .._core.identifiers import identifier_keys, validate_retained_identifier_uniqueness
 from .funnel import ANNOTATION_SNP_GRID, REFERENCE_PANEL, ReferenceSNPFunnel
 from .plink import PlinkBEDFile
-from .plink_source import PlinkChromosomeSource, read_keep_individuals, select_plink_chromosome
+from .plink_source import (
+    PlinkChromosomeSource,
+    build_plink_metadata_frame,
+    build_restriction_mask,
+    read_keep_individuals,
+    select_plink_chromosome,
+)
 from .prepared import ChromosomeAnnotations, PreparedChromosome
 from .r2_format import (
     R2_MATRIX_TROUBLESHOOTING,
@@ -55,12 +61,7 @@ from .._core.snp_identity import (
     is_allele_aware_mode,
 )
 from .._genome.build_policy import GenomeBuildCheck
-from .build_kernel import (
-    build_restriction_mask,
-    build_plink_metadata_frame,
-    interpolate_genetic_map_cm,
-    load_genetic_map_group,
-)
+from .genetic_map import interpolate_genetic_map_cm, load_genetic_map_group
 
 LOGGER = logging.getLogger("LDSC.ref_panel")
 

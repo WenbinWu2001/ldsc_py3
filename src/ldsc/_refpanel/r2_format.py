@@ -32,8 +32,11 @@ from .._core.snp_identity import (
     normalize_snp_identifier_mode,
 )
 from ..config import LDWindow
-from .build_kernel import PairColumns
 from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
+
+# One batch of pairs as parallel column arrays: (left index, right index,
+# unbiased R2 as float32, sign of the correlation as int8 +1/-1).
+PairColumns = tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
 
 # Troubleshooting section for R2 matrix errors, by the command that reads the R2 matrix.
 R2_MATRIX_TROUBLESHOOTING = {

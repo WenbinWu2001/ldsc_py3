@@ -111,7 +111,7 @@ from . import artifact as index_artifact
 from ..._annotation.preflight import inspect_annotation_inputs
 from ..._genome.build_policy import GenomeBuildCheck
 from ..._runtime.preflight import InputGate
-from ..._refpanel.build_kernel import load_genetic_map_group
+from ..._refpanel.genetic_map import GENETIC_MAP_HEADER_CHECKS, load_genetic_map_group
 
 
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
@@ -567,7 +567,6 @@ def _build(
                 process_id=os.getpid(),
                 hostname=socket.gethostname(),
             )
-            from ..._refpanel.preflight import GENETIC_MAP_HEADER_CHECKS
             declared_inputs = inspect_annotation_inputs(
                 header_checks=GENETIC_MAP_HEADER_CHECKS,
                 baseline=config.baseline_annot_sources, plink=config.plink_prefix, chromosomes=chromosomes,

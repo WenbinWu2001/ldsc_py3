@@ -80,7 +80,7 @@ Sample-size selection, INFO-list columns and `--infer-only` are described in the
 | Input | Column names |
 | --- | --- |
 | R² matrix files | The pair file has the fixed columns `IDX_1`, `IDX_2`, `R2` and `SIGN_R`, and the sidecar exactly `CHR`, `POS`, `SNP`, `A1`, `A2`, `CM` and `MAF` in that order, both with no aliases ([R² matrix format](r2-matrices.md#27-snp-metadata-sidecar-mandatory-authoritative)). |
-| Genetic maps | The cM column accepts `CM`, `GENETIC_MAP_CM`, `GENETICMAPCM`, `GENETIC_MAP(CM)` and `GENETICMAP(CM)`; this family is defined in `src/ldsc/_refpanel/build_kernel.py`, the only alias family outside the registry. |
+| Genetic maps | The cM column accepts `CM`, `GENETIC_MAP_CM`, `GENETICMAPCM`, `GENETIC_MAP(CM)` and `GENETICMAP(CM)`; this family is defined in `src/ldsc/_refpanel/genetic_map.py`, the only alias family outside the registry. |
 | Package-written artifacts | Munged summary statistics, annotation files and LD-score directories are read with canonical names only, which catches schema drift in files the package wrote. |
 
 ### Setting values
@@ -187,7 +187,7 @@ On chromosome 22 of a 1000 Genomes 30x panel (438,232 SNPs, 3,202 samples), the 
 For a biallelic SNP, `A1` dosage is `2 - A2` dosage and $\mathrm{corr}(2-x, 2-y) = \mathrm{corr}(x, y)$.
 Orienting both SNPs of a pair consistently therefore fixes the sign of $r$, and the builder needs to negate only the standardized columns whose `.bim` `A2` is the minor allele.
 Orientation is applied in the builder between genotype reading and correlation, not inside `nextSNPs`, because it is a build policy rather than a read primitive.
-PLINK panel preparation for `ldscore`, `--export-ref-metadata` and `build-gene-ldscore-index` builds its SNP metadata with the same function (`build_plink_metadata_frame` in `src/ldsc/_refpanel/build_kernel.py`); it negates no genotype column, because LD scores use only R².
+PLINK panel preparation for `ldscore`, `--export-ref-metadata` and `build-gene-ldscore-index` builds its SNP metadata with the same function (`build_plink_metadata_frame` in `src/ldsc/_refpanel/plink_source.py`); it negates no genotype column, because LD scores use only R².
 
 **Unifying rule:** the frequency column means **frequency of `A1`**.
 The two regimes differ only in what `A1` *is* and what that implies:

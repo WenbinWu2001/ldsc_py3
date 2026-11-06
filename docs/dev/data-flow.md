@@ -198,7 +198,7 @@ flowchart LR
     B4[Prepare build state]
   end
 
-  subgraph K2[Kernel (private)<br/>ldsc._refpanel.build_kernel]
+  subgraph K2[Kernel (private)<br/>ldsc._refpanel.genetic_map, ldsc._refpanel.build_kernel]
     B5[Interpolate cM positions]
     B6[Emit pairwise R² rows]
     B7[Format standard schemas]
@@ -231,7 +231,7 @@ See [allele orientation](../reference/formats/column-schema.md#allele-orientatio
 
 - Preprocessing: `ldsc.config`, `ldsc._runtime.paths`
 - Workflow: `ldsc._refpanel.builder`, with PLINK chromosome selection in `ldsc._refpanel.plink_source`
-- Kernel: `ldsc._refpanel.build_kernel`, `ldsc._ldscore.compute`, `ldsc._core.plink_files`
+- Kernel: `ldsc._refpanel.genetic_map`, `ldsc._refpanel.build_kernel`, `ldsc._ldscore.compute`, `ldsc._core.plink_files`
 - Postprocessing: R² Parquet and sidecar writers in `ldsc._refpanel.r2_format`; metadata, dropped-SNP tables and owned-file declarations in `ldsc._refpanel.outputs.R2MatrixBuildDirectoryWriter`
 
 ## 3. `query-r2-matrix`: R² Matrix To Pair Lookup Table

@@ -161,7 +161,7 @@ Runtime compatibility is carried by the Parquet footer and paired SNP sidecar, n
 | `ldsc:ld_window_mode`, `ldsc:ld_window_value` | Parquet footer | Build window used for downstream compatibility checks |
 | `ldsc:row_group_size` | Parquet footer | Informational intended row-group size |
 
-See the [complete format contract](r2-matrices.md) and `write_r2_parquet` in `src/ldsc/_refpanel/build_kernel.py`.
+See the [complete format contract](r2-matrices.md) and `write_r2_parquet` in `src/ldsc/_refpanel/r2_format.py`.
 
 ### `query-r2-matrix`
 

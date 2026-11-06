@@ -70,8 +70,15 @@ from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsa
 from .._core import identifiers as kernel_identifiers
 from .._core.chromosomes import chrom_sort_key
 from .plink import PlinkBEDFile
-from .plink_source import KeepIndividuals, read_keep_individuals, select_plink_chromosome
+from .plink_source import (
+    KeepIndividuals,
+    build_plink_metadata_frame,
+    orientation_flip_sign,
+    read_keep_individuals,
+    select_plink_chromosome,
+)
 from . import build_kernel as kernel_builder
+from .genetic_map import GENETIC_MAP_HEADER_CHECKS, interpolate_genetic_map_cm, load_genetic_map_group
 from .outputs import BUILD_R2_MATRIX_LOG, R2MatrixBuildDirectoryWriter
 from .r2_format import (
     build_runtime_metadata_table,
@@ -247,7 +254,6 @@ class R2MatrixBuilder:
         """
         print_global_config_banner(type(self).__name__, self.global_config)
         output_dir = ensure_output_directory(config.output_dir, label="output directory")
-        from .preflight import GENETIC_MAP_HEADER_CHECKS
         declared_inputs = inspect_declared_inputs(plink=config.plink_prefix, header_checks=GENETIC_MAP_HEADER_CHECKS,
             files=[(name, getattr(config, name, None)) for name in (
                 'genetic_map_hg19_sources', 'genetic_map_hg38_sources')],
@@ -509,8 +515,8 @@ class R2MatrixBuilder:
                 f"Supply --genetic-map-{source_build}-sources when building an R2 matrix intended for cM windows."
             )
         return _BuildState(
-            genetic_map_hg19=None if hg19_files is None else kernel_builder.load_genetic_map_group(hg19_files),
-            genetic_map_hg38=None if hg38_files is None else kernel_builder.load_genetic_map_group(hg38_files),
+            genetic_map_hg19=None if hg19_files is None else load_genetic_map_group(hg19_files),
+            genetic_map_hg38=None if hg38_files is None else load_genetic_map_group(hg38_files),
             liftover_chain_paths={
                 ("hg19", "hg38"): config.liftover_chain_hg19_to_hg38_file,
                 ("hg38", "hg19"): config.liftover_chain_hg38_to_hg19_file,
@@ -670,7 +676,7 @@ class R2MatrixBuilder:
                 mafMin=config.maf_min,
                 streaming=build_state.restriction_keys is None,
             )
-            metadata = kernel_builder.build_plink_metadata_frame(
+            metadata = build_plink_metadata_frame(
                 bim=bim,
                 kept_snps=geno.kept_snps,
                 maf_values=geno.maf,
@@ -722,9 +728,9 @@ class R2MatrixBuilder:
             )
 
             cm_values = (
-                kernel_builder.interpolate_genetic_map_cm(chrom, build_positions, build_state.genetic_map_hg19)
+                interpolate_genetic_map_cm(chrom, build_positions, build_state.genetic_map_hg19)
                 if build == "hg19" and build_state.genetic_map_hg19 is not None
-                else kernel_builder.interpolate_genetic_map_cm(chrom, build_positions, build_state.genetic_map_hg38)
+                else interpolate_genetic_map_cm(chrom, build_positions, build_state.genetic_map_hg38)
                 if build == "hg38" and build_state.genetic_map_hg38 is not None
                 else None
             )
@@ -747,7 +753,7 @@ class R2MatrixBuilder:
             # Canonical A1=minor orientation: negate standardized columns where the
             # .bim A2 allele is minor (freq < 0.5) so SIGN_R is computed in the same
             # orientation as the swapped meta sidecar. nextSNPs stays orientation-free.
-            flip_sign = kernel_builder.orientation_flip_sign(geno.freq)
+            flip_sign = orientation_flip_sign(geno.freq)
             oriented_snp_getter = kernel_builder.make_oriented_snp_getter(
                 lambda b: geno.nextSNPs(b, dtype=np.float32),
                 flip_sign,

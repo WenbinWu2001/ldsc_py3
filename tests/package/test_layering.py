@@ -72,8 +72,6 @@ DEFERRED_IMPORTS = {
         "only in-memory Python runs keep dropped-SNP diagnostics in memory",
     ("ldsc._ldscore.direct_batches", "ldsc._ldscore.overlap_table"):
         "the overlap matrix is assembled only after chromosome results exist",
-    ("ldsc._ldscore.gene_index.build", "ldsc._refpanel.preflight"):
-        "only an index build checks genetic-map headers",
     ("ldsc._ldscore.gene_index.scoring", "ldsc._ldscore.gene_index.batches"):
         "only indexed scoring runs the indexed LD-score producer",
     ("ldsc._ldscore.gene_index.scoring", "ldsc._ldscore.preflight"):
@@ -84,8 +82,6 @@ DEFERRED_IMPORTS = {
         "only directories with an overlap matrix read one",
     ("ldsc._refpanel.adapters", "ldsc._refpanel.preflight"):
         "only R2 matrix runs check their sidecar headers",
-    ("ldsc._refpanel.builder", "ldsc._refpanel.preflight"):
-        "only build-r2-matrix checks genetic-map headers",
     ("ldsc._refpanel.builder", "ldsc._runtime.workflow_kwargs"):
         "only the build-r2-matrix entry points check keyword arguments and record explicit options",
     ("ldsc.cli", "ldsc._runtime.workflow_kwargs"):

@@ -20,6 +20,7 @@ import pandas as pd
 
 from ldsc._genome.liftover import LiftOverMappingResult, LiftOverTranslator
 from ldsc._refpanel import build_kernel as kernel_builder
+from ldsc._refpanel import genetic_map as genetic_maps, plink_source
 from ldsc._refpanel import r2_format
 from ldsc._refpanel.r2_format import build_runtime_metadata_table
 from ldsc._refpanel.windows import window_coordinates
@@ -95,7 +96,7 @@ class GeneticMapParserTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            genetic_map = kernel_builder.load_genetic_map(path)
+            genetic_map = genetic_maps.load_genetic_map(path)
 
             self.assertEqual(genetic_map.columns.tolist(), ["CHR", "POS", "CM"])
             self.assertEqual(genetic_map["CHR"].tolist(), ["X", "X"])
@@ -112,7 +113,7 @@ class GeneticMapParserTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            genetic_map = kernel_builder.load_genetic_map(path)
+            genetic_map = genetic_maps.load_genetic_map(path)
 
             self.assertEqual(genetic_map["CHR"].tolist(), ["1", "1"])
             self.assertEqual(genetic_map["POS"].tolist(), [100, 200])
@@ -128,7 +129,7 @@ class GeneticMapParserTest(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(LDSCInputError, "M' or 'MT"):
-                kernel_builder.load_genetic_map(path)
+                genetic_maps.load_genetic_map(path)
 
     def test_load_genetic_map_rejects_unsorted_rows(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -141,7 +142,7 @@ class GeneticMapParserTest(unittest.TestCase):
             )
 
             with self.assertRaises(LDSCInputError):
-                kernel_builder.load_genetic_map(path)
+                genetic_maps.load_genetic_map(path)
 
     def test_load_genetic_map_rejects_duplicate_positions(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -154,7 +155,7 @@ class GeneticMapParserTest(unittest.TestCase):
             )
 
             with self.assertRaises(LDSCInputError):
-                kernel_builder.load_genetic_map(path)
+                genetic_maps.load_genetic_map(path)
 
 
 class GeneticMapInterpolationTest(unittest.TestCase):
@@ -167,7 +168,7 @@ class GeneticMapInterpolationTest(unittest.TestCase):
             }
         )
 
-        interpolated = kernel_builder.interpolate_genetic_map_cm(
+        interpolated = genetic_maps.interpolate_genetic_map_cm(
             chrom="1",
             positions=np.array([50, 150, 300, 500], dtype=np.int64),
             genetic_map=genetic_map,
@@ -2281,7 +2282,7 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
             n_retained_keys=2,
         )
 
-        mask = kernel_builder.build_restriction_mask(metadata, restriction, "rsid_allele_aware")
+        mask = plink_source.build_restriction_mask(metadata, restriction, "rsid_allele_aware")
 
         self.assertEqual(mask.tolist(), [True, False, True])
 
@@ -3010,7 +3011,7 @@ class SidecarIdentityHashTest(unittest.TestCase):
 def test_orientation_flip_sign_rule():
     # freq is the .bim A2 allele frequency; A1 must end up minor (freq(A1) <= 0.5).
     freq = np.array([0.9, 0.5, 0.49999, 0.1, 0.5000001])
-    sign = kernel_builder.orientation_flip_sign(freq)
+    sign = plink_source.orientation_flip_sign(freq)
     # Flip (sign -1) exactly where A2 freq < 0.5 (strict; 0.5 keeps PLINK order).
     np.testing.assert_array_equal(sign, np.array([1.0, 1.0, -1.0, -1.0, 1.0], dtype=np.float32))
     assert sign.dtype == np.float32
@@ -3073,7 +3074,7 @@ def test_build_plink_metadata_frame_swaps_to_minor_a1():
     a2_freq = [0.8, 0.3, 0.5]            # SNP rs2 must flip; rs3 (==0.5) keeps order
     maf = np.minimum(a2_freq, 1 - np.asarray(a2_freq))
 
-    out = kernel_builder.build_plink_metadata_frame(
+    out = plink_source.build_plink_metadata_frame(
         bim=bim, kept_snps=kept_snps, maf_values=maf, freq_values=a2_freq
     )
 

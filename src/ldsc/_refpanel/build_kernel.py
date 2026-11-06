@@ -1,151 +1,22 @@
-"""Internal helpers for building R2 matrices."""
+"""Pairwise R2 emission for ``build-r2-matrix``.
+
+``yield_pairwise_r2_rows`` streams standardized genotypes through the exact LD
+window and emits the unbiased R2 and correlation sign of every SNP pair inside
+it as ``PairColumns`` chunks; ``make_oriented_snp_getter`` re-orients each
+genotype column so ``A1`` is the minor allele. Genetic maps are in
+``genetic_map.py``, and the PLINK selection and metadata shared with
+``ldscore`` are in ``plink_source.py``.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from os import PathLike
-from typing import Iterator, Sequence
+from typing import Iterator
 
 import numpy as np
-import pandas as pd
 
-from .._core.chromosomes import chrom_sort_key, normalize_chromosome
-from .._core.columns import (
-    CHR_COLUMN_SPEC,
-    POS_COLUMN_SPEC,
-    ColumnSpec,
-    resolve_required_column,
-)
-from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError
-from .._core.snp_identity import (
-    RestrictionIdentityKeys,
-    allele_set_series,
-    base_key_series,
-    restriction_membership_mask,
-)
-
-_BUILD_REF_PANEL_LIFTOVER_DOC = (
-    "docs/user-guide/troubleshooting.md#build-r2-matrix-liftover-or-genetic-map-configuration-is-incomplete"
-)
-
-
-GENETIC_MAP_CM_SPEC = ColumnSpec(
-    "CM",
-    ("CM", "GENETIC_MAP_CM", "GENETICMAPCM", "GENETIC_MAP(CM)", "GENETICMAP(CM)"),
-    "genetic map centiMorgan",
-)
-
-def _read_text_table(path: str | PathLike[str]) -> pd.DataFrame:
-    """Read a whitespace-delimited plain-text or gzip-compressed table."""
-    text_path = str(path)
-    compression = "gzip" if text_path.endswith(".gz") else None
-    return pd.read_csv(text_path, sep=r"\s+", compression=compression)
-
-
-def load_genetic_map(path: str | PathLike[str]) -> pd.DataFrame:
-    """Load one genetic map table into canonical `CHR/POS/CM` columns."""
-
-    df = _read_text_table(path)
-    context = str(path)
-    chr_col = resolve_required_column(df.columns, CHR_COLUMN_SPEC, context=context)
-    pos_col = resolve_required_column(df.columns, POS_COLUMN_SPEC, context=context)
-    cm_col = resolve_required_column(df.columns, GENETIC_MAP_CM_SPEC, context=context)
-
-    out = pd.DataFrame(
-        {
-            # One normalized label per distinct value, shared by its rows.
-            "CHR": df[chr_col].map({value: normalize_chromosome(value, context=context)
-                                    for value in pd.unique(df[chr_col])}),
-            "POS": pd.to_numeric(df[pos_col], errors="raise").astype(np.int64),
-            "CM": pd.to_numeric(df[cm_col], errors="raise").astype(float),
-        }
-    )
-    duplicated = out.duplicated(subset=["CHR", "POS"], keep=False)
-    if duplicated.any():
-        raise LDSCInputError(
-            f"build-r2-matrix could not load genetic map '{path}': duplicate CHR/POS "
-            "rows were found. Most likely the map file contains repeated positions. "
-            "Deduplicate the map or provide a clean genetic map. "
-            f"Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
-        )
-
-    chrom_order = out["CHR"].map(chrom_sort_key)
-    if not chrom_order.equals(chrom_order.sort_values(ignore_index=True)):
-        raise LDSCInputError(
-            f"build-r2-matrix could not load genetic map '{path}': rows are not sorted "
-            "by chromosome. Most likely map shards were concatenated out of order. Sort "
-            "the file by chromosome and position, or pass correctly ordered map shards."
-        )
-    for chrom, chrom_frame in out.groupby("CHR", sort=False):
-        positions = chrom_frame["POS"].reset_index(drop=True)
-        if not positions.equals(positions.sort_values(ignore_index=True)):
-            raise LDSCInputError(
-                f"build-r2-matrix could not load genetic map '{path}': positions are not "
-                f"sorted within chromosome {chrom}. Most likely this chromosome's map rows "
-                "were shuffled. Sort the map by chromosome and position before rerunning."
-            )
-
-    return out.reset_index(drop=True)
-
-
-def load_genetic_map_group(paths: Sequence[str | PathLike[str]]) -> pd.DataFrame:
-    """Load and combine one or more genetic map files into one canonical table."""
-
-    if not paths:
-        raise LDSCInputError(
-            "build-r2-matrix could not load a genetic map group because no map paths "
-            "were supplied. Most likely an empty path token reached the kernel. Pass at "
-            "least one genetic map file or omit cM-window output."
-        )
-    frames = [load_genetic_map(path) for path in paths]
-    combined = pd.concat(frames, axis=0, ignore_index=True)
-    combined = combined.sort_values(by=["CHR", "POS"], key=lambda col: col.map(chrom_sort_key) if col.name == "CHR" else col, kind="mergesort")
-    duplicated = combined.duplicated(subset=["CHR", "POS"], keep=False)
-    if duplicated.any():
-        raise LDSCInputError(
-            "build-r2-matrix could not combine genetic map inputs: duplicate CHR/POS "
-            "rows were found across map files. Most likely overlapping map shards were "
-            "supplied. Use non-overlapping shards or a single deduplicated genetic map. "
-            f"Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
-        )
-    return combined.reset_index(drop=True)
-
-
-def interpolate_genetic_map_cm(
-    chrom: str,
-    positions: np.ndarray,
-    genetic_map: pd.DataFrame,
-) -> np.ndarray:
-    """Interpolate cumulative cM values for `positions` on one chromosome."""
-
-    chrom = normalize_chromosome(chrom)
-    chrom_map = genetic_map.loc[genetic_map["CHR"] == chrom, ["POS", "CM"]].reset_index(drop=True)
-    if len(chrom_map) == 0:
-        raise LDSCInputError(
-            f"build-r2-matrix could not interpolate cM positions for chromosome {chrom}: "
-            "the genetic map contains no rows for that chromosome. Most likely the wrong "
-            "map build or incomplete chromosome shard was supplied. Pass a map that covers "
-            f"chromosome {chrom}. Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
-        )
-    return np.interp(
-        np.asarray(positions, dtype=np.int64),
-        chrom_map["POS"].to_numpy(dtype=np.int64),
-        chrom_map["CM"].to_numpy(dtype=float),
-    )
-
-
-def orientation_flip_sign(freq_values: Sequence[float]) -> np.ndarray:
-    """Per-SNP sign that re-orients genotypes so ``A1`` becomes the minor allele.
-
-    ``freq_values`` is the frequency of the ``.bim`` second allele (the package's
-    ``A2``). A SNP needs flipping when ``A2`` is the minor allele (``freq < 0.5``);
-    at ``freq == 0.5`` PLINK order is kept (no flip), so the enforced invariant is
-    ``freq(A1) <= 0.5``. Returns ``+1.0`` (keep) / ``-1.0`` (flip) as ``float32``
-    so it broadcasts against ``float32`` standardized genotype columns without
-    upcasting.
-    """
-    freq = np.asarray(freq_values, dtype=np.float64)
-    return np.where(freq < 0.5, np.float32(-1.0), np.float32(1.0)).astype(np.float32)
+from ..errors import LDSCConfigError, LDSCInternalError
+from .r2_format import PairColumns
 
 
 def make_oriented_snp_getter(base_getter, flip_sign: np.ndarray):
@@ -174,54 +45,6 @@ def make_oriented_snp_getter(base_getter, flip_sign: np.ndarray):
     return getter
 
 
-def build_plink_metadata_frame(
-    *,
-    bim,
-    kept_snps: Sequence[int],
-    maf_values: Sequence[float],
-    freq_values: Sequence[float],
-) -> pd.DataFrame:
-    """Build the retained SNP metadata table after PLINK filtering.
-
-    ``A1``/``A2`` are emitted in canonical orientation: ``A1`` is the minor allele
-    (``freq(A1) <= 0.5``). ``freq_values`` is the ``.bim`` ``A2`` allele frequency;
-    rows with ``freq < 0.5`` have ``A1``/``A2`` swapped. ``maf_values`` is the
-    folded ``min(freq, 1-freq)`` and, after the swap, equals ``freq(A1)``.
-    ``build-r2-matrix`` sidecars and PLINK panel preparation for ``ldscore``,
-    ``--export-ref-metadata`` and gene LD-score indexes share this table, so
-    every PLINK-derived artifact gives the same ``A1`` for a SNP.
-    """
-
-    kept_snps = np.asarray(kept_snps, dtype=int)
-    maf_values = np.asarray(maf_values, dtype=float)
-    freq_values = np.asarray(freq_values, dtype=float)
-    if not (len(kept_snps) == len(maf_values) == len(freq_values)):
-        raise LDSCInternalError(
-            "PLINK metadata assembly failed: kept_snps, maf_values, and "
-            f"freq_values have different lengths ({len(kept_snps)} vs "
-            f"{len(maf_values)} vs {len(freq_values)}). Most likely PLINK filtering "
-            "bookkeeping desynchronized. Re-run with DEBUG logging and report the traceback."
-        )
-    kept = bim.df.iloc[kept_snps].reset_index(drop=True).copy()
-    a1 = kept["A1"].astype(str).to_numpy()
-    a2 = kept["A2"].astype(str).to_numpy()
-    flip = orientation_flip_sign(freq_values) < 0
-    canonical_a1 = np.where(flip, a2, a1)
-    canonical_a2 = np.where(flip, a1, a2)
-    out = pd.DataFrame(
-        {
-            "CHR": kept["CHR"].map(normalize_chromosome),
-            "SNP": kept["SNP"].astype(str),
-            "CM": pd.to_numeric(kept["CM"], errors="coerce"),
-            "POS": pd.to_numeric(kept["BP"], errors="raise").astype(np.int64),
-            "A1": canonical_a1,
-            "A2": canonical_a2,
-            "MAF": maf_values.astype(float),
-        }
-    )
-    return out.reset_index(drop=True)
-
-
 def _unbiased_r2_array(correlation: np.ndarray, n_samples: int) -> np.ndarray:
     """Convert correlation coefficients to the unbiased :math:`R^2` estimate.
 
@@ -242,11 +65,6 @@ class _PendingPairs:
     j: list[np.ndarray]
     r2: list[np.ndarray]
     sign: list[np.ndarray]
-
-
-# One emitted batch as parallel column arrays: (left index, right index,
-# unbiased R2 as float32, sign of the correlation as int8 +1/-1).
-PairColumns = tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
 
 
 def _emit_cross_block_pairs(
@@ -467,55 +285,3 @@ def yield_pairwise_r2_rows(
     yield from _pop_pair_rows_before(pending_rows, m + 1)
 
 
-def build_restriction_mask(
-    metadata: pd.DataFrame,
-    restriction: RestrictionIdentityKeys,
-    mode: str,
-) -> np.ndarray:
-    """Build the retained-SNP boolean mask for one SNP restriction set."""
-    if restriction.match_kind == "identity":
-        return _build_allele_aware_restriction_mask(
-            metadata,
-            restriction,
-            mode,
-            context="reference-panel SNP restriction matching",
-        ).to_numpy(dtype=bool)
-    return restriction_membership_mask(
-        metadata,
-        restriction,
-        mode,
-        context="reference-panel SNP restriction matching",
-    ).to_numpy(dtype=bool)
-
-
-def _build_allele_aware_restriction_mask(
-    metadata: pd.DataFrame,
-    restriction: RestrictionIdentityKeys,
-    mode: str,
-    *,
-    context: str,
-) -> pd.Series:
-    """Match allele-aware restrictions without validating unrelated alleles."""
-    base = base_key_series(metadata, mode, context=context)
-    restricted_bases = _restriction_base_keys(restriction.keys)
-    base_match = base.isin(restricted_bases)
-    keep = pd.Series(False, index=metadata.index, dtype=bool)
-    if not bool(base_match.any()):
-        return keep
-
-    allele_set, reasons = allele_set_series(metadata.loc[base_match], context=context)
-    candidate_keys = pd.Series(pd.NA, index=allele_set.index, dtype=object)
-    valid = base.loc[base_match].notna() & allele_set.notna()
-    candidate_keys.loc[valid] = base.loc[base_match].loc[valid].astype(str) + ":" + allele_set.loc[valid].astype(str)
-    keep.loc[base_match] = (candidate_keys.isin(restriction.keys) | reasons.notna()).to_numpy(dtype=bool)
-    return keep
-
-
-def _restriction_base_keys(keys: set[str]) -> set[str]:
-    """Extract base keys from allele-aware identity keys."""
-    base_keys: set[str] = set()
-    for key in keys:
-        parts = str(key).rsplit(":", 2)
-        if len(parts) == 3:
-            base_keys.add(parts[0])
-    return base_keys

@@ -1,31 +1,13 @@
 """Reference-panel input checks for the shared declared-input gate.
 
-``inspect_r2_headers`` checks R2 matrix files before any pair scan, and
-``GENETIC_MAP_HEADER_CHECKS`` gives the gate its header check for
-genetic-map files.
+``inspect_r2_headers`` checks R2 matrix files before any pair scan. The
+gate's genetic-map header check is in ``genetic_map.py``.
 """
 
 from pathlib import Path
 
-import pandas as pd
-
-from .._core.columns import CHR_COLUMN_SPEC, POS_COLUMN_SPEC, resolve_required_column
 from .._runtime.preflight import InputGate, input_issue
-from .build_kernel import GENETIC_MAP_CM_SPEC
 from .r2_format import R2MatrixChromosome, r2_matrix_chromosomes, r2_matrix_file_paths, resolve_r2_build_dir
-
-
-def _check_genetic_map_header(path):
-    """Require chromosome, position and centimorgan columns in a genetic-map header."""
-    columns = pd.read_csv(path, sep=r'\s+', nrows=0).columns
-    for spec in (CHR_COLUMN_SPEC, POS_COLUMN_SPEC, GENETIC_MAP_CM_SPEC):
-        resolve_required_column(columns, spec, context=str(path))
-
-
-GENETIC_MAP_HEADER_CHECKS = {
-    'genetic_map_hg19_sources': _check_genetic_map_header,
-    'genetic_map_hg38_sources': _check_genetic_map_header,
-}
 
 
 def inspect_r2_headers(directory, genome_build=None, *, command, ld_window=None):

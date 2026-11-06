@@ -96,6 +96,19 @@ def test_quantile_target_annotation_does_not_take_a_lookalike_as_the_snp_column(
     assert chunk["target_value"].tolist() == [0.5]
 
 
+def test_quantile_target_annotation_takes_alleles_by_name_or_alias_only(tmp_path):
+    lookalike = tmp_path / "lookalike.tsv"
+    lookalike.write_text("CHR\tPOS\tSNP\tEUR_A1\tEUR_A2\ttarget\n1\t10\trs1\tA\tG\t0.5\n", encoding="utf-8")
+    alias = tmp_path / "alias.tsv"
+    alias.write_text("CHR\tPOS\tSNP\tREF\tALT\ttarget\n1\t10\trs1\tA\tG\t0.5\n", encoding="utf-8")
+
+    without_alleles = next(target_chunks([str(lookalike)], "target", None))
+    with_alleles = next(target_chunks([str(alias)], "target", None))
+
+    assert "A1" not in without_alleles.columns and "A2" not in without_alleles.columns
+    assert with_alleles[["A1", "A2"]].values.tolist() == [["A", "G"]]
+
+
 def _ldscore(output_dir, annotation, mode):
     assert cli.run_cli(["ldscore", "--output-dir", str(output_dir), "--snp-identifier", mode,
                         "--genome-build", "hg38", "--ld-wind-snps", "3", "--plink-prefix", str(PLINK),

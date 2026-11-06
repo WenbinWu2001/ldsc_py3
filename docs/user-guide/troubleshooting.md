@@ -311,6 +311,29 @@ See [gene-list formats](../reference/formats/gene-lists.md) for the catalog colu
 
 **Developer reference:** `_annotation.gene_lists.GeneCatalog.load()`, `GeneCatalog.from_embedded_frame()` and `catalog_defect_message()` · **Exception:** `GeneCatalogValidationError` (an `LDSCInputError`)
 
+### Common: a required column is not recognized
+
+**Symptom:** `Could not map the required <field> column in <file>: expected canonical field '<NAME>'; available columns: ...`, sometimes followed by `The header has <column>, a header that ends in a name for <NAME> without being one; if it holds the <field>, rename it to <NAME>.`
+
+Annotation files, SNP restriction files, genetic maps, HM3 maps and `quantile-h2` reference metadata recognize a column only by its canonical name or a listed alias, compared after lowercasing and removing punctuation.
+A header that only ends in such a name, such as `EUR_MAF`, `eQTL_POS` or `my_hg19_pos`, is not read; this changed on 2026-11-06, when matching by the end of a header was removed.
+The accepted names for each input are listed in the [column schema](../reference/formats/column-schema.md).
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|---|---|
+| 1 | The column has a prefixed or population-specific name, such as `EUR_MAF` or `eQTL_POS` | The message names such a header after `The header has` |
+| 2 | The column uses a name that is not a listed alias | Compare the `available columns` in the message with the [column schema](../reference/formats/column-schema.md) tables |
+| 3 | The file was read with the wrong delimiter, so the whole header is one column | `available columns` shows a single long name containing tabs, commas or spaces |
+
+**Remedies:**
+
+1. Rename the column to its canonical name or a listed alias, for example `EUR_MAF` to `MAF`, but only if it holds that field; a column with other content must not be renamed into it.
+2. Write the file with tabs or spaces between columns.
+
+**Developer reference:** `_core.columns.resolve_required_column()` and `lookalike_hint()` · **Exception:** `LDSCInputError`
+
 ## `munge-sumstats`
 
 ### `munge-sumstats`: could not map a required column
@@ -1306,13 +1329,13 @@ Keep the saved comparison metadata faithful to the fit that produced it.
 | # | Likely cause | How to check |
 |---|---|---|
 | 1 | The file is not SNP metadata of the reference panel used for the fit, for example an annotation or summary-statistics table | Compare its header with the R² matrix sidecar columns `CHR POS SNP A1 A2 CM MAF` |
-| 2 | Its frequency column is named `FRQ` or another name that neither is `MAF` nor ends in `MAF` | Read the header; `FRQ` is not read as `MAF`, because it usually holds the unfolded frequency of `A1` |
+| 2 | Its frequency column is not named `MAF`, for example `FRQ` or a population-specific name such as `EUR_MAF` | Read the header; the error names a header that ends in `MAF`; `FRQ` is not read as `MAF`, because it usually holds the unfolded frequency of `A1` |
 | 3 | It is not UTF-8 text, is compressed with something other than gzip, or is not whitespace-delimited | `zcat <file> \| head` (or `head <file>`) should show readable columns separated by tabs or spaces |
 | 4 | `POS` holds nonnumeric values | Find the value that the error quotes |
 
 Set `--ref-metadata-sources` to the SNP metadata of the reference panel used for the fit: the `chr@_meta.tsv.gz` sidecars of an R² matrix, or the `ref_metadata/chr@_meta.tsv.gz` files that `ldsc ldscore --export-ref-metadata` wrote for a PLINK reference panel.
 Both carry `MAF` as the folded minor-allele frequency, and the leading `# ldsc:` identity lines of the sidecars are skipped.
-Rename an `FRQ` column to `MAF` only if it already holds the folded minor-allele frequency of that panel; an unfolded frequency changes which SNPs count as common.
+Rename an `EUR_MAF`-style or `FRQ` column to `MAF` only if it already holds the folded minor-allele frequency of that panel; an unfolded frequency changes which SNPs count as common.
 Do not fill missing frequencies with invented values.
 
 **Developer reference:** `_regression.quantile_storage.reference_chunks()` · **Exception:** `LDSCInputError`

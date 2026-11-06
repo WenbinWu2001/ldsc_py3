@@ -220,6 +220,9 @@ def _best_matches(columns: Iterable[str], spec: ColumnSpec) -> list[str]:
     return [column for column in columns if normalize_column_token(column) in alias_norms]
 
 
+_MISSING_COLUMN_TROUBLESHOOTING = "docs/user-guide/troubleshooting.md#common-a-required-column-is-not-recognized"
+
+
 def lookalike_hint(columns: Iterable[str], spec: ColumnSpec) -> str:
     """Return a sentence naming headers that end in a name of ``spec`` after a separator, or ``""``.
 
@@ -275,6 +278,7 @@ def resolve_required_column(
             f"available columns: {header}. Most likely the header uses an unrecognized alias or the file delimiter is wrong. "
             "Pass the matching column explicitly when the workflow supports it, or rename the input header."
             + lookalike_hint(columns, spec)
+            + f" Other causes & fixes: {_MISSING_COLUMN_TROUBLESHOOTING}"
         )
     if len(matches) > 1:
         context_text = f" in {context}" if context else ""

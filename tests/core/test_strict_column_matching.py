@@ -76,6 +76,14 @@ def test_missing_required_column_names_lookalike_headers():
     assert "lowMAF" not in hint and "notes" not in hint
 
 
+def test_missing_required_column_links_its_troubleshooting_section():
+    with pytest.raises(LDSCInputError) as caught:
+        resolve_required_column(["CHR", "POS"], MAF_COLUMN_SPEC)
+    assert str(caught.value).endswith(
+        "Other causes & fixes: docs/user-guide/troubleshooting.md#common-a-required-column-is-not-recognized"
+    )
+
+
 def test_missing_required_column_without_lookalikes_adds_no_hint():
     with pytest.raises(LDSCInputError) as caught:
         resolve_required_column(["CHR", "POS", "Thyroid"], SNP_COLUMN_SPEC)

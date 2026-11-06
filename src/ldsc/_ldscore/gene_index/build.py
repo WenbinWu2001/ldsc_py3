@@ -24,6 +24,7 @@ from pathlib import Path
 import socket
 import sqlite3
 import shutil
+import stat
 import sys
 import tempfile
 import time
@@ -1283,13 +1284,7 @@ def _finalize_gene_index_log(live_log_path: Path, published_path: Path) -> Path:
         return final_log_path
     build_dir = live_log_path.parent
     try:
-        # The lock file goes last, so a removal stopped partway leaves the evidence
-        # by which the next build recognizes the build directory as its own.
-        for entry in build_dir.iterdir():
-            if entry.name != _LOCK_FILE:
-                _remove_published_entry(entry)
-        (build_dir / _LOCK_FILE).unlink(missing_ok=True)
-        build_dir.rmdir()
+        _remove_build_dir(build_dir)
     except OSError as exc:
         warnings.warn(
             "The gene LD-score index was published and reload-validated, but its build directory "
@@ -1299,6 +1294,33 @@ def _finalize_gene_index_log(live_log_path: Path, published_path: Path) -> Path:
             stacklevel=2,
         )
     return final_log_path
+
+
+def _remove_build_dir(build_dir: Path) -> None:
+    """Empty and remove the build directory without following a symlink at any level.
+
+    Entries are removed relative to a descriptor of the real directory, so a
+    ``build_dir`` replaced by a symlink before or during the removal raises
+    ``OSError`` instead of emptying the link target. The lock file goes last,
+    so a removal stopped partway leaves the evidence by which the next build
+    recognizes the build directory as its own.
+    """
+    dir_fd = os.open(build_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for name in os.listdir(dir_fd):
+            if name == _LOCK_FILE:
+                continue
+            if stat.S_ISDIR(os.stat(name, dir_fd=dir_fd, follow_symlinks=False).st_mode):
+                shutil.rmtree(name, dir_fd=dir_fd)
+            else:
+                os.unlink(name, dir_fd=dir_fd)
+        try:
+            os.unlink(_LOCK_FILE, dir_fd=dir_fd)
+        except FileNotFoundError:
+            pass
+    finally:
+        os.close(dir_fd)
+    build_dir.rmdir()
 
 
 def _is_owned_index_entry(entry: Path) -> bool:

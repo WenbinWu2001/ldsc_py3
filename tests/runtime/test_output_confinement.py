@@ -329,6 +329,29 @@ def test_gene_index_build_never_follows_a_symlink_in_its_build_directory(
     assert (index / link).is_symlink()
 
 
+def test_build_directory_cleanup_never_deletes_through_a_symlinked_build_directory(tmp_path, monkeypatch):
+    from ldsc._ldscore.gene_index import build as gene_index_build
+
+    # The state a race leaves if .build/ is replaced by a symlink after the build took its lock:
+    # the cleanup that follows a successful publication must not empty the link target.
+    monkeypatch.setattr(gene_index_build, "set_workflow_log_path", lambda path: None)
+    index = tmp_path / "index"
+    index.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / "results").mkdir(parents=True)
+    (elsewhere / "results" / "table.tsv").write_text("data\n")
+    (elsewhere / "thesis.tex").write_text("text\n")
+    (elsewhere / "build-gene-ldscore-index.log").write_text("log\n")
+    (index / ".build").symlink_to(elsewhere)
+
+    with pytest.warns(UserWarning, match="build directory could not be removed"):
+        gene_index_build._finalize_gene_index_log(index / ".build" / "build-gene-ldscore-index.log", index)
+
+    assert (elsewhere / "results" / "table.tsv").read_text() == "data\n"
+    assert (elsewhere / "thesis.tex").read_text() == "text\n"
+    assert (index / ".build").is_symlink()
+
+
 def test_gene_index_build_refuses_a_build_entry_that_is_not_a_directory(tmp_path, index_inputs, monkeypatch):
     index = tmp_path / "parent" / "index"
     _build_index(index_inputs, index, monkeypatch)

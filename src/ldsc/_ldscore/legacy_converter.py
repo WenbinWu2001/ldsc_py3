@@ -2,8 +2,9 @@
 
 The converter is the public import boundary for legacy LD-score suites:
 reference and weight ``.l2.ldscore(.gz)`` families, counts, and, for baseline
-partitioned suites, annotations and frequencies. Regression consumes the
-resulting canonical :class:`ldsc._ldscore.results.LDScoreResult` directory.
+partitioned suites, annotations and frequencies. The converter writes an
+LD-score directory, which regression opens with ``load_ldscore_from_dir()``
+as an :class:`ldsc._ldscore.source.LDScoreSource`.
 Standalone annotation workflows retain their separate ``.annot(.gz)`` readers.
 """
 

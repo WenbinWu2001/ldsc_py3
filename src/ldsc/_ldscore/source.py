@@ -37,6 +37,9 @@ _QUERY_BATCH_FILE_RE = re.compile(r"ldscore\.query\.batch\d{5}\.parquet")
 REGRESSION_LD_SCORE_COLUMN = "regression_ld_scores"
 ALL_COUNT_FIELD = "all_reference_snp_count"
 COMMON_COUNT_FIELD = "common_reference_snp_count"
+# ``count_config`` fields: the MAF threshold and comparison that define common-SNP counts.
+COMMON_MAF_MIN_FIELD = "common_reference_snp_maf_min"
+COMMON_MAF_OPERATOR_FIELD = "common_reference_snp_maf_operator"
 INDEX_PROVENANCE_FIELDS = ("index_id", "index_snp_identifier", "index_genome_build")
 
 
@@ -506,13 +509,13 @@ def read_ldscore_manifest(ldscore_dir) -> LDScoreManifest:
     query_batches = load_query_manifest(root, metadata, baseline_columns,
                                         _parquet_footer(declared["baseline"], pq.read_schema).names)
     count_config = metadata.get("count_config")
-    threshold = count_config.get("common_reference_snp_maf_min") if isinstance(count_config, dict) else None
+    threshold = count_config.get(COMMON_MAF_MIN_FIELD) if isinstance(count_config, dict) else None
     if (not isinstance(threshold, (int, float)) or isinstance(threshold, bool)
-            or not isinstance(count_config.get("common_reference_snp_maf_operator"), str)):
+            or not isinstance(count_config.get(COMMON_MAF_OPERATOR_FIELD), str)):
         raise LDSCInputError(
             f"Could not load LD-score directory '{root}': metadata is missing a usable `count_config`, the "
-            "common-SNP MAF threshold (`common_reference_snp_maf_min`) and comparison "
-            "(`common_reference_snp_maf_operator`) of its counts. Most likely the directory was written by an "
+            f"common-SNP MAF threshold (`{COMMON_MAF_MIN_FIELD}`) and comparison "
+            f"(`{COMMON_MAF_OPERATOR_FIELD}`) of its counts. Most likely the directory was written by an "
             "older LDSC3 version or edited by hand. Regenerate it with the current `ldsc ldscore`. "
             f"Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
         )
@@ -697,9 +700,9 @@ def _validate_count_overlap_config(metadata: dict[str, Any], root: Path) -> None
     if not overlap_config:
         return
     count_config = metadata.get("count_config") or {}
-    count_threshold = count_config.get("common_reference_snp_maf_min")
+    count_threshold = count_config.get(COMMON_MAF_MIN_FIELD)
     overlap_threshold = overlap_config.get("common_maf_min")
-    count_operator = count_config.get("common_reference_snp_maf_operator")
+    count_operator = count_config.get(COMMON_MAF_OPERATOR_FIELD)
     overlap_operator = overlap_config.get("common_maf_operator")
     thresholds_agree = False
     try:

@@ -31,8 +31,9 @@ from .._annotation.storage import TsvDiagnostics
 from .._core.row_alignment import first_identity_mismatch
 from .._core.snp_identity import identity_artifact_metadata
 from ..config import normalize_required_path
-from .source import (is_numbered_query_batch_file, load_ldscore_from_dir, query_batch_file_name,
-                     validate_ldscore_baseline_table, validate_ldscore_query_table)
+from .source import (COMMON_MAF_MIN_FIELD, COMMON_MAF_OPERATOR_FIELD, is_numbered_query_batch_file,
+                     load_ldscore_from_dir, query_batch_file_name, validate_ldscore_baseline_table,
+                     validate_ldscore_query_table)
 from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError
 from .results import LDScoreResult, StagedLDScoreBatch
 from .._runtime.artifacts import ArtifactFamily, atomic_write_json, declare_artifacts, to_serializable
@@ -183,8 +184,8 @@ QUERY_STATUS_COLUMNS = ["query", "source", "input_type", "status", "reason", "n_
 def common_count_config(common_maf_min: float) -> dict[str, Any]:
     """Return count metadata for common-SNP counts, ``MAF >= common_maf_min``."""
     return {
-        "common_reference_snp_maf_min": float(common_maf_min),
-        "common_reference_snp_maf_operator": ">=",
+        COMMON_MAF_MIN_FIELD: float(common_maf_min),
+        COMMON_MAF_OPERATOR_FIELD: ">=",
     }
 
 
@@ -737,17 +738,17 @@ class LDScoreDirectoryWriter:
         )
         chromosomes = baseline_table["CHR"].astype(str).drop_duplicates().tolist()
         overlap = publication.overlap
+        count_config = dict(publication.count_config or DEFAULT_COUNT_CONFIG)
         overlap_config = None
         if overlap is not None:
-            count_config = publication.count_config
             overlap_config = {
                 "total_all_reference_snps": float(overlap.total_all_reference_snps),
                 "total_common_reference_snps": (
                     None if overlap.total_common_reference_snps is None
                     else float(overlap.total_common_reference_snps)
                 ),
-                "common_maf_min": float(count_config.get("common_reference_snp_maf_min", 0.05)),
-                "common_maf_operator": str(count_config.get("common_reference_snp_maf_operator", ">=")),
+                "common_maf_min": float(count_config[COMMON_MAF_MIN_FIELD]),
+                "common_maf_operator": str(count_config[COMMON_MAF_OPERATOR_FIELD]),
                 "stored_block": (
                     "baseline_rows_plus_query_diagonal" if publication.query_columns else "baseline_by_baseline"
                 ),
@@ -761,7 +762,7 @@ class LDScoreDirectoryWriter:
             "query_columns": list(publication.query_columns),
             "annotation_types": dict(publication.annotation_types),
             "counts": list(publication.count_records),
-            "count_config": dict(publication.count_config or DEFAULT_COUNT_CONFIG),
+            "count_config": count_config,
             "overlap_config": overlap_config,
             "n_baseline_rows": int(len(baseline_table)),
             "n_query_rows": int(len(baseline_table)) if publication.query_columns else 0,

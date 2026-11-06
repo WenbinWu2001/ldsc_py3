@@ -20,7 +20,7 @@ from ..errors import LDSCInputError
 from .._runtime.paths import resolve_file_group, split_cli_path_tokens
 from .overlap_model import assemble_model_overlap
 from .._genome.build_policy import GenomeBuildCheck
-from .._ldscore.source import COMMON_COUNT_FIELD
+from .._ldscore.source import COMMON_COUNT_FIELD, COMMON_MAF_MIN_FIELD, COMMON_MAF_OPERATOR_FIELD
 
 LOGGER = logging.getLogger("LDSC.quantile_h2")
 
@@ -150,8 +150,8 @@ def _alignment(target, bundle, ldscores, store, diagnostics, reference_paths, ta
     store.issues(diagnostics, "reference", "NOT EXISTS (SELECT 1 FROM fitted s WHERE s.effective_snp_id=r.effective_snp_id)",
                  role="reference_metadata", source=reference_source, issue="missing_baseline_annotation",
                  action="excluded", details="reference SNP is outside the fitted annotation SNP grid")
-    threshold = float(ldscores.count_config["common_reference_snp_maf_min"])
-    operator = ldscores.count_config["common_reference_snp_maf_operator"]
+    threshold = float(ldscores.count_config[COMMON_MAF_MIN_FIELD])
+    operator = ldscores.count_config[COMMON_MAF_OPERATOR_FIELD]
     if operator != ">=":
         raise LDSCInputError(
             f"quantile-h2 does not support inherited common-MAF operator {operator!r}."

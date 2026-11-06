@@ -30,7 +30,7 @@ from ..errors import LDSCInputError, LDSCUsageError
 from .results import LDScoreResult
 from .overlap_table import LDScoreOverlap
 from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
-from .source import REGRESSION_LD_SCORE_COLUMN, count_record
+from .source import COMMON_MAF_MIN_FIELD, COMMON_MAF_OPERATOR_FIELD, REGRESSION_LD_SCORE_COLUMN, count_record
 from .._runtime.paths import ensure_output_directory, normalize_path_token
 from .._genome.build_policy import GenomeBuildCheck
 
@@ -70,8 +70,8 @@ _ISSUE_COLUMNS = [
 ]
 _METADATA_COLUMNS = {"CHR", "SNP", "BP", "POS", "CM", "MAF", "GENOME_BUILD"}
 _COUNT_CONFIG = {
-    "common_reference_snp_maf_min": 0.05,
-    "common_reference_snp_maf_operator": ">",
+    COMMON_MAF_MIN_FIELD: 0.05,
+    COMMON_MAF_OPERATOR_FIELD: ">",
     "common_reference_snp_semantics": "legacy_ldsc",
 }
 # The converter's own diagnostics, relative to its output directory.

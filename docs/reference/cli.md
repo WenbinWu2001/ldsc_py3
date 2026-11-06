@@ -1,6 +1,6 @@
 # Command-line reference
 
-Last updated on: 2026-11-05
+Last updated on: 2026-11-06
 
 LDSC3 provides one command, `ldsc`, with one subcommand per workflow; `python -m ldsc` is equivalent.
 This page lists every option of every subcommand, taken on 2026-10-28 from the parsers that `ldsc.cli._command_parser()` returns.
@@ -83,7 +83,7 @@ Compute LD scores.
 | `--allow-unresolved-genes` | Omit rejected gene identifiers and continue with the usable subset, recording omissions in diagnostics. Default: off (strict resolution; rejected identifiers stop the run). Requires --query-annot-gene-list-sources. Other validation errors remain fatal. |
 | `--r2-matrix-dir` | R2 matrix directory written by build-r2-matrix, containing chrN_r2.parquet and required chrN_meta.tsv.gz files. The LD window must use the unit the R2 matrix was built with and be no wider. Direct mode requires exactly one of --r2-matrix-dir or --plink-prefix. Cannot be combined with --gene-ldscore-index-dir; no default. |
 | `--plink-prefix` | PLINK .bed/.bim/.fam filename prefix or chromosome suite stem. Direct mode requires exactly one of --plink-prefix or --r2-matrix-dir. Cannot be combined with --gene-ldscore-index-dir; no default. Direct query runs require every declared chromosome member. Accepts '*' and '@' patterns; see --baseline-annot-sources for pattern rules. |
-| `--keep-indivs-file` | File listing one individual ID (IID) per row to retain from PLINK genotypes. Requires --plink-prefix; cannot be used with --r2-matrix-dir or --gene-ldscore-index-dir. If omitted, retain all individuals. Supply an exact file path; patterns are not expanded. |
+| `--keep-indivs-file` | File listing one individual ID (IID) per row to retain from PLINK genotypes; an IID listed more than once counts once. Requires --plink-prefix; cannot be used with --r2-matrix-dir or --gene-ldscore-index-dir. If omitted, retain all individuals. Supply an exact file path; patterns are not expanded. |
 | `--genetic-map-hg19-sources` | hg19 genetic-map files used to derive centiMorgan coordinates for PLINK SNPs. Accepts comma-separated exact file paths; '*' and '@' are not expanded. If omitted, use informative PLINK CM values; cM windows require one of these sources. Direct PLINK mode only. |
 | `--genetic-map-hg38-sources` | hg38 genetic-map files used to derive centiMorgan coordinates for PLINK SNPs. Accepts comma-separated exact file paths; '*' and '@' are not expanded. If omitted, use informative PLINK CM values; cM windows require one of these sources. Direct PLINK mode only. |
 | `--export-ref-metadata` | Write reference-panel SNP metadata, with the minor allele as A1, to ref_metadata/chrN_meta.tsv.gz under --output-dir. Applies to --plink-prefix only; rejected with --r2-matrix-dir, whose chrN_meta.tsv.gz sidecars hold the same metadata, and with --gene-ldscore-index-dir. Default: off; these additional files are not written. |
@@ -113,7 +113,7 @@ Build pairwise R2 matrices from PLINK genotypes.
 | `--snp-identifier` | Match SNPs by rsID (rsid) or chromosome and position (chr_pos); allele-aware variants also use A1/A2. Default: chr_pos_allele_aware; usable alleles are required. Controls duplicate removal, SNP-list matching, and the written R2 matrix identity. |
 | `--source-genome-build` | Genome build of input PLINK coordinates. Default: auto, check every BIM shard and coordinate keep list before filtering. Concrete builds must agree with input declarations; cM maps follow the resolved build. |
 | `--plink-prefix` | Required. Required PLINK .bed/.bim/.fam filename prefix; chromosome suite stems are also accepted. Quote patterns: '*' matches filename text; '@' substitutes chromosome numbers 1-22 by default. Use '*' to select available files for a chromosome subset where allowed. |
-| `--keep-indivs-file` | File listing one individual ID (IID) per row to retain from PLINK genotypes. If omitted, retain all individuals. Accepts an exact path or a quoted '*' pattern matching exactly one file; '@' is not expanded. |
+| `--keep-indivs-file` | File listing one individual ID (IID) per row to retain from PLINK genotypes; an IID listed more than once counts once. If omitted, retain all individuals. Accepts an exact path or a quoted '*' pattern matching exactly one file; '@' is not expanded. |
 | `--ref-panel-snps-file` | Headered SNP identity table restricting reference SNPs. Coordinate identities must use the PLINK source build; duplicate keys collapse and extra columns are ignored. If omitted, use all otherwise eligible SNPs. Accepts an exact path or a quoted '*' pattern matching exactly one file; '@' is not expanded. |
 | `--maf-min` | Keep reference SNPs with MAF at or above this value, in [0, 0.5]. If omitted, apply no additional MAF threshold. |
 | `--ld-wind-cm` | Maximum pair distance on either side of each SNP, in centiMorgans. Requires --genetic-map-hg19-sources or --genetic-map-hg38-sources for each emitted build. No default; specify exactly one of --ld-wind-snps, --ld-wind-kb, or --ld-wind-cm. |
@@ -142,7 +142,7 @@ Build a reusable gene LD-score index.
 | `--padding-bp` | Extend each gene boundary by this many base pairs at both ends before finding covered SNPs. Default: 0, use gene bodies. Must be nonnegative and is fixed in the index. |
 | `--gene-exclude-regions` | Exclude MHC-overlapping genes before padding, or none to exclude no genes. Default: mhc. The choice is fixed in the index. |
 | `--plink-prefix` | Required. Required PLINK .bed/.bim/.fam filename prefix or chromosome suite covering 1-22. Accepts suite stems, '*' and '@' patterns; see --baseline-annot-sources for pattern rules. |
-| `--keep-indivs-file` | File listing one individual ID (IID) per row to retain from PLINK genotypes. If omitted, retain all individuals. Supply an exact file path; patterns are not expanded. |
+| `--keep-indivs-file` | File listing one individual ID (IID) per row to retain from PLINK genotypes; an IID listed more than once counts once. If omitted, retain all individuals. Supply an exact file path; patterns are not expanded. |
 | `--genetic-map-hg19-sources` | hg19 genetic-map files for deriving SNP centiMorgan coordinates. Accepts comma-separated exact file paths; '*' and '@' are not expanded. If omitted, use informative PLINK CM values; one usable coordinate source is required. |
 | `--genetic-map-hg38-sources` | hg38 genetic-map files for --ld-wind-cm with --genome-build hg38. Same path rules as --genetic-map-hg19-sources. |
 | `--ld-wind-cm` | Maximum LD-window distance on either side of each SNP, in centiMorgans. No default; requires informative PLINK CM values or a matching-build genetic map. Specify exactly one LD window. |

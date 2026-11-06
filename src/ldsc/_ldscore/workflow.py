@@ -274,7 +274,8 @@ def build_parser() -> argparse.ArgumentParser:
     plink.add_argument(
         '--keep-indivs-file', default=None, metavar='FILE',
         help=(
-            'File listing one individual ID (IID) per row to retain from PLINK genotypes. Requires '
+            'File listing one individual ID (IID) per row to retain from PLINK genotypes; an IID listed more '
+            'than once counts once. Requires '
             '--plink-prefix; cannot be used with --r2-matrix-dir or --gene-ldscore-index-dir. If omitted, retain all '
             'individuals. Supply an exact file path; patterns are not expanded.'
         ),

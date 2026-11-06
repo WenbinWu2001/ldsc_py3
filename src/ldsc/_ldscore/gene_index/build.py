@@ -210,8 +210,9 @@ def build_parser() -> argparse.ArgumentParser:
     panel.add_argument(
         '--keep-indivs-file', default=None, metavar='FILE',
         help=(
-            'File listing one individual ID (IID) per row to retain from PLINK genotypes. If omitted, retain all '
-            'individuals. Supply an exact file path; patterns are not expanded.'
+            'File listing one individual ID (IID) per row to retain from PLINK genotypes; an IID listed more '
+            'than once counts once. If omitted, retain all individuals. Supply an exact file path; patterns are '
+            'not expanded.'
         ),
     )
     panel.add_argument(

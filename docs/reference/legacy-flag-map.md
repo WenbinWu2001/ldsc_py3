@@ -1,6 +1,6 @@
 # Legacy LDSC to Current CLI Flag Map
 
-Last updated on: 2026-11-05
+Last updated on: 2026-11-06
 
 This document maps changed legacy LDSC flags to the supported `ldsc` commands and records the flag-cleanup decisions.
 Legacy LDSC source links point to `bulik/ldsc` at commit `aa33296`.
@@ -104,6 +104,16 @@ Smaller `--ld-wind-snps` windows and sparse panels change more; on the 32-SNP te
 
 Sources: legacy LDSC [`ldscore/ldscore.py:167-168`, `__corSumVarBlocks__`](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldscore/ldscore.py#L167-L168); current [`_ldscore/compute.py`, `_cor_sum_var_blocks` and `_zero_pairs_outside_window`](../../src/ldsc/_ldscore/compute.py), tested in [`test_ldscore_projection.py`](../../tests/ldscore/test_ldscore_projection.py) and [`test_plink_exact_windows.py`](../../tests/ldscore/test_plink_exact_windows.py).
 
+### Repeated IDs in a keep file
+
+A keep file (`--keep-indivs-file`, legacy `--keep`) is a set of individuals: `ldscore`, `build-r2-matrix` and `build-gene-ldscore-index` retain each `.fam` row whose IID the file lists, in `.fam` order, and an IID listed more than once counts once.
+Legacy LDSC left-merged the `.fam` IIDs with the keep list and used the positions of the matched rows in the merged table as `.fam` rows, so each repeated IID shifted every later selected row by one.
+Such a run silently retained individuals the file does not list, and it could read the bits after the last individual (the BED padding) as a sample, because its bounds check also accepted an index equal to the number of individuals.
+The current reader rejects that index.
+A keep file without repeated IIDs selects the same individuals as in legacy LDSC.
+
+Sources: legacy LDSC [`ldscore/parse.py:274-283`, `loj`](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldscore/parse.py#L274-L283) and [`ldscore/ldscore.py:81`, the keep-index bounds check](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldscore/ldscore.py#L81); current [`_core/plink_files.py`, `loj`](../../src/ldsc/_core/plink_files.py), [`_refpanel/plink_source.py`, `keep_individual_indices`](../../src/ldsc/_refpanel/plink_source.py) and [`_refpanel/plink.py`, `__GenotypeArrayInMemory__`](../../src/ldsc/_refpanel/plink.py), tested in [`test_keep_individuals.py`](../../tests/refpanel/test_keep_individuals.py) and [`test_plink_io.py`](../../tests/refpanel/test_plink_io.py).
+
 ## Established command and input renames
 
 These mappings describe current workflows and are not additional changes made by this cleanup. Where workflow semantics differ, a replacement is described as a workflow rather than a one-to-one alias.
@@ -115,7 +125,7 @@ These mappings describe current workflows and are not additional changes made by
 | `ldsc.py --l2` | `ldsc ldscore` | LD-score computation is a subcommand. |
 | `ldsc.py --bfile PREFIX` | `ldsc ldscore --plink-prefix PREFIX` | PLINK BED/BIM/FAM input; current prefix resolution also handles chromosome suites. |
 | `ldsc.py --extract FILE` | `ldsc ldscore --ref-panel-snps-file FILE` | Select the reference SNPs using the current headered identity-file contract. |
-| `ldsc.py --keep FILE` | `ldsc ldscore --keep-indivs-file FILE` | Restrict PLINK individuals; invalid with an R² matrix. |
+| `ldsc.py --keep FILE` | `ldsc ldscore --keep-indivs-file FILE` | Restrict PLINK individuals; invalid with an R² matrix. An IID listed more than once counts once; see [Repeated IDs in a keep file](#repeated-ids-in-a-keep-file). |
 | `ldsc.py --annot SOURCES` | `--baseline-annot-sources`, optionally `--query-annot-sources` | Explicitly separate baseline annotations from query annotations; current annotation inputs include identity metadata. |
 | `ldsc.py --maf VALUE` | `ldsc ldscore --maf-min VALUE` | Reference-panel MAF filtering; `--common-maf-min` separately controls common-SNP count vectors. |
 | `ldsc.py --chunk-size N` | `ldsc ldscore --snp-batch-size N` | PLINK genotype computation batch size, current default 512. Unlike `--chunk-size`, it does not widen LD windows; see [Exact PLINK LD windows](#exact-plink-ld-windows). This is not munging's `--chunksize`. |

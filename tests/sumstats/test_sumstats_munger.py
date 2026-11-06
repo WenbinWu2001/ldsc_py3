@@ -760,7 +760,6 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertNotIn("sumstats_gz", summary.output_paths)
             self.assertNotIn("log", summary.output_paths)
             self.assertNotIn("metadata_json", summary.output_paths)
-            self.assertEqual(summary.inferred_columns["detected_format"], "plain")
 
     def test_run_base_rsid_without_allele_columns_defaults_to_allele_free_table(self):
         with tempfile.TemporaryDirectory() as tmpdir:

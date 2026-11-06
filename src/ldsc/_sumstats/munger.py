@@ -151,7 +151,6 @@ class MungeRunSummary:
     n_input_rows: int
     n_retained_rows: int
     drop_counts: dict[str, int]
-    inferred_columns: dict[str, str]
     used_n_rule: str
     output_paths: dict[str, str]
     qc_thresholds: dict[str, float | None]
@@ -353,7 +352,6 @@ class SumstatsMunger:
                 n_input_rows=result.n_input_rows,
                 n_retained_rows=len(table.data),
                 drop_counts=result.drop_counts,
-                inferred_columns={**column_hints, "detected_format": plan.schema.detected_format},
                 used_n_rule=result.used_n_rule,
                 output_paths=run_output_paths,
                 qc_thresholds={"INFO": request.qc.info_min, "FRQ": request.qc.maf_min},

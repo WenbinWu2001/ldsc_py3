@@ -185,17 +185,16 @@ def test_rsid_preparation_of_a_build_tagged_panel_raises_no_genome_build_warning
     assert not [warning for warning in recwarn if "genome_build is set" in str(warning.message)]
 
 
-def test_parquet_genetic_maps_are_ignored_at_preparation(tmp_path, caplog):
+def test_r2_matrix_cm_windows_use_the_sidecar_cm(tmp_path):
     metadata = write_panel(tmp_path, ld_window=("cm", 1.0))
     panel = R2MatrixRefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(
-        backend="r2_matrix", r2_matrix_dir=tmp_path, genetic_map_hg19_sources="unused-map.tsv",
+        backend="r2_matrix", r2_matrix_dir=tmp_path,
     ))
     with panel.prepare_chromosome(
         "1", ChromosomeAnnotations(metadata, pd.DataFrame({"base": [1, 1]}), ["base"], []),
         LDScoreConfig(ld_wind_cm=0.3, whole_chromosome_ok=True),
     ) as prepared:
         np.testing.assert_allclose(prepared.metadata["CM"], [0.1, 0.3])
-    assert "Ignoring --genetic-map" in caplog.text
 
 
 def test_plink_preparation_maps_sorted_annotations_to_physical_bed_columns(tmp_path):

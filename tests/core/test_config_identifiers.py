@@ -209,6 +209,7 @@ class WorkflowConfigTest(unittest.TestCase):
     def test_ref_panel_config_normalizes_reference_panel_filter_fields(self):
         config = RefPanelConfig(
             backend="plink",
+            plink_prefix="panel",
             maf_min=0.01,
             keep_indivs_file=Path("filters") / "samples.keep",
         )
@@ -376,18 +377,20 @@ class WorkflowConfigTest(unittest.TestCase):
     def test_ref_panel_config_normalizes_path_fields(self):
         config = RefPanelConfig(
             backend="r2_matrix",
-            plink_prefix=Path("plink") / "panel",
             r2_matrix_dir=Path("r2_matrix") / "hg38",
             ref_panel_snps_file=Path("filters") / "snps.txt",
-            keep_indivs_file=Path("filters") / "samples.keep",
             maf_min=0.02,
         )
         self.assertEqual(config.backend, "r2_matrix")
-        self.assertEqual(config.plink_prefix, "plink/panel")
         self.assertEqual(config.r2_matrix_dir, "r2_matrix/hg38")
         self.assertEqual(config.ref_panel_snps_file, "filters/snps.txt")
-        self.assertEqual(config.keep_indivs_file, "filters/samples.keep")
         self.assertEqual(config.maf_min, 0.02)
+        plink = RefPanelConfig(backend="plink", plink_prefix=Path("plink") / "panel",
+                               keep_indivs_file=Path("filters") / "samples.keep",
+                               genetic_map_hg38_sources=Path("maps") / "hg38.txt")
+        self.assertEqual(plink.plink_prefix, "plink/panel")
+        self.assertEqual(plink.keep_indivs_file, "filters/samples.keep")
+        self.assertEqual(plink.genetic_map_hg38_sources, "maps/hg38.txt")
 
     def test_ref_panel_config_accepts_runtime_source_fields(self):
         config = RefPanelConfig(backend="plink", plink_prefix=Path("plink") / "panel")
@@ -400,16 +403,13 @@ class WorkflowConfigTest(unittest.TestCase):
             query_annot_gene_list_sources=(Path("genes") / "immune.txt.gz",),
             gene_coordinate_file=Path("genes") / "catalog.tsv.gz",
         )
-        ref = RefPanelConfig(
-            backend="r2_matrix",
-            plink_prefix=Path("plink") / "panel",
-            r2_matrix_dir=Path("r2_matrix") / "hg38",
-        )
+        ref = RefPanelConfig(backend="r2_matrix", r2_matrix_dir=Path("r2_matrix") / "hg38")
+        plink = RefPanelConfig(backend="plink", plink_prefix=Path("plink") / "panel")
         self.assertEqual(raw.raw_sumstats_file, "sumstats/trait.tsv.gz")
         self.assertEqual(annot.baseline_annot_sources, ("baseline/base.1.annot.gz",))
         self.assertEqual(annot.query_annot_gene_list_sources, ("genes/immune.txt.gz",))
         self.assertEqual(annot.gene_coordinate_file, "genes/catalog.tsv.gz")
-        self.assertEqual(ref.plink_prefix, "plink/panel")
+        self.assertEqual(plink.plink_prefix, "plink/panel")
         self.assertEqual(ref.r2_matrix_dir, "r2_matrix/hg38")
 
     def test_public_configs_accept_single_string_tokens_for_plural_fields(self):
@@ -760,3 +760,53 @@ def test_invalid_build_or_mode_reports_the_configs_own_message(case):
         make()
     assert str(raised.value).startswith(message)
     assert isinstance(raised.value.__cause__, LDSCConfigError)
+
+
+PLINK_ONLY_REMEDY = "Remove the PLINK-only options, or use backend='plink' with plink_prefix (`--plink-prefix`)."
+KEEP_REASON = ("keep_indivs_file (`--keep-indivs-file`) applies only to a PLINK reference panel, because "
+               "individuals can be filtered only before PLINK genotype LD calculation.")
+
+
+@pytest.mark.parametrize(("fields", "message"), [
+    ({"keep_indivs_file": "keep.txt"},
+     f"Could not construct RefPanelConfig(backend='r2_matrix'): {KEEP_REASON} {PLINK_ONLY_REMEDY}"),
+    ({"genetic_map_hg19_sources": "map19.txt", "plink_prefix": "panel"},
+     "Could not construct RefPanelConfig(backend='r2_matrix'): plink_prefix (`--plink-prefix`) applies only to a "
+     "PLINK reference panel, because an R2 matrix run reads no PLINK files. genetic_map_hg19_sources "
+     "(`--genetic-map-hg19-sources`) applies only to a PLINK reference panel, because the R2 matrix sidecars "
+     f"already hold the CM of every SNP. {PLINK_ONLY_REMEDY}"),
+    ({"genetic_map_hg38_sources": "map38.txt"},
+     "Could not construct RefPanelConfig(backend='r2_matrix'): genetic_map_hg38_sources "
+     "(`--genetic-map-hg38-sources`) applies only to a PLINK reference panel, because the R2 matrix sidecars "
+     f"already hold the CM of every SNP. {PLINK_ONLY_REMEDY}"),
+])
+def test_r2_matrix_config_rejects_plink_only_fields_once_at_construction(fields, message):
+    with pytest.raises(LDSCConfigError) as raised:
+        RefPanelConfig(backend="r2_matrix", r2_matrix_dir="r2", **fields)
+    assert str(raised.value) == message
+
+
+def test_plink_config_rejects_an_r2_matrix_dir():
+    with pytest.raises(LDSCConfigError) as raised:
+        RefPanelConfig(backend="plink", plink_prefix="panel", r2_matrix_dir="r2")
+    assert str(raised.value) == (
+        "Could not construct RefPanelConfig(backend='plink'): r2_matrix_dir (`--r2-matrix-dir`) applies only to "
+        "an R2 matrix, because a PLINK run reads no R2 matrix. Remove r2_matrix_dir, or use backend='r2_matrix'.")
+
+
+@pytest.mark.parametrize(("backend", "message"), [
+    ("plink", "Could not construct RefPanelConfig(backend='plink'): plink_prefix (`--plink-prefix`) is required. "
+              "Pass the PLINK .bed/.bim/.fam prefix."),
+    ("r2_matrix", "Could not construct RefPanelConfig(backend='r2_matrix'): r2_matrix_dir (`--r2-matrix-dir`) is "
+                  "required. Pass the directory that `ldsc build-r2-matrix` wrote."),
+])
+def test_ref_panel_config_requires_the_backend_source(backend, message):
+    with pytest.raises(LDSCConfigError) as raised:
+        RefPanelConfig(backend=backend)
+    assert str(raised.value) == message
+
+
+def test_ref_panel_config_has_no_chromosome_list():
+    # R2 matrix chromosomes come from its files and PLINK chromosomes from the .bim contents.
+    with pytest.raises(TypeError, match="chromosomes"):
+        RefPanelConfig(backend="r2_matrix", r2_matrix_dir="r2", chromosomes=("1",))

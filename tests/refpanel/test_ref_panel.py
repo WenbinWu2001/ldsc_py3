@@ -55,7 +55,7 @@ class RefPanelLoaderTest(unittest.TestCase):
         self.assertIsInstance(panel, PlinkRefPanel)
 
     def test_ref_panel_config_accepts_ref_panel_snps_file(self):
-        spec = RefPanelConfig(backend="plink", ref_panel_snps_file="/path/to/snps.txt")
+        spec = RefPanelConfig(backend="plink", plink_prefix="panel", ref_panel_snps_file="/path/to/snps.txt")
         self.assertEqual(spec.ref_panel_snps_file, "/path/to/snps.txt")
 
     def test_ref_panel_config_accepts_r2_matrix_dir(self):
@@ -64,7 +64,7 @@ class RefPanelLoaderTest(unittest.TestCase):
 
     def test_loader_selects_parquet_backend(self):
         loader = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
-        spec = RefPanelConfig(backend="r2_matrix", chromosomes=("1",))
+        spec = RefPanelConfig(backend="r2_matrix", r2_matrix_dir="/path/to/panel/hg38")
         panel = loader.load(spec)
         self.assertIsInstance(panel, R2MatrixRefPanel)
 
@@ -72,14 +72,16 @@ class RefPanelLoaderTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             restriction = Path(tmpdir) / "snps.tsv"
             restriction.write_text("CHR\tHG38_POS\n1\t10\n", encoding="utf-8")
+            panel = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "A1": ["A"], "A2": ["C"], "MAF": [0.2]})
+            write_r2_matrix_chromosome(Path(tmpdir) / "r2", panel, snp_identifier="chr_pos_allele_aware",
+                                       genome_build="hg38")
             loader = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="auto"))
 
-            resolved = loader._global_config_for_spec(
-                RefPanelConfig(backend="plink", ref_panel_snps_file=str(restriction))
-            )
+            loaded = loader.load(RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(Path(tmpdir) / "r2"),
+                                                ref_panel_snps_file=str(restriction)))
 
-            self.assertEqual(resolved.snp_identifier, "chr_pos_allele_aware")
-            self.assertEqual(resolved.genome_build, "hg38")
+            self.assertEqual(loaded.global_config.snp_identifier, "chr_pos_allele_aware")
+            self.assertEqual(loaded.global_config.genome_build, "hg38")
 
 
 class PlinkRefPanelTest(unittest.TestCase):

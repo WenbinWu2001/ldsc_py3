@@ -586,13 +586,6 @@ def _configs_from_args(args: argparse.Namespace) -> "_DirectConfigs | _IndexedCo
     snp_identifier = normalize_snp_identifier_mode(args.snp_identifier)
     genome_build = normalize_genome_build(args.genome_build)
     if r2_matrix_dir:
-        if args.keep_indivs_file:
-            raise LDSCUsageError(
-                "ldscore cannot apply `--keep-indivs-file` in R2 matrix mode. Most likely "
-                "`--keep-indivs-file` was combined with `--r2-matrix-dir`, but individual-level "
-                "filtering only exists before PLINK genotype LD calculation. Remove "
-                "`--keep-indivs-file`, or rerun in PLINK mode with `--plink-prefix`."
-            )
         if identity_mode_family(snp_identifier) == "chr_pos" and genome_build is None:
             raise LDSCUsageError(
                 "ldscore cannot run R2 matrix mode with a coordinate-family SNP identifier mode "

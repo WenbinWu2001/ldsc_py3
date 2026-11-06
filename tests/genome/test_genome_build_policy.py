@@ -14,7 +14,12 @@ from ldsc._ldscore.outputs import LDScoreOutputConfig
 
 def ldscore_configs(*, baseline_annot_sources=(), query_annot_bed_sources=(), plink_prefix=None, r2_matrix_dir=None,
                     regr_snps_file=None, snp_identifier="chr_pos"):
-    """A direct ``ldscore`` configuration holding the inputs the build check reads."""
+    """A direct ``ldscore`` configuration holding the inputs the build check reads.
+
+    Without a panel argument the PLINK prefix names no file; an explicit build never reads it.
+    """
+    if plink_prefix is None and r2_matrix_dir is None:
+        plink_prefix = "absent-panel"
     return _DirectConfigs(
         global_config=GlobalConfig(snp_identifier=snp_identifier),
         genome_build=None,

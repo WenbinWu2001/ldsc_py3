@@ -36,7 +36,6 @@ from ._runtime.parallelism import validate_workers
 from ._runtime.paths import (
     normalize_optional_path_token, normalize_path_token, normalize_path_tokens, split_cli_path_tokens,
 )
-from ._core.chromosomes import normalize_chromosome
 
 LOGGER = logging.getLogger("LDSC.config")
 _GENOME_BUILD_UNSET = object()
@@ -488,11 +487,27 @@ class RefPanelConfig:
     keep_indivs_file : str or os.PathLike[str] or None, optional
         Optional path to a one-column IID keep file applied in PLINK mode before
         genotype-derived MAF is computed. Default is ``None``.
+    ref_panel_snps_file : str or os.PathLike[str] or None, optional
+        Optional SNP list restricting the reference-panel SNPs, read under the
+        run's SNP identifier mode. Default is ``None``.
+    genetic_map_hg19_sources, genetic_map_hg38_sources : str or os.PathLike[str] or None, optional
+        Comma-separated exact paths of the genetic map for each build. The
+        PLINK adapter interpolates ``CM`` from the map of the run's build for
+        ``--ld-wind-cm`` only. Default is ``None``.
+
+    Raises
+    ------
+    LDSCConfigError
+        ``backend`` is unknown, ``maf_min`` is outside [0, 0.5], the backend's
+        source path (``plink_prefix`` or ``r2_matrix_dir``) is missing, or a
+        field of the other backend is set: ``r2_matrix_dir`` with
+        ``backend="plink"``, or ``plink_prefix``, ``keep_indivs_file`` or a
+        genetic map with ``backend="r2_matrix"``. One error lists every such
+        field.
     """
     backend: RefPanelBackend
     plink_prefix: str | PathLike[str] | None = None
     r2_matrix_dir: str | PathLike[str] | None = None
-    chromosomes: tuple[str, ...] | list[str] | None = None
     maf_min: float | None = None
     keep_indivs_file: str | PathLike[str] | None = None
     ref_panel_snps_file: str | PathLike[str] | None = None
@@ -500,7 +515,7 @@ class RefPanelConfig:
     genetic_map_hg38_sources: str | PathLike[str] | None = None
 
     def __post_init__(self) -> None:
-        """Normalize backend path tokens and validate R2-matrix settings."""
+        """Normalize path tokens and check that every set field applies to ``backend``."""
         if self.backend not in {"plink", "r2_matrix"}:
             raise LDSCConfigError(_invalid_choice_message("RefPanelConfig", "backend", self.backend, "'plink' or 'r2_matrix'"))
         if self.maf_min is not None and not 0 <= self.maf_min <= 0.5:
@@ -511,8 +526,46 @@ class RefPanelConfig:
         object.__setattr__(self, "ref_panel_snps_file", _normalize_optional_path(self.ref_panel_snps_file))
         object.__setattr__(self, "genetic_map_hg19_sources", _normalize_optional_path(self.genetic_map_hg19_sources))
         object.__setattr__(self, "genetic_map_hg38_sources", _normalize_optional_path(self.genetic_map_hg38_sources))
-        if self.chromosomes is not None:
-            object.__setattr__(self, "chromosomes", tuple(normalize_chromosome(chrom) for chrom in self.chromosomes))
+        source, source_repair, other_fields, remedy = _REF_PANEL_BACKEND_FIELDS[self.backend]
+        problems = []
+        if getattr(self, source) is None:
+            problems.append(f"{source} (`{_cli_option(source)}`) is required. {source_repair}")
+        for name, reason in other_fields.items():
+            if getattr(self, name) is not None:
+                problems.append(f"{name} (`{_cli_option(name)}`) applies only to {reason}.")
+        if len(problems) > (getattr(self, source) is None):
+            problems.append(remedy)
+        if problems:
+            raise LDSCConfigError(f"Could not construct RefPanelConfig(backend={self.backend!r}): " + " ".join(problems))
+
+
+def _cli_option(field_name: str) -> str:
+    """Return the command-line option that sets a configuration field."""
+    return "--" + field_name.replace("_", "-")
+
+
+# For each backend: its required source field and repair, the fields of the
+# other backend with why they do not apply, and the remedy for setting them.
+_REF_PANEL_BACKEND_FIELDS = {
+    "plink": (
+        "plink_prefix", "Pass the PLINK .bed/.bim/.fam prefix.",
+        {"r2_matrix_dir": "an R2 matrix, because a PLINK run reads no R2 matrix"},
+        "Remove r2_matrix_dir, or use backend='r2_matrix'.",
+    ),
+    "r2_matrix": (
+        "r2_matrix_dir", "Pass the directory that `ldsc build-r2-matrix` wrote.",
+        {
+            "plink_prefix": "a PLINK reference panel, because an R2 matrix run reads no PLINK files",
+            "keep_indivs_file": "a PLINK reference panel, because individuals can be filtered only before "
+                                "PLINK genotype LD calculation",
+            "genetic_map_hg19_sources": "a PLINK reference panel, because the R2 matrix sidecars already hold "
+                                        "the CM of every SNP",
+            "genetic_map_hg38_sources": "a PLINK reference panel, because the R2 matrix sidecars already hold "
+                                        "the CM of every SNP",
+        },
+        "Remove the PLINK-only options, or use backend='plink' with plink_prefix (`--plink-prefix`).",
+    ),
+}
 
 
 @dataclass(frozen=True)

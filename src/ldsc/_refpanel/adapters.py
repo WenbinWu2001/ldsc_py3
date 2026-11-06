@@ -19,7 +19,7 @@ import pandas as pd
 from .._core.chromosomes import chrom_sort_key, normalize_chromosome
 from .._core.columns import normalize_genome_build
 from ..config import GlobalConfig, LDScoreConfig, RefPanelConfig, validate_config_compatibility
-from ..errors import EmptyReferenceSNPs, LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
+from ..errors import EmptyReferenceSNPs, LDSCConfigError, LDSCInputError, LDSCInternalError
 from .._genome.build_inference import resolve_genome_build, validate_auto_genome_build_mode
 from .._runtime.paths import inspect_plink_inputs, split_cli_path_tokens
 from .._runtime.preflight import InputGate
@@ -443,27 +443,17 @@ class R2MatrixRefPanel(RefPanel):
     _backend = "r2_matrix"
 
     def available_chromosomes(self) -> list[str]:
-        """List chromosomes from explicit config or from the files in the R2 matrix directory."""
-        if self.spec.chromosomes is not None:
-            return sorted(set(self.spec.chromosomes), key=chrom_sort_key)
-
-        if self.spec.r2_matrix_dir is not None:
-            chromosomes = r2_matrix_chromosomes(resolve_r2_build_dir(self.spec.r2_matrix_dir,
-                                                                     self.global_config.genome_build))
-            if chromosomes:
-                return chromosomes
-            raise LDSCInputError(
-                f"Reference-panel loading found no `chr*_r2.parquet` files in R2 matrix "
-                f"directory '{self.spec.r2_matrix_dir}'. Most likely the directory is not an "
-                "`ldsc build-r2-matrix` output directory or the wrong genome-build child "
-                "directory was selected. Pass the directory containing the R2 Parquet files. "
-                f"Other causes & fixes: {R2_MATRIX_TROUBLESHOOTING['ldscore']}"
-            )
-
-        raise LDSCUsageError(
-            "R2 matrix chromosome discovery requires explicit chromosomes or `r2_matrix_dir`. "
-            "Most likely `RefPanelConfig(backend='r2_matrix')` was used without an R2 matrix "
-            "directory. Pass `r2_matrix_dir` or an explicit chromosome list."
+        """List the chromosomes whose files are in the R2 matrix directory."""
+        chromosomes = r2_matrix_chromosomes(resolve_r2_build_dir(self.spec.r2_matrix_dir,
+                                                                 self.global_config.genome_build))
+        if chromosomes:
+            return chromosomes
+        raise LDSCInputError(
+            f"Reference-panel loading found no `chr*_r2.parquet` files in R2 matrix "
+            f"directory '{self.spec.r2_matrix_dir}'. Most likely the directory is not an "
+            "`ldsc build-r2-matrix` output directory or the wrong genome-build child "
+            "directory was selected. Pass the directory containing the R2 Parquet files. "
+            f"Other causes & fixes: {R2_MATRIX_TROUBLESHOOTING['ldscore']}"
         )
 
     def open_chromosome(self, chrom: str) -> R2MatrixChromosome:
@@ -476,12 +466,6 @@ class R2MatrixRefPanel(RefPanel):
             f"genome_build reached kernel as {self.global_config.genome_build!r}; "
             "should have been resolved at workflow entry."
         )
-        if self.spec.r2_matrix_dir is None:
-            raise LDSCUsageError(
-                "R2 matrix loading requires `r2_matrix_dir`. Most likely "
-                "`RefPanelConfig(backend='r2_matrix')` was used without an R2 matrix directory. "
-                "Pass the directory containing `chrN_r2.parquet` files."
-            )
         build_dir = resolve_r2_build_dir(self.spec.r2_matrix_dir, self.global_config.genome_build)
         chromosome = R2MatrixChromosome.open(build_dir, chrom, command="ldscore")
         _validate_r2_identity_matches_config(
@@ -530,12 +514,6 @@ class R2MatrixRefPanel(RefPanel):
 
     def _load_reference(self, chromosome: R2MatrixChromosome) -> tuple[pd.DataFrame, ReferenceSNPFunnel]:
         """Return the restricted sidecar and the chromosome's reference-SNP funnel so far."""
-        if self.spec.keep_indivs_file is not None:
-            raise LDSCUsageError(
-                "Reference-panel loading cannot apply `--keep-indivs-file` to an R2 matrix. "
-                "Most likely individual filtering was combined with a precomputed "
-                "R2 matrix. Remove the keep file or use a PLINK reference panel."
-            )
         metadata = chromosome.sidecar()
         if metadata.empty:
             raise LDSCInputError(
@@ -573,8 +551,6 @@ class R2MatrixRefPanel(RefPanel):
         metadata = aligned.metadata.copy()
         for column in ("CM", "MAF"):
             metadata[column] = lookup.loc[keys, column].to_numpy()
-        if config.ld_wind_cm is not None:
-            _resolve_genetic_map(self, chrom, reference)
         mapped_annotations = aligned.annotations
         mode, build = self.global_config.snp_identifier, self.global_config.genome_build
         reader = chromosome.pair_reader(metadata, mode, build)
@@ -674,9 +650,6 @@ def _resolve_genetic_map(panel, chrom, metadata):
     """Resolve the configured PLINK map against the prepared reference coordinates."""
     spec = panel.spec
     if not (spec.genetic_map_hg19_sources or spec.genetic_map_hg38_sources):
-        return None
-    if spec.backend != "plink":
-        LOGGER.warning("Ignoring --genetic-map-*-sources for the R2 matrix: CM is taken from the panel metadata sidecar (authoritative). Genetic-map flags apply only to PLINK panels.")
         return None
     build = normalize_genome_build(panel.global_config.genome_build)
     if build == "auto":

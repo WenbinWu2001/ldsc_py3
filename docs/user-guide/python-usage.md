@@ -514,6 +514,7 @@ if __name__ == "__main__":
 ```
 
 - `RefPanelConfig.backend` is required and must match the adapter: `backend="plink"` with `plink_prefix` for `PlinkRefPanel`, or `backend="r2_matrix"` with `r2_matrix_dir` for `R2MatrixRefPanel`.
+  `keep_indivs_file` and the genetic maps apply only to `backend="plink"`; constructing `RefPanelConfig` with a field of the other backend, or without its source path, raises `LDSCConfigError`.
   `RefPanelLoader(config).load(spec)` chooses the adapter from `backend`; an adapter given a configuration for the other form raises `LDSCConfigError`.
 - `metadata` must contain `CHR`, a one-based integer `POS`, and `SNP` for an rsID-family mode; supply both `A1` and `A2` or neither.
 - The frames align by position; annotation values must be finite numbers, and annotation names must be unique and differ from the metadata columns.

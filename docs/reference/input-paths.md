@@ -288,7 +288,7 @@ Requirements:
 Automatic inference:
 
 - common header aliases for required columns are inferred
-- the optional metadata columns `SNP`, `CM`, `MAF`, `A1` and `A2` are recognized by exact name or alias only; every other column, such as `lowMAF` or `EUR_MAF`, is an annotation ([column schema](formats/column-schema.md#annotation-files-exact-names-and-aliases-only))
+- the metadata columns `SNP`, `CM`, `MAF`, `A1` and `A2` are recognized by exact name or alias only; every column other than these and `CHR`/`POS`, such as `lowMAF` or `EUR_MAF`, is an annotation ([column schema](formats/column-schema.md#annotation-files-exact-names-and-aliases-only))
 - chromosome labels are normalized
 - multi-chromosome files are filtered by `CHR` during parsing
 

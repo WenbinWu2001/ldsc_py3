@@ -722,12 +722,14 @@ For BED queries, `--padding-bp` extends the supplied intervals at both ends. Set
 | 2 | An empty metadata placeholder was collapsed by whitespace parsing | Inspect adjacent delimiters around `CM`; package-written missing metadata uses the literal `NA` token |
 | 3 | Delimiters are inconsistent or a row/file is truncated | Inspect the reported row and neighboring rows for mixed tabs/spaces or an incomplete final record |
 | 4 | An annotation value is missing or non-numeric | Inspect the reported annotation columns and rows; missing tokens are allowed only in metadata columns |
+| 5 | A metadata column, such as `variant_id` or `ref_allele`, is not named by its canonical name or an alias, so it is read as an annotation | Compare the reported column with the accepted names in [Annotation files: exact names and aliases only](../reference/formats/column-schema.md#annotation-files-exact-names-and-aliases-only); a header that only ends in `SNP`, `ID`, `A1` or `CM` is not recognized |
 
 **Remedies:**
 
 1. Ensure every data row has exactly one field per header column.
 2. Use `NA` for missing metadata such as `CM`, never an empty field or a numeric sentinel.
 3. Supply numeric, non-missing values in every annotation column, then rerun.
+4. Rename a metadata column to its canonical name (`SNP`, `A1`, `A2`, `CM`, `MAF`) or an accepted alias, or drop it, then rerun.
 
 **Developer reference:** `_annotation.parsing.validate_annotation_values()` through the annotation and LD-score loaders · **Exception:** `LDSCInputError`
 

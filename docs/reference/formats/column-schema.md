@@ -49,6 +49,8 @@ SNP restriction files in coordinate-family modes also accept a build-specific po
 Annotation files, read by `annotate`, `ldscore` (`--baseline-annot-sources`, `--query-annot-sources`), `build-gene-ldscore-index`, the Python `AnnotationBuilder` and `quantile-h2` (fitted and target annotations), recognize `SNP`, `CM`, `MAF`, `A1` and `A2` only by their canonical name or an alias from the tables in this section.
 Every other column except `CHR` and `POS` is an annotation value column, so a header that only ends in a metadata name or alias stays an annotation: `lowMAF`, `EUR_MAF`, `eQTL_SNP` and `eQTL_CM` are annotations, and so are `Enhancers` and `Thyroid`, which end in the aliases `RS` and `ID`.
 `CHR` and `POS` are required and keep the full ranking.
+The same applies to real metadata stored under another name: a genetic-map column such as `GENETIC_MAP_CM`, a frequency column such as `EUR_MAF`, or a variant-ID column such as `variant_id` is read as an annotation, without a warning.
+Rename such a column to its canonical name or an alias, or drop it, before using the file; a non-numeric one such as `variant_id` stops the run as a [malformed annotation value](../../user-guide/troubleshooting.md#ldscore-annotation-values-are-malformed), and a numeric one is fitted as an annotation.
 Where `SNP` is required (annotation files in rsID-family modes, and `quantile-h2` target annotations in every mode), a file whose only SNP-like header is such a look-alike stops the run with an error naming the missing `SNP` column.
 This rule supersedes the earlier suffix matching for annotation files (changed on 2026-11-06), under which such columns were taken as metadata and silently left out of the model.
 

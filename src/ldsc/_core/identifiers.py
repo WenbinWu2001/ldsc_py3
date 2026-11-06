@@ -10,16 +10,12 @@ Overview
 This module owns low-level restriction-file parsing, delimiter handling, and
 header resolution. Exact SNP identity policy lives in
 ``ldsc._core.snp_identity``: four public modes, base/effective keys,
-allele-aware cleanup, and restriction key collapse semantics. Callers pass
-tables or file paths in, and receive normalized identifier series or
-restriction sets back.
+allele-aware cleanup, and restriction key collapse semantics; the one SNP key
+builder for a table is ``snp_identity.identity_key_series``. Callers pass
+file paths in and receive restriction sets back.
 
 Key Functions
 -------------
-normalize_snp_identifier_mode :
-    Validate one exact public SNP identifier mode.
-build_snp_id_series :
-    Construct the canonical SNP identifier series for a metadata table.
 read_global_snp_restriction :
     Read a restriction list using the active SNP identifier mode.
 read_global_chr_pos_restriction_key_set :
@@ -56,11 +52,10 @@ import numpy as np
 import pandas as pd
 
 from .coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame, normalize_chr_pos_frame, positive_int_position_series
-from .chromosomes import normalize_chromosome, normalize_chromosome_series
+from .chromosomes import normalize_chromosome_series
 from .columns import (
     A1_COLUMN_SPEC,
     A2_COLUMN_SPEC,
-    infer_chr_pos_columns,
     infer_snp_column,
     normalize_genome_build,
     resolve_optional_column,
@@ -71,7 +66,7 @@ from ..errors import LDSCInputError
 from .snp_identity import (
     RestrictionIdentityKeys,
     collapse_restriction_identity_keys,
-    effective_merge_key_series,
+    identity_key_series,
     empty_identity_drop_frame,
     identity_base_mode,
     identity_mode_family,
@@ -88,51 +83,6 @@ _CHROMOSOME_PACK_CODES = {
     "MT": 26,
 }
 _MAX_PACKED_POS = (1 << 32) - 1
-
-
-def build_chr_pos_snp_id(chrom: object, pos: object, *, context: str | None = None) -> str:
-    """Build the canonical ``CHR:POS`` base key used by coordinate-family modes."""
-    context = "CHR/POS identifier" if context is None else context
-    chrom_norm = normalize_chromosome(chrom, context=context)
-    pos_int = int(positive_int_position_series(pd.Series([pos]), context=context).iloc[0])
-    return f"{chrom_norm}:{pos_int}"
-
-
-def build_snp_id_series(df: pd.DataFrame, mode: str) -> pd.Series:
-    """
-    Build the canonical SNP identifier series for a metadata-like table.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Table containing either an inferred SNP column or inferred chromosome
-        and base-pair columns.
-    mode : {"rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"}
-        Exact SNP identifier mode. Base modes use only the base key; allele-aware
-        modes require usable ``A1/A2`` and build effective keys with the
-        normalized allele set.
-
-    Returns
-    -------
-    pandas.Series
-        One identifier per input row, aligned to ``df.index``.
-    """
-    mode = normalize_snp_identifier_mode(mode)
-    try:
-        return effective_merge_key_series(df, mode, context="metadata")
-    except (ValueError, LDSCInputError):
-        if is_allele_aware_mode(mode):
-            raise
-
-    if mode == "rsid":
-        snp_col = infer_snp_column(df.columns)
-        return df[snp_col].astype(str)
-    chr_col, pos_col = infer_chr_pos_columns(df.columns)
-    return pd.Series(
-        [build_chr_pos_snp_id(chrom, pos) for chrom, pos in zip(df[chr_col], df[pos_col])],
-        index=df.index,
-        name="snp_id",
-    )
 
 
 def build_packed_chr_pos_series(
@@ -177,7 +127,7 @@ def build_packed_chr_pos_series(
 def validate_unique_snp_ids(df: pd.DataFrame, mode: str, context: str = "table") -> None:
     """Raise ``ValueError`` if a table does not have unique canonical SNP identities."""
     mode = normalize_snp_identifier_mode(mode)
-    snp_ids = build_snp_id_series(df, mode)
+    snp_ids = identity_key_series(df, mode, context="metadata")
     duplicated = snp_ids[snp_ids.duplicated()].unique().tolist()
     if duplicated:
         preview = ", ".join(map(str, duplicated[:5]))
@@ -669,26 +619,10 @@ def _read_packed_chr_pos_restriction_rows(
     return values
 
 
-def identifier_keys(df: pd.DataFrame, mode: str) -> pd.Series:
-    """Build the canonical SNP identifier series used for matching within the kernel."""
-    mode = normalize_snp_identifier_mode(mode)
-    if identity_mode_family(mode) == "rsid" or is_allele_aware_mode(mode):
-        return build_snp_id_series(df, mode)
-    keyed, _report = build_chr_pos_key_frame(
-        df,
-        context="LD-score SNP matching",
-        drop_missing=True,
-        logger=LOGGER,
-    )
-    keys = pd.Series(pd.NA, index=df.index, dtype="object")
-    keys.loc[keyed.index] = keyed[CHR_POS_KEY_COLUMN].astype(str)
-    return keys
-
-
 def validate_retained_identifier_uniqueness(metadata: pd.DataFrame, identifier_mode: str, chrom: str) -> None:
     """Reject ambiguous retained SNP identifiers before parquet matching begins."""
     if is_allele_aware_mode(identifier_mode):
-        keys = effective_merge_key_series(
+        keys = identity_key_series(
             metadata,
             identifier_mode,
             context=f"retained SNP metadata for chromosome {chrom}",

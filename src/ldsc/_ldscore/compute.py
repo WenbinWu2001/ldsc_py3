@@ -56,10 +56,10 @@ from .._annotation.overlap import OverlapContribution, annotation_statistics
 from .._core.snp_identity import (
     RestrictionIdentityKeys,
     empty_identity_drop_frame,
+    identity_key_series,
     restriction_membership_mask,
 )
 from .._core.regions import RegionIntervals, region_exclusion_keep_mask
-from .._core.identifiers import identifier_keys
 from .._refpanel.prepared import ArrayAnnotations, PreparedChromosome
 from .._refpanel.r2_format import SortedR2BlockReader
 
@@ -297,7 +297,7 @@ def regression_mask_from_keys(
             context="regression-SNP restriction matching for LD scores",
         ).to_numpy(dtype=bool)
     else:
-        keys = identifier_keys(metadata, identifier_mode)
+        keys = identity_key_series(metadata, identifier_mode, context="LD-score SNP matching", logger=LOGGER)
         keep = keys.isin(regression_keys).to_numpy(dtype=bool)
     if region_intervals is not None and region_intervals.intervals:
         keep &= np.asarray(region_exclusion_keep_mask(metadata, region_intervals), dtype=bool)

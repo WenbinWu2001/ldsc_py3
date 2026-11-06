@@ -37,7 +37,7 @@ from .._core.snp_identity import (
     FLIP_ALLELES,
     MATCH_ALLELES,
     clean_identity_artifact_table,
-    effective_merge_key_series,
+    identity_key_series,
     identity_base_mode,
     identity_mode_family,
     is_allele_aware_mode,
@@ -942,7 +942,7 @@ def _with_effective_identity_key(frame: pd.DataFrame, mode: str, *, context: str
     only read it (merges copy).
     """
     keyed = frame.copy(deep=False)
-    keyed[REGRESSION_IDENTITY_KEY_COLUMN] = effective_merge_key_series(keyed, mode, context=context)
+    keyed[REGRESSION_IDENTITY_KEY_COLUMN] = identity_key_series(keyed, mode, context=context)
     present = keyed[REGRESSION_IDENTITY_KEY_COLUMN].notna().to_numpy()
     if not present.all():
         keyed = keyed.take(np.flatnonzero(present))

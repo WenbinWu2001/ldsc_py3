@@ -51,7 +51,7 @@ from ldsc._annotation.overlap import annotation_statistics
 from ldsc._refpanel import plink as plink_bed
 from ldsc._refpanel import windows as ld_windows
 from ldsc._refpanel.prepared import ArrayAnnotations, ChromosomeAnnotations
-from ldsc._core.identifiers import build_snp_id_series
+from ldsc._core.snp_identity import identity_key_series
 from ldsc._core.snp_identity import RestrictionIdentityKeys, empty_identity_drop_frame
 
 
@@ -515,7 +515,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         result = direct_batches._chromosome_record(legacy_result, GlobalConfig(snp_identifier="chr_pos_allele_aware"))
 
         self.assertEqual(result.baseline_table.columns.tolist(), ["CHR", "SNP", "POS", "A1", "A2", "regression_ld_scores", "base"])
-        self.assertEqual(frozenset(build_snp_id_series(result.baseline_table, "chr_pos_allele_aware")),
+        self.assertEqual(frozenset(identity_key_series(result.baseline_table, "chr_pos_allele_aware")),
                          frozenset({"1:10:A:C", "1:20:A:G"}))
         self.assertEqual(result.baseline_table["A1"].tolist(), ["A", "A"])
         self.assertEqual(result.baseline_table["A2"].tolist(), ["C", "G"])
@@ -1874,7 +1874,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         )
 
         self.assertGreater(len(result.baseline_table), 0)
-        keys = build_snp_id_series(result.baseline_table, "chr_pos_allele_aware")
+        keys = identity_key_series(result.baseline_table, "chr_pos_allele_aware")
         self.assertTrue(keys.str.startswith("22:").all())
 
     @unittest.skipUnless(_HAS_BITARRAY, "bitarray is not installed")

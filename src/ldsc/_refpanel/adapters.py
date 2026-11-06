@@ -24,7 +24,7 @@ from ..errors import EmptyReferenceSNPs, LDSCConfigError, LDSCInputError, LDSCIn
 from .._genome.build_inference import resolve_genome_build, validate_auto_genome_build_mode
 from .._runtime.paths import split_cli_path_tokens
 from .._runtime.preflight import InputGate
-from .._core.identifiers import identifier_keys, validate_retained_identifier_uniqueness
+from .._core.identifiers import validate_retained_identifier_uniqueness
 from .funnel import ANNOTATION_SNP_GRID, REFERENCE_PANEL, ReferenceSNPFunnel
 from .plink import PlinkBEDFile
 from .plink_source import (
@@ -50,22 +50,21 @@ from .windows import (
     window_coordinates,
 )
 from .prepared import MappedAnnotations
-from .._core.identifiers import (
-    build_snp_id_series,
-    normalize_snp_identifier_mode,
-    read_snp_restriction_keys,
-    validate_unique_snp_ids,
-)
+from .._core.identifiers import read_snp_restriction_keys, validate_unique_snp_ids
 from .._core.snp_identity import (
     RestrictionIdentityKeys,
     identity_base_mode,
+    identity_key_series,
     identity_mode_family,
     is_allele_aware_mode,
+    normalize_snp_identifier_mode,
 )
 from .._genome.build_policy import GenomeBuildCheck
 from .genetic_map import interpolate_genetic_map_cm, load_genetic_map_group
 
 LOGGER = logging.getLogger("LDSC.ref_panel")
+# Names the key matching of reference rows in identity-key messages.
+_MATCHING_CONTEXT = "LD-score SNP matching"
 
 
 def _artifact_global_config(metadata, global_config, source):
@@ -348,8 +347,8 @@ class PlinkRefPanel(RefPanel):
             )
         aligned = _align_annotations(annotations, reference, chrom, self.global_config, funnel)
         mode = self.global_config.snp_identifier
-        raw_keys = identifier_keys(reference, mode)
-        keys = identifier_keys(aligned.metadata, mode)
+        raw_keys = identity_key_series(reference, mode, context=_MATCHING_CONTEXT, logger=LOGGER)
+        keys = identity_key_series(aligned.metadata, mode, context=_MATCHING_CONTEXT, logger=LOGGER)
         physical_rows = pd.Series(reference["_raw_index"].to_numpy(), index=raw_keys).loc[keys].tolist()
         if keep_indivs is None:
             keep_indivs = source.keep_indivs
@@ -367,7 +366,7 @@ class PlinkRefPanel(RefPanel):
         try:
             metadata = build_plink_metadata_frame(bim=source.bim, kept_snps=geno.kept_snps, maf_values=geno.maf,
                                                   freq_values=geno.freq)
-            retained_keys = identifier_keys(metadata, mode)
+            retained_keys = identity_key_series(metadata, mode, context=_MATCHING_CONTEXT, logger=LOGGER)
             indices = pd.Series(np.arange(len(keys)), index=keys).loc[retained_keys].to_numpy(dtype=np.int64)
             values = MappedAnnotations(aligned.annotations, indices, aligned.annotations.columns)
             return geno, metadata, values, source.identity_drops, len(aligned.metadata)
@@ -400,7 +399,8 @@ class PlinkRefPanel(RefPanel):
         """
         source, funnel = self._load_source(chrom)
         if keep_snps is not None:
-            keys = identifier_keys(source.metadata, self.global_config.snp_identifier)
+            keys = identity_key_series(source.metadata, self.global_config.snp_identifier,
+                                       context=_MATCHING_CONTEXT, logger=LOGGER)
             source = replace(source, metadata=source.metadata.loc[keys.isin(keep_snps)].reset_index(drop=True))
         return self._load_genotypes(chrom, (source, funnel), keep_indivs=keep_indivs, maf_min=maf_min)[0]
 
@@ -580,14 +580,15 @@ class R2MatrixRefPanel(RefPanel):
         chromosome.reject_truncation()
         reference, funnel = self._load_reference(chromosome)
         aligned = _align_annotations(annotations, reference, chrom, self.global_config, funnel)
-        keys = identifier_keys(aligned.metadata, self.global_config.snp_identifier)
-        reference_keys = identifier_keys(reference, self.global_config.snp_identifier)
+        mode = self.global_config.snp_identifier
+        keys = identity_key_series(aligned.metadata, mode, context=_MATCHING_CONTEXT, logger=LOGGER)
+        reference_keys = identity_key_series(reference, mode, context=_MATCHING_CONTEXT, logger=LOGGER)
         lookup = reference.loc[:, ["CM", "MAF"]].set_index(reference_keys)
         metadata = aligned.metadata.copy()
         for column in ("CM", "MAF"):
             metadata[column] = lookup.loc[keys, column].to_numpy()
         mapped_annotations = aligned.annotations
-        mode, build = self.global_config.snp_identifier, self.global_config.genome_build
+        build = self.global_config.genome_build
         reader = chromosome.pair_reader(metadata, mode, build)
         if np.any(np.diff(reader.panel_rows) < 0):
             # Same-position SNPs listed in another order than the sidecar: compute in
@@ -755,8 +756,8 @@ def _align_annotations(bundle, reference, chrom, global_config, funnel):
     positions, so base keys are unique in the reference.
     """
     mode = _annotation_reference_match_mode(bundle.metadata, global_config.snp_identifier)
-    reference_keys = build_snp_id_series(reference, mode)
-    annotation_keys = build_snp_id_series(bundle.metadata, mode)
+    reference_keys = identity_key_series(reference, mode, context="metadata")
+    annotation_keys = identity_key_series(bundle.metadata, mode, context="metadata")
     keep = annotation_keys.isin(reference_keys)
     on_grid = int(reference_keys.isin(annotation_keys).sum())
     funnel.record(REFERENCE_PANEL, ANNOTATION_SNP_GRID, len(reference) - on_grid)

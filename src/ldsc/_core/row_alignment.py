@@ -7,7 +7,7 @@ import pandas as pd
 
 from .coordinates import positive_int_position_series
 from .chromosomes import chrom_sort_key
-from .snp_identity import effective_merge_key_series, identity_mode_family, is_allele_aware_mode
+from .snp_identity import identity_key_series, identity_mode_family, is_allele_aware_mode
 from .columns import POS_COLUMN_SPEC, resolve_optional_column
 from .snp_identity import normalize_snp_identifier_mode
 from ..errors import LDSCInputError, LDSCInternalError
@@ -82,7 +82,7 @@ def _row_key_frame(
     extra_columns: list[str],
 ) -> pd.DataFrame:
     positional = isinstance(frame.index, pd.RangeIndex) and frame.index.start == 0 and frame.index.step == 1
-    key = effective_merge_key_series(
+    key = identity_key_series(
         frame if positional else frame.reset_index(drop=True),
         snp_identifier,
         context=f"{context}: {side}",

@@ -17,8 +17,7 @@ from .bundle import AnnotationBundle
 from .saved_results import AnnotationResult
 from .loading import build_annotation_shards
 from .._runtime.scratch import ScratchWorkspace
-from .._core.identifiers import normalize_snp_identifier_mode
-from .._core.snp_identity import identity_mode_family
+from .._core.snp_identity import identity_mode_family, normalize_snp_identifier_mode
 from .._runtime.workflow_logging import materializing_overwrite_guard
 from .annotate import run_annotate
 from ..config import AnnotationBuildConfig, GlobalConfig

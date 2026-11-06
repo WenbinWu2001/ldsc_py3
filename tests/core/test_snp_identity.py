@@ -1,5 +1,7 @@
+import logging
 import unittest
 
+import numpy as np
 import pandas as pd
 
 
@@ -103,13 +105,76 @@ class EffectiveKeyTest(unittest.TestCase):
 
         for mode, keys in expected.items():
             with self.subTest(mode=mode):
-                self.assertEqual(si.effective_merge_key_series(frame, mode).tolist(), keys)
+                self.assertEqual(si.identity_key_series(frame, mode).tolist(), keys)
 
     def test_effective_key_raises_for_invalid_alleles_in_allele_aware_modes(self):
         frame = pd.DataFrame({"CHR": [1], "POS": [101], "SNP": ["rs1"], "A1": ["A"], "A2": ["N"]})
 
         with self.assertRaisesRegex(LDSCInputError, "invalid_allele"):
-            si.effective_merge_key_series(frame, "rsid_allele_aware")
+            si.identity_key_series(frame, "rsid_allele_aware")
+
+
+# Canonical cell values and the base identity each one gives, written out by
+# hand: a normalized chromosome or position, or None for a missing or invalid
+# value, whose row gets no key.
+_CHR_CELLS = {1: "1", "1": "1", "chr2": "2", "22": "22", "X": "X", "chrX": "X", "chrUn": None, None: None}
+_POS_CELLS = {100: 100, "250": 250, 3000.0: 3000, 0: None, -5: None, "abc": None, 1.5: None, None: None}
+_SNP_CELLS = {"rs1": "rs1", "rs2": "rs2", "rs3": "rs3", None: None}
+_ALLELE_PAIRS = [(a, b) for a in "ACGT" for b in "ACGT" if a != b]
+_COMPLEMENT = str.maketrans("ACGT", "TGCA")
+
+
+def _expected_key(chrom, pos, snp, a1, a2, mode):
+    """Row-by-row identity key of the four modes, independent of the package code."""
+    if mode.startswith("rsid"):
+        base = _SNP_CELLS[snp]
+    else:
+        chrom, pos = _CHR_CELLS[chrom], _POS_CELLS[pos]
+        base = None if chrom is None or pos is None else f"{chrom}:{pos}"
+    if base is None or not mode.endswith("allele_aware"):
+        return base
+    observed = ":".join(sorted((a1, a2)))
+    complement = ":".join(sorted((a1.translate(_COMPLEMENT), a2.translate(_COMPLEMENT))))
+    return f"{base}:{min(observed, complement)}"
+
+
+class IdentityKeySeriesTest(unittest.TestCase):
+    def test_keys_of_random_canonical_frames_match_the_row_rule_in_all_modes(self):
+        # Covers missing and invalid CHR/POS, missing rsIDs and every valid allele pair.
+        rng = np.random.default_rng(20261106)
+        chr_cells, pos_cells, snp_cells = list(_CHR_CELLS), list(_POS_CELLS), list(_SNP_CELLS)
+        for trial in range(20):
+            n = 150
+            rows = [(chr_cells[rng.integers(len(chr_cells))], pos_cells[rng.integers(len(pos_cells))],
+                     snp_cells[rng.integers(len(snp_cells))], *_ALLELE_PAIRS[rng.integers(len(_ALLELE_PAIRS))])
+                    for _ in range(n)]
+            frame = pd.DataFrame(rows, columns=["CHR", "POS", "SNP", "A1", "A2"], index=rng.permutation(n) + 7)
+            for mode in si.SNP_IDENTIFIER_MODES:
+                with self.subTest(trial=trial, mode=mode):
+                    keys = si.identity_key_series(frame, mode, context="test")
+                    expected = [_expected_key(*row, mode) for row in rows]
+                    self.assertEqual(keys.index.tolist(), frame.index.tolist())
+                    self.assertEqual([None if pd.isna(key) else key for key in keys], expected)
+
+    def test_logger_reports_rows_without_a_coordinate_key(self):
+        frame = pd.DataFrame({"CHR": ["1", "chrUn", "2"], "POS": [100, 200, None], "SNP": ["rs1", "rs2", "rs3"]})
+        logger = logging.getLogger("LDSC.test_identity_key_series")
+        with self.assertLogs(logger, level="WARNING") as logs:
+            keys = si.identity_key_series(frame, "chr_pos", context="LD-score SNP matching", logger=logger)
+        self.assertEqual(keys.tolist()[0], "1:100")
+        self.assertTrue(keys.iloc[1:].isna().all())
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn("Dropped 2 SNPs with invalid or missing CHR/POS in LD-score SNP matching", logs.output[0])
+
+    def test_aliased_headers_are_rejected_in_every_mode(self):
+        # Callers pass canonical tables; an alias such as BP or rsid names no canonical column,
+        # so the key builder stops instead of guessing the column.
+        frame = pd.DataFrame({"CHR": ["1", "2"], "BP": [10, None], "rsid": ["rs1", "rs2"],
+                              "A1": ["A", "C"], "A2": ["G", "T"]})
+        for mode in si.SNP_IDENTIFIER_MODES:
+            with self.subTest(mode=mode):
+                with self.assertRaisesRegex(LDSCInputError, "missing canonical column"):
+                    si.identity_key_series(frame, mode, context="test")
 
 
 class IdentityMetadataValidationTest(unittest.TestCase):
@@ -252,7 +317,7 @@ class IdentityArtifactCleanupTest(unittest.TestCase):
             with self.subTest(mode=mode):
                 cleaned = si.clean_identity_artifact_table(frame, mode, context="test", stage="artifact")
                 keys, dropped = si.identity_cleanup_keys(frame, mode, context="test", stage="artifact")
-                expected = si.effective_merge_key_series(cleaned.cleaned, mode, context="test")
+                expected = si.identity_key_series(cleaned.cleaned, mode, context="test")
                 pd.testing.assert_series_equal(pd.Series(keys, dtype=object),
                                                expected.astype(object).rename(None), check_names=False)
                 pd.testing.assert_frame_equal(dropped, cleaned.dropped)

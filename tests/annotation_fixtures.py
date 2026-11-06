@@ -16,7 +16,7 @@ from ldsc._annotation.bundle import AnnotationBundle
 from ldsc._annotation.storage import AnnotationShard, ColumnStore
 from ldsc._runtime.scratch import ScratchWorkspace
 from ldsc._annotation.parsing import normalize_annotation_chunk
-from ldsc._core.snp_identity import effective_merge_key_series, identity_base_mode, is_allele_aware_mode
+from ldsc._core.snp_identity import identity_key_series, identity_base_mode, is_allele_aware_mode
 
 
 def _own(bundle, temporary):
@@ -78,7 +78,7 @@ def fixture_ids(bundle, mode):
     metadata = fixture_metadata(bundle)
     if is_allele_aware_mode(mode) and not {"A1", "A2"}.issubset(metadata):
         mode = identity_base_mode(mode)
-    return set(effective_merge_key_series(metadata, mode).astype(str))
+    return set(identity_key_series(metadata, mode).astype(str))
 
 
 def read_annotation_fixture(path, mode):

@@ -13,7 +13,7 @@ import numpy as np
 
 
 from ldsc.config import GlobalConfig
-from ldsc._core.identifiers import build_snp_id_series
+from ldsc._core.snp_identity import identity_key_series
 from ldsc.errors import LDSCInputError, LDSCInternalError
 from ldsc._ldscore.results import LDScoreResult
 from ldsc._regression.outputs import (
@@ -335,7 +335,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             loaded = load_ldscore_from_dir(str(output_dir))
 
         self.assertEqual(loaded.config_snapshot, GlobalConfig(snp_identifier="rsid_allele_aware"))
-        self.assertEqual(frozenset(build_snp_id_series(loaded.baseline_table, "rsid_allele_aware")),
+        self.assertEqual(frozenset(identity_key_series(loaded.baseline_table, "rsid_allele_aware")),
                          frozenset({"rs1:A:C", "rs2:A:G"}))
 
     def test_one_row_group_per_chromosome(self):

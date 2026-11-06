@@ -20,7 +20,6 @@ import pandas as pd
 
 from .._runtime.cli_help import CLIHelpFormatter, output_directory_argument
 from .._runtime.workflow_logging import args_output_scope, LOG_LEVEL_HELP
-from .._core.identifiers import build_snp_id_series
 from .r2_format import R2MatrixChromosome, lookup_pairs_in_parquet, r2_matrix_chromosomes, resolve_r2_build_dir
 from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from .outputs import QueryR2MatrixDirectoryWriter, QueryR2MatrixOutputConfig
@@ -30,6 +29,7 @@ from .._core.snp_identity import (
     allele_set_series,
     base_key_series,
     identity_base_mode,
+    identity_key_series,
     identity_mode_family,
     is_allele_aware_mode,
     normalize_snp_identifier_mode,
@@ -256,7 +256,7 @@ class R2Matrix:
 
         sidecar = chromosome.sidecar()
         pf = pq.ParquetFile(chromosome.parquet_path)
-        key = build_snp_id_series(sidecar, self._mode)
+        key = identity_key_series(sidecar, self._mode, context="metadata")
         key_index = pd.Index(key)
         if key_index.has_duplicates:
             raise LDSCInputError(
@@ -433,7 +433,7 @@ class R2Matrix:
 def _query_keys(endpoint: pd.DataFrame, mode: str) -> np.ndarray:
     """Build identity keys for query endpoints, tolerating unresolvable rows.
 
-    Unlike :func:`build_snp_id_series`, invalid/ambiguous allele-aware rows do not
+    Unlike :func:`identity_key_series`, invalid/ambiguous allele-aware rows do not
     raise: they yield ``None`` so the endpoint resolves to ``not_in_matrix`` (spec
     Section 7) rather than aborting the whole query.
     """

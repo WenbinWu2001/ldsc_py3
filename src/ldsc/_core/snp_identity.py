@@ -381,8 +381,14 @@ def _require_columns(frame: pd.DataFrame, columns: tuple[str, ...], *, context: 
         )
 
 
-def base_key_series(frame: pd.DataFrame, mode: str, *, context: str) -> pd.Series:
-    """Build base identity keys for an exact SNP identifier mode."""
+def base_key_series(
+    frame: pd.DataFrame, mode: str, *, context: str, logger: logging.Logger | None = None,
+) -> pd.Series:
+    """Build base identity keys for an exact SNP identifier mode.
+
+    Coordinate rows with a missing or invalid ``CHR``/``POS`` get a missing
+    key; with ``logger`` their count is logged as a warning.
+    """
     family = identity_mode_family(mode)
     if family == "rsid":
         _require_columns(frame, ("SNP",), context=context)
@@ -390,10 +396,13 @@ def base_key_series(frame: pd.DataFrame, mode: str, *, context: str) -> pd.Serie
 
     _require_columns(frame, ("CHR", "POS"), context=context)
     result = pd.Series(pd.NA, index=frame.index, dtype=object)
+    # A logged drop names example rows by SNP when the table has one.
+    columns = ["SNP", "CHR", "POS"] if logger is not None and "SNP" in frame.columns else ["CHR", "POS"]
     keyed, _report = build_chr_pos_key_frame(
-        frame.loc[:, ["CHR", "POS"]],
+        frame.loc[:, columns],
         context=context,
         drop_missing=True,
+        logger=logger,
     )
     if not keyed.empty:
         result.loc[keyed.index] = keyed[CHR_POS_KEY_COLUMN].astype("string").astype(object)
@@ -410,10 +419,26 @@ def allele_set_series(frame: pd.DataFrame, *, context: str) -> tuple[pd.Series, 
     return _allele_set_series_vectorized(frame, context=context)
 
 
-def effective_merge_key_series(frame: pd.DataFrame, mode: str, *, context: str = "table") -> pd.Series:
-    """Build the active effective SNP merge key for a canonical table."""
+def identity_key_series(
+    frame: pd.DataFrame, mode: str, *, context: str = "table", logger: logging.Logger | None = None,
+) -> pd.Series:
+    """Build the SNP identity key of every row of a canonical table in ``mode``.
+
+    This is the one key builder for merging and matching tables. ``frame``
+    must use canonical column names: ``SNP`` (rsID modes), ``CHR``/``POS``
+    (coordinate modes) and ``A1``/``A2`` (allele-aware modes); a missing
+    column raises ``LDSCInputError``, since a header alias is resolved when
+    the table is read, not here. Keys are ``SNP`` or ``CHR:POS``, followed in
+    allele-aware modes by the strand-collapsed allele set (for example
+    ``1:101:A:C``). A row with a missing rsID or a missing or invalid
+    ``CHR``/``POS`` gets a missing key; with ``logger`` the count of such
+    coordinate rows is logged as a warning. In allele-aware modes a row with
+    missing, non-ACGT or identical alleles raises ``LDSCInputError``, so
+    callers clean alleles first. ``context`` names the table in messages.
+    The result is aligned to ``frame.index`` and named ``snp_id``.
+    """
     mode = normalize_snp_identifier_mode(mode)
-    base = base_key_series(frame, mode, context=context)
+    base = base_key_series(frame, mode, context=context, logger=logger)
     if not is_allele_aware_mode(mode):
         return base.rename("snp_id")
 
@@ -462,7 +487,7 @@ def restriction_membership_mask(
     if restriction.match_kind == "base":
         keys = base_key_series(frame, mode, context=context)
     else:
-        keys = effective_merge_key_series(frame, mode, context=context)
+        keys = identity_key_series(frame, mode, context=context)
     return keys.isin(restriction.keys)
 
 
@@ -562,7 +587,7 @@ def clean_identity_artifact_table(
 def identity_cleanup_keys(frame: pd.DataFrame, mode: str, *, context: str, stage: str) -> tuple[np.ndarray, pd.DataFrame]:
     """Return the effective identity keys of the rows cleanup keeps, and the dropped rows.
 
-    The keys equal ``effective_merge_key_series`` of the table
+    The keys equal ``identity_key_series`` of the table
     ``clean_identity_artifact_table`` returns, in row order, with missing keys
     as ``pd.NA``; the cleaned table itself is not built.
     """

@@ -26,7 +26,7 @@ from .._core.chromosomes import chrom_sort_key, normalize_chromosome
 from .._core.columns import normalize_genome_build
 from .._core.identifiers import open_identity_table, validate_retained_identifier_uniqueness
 from .._core.snp_identity import (
-    effective_merge_key_series,
+    identity_key_series,
     identity_artifact_metadata,
     sidecar_identity_sha256,
     normalize_snp_identifier_mode,
@@ -132,8 +132,8 @@ def build_index_remap(
     error, which also keeps ``retained_build_idx`` a well-defined permutation.
     """
     mode = normalize_snp_identifier_mode(identifier_mode)
-    full_keys = effective_merge_key_series(full_sidecar, mode, context="R2 matrix sidecar index remap").to_numpy()
-    retained_keys = effective_merge_key_series(retained_metadata, mode, context="retained metadata index remap").to_numpy()
+    full_keys = identity_key_series(full_sidecar, mode, context="R2 matrix sidecar index remap").to_numpy()
+    retained_keys = identity_key_series(retained_metadata, mode, context="retained metadata index remap").to_numpy()
     retained_index = pd.Index(retained_keys)
     if retained_index.has_duplicates:
         raise LDSCInputError(

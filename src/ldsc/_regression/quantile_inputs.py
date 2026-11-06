@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 from .._annotation.loading import build_annotation_shards
-from .._core.snp_identity import effective_merge_key_series, identity_base_mode, is_allele_aware_mode
+from .._core.snp_identity import identity_key_series, identity_base_mode, is_allele_aware_mode
 from .quantile_storage import QuantileIdentityStore, parse_missing_token, reference_chunks, target_chunks
 from ..config import GlobalConfig
 from ..errors import LDSCInputError
@@ -83,13 +83,13 @@ def _model_annotations(annotation_config, model, ldscores, workspace, issues_pat
 
 def _infer_keys(store, frame, mode, role, diagnostics, reference_source):
     if not is_allele_aware_mode(mode) or {"A1", "A2"}.issubset(frame.columns):
-        return effective_merge_key_series(frame, mode, context=role).astype(str)
+        return identity_key_series(frame, mode, context=role).astype(str)
     base_mode = identity_base_mode(mode)
     if not getattr(store, "inference_validated", False):
         if store.duplicates(diagnostics, "reference", reference_source, base=True):
             raise LDSCInputError(f"quantile-h2 cannot infer omitted alleles for {role}: reference metadata has non-unique {base_mode} identities. Supply A1/A2 in the annotation source.")
         store.inference_validated = True
-    bases = effective_merge_key_series(frame, base_mode, context=role).astype(str)
+    bases = identity_key_series(frame, base_mode, context=role).astype(str)
     lookup = {}
     for base in pd.unique(bases):
         found = store.db.execute("SELECT effective_snp_id FROM reference WHERE base_key=?", (base,)).fetchone()
@@ -124,8 +124,8 @@ def _alignment(target, bundle, ldscores, store, diagnostics, reference_paths, ta
             f"See {diagnostics.path} for the affected SNP rows."
         )
     for frame in store.frames("SELECT * FROM reference ORDER BY ordinal"):
-        keys = effective_merge_key_series(frame, mode, context="reference metadata").astype(str)
-        bases = effective_merge_key_series(frame, identity_base_mode(mode), context="reference metadata base identity").astype(str)
+        keys = identity_key_series(frame, mode, context="reference metadata").astype(str)
+        bases = identity_key_series(frame, identity_base_mode(mode), context="reference metadata base identity").astype(str)
         store.db.executemany("UPDATE reference SET effective_snp_id=?, base_key=? WHERE ordinal=?",
                              zip(keys, bases, map(int, frame.ordinal)))
     store.db.commit()

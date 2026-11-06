@@ -1,6 +1,6 @@
 # R² Matrix: Format Specification and Read Pipeline
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-06
 
 This document defines the canonical **index** format for R² matrices and describes how the read pipeline validates, binds, and streams them into the LD-score accumulation.
 
@@ -222,7 +222,7 @@ does not change any filtering/restriction/intersection step. It then:
 5. Builds `remap: build_idx → retained_idx` (int32, `-1` for SNPs that are not
    retained reference SNPs) and `retained_build_idx: matrix_idx → build_idx`
    (ascending, for pruning) via `build_index_remap`. Matching uses the same
-   mode-dependent identity key (`effective_merge_key_series`) that the retained
+   mode-dependent identity key (`identity_key_series`) that the retained
    reference SNPs are keyed by, so the result is identical to the former per-pair
    identity lookup. **This is the only place identifier-mode matching happens —
    once per chromosome.** The remap **must be injective over retained indices**:

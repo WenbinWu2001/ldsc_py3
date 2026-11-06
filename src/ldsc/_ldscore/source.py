@@ -24,7 +24,7 @@ from .._core.snp_identity import normalize_snp_identifier_mode
 from ..errors import LDSCInputError, LDSCInternalError
 from .._core.row_alignment import assert_same_snp_rows, first_identity_mismatch
 from .._core.snp_identity import (
-    effective_merge_key_series,
+    identity_key_series,
     is_allele_aware_mode,
     validate_identity_artifact_metadata,
 )
@@ -226,7 +226,7 @@ def validate_ldscore_allele_columns(table: pd.DataFrame, *, table_name: str, snp
             "LDSC3 package."
         )
     try:
-        effective_merge_key_series(table, snp_identifier, context=table_name)
+        identity_key_series(table, snp_identifier, context=table_name)
     except (LDSCInputError, ValueError) as exc:
         raise LDSCInputError(
             f"LD-score table {table_name} is malformed for snp_identifier='{snp_identifier}' because "

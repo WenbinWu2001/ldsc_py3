@@ -19,13 +19,9 @@ from ldsc.config import (
     normalize_genome_build,
 )
 from ldsc._genome.build_inference import resolve_genome_build, validate_auto_genome_build_mode
-from ldsc._core.columns import clean_header
+from ldsc._core.chromosomes import normalize_chromosome
+from ldsc._core.columns import clean_header, infer_chr_pos_columns, infer_snp_column
 from ldsc._core.identifiers import (
-    build_chr_pos_snp_id,
-    build_snp_id_series,
-    infer_chr_pos_columns,
-    infer_snp_column,
-    normalize_chromosome,
     read_global_snp_restriction,
     read_snp_restriction_keys,
     validate_unique_snp_ids,
@@ -458,19 +454,6 @@ class IdentifierHelpersTest(unittest.TestCase):
         for value in ["25", "26", "25.0", "26.0"]:
             with self.assertRaisesRegex(LDSCInputError, "M' or 'MT"):
                 normalize_chromosome(value, context="test-mito-code")
-
-    def test_build_chr_pos_snp_id(self):
-        self.assertEqual(build_chr_pos_snp_id("chr1", 123), "1:123")
-
-    def test_build_snp_id_series(self):
-        rsid_df = pd.DataFrame({"SNP": ["rs1", "rs2"]})
-        self.assertEqual(build_snp_id_series(rsid_df, "rsid").tolist(), ["rs1", "rs2"])
-        chr_pos_df = pd.DataFrame({"CHR": ["chr1", "2"], "POS": [10, 20]})
-        self.assertEqual(build_snp_id_series(chr_pos_df, "chr_pos").tolist(), ["1:10", "2:20"])
-
-    def test_build_snp_id_series_accepts_bp_alias(self):
-        chr_pos_df = pd.DataFrame({"CHR": ["chr1", "2"], "BP": [10, 20]})
-        self.assertEqual(build_snp_id_series(chr_pos_df, "chr_pos").tolist(), ["1:10", "2:20"])
 
     def test_validate_unique_snp_ids(self):
         df = pd.DataFrame({"SNP": ["rs1", "rs1"]})

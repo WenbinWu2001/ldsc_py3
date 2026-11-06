@@ -63,12 +63,8 @@ def _normalize_numeric_chromosome(raw: str, text: str, *, context: str | None) -
     integer = int(number)
     if 1 <= integer <= 22:
         canonical = str(integer)
-    elif integer == 23:
-        canonical = "X"
-        _log_normalization(raw=raw, canonical=canonical, context=context, kind="sex_code")
-        return canonical
-    elif integer == 24:
-        canonical = "Y"
+    elif integer in {23, 24}:
+        canonical = "X" if integer == 23 else "Y"
         _log_normalization(raw=raw, canonical=canonical, context=context, kind="sex_code")
         return canonical
     elif integer in {25, 26}:

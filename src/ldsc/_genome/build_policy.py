@@ -340,4 +340,3 @@ class GenomeBuildCheck:
             groups[group].append(f"    {entry.role}: {entry.source} ({entry.detail})")
         return "Build evidence across inputs:\n" + "\n".join(
             f"  {group}:\n" + ("\n".join(rows) if rows else "    none") for group, rows in groups.items())
-

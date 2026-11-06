@@ -5,6 +5,16 @@ Last updated on: 2026-11-06
 Branch `restructure`; checked on 2026-11-06.
 Nothing below is in progress; each open item needs the user's go-ahead.
 
+## Completed: gene LD-score index format numbering reset (2026-11-06)
+
+No gene LD-score index had been used in production, so the user asked on 2026-11-06 to start module-specific version numbers again at 1.
+
+- `17ebea29` (breaking): the index `format_version` is 1 (it was 6); the rejection message no longer lists what versions 2 to 6 changed, and an index that records any other version must be rebuilt.
+  `index_id` does not hash `format_version`, so index identities are unchanged.
+- The legacy converter's `converter_version` was already `"1"`, and the package version stays 2.0b0; no other module- or function-specific version number exists.
+- Documentation pages drop the version history and keep the current rules; the `ldsc:schema_version` lesson was removed from `lessons.md`, because that key no longer exists in the code.
+- Older entries below keep the numbers of their time, such as format version 6.
+
 ## Completed: strict column-name matching (2026-11-06)
 
 The user decided on 2026-11-06 that every input matches a column only by its canonical name or a listed alias, compared after lowercasing and removing punctuation.

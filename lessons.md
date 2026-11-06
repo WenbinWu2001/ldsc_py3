@@ -37,11 +37,6 @@ Last updated on: 2026-11-06
 - Root cause: The regression-weight output was treated as a separate result family instead of one more annotation projection, obscuring that `ldScoreVarBlocks` recomputes genotype correlations on every call.
 - Correction: Append the binary regression mask after all ordinary annotation columns, call `ldScoreVarBlocks` once, then split partitioned scores from `w_ld`; keep the separately reset gene-atom batch calls because those bound index-builder memory.
 
-## ldsc:schema_version is a shared identity contract, not a file-layout version
-- Summary: Bumping `ldsc:schema_version` to 2 to mark the new index R2 layout broke `build_reader`'s `validate_identity_artifact_metadata`, which pins `schema_version == SCHEMA_VERSION` (=1) across all artifact types.
-- Root cause: `schema_version` is the cross-artifact provenance-contract version (sumstats/ldscore/ref-panel share it), enforced equal to the package constant. It is not a per-format layout marker.
-- Correction: Keep `schema_version=1`; identify the index layout structurally (presence of `IDX_1/IDX_2/SIGN` columns + `ldsc:n_snps` + `ldsc:sidecar_identity_sha256`). The build->read parity test missed this because it uses `compute_chrom_from_parquet`, not `build_reader`; the autofill test (build_reader path) caught it.
-
 ## Inferred projection builds must reach coordinate-based sibling features
 - Summary/root cause/correction: rsID gene-list runs inferred `gene_catalog_build` but default region exclusions consulted only build-independent identity metadata, so reuse the concrete projection build for named regions and cover the combined path rather than testing normalization and exclusion resolution separately.
 

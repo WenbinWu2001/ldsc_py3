@@ -14,6 +14,8 @@ import pandas as pd
 
 from .._annotation.overlap import OverlapContribution
 
+OVERLAP_TABLE_COLUMNS = ("row_annotation", "col_annotation", "overlap_all_snps", "overlap_common_snps")
+
 
 @dataclass(frozen=True)
 class LDScoreOverlap:
@@ -123,7 +125,7 @@ def overlap_to_long_frame(overlap: LDScoreOverlap) -> pd.DataFrame:
     common-SNP part is ``None`` (an all-``None`` object column when no common
     blocks exist, ``NaN`` beside common values otherwise).
     """
-    columns = ["row_annotation", "col_annotation", "overlap_all_snps", "overlap_common_snps"]
+    columns = list(OVERLAP_TABLE_COLUMNS)
     block_all, block_common = overlap.baseline_block_all, overlap.baseline_block_common
     diagonal_all, diagonal_common = overlap.query_diagonal_all, overlap.query_diagonal_common
     n_rows, n_cols = block_all.shape

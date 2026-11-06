@@ -422,8 +422,9 @@ class LDScoreManifest:
     def load_overlap(self):
         """Read the overlap matrix as an ``LDScoreOverlap``, or return ``None`` when none is declared.
 
-        Raises ``LDSCInputError`` when the overlap file is unreadable or
-        ``overlap_config`` lacks usable reference-SNP totals.
+        Raises ``LDSCInputError`` when the overlap file is unreadable or lacks
+        a column of the overlap table, or ``overlap_config`` lacks usable
+        reference-SNP totals.
         """
         path = self.files.get("overlap")
         if path is None:
@@ -431,9 +432,19 @@ class LDScoreManifest:
         config = self.overlap_config
         if not _has_overlap_totals(config):
             raise _missing_overlap_totals_error(self.root)
-        from .overlap_table import overlap_from_long_frame
+        from .overlap_table import OVERLAP_TABLE_COLUMNS, overlap_from_long_frame
+        frame = _read_ldscore_parquet(path, pd.read_parquet)
+        missing = [column for column in OVERLAP_TABLE_COLUMNS if column not in frame.columns]
+        if missing:
+            raise LDSCInputError(
+                f"Could not read LD-score file '{path}': the overlap table lacks the column(s) "
+                f"{', '.join(f'`{column}`' for column in missing)}. Most likely the file was edited by hand or "
+                "written by another tool, or metadata.json and the data files come from different runs. Restore "
+                "the complete LD-score directory from the same run, or regenerate it with `ldsc ldscore`. "
+                f"Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
+            )
         return overlap_from_long_frame(
-            _read_ldscore_parquet(path, pd.read_parquet),
+            frame,
             baseline_columns=self.baseline_columns,
             query_columns=self.query_columns,
             total_all_reference_snps=config["total_all_reference_snps"],

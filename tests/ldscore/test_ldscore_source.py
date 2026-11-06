@@ -223,6 +223,18 @@ def test_an_unreadable_parquet_footer_is_an_input_error(tmp_path, name):
         load_ldscore_from_dir(str(root))
 
 
+@pytest.mark.parametrize("column", ["row_annotation", "col_annotation", "overlap_all_snps", "overlap_common_snps"])
+def test_an_overlap_table_without_a_required_column_is_an_input_error(tmp_path, column):
+    from ldsc import load_ldscore_from_dir
+
+    root = _quantile_ldscores(tmp_path)
+    path = root / "ldscore.overlap.parquet"
+    pd.read_parquet(path).drop(columns=column).to_parquet(path, index=False)
+
+    with pytest.raises(LDSCInputError, match=f"^Could not read LD-score file .*ldscore.overlap.parquet.*{column}.*troubleshooting"):
+        load_ldscore_from_dir(str(root))
+
+
 @pytest.mark.parametrize("overlap_config", [
     None, {}, [4.0],
     {"total_common_reference_snps": 4.0, "common_maf_min": 0.05, "common_maf_operator": ">="},

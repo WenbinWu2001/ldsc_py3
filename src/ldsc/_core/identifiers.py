@@ -192,11 +192,6 @@ def read_global_snp_restriction(
 _RESTRICTION_KEYS_CACHE: dict[tuple, RestrictionIdentityKeys] = {}
 
 
-def clear_snp_restriction_keys_cache() -> None:
-    """Drop all memoized :func:`read_snp_restriction_keys` results."""
-    _RESTRICTION_KEYS_CACHE.clear()
-
-
 def read_snp_restriction_keys(
     path: str | Path,
     snp_identifier: str,
@@ -219,9 +214,8 @@ def read_snp_restriction_keys(
     mode/build, so loading the same map twice in one run -- e.g. the packaged HM3
     map used for both the reference-panel and regression restrictions -- parses
     and collapses it only once. This process-local cache holds full read-only
-    filters and has no automatic eviction; long-lived callers can use
-    :func:`clear_snp_restriction_keys_cache` to release them. Inputs should remain
-    unchanged during a workflow; the stat-based key is not a content hash.
+    filters and has no automatic eviction. Inputs should remain unchanged
+    during a workflow; the stat-based key is not a content hash.
     """
     mode = normalize_snp_identifier_mode(snp_identifier)
     genome_build = normalize_genome_build(genome_build)

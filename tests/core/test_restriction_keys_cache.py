@@ -10,10 +10,12 @@ identifier mode, or genome build changes.
 import pytest
 
 import ldsc._core.identifiers as identifiers
-from ldsc._core.identifiers import (
-    clear_snp_restriction_keys_cache,
-    read_snp_restriction_keys,
-)
+from ldsc._core.identifiers import read_snp_restriction_keys
+
+
+@pytest.fixture(autouse=True)
+def _empty_cache():
+    identifiers._RESTRICTION_KEYS_CACHE.clear()
 
 
 def _write_restriction(path, rows):
@@ -33,7 +35,6 @@ def _count_parses(monkeypatch):
 
 
 def test_repeated_identical_load_parses_file_once(tmp_path, monkeypatch):
-    clear_snp_restriction_keys_cache()
     path = tmp_path / "restr.tsv"
     _write_restriction(path, [("1", "100", "A", "C"), ("1", "200", "G", "T")])
     calls = _count_parses(monkeypatch)
@@ -49,7 +50,6 @@ def test_repeated_identical_load_parses_file_once(tmp_path, monkeypatch):
 
 
 def test_different_mode_recomputes(tmp_path, monkeypatch):
-    clear_snp_restriction_keys_cache()
     path = tmp_path / "restr.tsv"
     _write_restriction(path, [("1", "100", "A", "C")])
     calls = _count_parses(monkeypatch)
@@ -61,7 +61,6 @@ def test_different_mode_recomputes(tmp_path, monkeypatch):
 
 
 def test_modified_file_recomputes(tmp_path, monkeypatch):
-    clear_snp_restriction_keys_cache()
     path = tmp_path / "restr.tsv"
     _write_restriction(path, [("1", "100", "A", "C")])
     calls = _count_parses(monkeypatch)
@@ -78,7 +77,6 @@ def test_modified_file_recomputes(tmp_path, monkeypatch):
 @pytest.mark.parametrize(("mode", "alleles", "logged"), [
     ("chr_pos_allele_aware", False, True), ("chr_pos_allele_aware", True, False), ("chr_pos", False, False)])
 def test_allele_less_restriction_logs_base_identity_matching_once(tmp_path, caplog, mode, alleles, logged):
-    clear_snp_restriction_keys_cache()
     path = tmp_path / "restr.tsv"
     if alleles:
         _write_restriction(path, [("1", "100", "A", "C"), ("1", "200", "G", "T")])

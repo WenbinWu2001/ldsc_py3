@@ -135,8 +135,4 @@ def normalize_chromosome_series(series: pd.Series, *, context: str | None = None
 
 def chrom_sort_key(chrom: object) -> tuple[int, object]:
     """Return the stable package-wide chromosome ordering key."""
-    canonical = normalize_chromosome(chrom)
-    order = _CHROMOSOME_ORDER.get(canonical)
-    if order is not None:
-        return (0, order)
-    return (1, canonical)
+    return (0, _CHROMOSOME_ORDER[normalize_chromosome(chrom)])

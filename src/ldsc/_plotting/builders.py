@@ -406,12 +406,6 @@ def _plot_horizontal_enrichment_bars(
     label_values = list(labels)
     estimate_values = np.asarray(estimates, dtype=float)
     se_values = np.asarray(standard_errors, dtype=float)
-    if len(label_values) != len(estimate_values) or len(estimate_values) != len(se_values):
-        raise LDSCInputError(
-            "Enrichment labels, estimates, and standard errors must have equal lengths."
-            " Restore the original partitioned-h2 result table, or regenerate the fitted result; do not "
-            "substitute arbitrary uncertainty values."
-        )
     available = np.isfinite(estimate_values)
     invalid_se = available & ((~np.isfinite(se_values)) | (se_values < 0))
     if np.any(invalid_se):
@@ -423,14 +417,7 @@ def _plot_horizontal_enrichment_bars(
     if isinstance(bar_colors, str):
         colors: Any = bar_colors
     else:
-        supplied = np.asarray(list(bar_colors))
-        if len(supplied) != len(label_values):
-            raise LDSCInputError(
-                "Enrichment bar colors must have one value per annotation."
-                " Restore the original partitioned-h2 result table, or regenerate the fitted result; do not "
-                "substitute arbitrary uncertainty values."
-            )
-        colors = supplied[available]
+        colors = np.asarray(list(bar_colors))[available]
     positions = np.arange(len(label_values))
     figure, axes = plt.subplots(
         figsize=(7.8, max(3.2, 0.48 * len(label_values) + 1.7)), constrained_layout=True

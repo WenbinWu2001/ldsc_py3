@@ -587,16 +587,3 @@ def _group_invocation_units(argv: list[str]) -> list[str]:
             idx += 1
     return units
 
-
-__all__ = [
-    "cli_console_handler",
-    "configure_package_logging",
-    "install_cli_console_handler",
-    "last_workflow_log_path",
-    "log_inputs",
-    "log_outputs",
-    "remove_cli_console_handler",
-    "reset_workflow_log_path",
-    "set_workflow_log_path",
-    "workflow_logging",
-]

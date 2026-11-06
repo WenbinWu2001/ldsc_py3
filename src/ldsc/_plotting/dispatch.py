@@ -423,13 +423,7 @@ def _select_contract(metadata: dict[str, Any]) -> _PlotContract:
 
 
 
-
 def _load_builders():
     from . import builders as _builders
 
     return _builders
-
-
-
-
-__all__ = ["PlotArtifact", "plot_result"]

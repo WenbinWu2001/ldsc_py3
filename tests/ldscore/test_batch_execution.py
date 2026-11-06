@@ -18,7 +18,7 @@ from ldsc._ldscore.query_variation import summarize_variation
 
 
 class FakeProducer:
-    """Each chromosome scores every query 1, 2, 3 except ``flat``, scored 1, 1, 1."""
+    """Each chromosome scores every query 1, 2, 3 except ``flat*`` queries, scored 1, 1, 1."""
 
     batch_name, phase, task = "batch", "fake LD-score calculation", "fake LD-score computation"
 
@@ -43,7 +43,7 @@ class FakeProducer:
         return pool.submit(self.task_function, chrom, batch)
 
     def reduce(self, results, batch):
-        scores = {name: np.array([1., 1., 1.]) if name == "flat" else np.array([1., 2., 3.])
+        scores = {name: np.array([1., 1., 1.]) if name.startswith("flat") else np.array([1., 2., 3.])
                   for name in batch.query_columns}
         variation = [summarize_variation(scores[name] for name in batch.query_columns) for _ in results]
         counts = [{"group": "query", "column": name, "all_reference_snp_count": 3.0,
@@ -93,6 +93,24 @@ def test_statuses_are_filtered_per_batch_and_finalized(tmp_path):
         ("q1", "ok", ""), ("flat", "skipped", "zero_variance_ld_scores"), ("empty", "skipped", "empty_gene_list")]
     assert [record["column"] for record in batches[0].count_records] == ["q1"]
     assert batches[0].annotation_types == {"base": "binary", "q1": "binary"}
+
+
+def test_every_query_skipped_fails_after_the_last_batch_is_consumed(tmp_path):
+    from ldsc.errors import LDSCInputError
+
+    producer = FakeProducer()
+    skipped = QueryAnnotationStatus("empty", "empty.txt", "gene_list", "skipped", "empty_gene_list")
+    consumed = []
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        batches = run_query_batches(producer, ["flat", "flat2"], (ok("flat"), ok("flat2"), skipped), width=1,
+                                    pool=pool, workers=1, scratch_root=tmp_path)
+        with pytest.raises(LDSCInputError, match="all 3 requested query annotations were skipped") as caught:
+            for staged in batches:
+                consumed.extend(status.query for status in staged.query_statuses)
+    assert consumed == ["flat", "empty", "flat2"]
+    # The message lists the queries in their original order, not batch order.
+    message = str(caught.value)
+    assert message.index("flat:") < message.index("flat2:") < message.index("empty:")
 
 
 def test_failure_cancels_pending_tasks_and_submits_no_more(tmp_path):

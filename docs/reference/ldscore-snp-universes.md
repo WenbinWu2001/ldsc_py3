@@ -96,7 +96,7 @@ The error and the run's input-issue table name up to five such SNP rows, with th
 SNP rows are counted in `.bim` SNP order, which skips blank lines, so a row number can differ from the file line number.
 If cleanup removes every row the restriction keeps on a PLINK chromosome, `ldscore` skips that chromosome as described under [empty chromosomes](#empty-chromosomes); its funnel and its skip WARNING count the removed rows, and no `diagnostics/dropped_snps/` table is written for it.
 
-Sources: `inspect_plink_inputs()` and `select_plink_chromosome()` in [_refpanel/plink_source.py](../../src/ldsc/_refpanel/plink_source.py), `PlinkRefPanel._load_source()` and `RefPanel._apply_keep_restriction()` in [_refpanel/adapters.py](../../src/ldsc/_refpanel/adapters.py), `build_restriction_mask()` in [_refpanel/plink_source.py](../../src/ldsc/_refpanel/plink_source.py), `R2MatrixBuilder._select_chromosome_snps()` in [_refpanel/builder.py](../../src/ldsc/_refpanel/builder.py), `clean_identity_artifact_table()` and `emit_dropped_snps_notice()` in [_core/snp_identity.py](../../src/ldsc/_core/snp_identity.py).
+Sources: `inspect_plink_inputs()` and `select_plink_chromosome()` in [_refpanel/plink_source.py](../../src/ldsc/_refpanel/plink_source.py), `PlinkRefPanel._load_source()` and `R2MatrixRefPanel._load_reference()` in [_refpanel/adapters.py](../../src/ldsc/_refpanel/adapters.py), `build_restriction_mask()` in [_refpanel/plink_source.py](../../src/ldsc/_refpanel/plink_source.py), `R2MatrixBuilder._select_chromosome_snps()` in [_refpanel/builder.py](../../src/ldsc/_refpanel/builder.py), `clean_identity_artifact_table()` and `emit_dropped_snps_notice()` in [_core/snp_identity.py](../../src/ldsc/_core/snp_identity.py).
 
 ## Chromosome coverage versus SNP support
 

@@ -210,31 +210,6 @@ class RefPanel(ABC):
         """
         raise NotImplementedError
 
-    def _apply_maf_filter(self, metadata: pd.DataFrame, chrom: str) -> pd.DataFrame:
-        """Apply the retained-panel MAF filter from ``RefPanelConfig`` when set."""
-        maf_min = self.spec.maf_min
-        if maf_min is None or len(metadata) == 0:
-            return metadata.reset_index(drop=True)
-        keep = metadata["MAF"] >= maf_min
-        removed = int((~keep).sum())
-        if removed:
-            LOGGER.info(f"Removed {removed} reference-panel SNPs with MAF < {maf_min} on chromosome {chrom}.")
-        return metadata.loc[keep].reset_index(drop=True)
-
-    def _apply_keep_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
-        """Filter metadata rows to ``RefPanelConfig.ref_panel_snps_file`` when set.
-
-        The restriction matches as in PLINK selection: a row whose alleles
-        cannot form an allele-aware identity is kept when its base key is
-        restricted, so identity cleanup, which runs afterwards, drops and
-        reports it.
-        """
-        restriction = self._restriction()
-        if restriction is None or len(metadata) == 0:
-            return metadata
-        keep = build_restriction_mask(metadata, restriction, self.global_config.snp_identifier)
-        return metadata.loc[keep].reset_index(drop=True)
-
     def _validate_metadata(self, metadata: pd.DataFrame, chrom: str) -> pd.DataFrame:
         """Reset row order and validate identifier uniqueness for one chromosome."""
         metadata = metadata.reset_index(drop=True)
@@ -523,13 +498,19 @@ class R2MatrixRefPanel(RefPanel):
         funnel = ReferenceSNPFunnel(chromosome.chrom, "r2_matrix")
         funnel.record(REFERENCE_PANEL, "panel_rows", len(metadata))
         if self.spec.ref_panel_snps_file is not None:
-            before = len(metadata)
-            metadata = self._apply_keep_restriction(metadata)
-            funnel.record(REFERENCE_PANEL, "ref_panel_snps_file", before - len(metadata))
-        if self.spec.maf_min is not None:
-            before = len(metadata)
-            metadata = self._apply_maf_filter(metadata, chromosome.chrom)
-            funnel.record(REFERENCE_PANEL, "maf_floor", before - len(metadata))
+            # The restriction matches as in PLINK selection: a row whose alleles cannot
+            # form an allele-aware identity is kept when its base key is restricted.
+            keep = build_restriction_mask(metadata, self._restriction(), self.global_config.snp_identifier)
+            funnel.record(REFERENCE_PANEL, "ref_panel_snps_file", int((~keep).sum()))
+            metadata = metadata.loc[keep].reset_index(drop=True)
+        maf_min = self.spec.maf_min
+        if maf_min is not None:
+            keep = metadata["MAF"] >= maf_min
+            removed = int((~keep).sum())
+            if removed:
+                LOGGER.info(f"Removed {removed} reference-panel SNPs with MAF < {maf_min} on chromosome {chromosome.chrom}.")
+            funnel.record(REFERENCE_PANEL, "maf_floor", removed)
+            metadata = metadata.loc[keep].reset_index(drop=True)
         metadata = self._validate_metadata(metadata, chromosome.chrom)
         return metadata, funnel
 

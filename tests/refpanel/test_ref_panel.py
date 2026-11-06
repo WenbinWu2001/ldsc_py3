@@ -115,21 +115,24 @@ class PlinkRefPanelTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             restrict_path = Path(tmpdir) / "restrict.tsv"
             restrict_path.write_text("SNP\tA1\tA2\nrs1\tA\tC\n", encoding="utf-8")
-            panel = R2MatrixRefPanel(
-                GlobalConfig(snp_identifier="rsid_allele_aware"),
-                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=tmpdir, ref_panel_snps_file=str(restrict_path)),
-            )
-            metadata = pd.DataFrame(
+            sidecar = pd.DataFrame(
                 {
                     "CHR": ["1", "1"],
                     "POS": [10, 10],
                     "SNP": ["rs1", "rs1"],
                     "A1": ["A", "A"],
                     "A2": ["C", "G"],
+                    "MAF": [0.2, 0.3],
                 }
             )
+            write_r2_matrix_chromosome(Path(tmpdir) / "r2", sidecar, snp_identifier="rsid_allele_aware")
+            panel = R2MatrixRefPanel(
+                GlobalConfig(snp_identifier="rsid_allele_aware"),
+                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(Path(tmpdir) / "r2"),
+                               ref_panel_snps_file=str(restrict_path)),
+            )
 
-            filtered = panel._apply_keep_restriction(metadata)
+            filtered = panel.load_metadata("1")
 
             self.assertEqual(filtered["A2"].tolist(), ["C"])
 

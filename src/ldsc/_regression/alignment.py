@@ -158,7 +158,9 @@ class _PreparedLDScores:
     def keyed_rows(self, mode: str, *, cleaned: bool) -> tuple[pd.DataFrame, int]:
         """Return baseline rows keyed for a ``mode`` merge and the rows a downgrade cleanup dropped."""
         if (mode, cleaned) not in self._keyed:
-            frame = _assemble_regression_ldscore_table(self.source)
+            # A shallow copy: the keyed frame adds columns but never modifies the shared values.
+            frame = self.source.baseline_table.copy(deep=False)
+            frame.index = pd.RangeIndex(len(frame))
             frame["_ldsc_source_row"] = np.arange(len(frame), dtype=np.int64)
             self._keyed[mode, cleaned] = _key_regression_rows(frame, mode, cleaned=cleaned, context="LD-score table")
         return self._keyed[mode, cleaned]
@@ -868,45 +870,15 @@ def _resolve_rg_identity(
     ldscore_mode = _ldscore_identity_mode(ldscore_result, runner_config)
     trait_1_mode = _sumstats_identity_mode(sumstats_table_1, fallback_mode=ldscore_mode)
     trait_2_mode = _sumstats_identity_mode(sumstats_table_2, fallback_mode=ldscore_mode)
+    # Every pair is resolved, in this order, so an incompatible pair raises.
     pairwise = [
-        resolve_regression_identity_mode(
-            trait_1_mode,
-            ldscore_mode,
-            allow_identity_downgrade=regression_config.allow_identity_downgrade,
-        ),
-        resolve_regression_identity_mode(
-            trait_2_mode,
-            ldscore_mode,
-            allow_identity_downgrade=regression_config.allow_identity_downgrade,
-        ),
-        resolve_regression_identity_mode(
-            trait_1_mode,
-            trait_2_mode,
-            allow_identity_downgrade=regression_config.allow_identity_downgrade,
-        ),
+        resolve_regression_identity_mode(left, right, allow_identity_downgrade=regression_config.allow_identity_downgrade)
+        for left, right in ((trait_1_mode, ldscore_mode), (trait_2_mode, ldscore_mode), (trait_1_mode, trait_2_mode))
     ]
     if len({trait_1_mode, trait_2_mode, ldscore_mode}) == 1:
         return pairwise[0]
     effective_mode = identity_base_mode(trait_1_mode)
     return replace(pairwise[0], effective_mode=effective_mode, downgrade_applied=True)
-
-
-def _prepare_regression_identity_table(
-    frame: pd.DataFrame,
-    mode: str,
-    *,
-    context: str,
-    logger: logging.Logger,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Clean duplicate effective identities before downgraded regression merge."""
-    cleanup = clean_identity_artifact_table(
-        frame,
-        mode,
-        context=context,
-        stage="regression_identity_downgrade",
-        logger=logger,
-    )
-    return cleanup.cleaned, cleanup.dropped
 
 
 def _key_regression_rows(frame: pd.DataFrame, mode: str, *, cleaned: bool, context: str) -> tuple[pd.DataFrame, int]:
@@ -919,8 +891,10 @@ def _key_regression_rows(frame: pd.DataFrame, mode: str, *, cleaned: bool, conte
     """
     dropped = 0
     if cleaned:
-        frame, dropped_rows = _prepare_regression_identity_table(frame, mode, context=context, logger=LOGGER)
-        dropped = len(dropped_rows)
+        cleanup = clean_identity_artifact_table(
+            frame, mode, context=context, stage="regression_identity_downgrade", logger=LOGGER,
+        )
+        frame, dropped = cleanup.cleaned, len(cleanup.dropped)
     if is_allele_aware_mode(mode):
         frame = _with_effective_identity_key(frame, mode, context=context)
     elif identity_mode_family(mode) != "rsid":
@@ -1125,16 +1099,6 @@ def _validate_partitioned_query_columns(ldscore_result: LDScoreSource | LDScoreR
             f"different query inputs. Choose one of the available query annotations: {available}."
         )
     return requested
-
-
-def _assemble_regression_ldscore_table(ldscore_result: LDScoreSource | LDScoreResult) -> pd.DataFrame:
-    """Return the baseline LD-score table as a shallow copy with a RangeIndex.
-
-    Callers add columns to it but never modify the shared values in place.
-    """
-    table = ldscore_result.baseline_table.copy(deep=False)
-    table.index = pd.RangeIndex(len(table))
-    return table
 
 
 def _count_totals_for_columns(count_records, columns: Sequence[str]) -> dict[str, np.ndarray]:

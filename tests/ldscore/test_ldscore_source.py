@@ -253,3 +253,19 @@ def test_a_missing_or_unusable_count_config_is_rejected(tmp_path, count_config):
 
     with pytest.raises(LDSCInputError, match="count_config"):
         load_ldscore_from_dir(str(root))
+
+
+@pytest.mark.parametrize("missing", [None, "index_snp_identifier", "index_genome_build"])
+def test_an_index_id_needs_the_rest_of_the_index_provenance(tmp_path, missing):
+    from ldsc import load_ldscore_from_dir
+
+    root = write_one_snp_ldscore_dir(tmp_path / "ldscores", include_query=False)
+    provenance = {"index_id": "0" * 64, "index_snp_identifier": "rsid", "index_genome_build": "hg19"}
+    provenance.pop(missing, None)
+    _edit_metadata(root, lambda metadata: metadata.update(provenance))
+
+    if missing is None:
+        assert load_ldscore_from_dir(str(root)).index_provenance == provenance
+        return
+    with pytest.raises(LDSCInputError, match=f"^Could not load LD-score directory .*index_id.*{missing}.*troubleshooting"):
+        load_ldscore_from_dir(str(root))

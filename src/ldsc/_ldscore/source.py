@@ -372,8 +372,9 @@ class LDScoreManifest:
     Obtain it from ``read_ldscore_manifest``. Every check that needs no
     LD-score values has passed: the identity metadata, the declared files
     and their containment, the baseline and query row groups and schemas,
-    the count configuration, the overlap totals of a declared overlap, and
-    the agreement of the count and overlap configurations.
+    the count configuration, the overlap totals of a declared overlap, the
+    agreement of the count and overlap configurations, and the complete
+    index provenance of an indexed run.
 
     Attributes
     ----------
@@ -458,8 +459,8 @@ def read_ldscore_manifest(ldscore_dir) -> LDScoreManifest:
         The directory or ``metadata.json`` is missing or unreadable, a
         declared file is missing, absolute or outside the directory, a
         Parquet footer is unreadable, the recorded row groups disagree with a
-        file, or the identity, query-batch, count or overlap metadata is
-        invalid.
+        file, or the identity, query-batch, count, overlap or index
+        provenance metadata is invalid.
     LDSCInternalError
         A declared baseline/query schema lacks required columns.
     """
@@ -523,6 +524,15 @@ def read_ldscore_manifest(ldscore_dir) -> LDScoreManifest:
             f"Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
         )
     _validate_count_overlap_config(metadata, root, has_overlap="overlap" in declared)
+    missing_provenance = [key for key in INDEX_PROVENANCE_FIELDS if key not in metadata]
+    if metadata.get("index_id") is not None and missing_provenance:
+        raise LDSCInputError(
+            f"Could not load LD-score directory '{root}': metadata records `index_id` but lacks "
+            f"{', '.join(f'`{key}`' for key in missing_provenance)}, the rest of its gene LD-score index "
+            "provenance. Most likely metadata.json was edited by hand or copied from another run. Restore the "
+            "complete LD-score directory from the same run, or regenerate it with `ldsc ldscore`. "
+            f"Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
+        )
     return LDScoreManifest(
         root=root,
         metadata=metadata,

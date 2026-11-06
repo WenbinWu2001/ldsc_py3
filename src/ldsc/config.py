@@ -625,16 +625,9 @@ class LDScoreConfig(_LDWindowFields):
         sidecars already hold this metadata.
     workers : int, optional
         Maximum number of concurrent workers, default 1, including on HPC.
-        Use joblib.cpu_count() as the detected available CPU budget.
-        Positive requests above that budget fail before capping by task
-        count; negative -k uses max(1, budget + 1 - k). Zero, booleans,
-        and non-integers are invalid. A value of 1 still runs one worker
-        rather than computing inline.
-        Every worker uses 1 BLAS thread in serial and parallel execution.
-        Numerical OpenMP and Arrow CPU/I/O limits are also one; unsupported
-        numerical limits are logged as unverified and computation continues.
-        This does not detect idle CPUs, guarantee scheduler allocation
-        compliance, or ensure sufficient memory.
+        A negative value -k uses max(1, joblib.cpu_count() + 1 - k). The
+        CPU budget, worker validation and the one BLAS thread per worker are
+        described in docs/reference/parallel-execution.md.
     """
     ld_wind_snps: int | None = None
     ld_wind_kb: float | None = None
@@ -730,16 +723,9 @@ class GeneLDScoreIndexBuildConfig(_LDWindowFields):
         Positive offline internal atom-column batch size. Default is 64.
     workers : int, optional
         Maximum number of concurrent workers, default 1, including on HPC.
-        Use joblib.cpu_count() as the detected available CPU budget.
-        Positive requests above that budget fail before capping by task
-        count; negative -k uses max(1, budget + 1 - k). Zero, booleans,
-        and non-integers are invalid. A value of 1 still runs one worker
-        rather than computing inline.
-        Every worker uses 1 BLAS thread in serial and parallel execution.
-        Numerical OpenMP and Arrow CPU/I/O limits are also one; unsupported
-        numerical limits are logged as unverified and computation continues.
-        This does not detect idle CPUs, guarantee scheduler allocation
-        compliance, or ensure sufficient memory.
+        A negative value -k uses max(1, joblib.cpu_count() + 1 - k). The
+        CPU budget, worker validation and the one BLAS thread per worker are
+        described in docs/reference/parallel-execution.md.
 
     Raises
     ------

@@ -57,6 +57,42 @@ def test_missing_saved_result_file_identifies_artifact_and_repair(tmp_path):
     assert not list(tmp_path.iterdir())
 
 
+def test_saved_result_file_name_with_dot_dot_is_rejected_even_inside_the_directory(tmp_path):
+    from ldsc._runtime.artifacts import declared_result_file
+
+    result_dir = tmp_path / "result"
+    (result_dir / "sub").mkdir(parents=True)
+    (result_dir / "h2.tsv").write_text("trait_name\n")
+    with pytest.raises(LDSCInputError, match="escapes the result directory"):
+        declared_result_file(result_dir, {"files": {"summary": "sub/../h2.tsv"}},
+                             "summary", context="Saved h2 result")
+
+
+def test_saved_result_file_may_be_a_symbolic_link_inside_the_directory(tmp_path):
+    from ldsc._runtime.artifacts import declared_result_file
+
+    result_dir = tmp_path / "result"
+    (result_dir / "tables").mkdir(parents=True)
+    (result_dir / "tables" / "h2.tsv").write_text("trait_name\n")
+    (result_dir / "h2.tsv").symlink_to(result_dir / "tables" / "h2.tsv")
+    path = declared_result_file(result_dir, {"files": {"summary": "h2.tsv"}},
+                                "summary", context="Saved h2 result")
+    # The declared name is returned, not the link's resolved target.
+    assert path == result_dir / "h2.tsv"
+
+
+def test_saved_result_file_symbolic_link_leaving_the_directory_is_rejected(tmp_path):
+    from ldsc._runtime.artifacts import declared_result_file
+
+    result_dir = tmp_path / "result"
+    result_dir.mkdir()
+    (tmp_path / "elsewhere.tsv").write_text("trait_name\n")
+    (result_dir / "h2.tsv").symlink_to(tmp_path / "elsewhere.tsv")
+    with pytest.raises(LDSCInputError, match="escapes the result directory"):
+        declared_result_file(result_dir, {"files": {"summary": "h2.tsv"}},
+                             "summary", context="Saved h2 result")
+
+
 def test_all_qc_rows_lost_reports_counts_and_current_options_without_sidecar(tmp_path):
     from ldsc.config import GlobalConfig, MungeConfig
     from ldsc._sumstats.munger import SumstatsMunger

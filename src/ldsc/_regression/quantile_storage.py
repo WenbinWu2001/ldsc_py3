@@ -14,7 +14,7 @@ import pandas as pd
 
 from .._core.columns import (
     A1_COLUMN_SPEC, A2_COLUMN_SPEC, ANNOTATION_METADATA_SPEC_MAP, CHR_COLUMN_SPEC, MAF_COLUMN_SPEC,
-    POS_COLUMN_SPEC, SNP_COLUMN_SPEC, resolve_optional_column, resolve_required_column,
+    POS_COLUMN_SPEC, SNP_COLUMN_SPEC, lookalike_hint, resolve_optional_column, resolve_required_column,
 )
 from .._core.identifiers import open_identity_table
 from ..errors import LDSCInputError
@@ -105,13 +105,14 @@ _REFERENCE_TROUBLESHOOTING = "docs/user-guide/troubleshooting.md#quantile-h2-ref
 def _reference_columns(header, path):
     """Map reference-metadata header names to CHR, POS, SNP, MAF and, when both exist, A1/A2.
 
-    The frequency comes from the column named ``MAF`` or, when there is none,
-    the one column whose name ends in ``MAF`` (the shared suffix rule).
-    ``FRQ`` is never read as ``MAF``: it usually holds the unfolded A1
+    Each field is taken only by its canonical name or a listed alias, so the
+    frequency comes from the column named ``MAF``; a population column such as
+    ``EUR_MAF`` is not read as ``MAF``, and the error names it as a column to
+    rename. ``FRQ`` is never read as ``MAF``: it usually holds the unfolded A1
     frequency, which would select the wrong common SNPs.
     """
-    found = {spec.canonical: resolve_optional_column(header, spec, context=path)
-             for spec in (CHR_COLUMN_SPEC, POS_COLUMN_SPEC, SNP_COLUMN_SPEC, MAF_COLUMN_SPEC)}
+    specs = {spec.canonical: spec for spec in (CHR_COLUMN_SPEC, POS_COLUMN_SPEC, SNP_COLUMN_SPEC, MAF_COLUMN_SPEC)}
+    found = {name: resolve_optional_column(header, spec, context=path) for name, spec in specs.items()}
     missing = [name for name, column in found.items() if column is None]
     if missing:
         frq = (" Its FRQ column is not read as MAF, because FRQ usually holds the unfolded A1 frequency, "
@@ -123,6 +124,7 @@ def _reference_columns(header, path):
             "Set --ref-metadata-sources to the R2 matrix sidecars (chr<N>_meta.tsv.gz) or the files that "
             "ldscore --export-ref-metadata wrote for the panel of the fit; both carry these columns. "
             f"Do not fill missing frequencies with invented values. See {_REFERENCE_TROUBLESHOOTING}."
+            + "".join(lookalike_hint(header, specs[name]) for name in missing)
         )
     a1 = resolve_optional_column(header, A1_COLUMN_SPEC, context=path)
     a2 = resolve_optional_column(header, A2_COLUMN_SPEC, context=path)

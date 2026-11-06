@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 from .._core.chromosomes import chrom_sort_key, normalize_chromosome
-from .._core.columns import CHR_COLUMN_SPEC, POS_COLUMN_SPEC, ColumnSpec, resolve_required_column
+from .._core.columns import CHR_COLUMN_SPEC, POS_COLUMN_ALIASES, ColumnSpec, resolve_required_column
 from ..errors import LDSCInputError
 
 # Troubleshooting section for genetic-map errors, by the command that reads the map.
@@ -30,9 +30,11 @@ GENETIC_MAP_TROUBLESHOOTING = {
 }
 
 
+# Genetic maps also accept the HapMap header (Chromosome Position(bp) Rate(cM/Mb) Map(cM)).
+GENETIC_MAP_POS_SPEC = ColumnSpec("POS", (*POS_COLUMN_ALIASES, "POSITION(BP)"), "genetic map position")
 GENETIC_MAP_CM_SPEC = ColumnSpec(
     "CM",
-    ("CM", "GENETIC_MAP_CM", "GENETICMAPCM", "GENETIC_MAP(CM)", "GENETICMAP(CM)"),
+    ("CM", "GENETIC_MAP_CM", "GENETICMAPCM", "GENETIC_MAP(CM)", "GENETICMAP(CM)", "MAP(CM)"),
     "genetic map centiMorgan",
 )
 
@@ -40,7 +42,7 @@ GENETIC_MAP_CM_SPEC = ColumnSpec(
 def check_genetic_map_header(path):
     """Require chromosome, position and centimorgan columns in a genetic-map header."""
     columns = pd.read_csv(path, sep=r'\s+', nrows=0).columns
-    for spec in (CHR_COLUMN_SPEC, POS_COLUMN_SPEC, GENETIC_MAP_CM_SPEC):
+    for spec in (CHR_COLUMN_SPEC, GENETIC_MAP_POS_SPEC, GENETIC_MAP_CM_SPEC):
         resolve_required_column(columns, spec, context=str(path))
 
 
@@ -63,7 +65,7 @@ def load_genetic_map(path: str | PathLike[str], *, command: str) -> pd.DataFrame
     df = _read_text_table(path)
     context = str(path)
     chr_col = resolve_required_column(df.columns, CHR_COLUMN_SPEC, context=context)
-    pos_col = resolve_required_column(df.columns, POS_COLUMN_SPEC, context=context)
+    pos_col = resolve_required_column(df.columns, GENETIC_MAP_POS_SPEC, context=context)
     cm_col = resolve_required_column(df.columns, GENETIC_MAP_CM_SPEC, context=context)
 
     out = pd.DataFrame(

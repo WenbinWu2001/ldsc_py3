@@ -28,7 +28,6 @@ HM3_HG19_POS_SPEC = ColumnSpec(
         "GRCh37_POSITION",
     ),
     "hg19 position",
-    allow_suffix_match=False,
 )
 HM3_HG38_POS_SPEC = ColumnSpec(
     "hg38_POS",
@@ -41,7 +40,6 @@ HM3_HG38_POS_SPEC = ColumnSpec(
         "GRCh38_POSITION",
     ),
     "hg38 position",
-    allow_suffix_match=False,
 )
 
 

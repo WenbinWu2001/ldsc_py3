@@ -42,7 +42,6 @@ from .._core.columns import (
     ColumnSpec,
     POS_COLUMN_SPEC,
     SNP_COLUMN_SPEC,
-    normalize_column_token,
     resolve_optional_column,
 )
 from ..errors import LDSCInputError, LDSCUsageError
@@ -467,7 +466,6 @@ def _endpoint_column_spec(base: ColumnSpec, suffix: str) -> ColumnSpec:
         base.canonical,
         tuple(aliases),
         f"endpoint-{suffix} {base.label}",
-        allow_suffix_match=False,
     )
 
 
@@ -482,16 +480,12 @@ def _endpoint_frame(pairs: pd.DataFrame, suffix: str, mode: str, *, source: str)
     ``source`` names the pairs in that error.
     """
     allele_aware = is_allele_aware_mode(mode)
-    suffix_token = normalize_column_token(suffix)
-    suffixed_columns = [
-        column for column in pairs.columns if normalize_column_token(column).endswith(suffix_token)
-    ]
     out = {}
     for canonical in _ENDPOINT_COLUMNS:
         if canonical in ("A1", "A2") and not allele_aware:
             continue
         spec = _endpoint_column_spec(_ENDPOINT_COLUMN_SPECS[canonical], suffix)
-        col = resolve_optional_column(suffixed_columns, spec, context=f"query-r2-matrix endpoint {suffix}")
+        col = resolve_optional_column(pairs.columns, spec, context=f"query-r2-matrix endpoint {suffix}")
         if col is not None:
             out[canonical] = pairs[col].to_numpy()
     if not out:

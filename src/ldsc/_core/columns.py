@@ -71,12 +71,11 @@ class ColumnSpec:
     canonical: str
     aliases: tuple[str, ...]
     label: str
-    allow_suffix_match: bool = True
 
 
 def _canonical_only_spec(canonical: str, label: str) -> ColumnSpec:
-    """Return a strict spec that accepts only the canonical field name."""
-    return ColumnSpec(canonical, (canonical,), label, allow_suffix_match=False)
+    """Return a spec that accepts only the canonical field name."""
+    return ColumnSpec(canonical, (canonical,), label)
 
 
 _POS_TOKEN_ALIASES = ("pos", "bp", "position", "base_pair", "basepair")
@@ -146,21 +145,19 @@ RAW_SUMSTATS_SIGNED_STAT_SPECS = (
 )
 
 
-def _exact_or_alias_spec(spec: ColumnSpec) -> ColumnSpec:
-    """Return ``spec`` restricted to its canonical name and aliases."""
-    return ColumnSpec(spec.canonical, spec.aliases, spec.label, allow_suffix_match=False)
-
-
-# Context families for permissive external inputs.
-# In annotation files every column that is not metadata is an annotation, so
-# SNP, CM, MAF and the alleles match only their name or an alias: a suffix match
-# would silently move an annotation such as lowMAF, eQTL_SNP or Enhancers (which
-# ends in the alias RS) out of the model. CHR and POS are required and keep the
-# shared ranking.
+# Context families for external inputs.
+# Every family matches a header only by its canonical name or a listed alias.
+# In annotation files every column that is not metadata is an annotation, so a
+# looser rule would silently move an annotation such as lowMAF, eQTL_SNP or
+# Enhancers (which ends in the alias RS) out of the model.
 ANNOTATION_METADATA_SPECS = (
     CHR_COLUMN_SPEC,
     POS_COLUMN_SPEC,
-    *(_exact_or_alias_spec(spec) for spec in (SNP_COLUMN_SPEC, CM_COLUMN_SPEC, MAF_COLUMN_SPEC, A1_COLUMN_SPEC, A2_COLUMN_SPEC)),
+    SNP_COLUMN_SPEC,
+    CM_COLUMN_SPEC,
+    MAF_COLUMN_SPEC,
+    A1_COLUMN_SPEC,
+    A2_COLUMN_SPEC,
 )
 ANNOTATION_METADATA_SPEC_MAP = {spec.canonical: spec for spec in ANNOTATION_METADATA_SPECS}
 
@@ -208,27 +205,44 @@ def build_cleaned_alias_lookup(specs: Sequence[ColumnSpec]) -> dict[str, str]:
 
 
 def _best_matches(columns: Iterable[str], spec: ColumnSpec) -> list[str]:
-    """Return the best-ranked header matches for one canonical field spec."""
-    columns = list(columns)
+    """Return the headers named ``spec.canonical``, or failing that, the headers named by an alias.
+
+    Headers are compared after :func:`normalize_column_token`, so case and
+    punctuation never matter, but a header that only ends in a name (``EUR_MAF``)
+    matches nothing.
+    """
     canonical_norm = normalize_column_token(spec.canonical)
     alias_norms = {normalize_column_token(alias) for alias in spec.aliases}
-    ranked: dict[int, list[str]] = {}
+    columns = list(columns)
+    canonical = [column for column in columns if normalize_column_token(column) == canonical_norm]
+    if canonical:
+        return canonical
+    return [column for column in columns if normalize_column_token(column) in alias_norms]
+
+
+def lookalike_hint(columns: Iterable[str], spec: ColumnSpec) -> str:
+    """Return a sentence naming headers that end in a name of ``spec`` after a separator, or ``""``.
+
+    The hint only helps a user repair a missing required column; such headers
+    are never matched. A name that ends inside one word (``lowMAF``, ``Thyroid``)
+    is not counted.
+    """
+    names = {normalize_column_token(name) for name in (spec.canonical, *spec.aliases)}
+    found = []
     for column in columns:
-        normalized = normalize_column_token(column)
-        rank = None
-        if normalized == canonical_norm:
-            rank = 0
-        elif normalized in alias_norms:
-            rank = 1
-        elif spec.allow_suffix_match and normalized.endswith(canonical_norm):
-            rank = 2
-        elif spec.allow_suffix_match and any(normalized.endswith(alias) for alias in alias_norms):
-            rank = 3
-        if rank is not None:
-            ranked.setdefault(rank, []).append(column)
-    if not ranked:
-        return []
-    return ranked[min(ranked)]
+        tokens = [token for token in re.split(r"[^0-9A-Za-z]+", str(column)) if token]
+        if normalize_column_token(column) in names:
+            continue
+        if any("".join(tokens[start:]).lower() in names for start in range(1, len(tokens))):
+            found.append(str(column))
+    if not found:
+        return ""
+    listed = ", ".join(found)
+    noun = "a header that ends" if len(found) == 1 else "headers that end"
+    return (
+        f" The header has {listed}, {noun} in a name for {spec.canonical} without being one; "
+        f"if it holds the {spec.label}, rename it to {spec.canonical}."
+    )
 
 
 def _log_if_inferred(canonical: str, actual: str, context: str | None) -> None:
@@ -251,6 +265,7 @@ def resolve_required_column(
     context: str | None = None,
 ) -> str:
     """Resolve one required column from ``columns`` using ``spec``."""
+    columns = list(columns)
     matches = _best_matches(columns, spec)
     if not matches:
         header = ", ".join(str(column) for column in columns)
@@ -259,6 +274,7 @@ def resolve_required_column(
             f"Could not map the required {spec.label} column{context_text}: expected canonical field {spec.canonical!r}; "
             f"available columns: {header}. Most likely the header uses an unrecognized alias or the file delimiter is wrong. "
             "Pass the matching column explicitly when the workflow supports it, or rename the input header."
+            + lookalike_hint(columns, spec)
         )
     if len(matches) > 1:
         context_text = f" in {context}" if context else ""
@@ -308,14 +324,24 @@ def infer_chr_pos_columns(header: Iterable[str], *, context: str | None = None) 
 
 
 def _restriction_header_error(columns: Iterable[str], missing: Sequence[str]) -> LDSCInputError:
-    """Build the shared error when a restriction header lacks required aliases."""
+    """Build the shared error when a restriction header lacks required aliases.
+
+    A build-specific position column is never offered as the generic ``POS``:
+    in a run on another build, renaming it would bring in the wrong coordinates.
+    """
+    columns = list(columns)
     header = ", ".join(str(column) for column in columns)
     joined = ", ".join(missing)
+    build_specific = {column for spec in (RESTRICTION_HG19_POS_SPEC, RESTRICTION_HG38_POS_SPEC)
+                      for column in _best_matches(columns, spec)}
+    generic = [column for column in columns if column not in build_specific]
+    specs = {"SNP": RESTRICTION_RSID_SPEC_MAP["SNP"], **RESTRICTION_CHRPOS_SPEC_MAP}
+    hints = "".join(lookalike_hint(generic, specs[name]) for name in missing)
     return LDSCInputError(
         f"Could not read SNP restriction file header: missing recognizable {joined} column(s). "
         f"Available columns: {header}. Most likely the restriction file uses unsupported column names, "
         "has no header row, or was parsed with the wrong delimiter. Rename the header to recognizable "
-        "SNP or CHR/POS column names."
+        "SNP or CHR/POS column names." + hints
     )
 
 

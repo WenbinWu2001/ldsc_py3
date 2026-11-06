@@ -3,7 +3,7 @@
 # Modified 2024 for Python 3; 2026-04 for package extraction and docstrings,
 # and 2026-08 for the reduced parser surface. Notice restored 2026-09-10.
 # 2026-11: loj selects rows by membership, so a repeated ID counts once;
-# .fam and keep-file IDs are read as text.
+# .fam and keep-file IDs are read as exact text, without missing values.
 # See NOTICE for attribution and dated modifications.
 
 """
@@ -43,15 +43,16 @@ def get_compression(fh):
     return compression
 
 
-def __ID_List_Factory__(colnames, keepcol, fname_end, header=None, usecols=None, dtype=None):
+def __ID_List_Factory__(colnames, keepcol, fname_end, header=None, usecols=None, as_text=False):
     """
     Build a small file-reader class for one legacy LDSC identifier-list format.
 
     The returned class mirrors the historical ``parse.py`` behavior used by the
     LD kernel: it reads one file into ``self.df`` and, when requested, exposes
     a one-column ``IDList`` table that can be matched against an external
-    list to obtain retained row indices. ``dtype=str`` keeps identifiers as
-    their exact text, so ``01003`` and ``1003`` stay distinct.
+    list to obtain retained row indices. ``as_text=True`` keeps identifiers as
+    their exact text, so ``01003`` and ``1003`` stay distinct and words such as
+    ``NA`` or ``nan`` stay identifiers rather than missing values.
     """
 
     class IDContainer(object):
@@ -64,7 +65,7 @@ def __ID_List_Factory__(colnames, keepcol, fname_end, header=None, usecols=None,
             self.__keepcol__ = keepcol
             self.__fname_end__ = fname_end
             self.__header__ = header
-            self.__dtype__ = dtype
+            self.__as_text__ = as_text
             self.fname = fname
             self.__read__(fname)
             self.n = len(self.df)
@@ -80,8 +81,9 @@ def __ID_List_Factory__(colnames, keepcol, fname_end, header=None, usecols=None,
                 )
 
             comp = get_compression(fname)
+            text = {'dtype': str, 'na_filter': False} if self.__as_text__ else {}
             self.df = pd.read_csv(fname, header=self.__header__, usecols=self.__usecols__,
-                                  sep=r'\s+', compression=comp, dtype=self.__dtype__)
+                                  sep=r'\s+', compression=comp, **text)
 
             if self.__colnames__:
                 self.df.columns = self.__colnames__
@@ -101,5 +103,5 @@ def __ID_List_Factory__(colnames, keepcol, fname_end, header=None, usecols=None,
 
 
 PlinkBIMFile = __ID_List_Factory__(['CHR', 'SNP', 'CM', 'BP', 'A1', 'A2'], 1, '.bim', usecols=[0, 1, 2, 3, 4, 5])
-PlinkFAMFile = __ID_List_Factory__(['IID'], 0, '.fam', usecols=[1], dtype=str)
-FilterFile = __ID_List_Factory__(['ID'], 0, None, usecols=[0], dtype=str)
+PlinkFAMFile = __ID_List_Factory__(['IID'], 0, '.fam', usecols=[1], as_text=True)
+FilterFile = __ID_List_Factory__(['ID'], 0, None, usecols=[0], as_text=True)

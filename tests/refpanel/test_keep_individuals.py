@@ -11,8 +11,8 @@ individuals near the start of the ``.fam`` and the last ten, so a repeated IID
 can push a selected row past the last individual.
 
 IIDs are text: a numeric-looking IID matches only the same text, so ``01003``
-does not match ``1003``, and a numeric keep list matches a ``.fam`` that also
-holds non-numeric IIDs.
+does not match ``1003``, a numeric keep list matches a ``.fam`` that also
+holds non-numeric IIDs, and ``NA`` or ``nan`` is an IID, not a missing value.
 """
 import importlib.util
 import json
@@ -173,3 +173,23 @@ def test_a_repeated_fam_iid_the_keep_file_does_not_list_is_accepted(tmp_path):
     fam = PlinkFAMFile(str(write_fam(tmp_path / "panel.fam", ["S1", "S1", "S2"])))
 
     assert keep_individual_indices(read_keep_individuals(str(write_keep(tmp_path / "keep.txt", ["S2"]))), fam) == [2]
+
+
+NA_TOKENS = {
+    # FAM IIDs, keep-file IIDs. Pandas reads these words as missing values by default;
+    # as IIDs they are ordinary text and match only the same text.
+    "na_listed": (["S0", "NA", "nan", "NULL"], ["NA"]),
+    "na_and_null_listed": (["S0", "NA", "nan", "NULL"], ["NULL", "NA", "S0"]),
+    "na_not_listed": (["S0", "NA", "nan"], ["S0"]),
+}
+
+
+@pytest.mark.parametrize("fam_iids, keep_iids", NA_TOKENS.values(), ids=NA_TOKENS.keys())
+def test_missing_value_words_are_iids_matched_by_their_exact_text(tmp_path, fam_iids, keep_iids):
+    expected = [row for row, iid in enumerate(fam_iids) if iid in set(keep_iids)]
+    fam = PlinkFAMFile(str(write_fam(tmp_path / "panel.fam", fam_iids)))
+
+    selected = keep_individual_indices(read_keep_individuals(str(write_keep(tmp_path / "keep.txt", keep_iids))), fam)
+
+    assert selected == expected
+    assert fam.IDList.iloc[:, 0].tolist() == fam_iids

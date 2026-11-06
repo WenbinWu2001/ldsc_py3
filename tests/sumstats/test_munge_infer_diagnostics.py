@@ -307,6 +307,30 @@ def test_python_inference_suggests_the_options_of_its_config_as_infer_only_does(
     assert not (tmp_path / 'out').exists()
 
 
+@pytest.mark.parametrize(('column_hints', 'flags'), [
+    ({'N': 'SIZE', 'signed_sumstats': 'EFFECT,0'}, ['--N-col', 'SIZE', '--signed-sumstats', 'EFFECT,0']),
+    ({'N_cas': 'CASES', 'N_con': 'CONTROLS', 'signed_sumstats': 'EFFECT,0'},
+     ['--N-cas-col', 'CASES', '--N-con-col', 'CONTROLS', '--signed-sumstats', 'EFFECT,0']),
+])
+def test_python_inference_suggests_column_hints_given_under_the_run_s_other_keys(tmp_path, column_hints, flags):
+    # Review of the D9 fix: the run also accepts the column_hints keys N, N_cas, N_con and signed_sumstats, but
+    # infer_raw_sumstats() left them out of suggested_args, so a command rebuilt from its report could pick another
+    # sample-size column. The expected flags are the ones the CLI request passes.
+    from ldsc import GlobalConfig, MungeConfig, infer_raw_sumstats
+
+    raw = tmp_path / 'raw.tsv'
+    raw.write_text('SNP A1 A2 EFFECT P SIZE CASES CONTROLS\n'
+                   + ''.join(f'rs{i} A G 0.1 0.5 1000 400 600\n' for i in range(20)))
+    cli = workflow.main(['--raw-sumstats-file', str(raw), '--output-dir', str(tmp_path / 'out'), '--infer-only',
+                         '--snp-identifier', 'rsid', '--no-snp-restriction', *flags])
+    config = MungeConfig(raw_sumstats_file=raw, output_dir=tmp_path / 'out', no_snp_restriction=True,
+                         column_hints=column_hints)
+    python = infer_raw_sumstats(config, global_config=GlobalConfig(snp_identifier='rsid'))
+    assert cli.runnable, cli.missing_fields
+    assert set(zip(flags[::2], flags[1::2])) <= set(zip(cli.suggested_args, cli.suggested_args[1:]))
+    assert python == cli
+
+
 def _unresolvable_chr1_rows(n_column=True):
     """Return 50 chromosome-1 rows that no HM3 SNP supports, so ``source_genome_build='auto'`` cannot resolve."""
     header = 'SNP CHR POS A1 A2 P BETA' + (' N' if n_column else '')

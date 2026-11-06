@@ -1200,10 +1200,14 @@ def _cli_option_values(config: MungeConfig, global_config: GlobalConfig) -> dict
     :func:`_resolve_main_global_config` for every run option besides
     ``--raw-sumstats-file`` and ``--output-dir``; the comma-separated
     ``--ignore`` and ``--info-list`` values are rebuilt from their parsed
-    column names.
+    column names. The run also reads the ``column_hints`` keys ``N``,
+    ``N_cas``, ``N_con`` and ``signed_sumstats``; they become the flags they
+    stand for, with the run's precedence.
     """
+    hint_keys = {**{key: key for key in _COLUMN_HINT_ARG_KEYS},
+                 "N": "N_col", "N_cas": "N_cas_col", "N_con": "N_con_col"}
     return {
-        **{key: value for key, value in config.column_hints.items() if key in _COLUMN_HINT_ARG_KEYS},
+        **{hint_keys[key]: value for key, value in config.column_hints.items() if key in hint_keys},
         "snp_identifier": global_config.snp_identifier,
         "source_genome_build": config.source_genome_build,
         "output_genome_build": config.output_genome_build,
@@ -1221,7 +1225,7 @@ def _cli_option_values(config: MungeConfig, global_config: GlobalConfig) -> dict
         "nstudy_min": config.nstudy_min,
         "info_min": config.info_min,
         "maf_min": config.maf_min,
-        "signed_sumstats": config.signed_sumstats_spec,
+        "signed_sumstats": config.column_hints.get("signed_sumstats", config.signed_sumstats_spec),
         "a1_inc": config.a1_inc,
         "info_list": ",".join(config.info_list_columns) or config.column_hints.get("info_list"),
         "ignore": ",".join(config.ignore_columns) or None,

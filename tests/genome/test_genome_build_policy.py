@@ -169,7 +169,7 @@ def test_munge_explicit_build_does_not_read_text_coordinate_rows(tmp_path, monke
     def unexpected_read(*args, **kwargs):
         raise AssertionError('an explicit build read the raw coordinate rows')
 
-    monkeypatch.setattr(build_policy, '_table_frames', unexpected_read)
+    monkeypatch.setattr(build_policy, 'table_frames', unexpected_read)
     monkeypatch.setattr(munge_input, 'read_raw_sumstats', unexpected_read)
     result = resolve_source_coordinates(schema, config)
     assert result['genome_build'] == 'hg19'

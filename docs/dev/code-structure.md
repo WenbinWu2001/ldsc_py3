@@ -103,6 +103,7 @@ The lazily exported workflows in `ldsc/__init__.py` and the per-command modules 
 | `ldsc._runtime.worker_runtime`, `ldsc._runtime.serial_calculation` | fixed one-BLAS-thread worker policy, runtime verification, independent Arrow limits, and controlled standalone numerical calls |
 | `ldsc._genome.build_inference` | public `chr_pos` build and coordinate-basis inference helpers |
 | `ldsc._genome.build_policy`, `ldsc._genome.build_inspection` | the build policy workflows apply to their inputs and read-only build inspection of saved artifacts (`infer-genome-build`) |
+| `ldsc._genome.build_evidence` | build-evidence readers that the build policy and build inspection share: chunked table reads, delimiter and `# ldsc:` comment sniffing of user-supplied text tables, the bounded per-chromosome coordinate sampler, and R² matrix file and build-child discovery |
 | `ldsc._genome.liftover` | liftover mechanics shared by munging and R² matrix building: hg19/hg38 chain-file translation, drop-all coordinate collision helpers, and readable drop reports |
 | `ldsc._genome.hm3` | public packaged curated HM3 map loader and installed map path helper for workflow internals |
 | `tools/hm3/build_hm3_chr_pos_reference.py` | maintenance tool (outside the package) that rebuilds the compact HM3 coordinate reference used by genome-build inference |

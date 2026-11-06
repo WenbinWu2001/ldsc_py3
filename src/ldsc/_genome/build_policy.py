@@ -8,40 +8,24 @@ resolved build; they do not repeat this workflow-level decision.
 """
 
 from dataclasses import dataclass
-import bz2
 import json
-import gzip
 from pathlib import Path
 
 import pandas as pd
 import pyarrow.parquet as pq
 
-from .._core.coordinates import normalize_chr_pos_frame
 from .._core.identifiers import open_identity_table
 from .._core.columns import (
     normalize_genome_build, resolve_optional_column, resolve_required_column,
     RESTRICTION_CHRPOS_SPEC_MAP, RESTRICTION_HG19_POS_SPEC, RESTRICTION_HG38_POS_SPEC,
 )
 from ..errors import LDSCInputError, LDSCUserError
+from .build_evidence import r2_members, r2_sidecar_path, sample_chromosomes, table_frames, text_options
 from .build_inference import infer_chr_pos_build
 from .._runtime.paths import resolve_file_group, resolve_plink_prefix_group, split_cli_path_tokens
 
 _INPUT_ERRORS = (OSError, ValueError, KeyError, EOFError, LDSCUserError)
 _BUILDS = frozenset(("hg19", "hg38"))
-_SAMPLE_ROWS = 5000
-
-# R2 matrix file names. ``_refpanel.r2_format.r2_matrix_file_paths`` owns them, but
-# this lower tier cannot import it; tests/refpanel/test_r2_matrix_chromosome.py
-# checks that the two spellings agree.
-R2_PARQUET_GLOB = "chr*_r2.parquet"
-
-
-def r2_sidecar_path(path) -> Path | None:
-    """Return the sidecar paired with an R2 Parquet file, or None for any other file name."""
-    path = Path(path)
-    if not path.name.endswith("_r2.parquet"):
-        return None
-    return path.with_name(path.name.removesuffix("_r2.parquet") + "_meta.tsv.gz")
 
 
 @dataclass(frozen=True)
@@ -100,10 +84,11 @@ class GenomeBuildCheck:
             self.evidence.append(BuildEvidence(role, str(source), frozenset(), reason, True))
 
     def frames(self, role, source, frames, *, infer_unlabeled=True):
-        """Sample at most 5,000 rows per chromosome, retaining every chromosome."""
-        samples, counts = {}, {}
+        """Record frame declarations and infer unlabeled frames' per-chromosome samples."""
         declared = False
-        try:
+
+        def unlabeled():
+            nonlocal declared
             for frame in frames:
                 labels = set(frame['genome_build'].dropna().astype(str)) if 'genome_build' in frame else set()
                 for key in ('genome_build', 'ldsc:genome_build'):
@@ -117,22 +102,16 @@ class GenomeBuildCheck:
                 missing = {"CHR", "POS"} - set(frame.columns)
                 if missing:
                     raise LDSCInputError(f"missing required coordinate columns: {', '.join(sorted(missing))}; supply a coordinate-bearing input")
-                frame, _ = normalize_chr_pos_frame(
-                    frame.loc[:, ["CHR", "POS"]], context=str(source),
-                    coordinate_policy="drop", min_position=0, logger=None,
-                )
-                for chrom, group in frame.groupby("CHR", sort=False):
-                    room = _SAMPLE_ROWS - counts.get(chrom, 0)
-                    if room > 0:
-                        sample = group.head(room)
-                        samples.setdefault(chrom, []).append(sample)
-                        counts[chrom] = counts.get(chrom, 0) + len(sample)
+                yield frame
+
+        try:
+            samples = sample_chromosomes(unlabeled(), context=source)
             if not samples and not declared and not self.explicit and infer_unlabeled:
                 self.unresolved(role, source, "no coordinate rows")
-            for chrom, parts in samples.items():
+            for chrom, sample in samples.items():
                 label = f"{source} [chr{chrom}]"
                 try:
-                    inference = infer_chr_pos_build(pd.concat(parts, ignore_index=True), context=label)
+                    inference = infer_chr_pos_build(sample, context=label)
                     self.inferences.append((str(source), inference))
                     self.declared(role, label, inference.genome_build,
                                   f"coordinate inference; {inference.inspected_snp_count} informative HM3 matches; {inference.coordinate_basis}")
@@ -172,13 +151,12 @@ class GenomeBuildCheck:
     def r2(self, role, directory):
         """Inspect selected R2 matrix shards, treating build children as alternatives."""
         root = Path(directory)
-        paths = sorted(root.glob(R2_PARQUET_GLOB))
-        if paths:
-            for path in paths:
+        members = r2_members(root)
+        if members[""]:
+            for path in members[""]:
                 self.table(role, path)
             return
-        alternatives = {build: sorted((root / build).glob(R2_PARQUET_GLOB)) for build in _BUILDS}
-        alternatives = {build: paths for build, paths in alternatives.items() if paths}
+        alternatives = {build: paths for build, paths in members.items() if build and paths}
         if not alternatives:
             self.unresolved(role, root, 'no R2 Parquet files found')
             return
@@ -215,7 +193,7 @@ class GenomeBuildCheck:
                         self.declared(role, path, build, f"Parquet {key.decode()} declaration")
                 columns = schema.names
             else:
-                options, text_metadata = _text_options(path)
+                options, text_metadata = text_options(path)
                 build = text_metadata.get("genome_build")
                 if build and normalize_genome_build(build) in _BUILDS:
                     self.declared(role, path, build, "text artifact build metadata")
@@ -234,7 +212,7 @@ class GenomeBuildCheck:
             declared_column = next((col for col in columns if str(col).lower() == "genome_build"), None)
             if declared_column:
                 values = set()
-                for frame in _table_frames(path, [declared_column], parquet):
+                for frame in table_frames(path, [declared_column], parquet):
                     values.update(frame[declared_column].dropna().astype(str))
                 if not values:
                     self.unresolved(role, path, "empty genome_build declaration")
@@ -263,10 +241,14 @@ class GenomeBuildCheck:
                 return
             chr_col = resolve_required_column(columns, RESTRICTION_CHRPOS_SPEC_MAP["CHR"], context=str(path))
             pos_col = resolve_required_column(columns, RESTRICTION_CHRPOS_SPEC_MAP["POS"], context=str(path))
-            self.frames(role, path, (frame.rename(columns={chr_col: "CHR", pos_col: "POS"})
-                                    for frame in _table_frames(path, [chr_col, pos_col], parquet)))
+            self._coordinate_columns(role, path, chr_col, pos_col, parquet)
         except _INPUT_ERRORS as exc:
             self.unresolved(role, path, exc)
+
+    def _coordinate_columns(self, role, path, chr_col, pos_col, parquet):
+        """Infer a table's build from its selected chromosome and position columns."""
+        self.frames(role, path, (frame.rename(columns={chr_col: "CHR", pos_col: "POS"})
+                                for frame in table_frames(path, [chr_col, pos_col], parquet)))
 
     def _r2_sidecar_declaration(self, role, path):
         """Compare a bound R2 matrix sidecar's declaration without re-inferring it.
@@ -302,8 +284,7 @@ class GenomeBuildCheck:
                         continue
                     try:
                         chr_col = resolve_required_column(columns, RESTRICTION_CHRPOS_SPEC_MAP["CHR"], context=str(path))
-                        self.frames(entry.role, path, (frame.rename(columns={chr_col: "CHR", pos_col: "POS"})
-                            for frame in _table_frames(path, [chr_col, pos_col], parquet)))
+                        self._coordinate_columns(entry.role, path, chr_col, pos_col, parquet)
                     except _INPUT_ERRORS as exc:
                         self.unresolved(entry.role, path, exc)
         self._generic_fallbacks.clear()
@@ -360,35 +341,3 @@ class GenomeBuildCheck:
         return "Build evidence across inputs:\n" + "\n".join(
             f"  {group}:\n" + ("\n".join(rows) if rows else "    none") for group, rows in groups.items())
 
-
-def _table_frames(path, columns, parquet=False):
-    if parquet:
-        with pq.ParquetFile(path) as reader:
-            for batch in reader.iter_batches(batch_size=50000, columns=columns):
-                yield batch.to_pandas()
-    else:
-        with pd.read_csv(path, usecols=columns, chunksize=50000, **_text_options(path)[0]) as reader:
-            yield from reader
-
-
-def _text_options(path):
-    """Recognize supported delimiters and leading artifact metadata comments.
-
-    This reads user-supplied text tables: it sniffs the delimiter, skips any
-    leading comment or blank line, and reads ``bz2`` files. Package-written
-    identity-line tables, such as R2 matrix sidecars, are read with
-    ``open_identity_table()``.
-    """
-    metadata = {}
-    opener = gzip.open if str(path).endswith('.gz') else bz2.open if str(path).endswith('.bz2') else open
-    with opener(path, 'rt', encoding='utf-8') as stream:
-        for index, line in enumerate(stream):
-            stripped = line.strip()
-            if stripped.startswith('# ldsc:'):
-                key, _, value = stripped[len('# ldsc:'):].partition('=')
-                metadata[key] = value
-            if not stripped or (stripped.startswith('#') and not stripped.upper().startswith('#CHROM')):
-                continue
-            separator = '\t' if '\t' in line else ',' if ',' in line else r'\s+'
-            return {'sep': separator, 'skiprows': index}, metadata
-    return {'sep': r'\s+'}, metadata

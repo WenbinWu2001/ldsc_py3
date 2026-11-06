@@ -15,8 +15,7 @@ import pandas as pd
 from pyarrow import ArrowNotImplementedError
 import pyarrow.parquet as pq
 
-from .._core.coordinates import normalize_chr_pos_frame
-from .build_policy import R2_PARQUET_GLOB, _SAMPLE_ROWS, _table_frames, _text_options, r2_sidecar_path
+from .build_evidence import r2_members, r2_sidecar_path, sample_chromosomes, table_frames, text_options
 from .._runtime.artifacts import declared_result_file
 from .._core.columns import (
     RESTRICTION_CHRPOS_SPEC_MAP, RESTRICTION_HG19_POS_SPEC, RESTRICTION_HG38_POS_SPEC,
@@ -178,7 +177,7 @@ def _inspect_table(path: Path, *, inherited=None) -> _Inspection:
             probe = stream.read(4096)
         if any(ord(char) < 32 and char not in "\t\r\n" for char in probe):
             raise LDSCInputError(f"Unsupported binary input: {path}. Supply a BIM, text table, Parquet, or LDSC3 metadata file.")
-        options, metadata = _text_options(path)
+        options, metadata = text_options(path)
         if suffix in {"bim", "bed"}:
             columns = []
         else:
@@ -190,7 +189,7 @@ def _inspect_table(path: Path, *, inherited=None) -> _Inspection:
     sidecar = r2_sidecar_path(path)
     if sidecar is not None and sidecar.is_file():
         sidecar = _member(path.resolve().parent, sidecar.name)
-        declared.extend(result.metadata(_text_options(sidecar)[1], sidecar))
+        declared.extend(result.metadata(text_options(sidecar)[1], sidecar))
         if not declared:
             result.merge(_inspect_table(sidecar, inherited=owner))
             return result
@@ -211,7 +210,7 @@ def _inspect_table(path: Path, *, inherited=None) -> _Inspection:
         return result
     build_column = next((col for col in columns if str(col).lower() == "genome_build"), None)
     if build_column:
-        for frame in _table_frames(path, [build_column], parquet):
+        for frame in table_frames(path, [build_column], parquet):
             for value in frame[build_column].dropna().unique():
                 result.groups.setdefault("", []).extend(result.metadata({"genome_build": value}, path))
         if result.groups.get(""):
@@ -231,7 +230,7 @@ def _inspect_table(path: Path, *, inherited=None) -> _Inspection:
         result.add(path)
     else:
         frames = (frame.rename(columns={chr_col: "CHR", pos_col: "POS"})
-                  for frame in _table_frames(path, [chr_col, pos_col], parquet))
+                  for frame in table_frames(path, [chr_col, pos_col], parquet))
         _infer_frames(result, path, frames)
     return result
 
@@ -362,10 +361,8 @@ def _inspect_directory(root: Path) -> _Inspection:
 
     # R2 matrix build children are also valid standalone inputs. Directory labels
     # organize alternatives; only file evidence establishes the actual build.
-    panel_groups = [("", sorted(root.glob(R2_PARQUET_GLOB)))]
-    panel_groups.extend((build, sorted((root / build).glob(R2_PARQUET_GLOB))) for build in ("hg19", "hg38"))
     result = _Inspection()
-    for group, members in panel_groups:
+    for group, members in r2_members(root).items():
         for member in members:
             result.merge(_inspect_table(_member(root, str(member.relative_to(root)))), group=group)
     if result.groups:
@@ -399,23 +396,13 @@ def _infer_frames(result: _Inspection, path: Path, frames) -> None:
     usable rows per chromosome are retained. Reader errors propagate as input
     failures, while insufficient HM3 evidence becomes an unknown result.
     """
-    samples, counts = {}, {}
-    for frame in frames:
-        frame, _ = normalize_chr_pos_frame(
-            frame, context=str(path), coordinate_policy="drop", min_position=0, logger=None,
-        )
-        for chrom, group in frame.groupby("CHR", sort=False):
-            room = _SAMPLE_ROWS - counts.get(chrom, 0)
-            if room > 0:
-                sample = group.head(room)
-                samples.setdefault(chrom, []).append(sample)
-                counts[chrom] = counts.get(chrom, 0) + len(sample)
+    samples = sample_chromosomes(frames, context=path)
     if not samples:
         result.add(path)
-    for chrom, parts in samples.items():
+    for chrom, sample in samples.items():
         source = f"{path} [chr{chrom}]"
         try:
-            inference = infer_chr_pos_build(pd.concat(parts, ignore_index=True), context=source)
+            inference = infer_chr_pos_build(sample, context=source)
         except LDSCInputError:
             result.add(source, detail="insufficient or inconclusive SNP-coordinate evidence")
         else:

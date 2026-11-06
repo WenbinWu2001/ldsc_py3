@@ -142,7 +142,9 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
     LDSCUsageError
         Both or neither grid source, both or neither query route, no
         ``output_dir``, gene-list options without gene lists, or gene lists
-        without ``padding_bp``. Nothing is written.
+        without ``padding_bp``. No output is written, but with
+        ``overwrite=True`` the failed call still leaves ``RUN_FAILED.txt`` in
+        ``output_dir``.
     LDSCInputError
         Invalid inputs, query names, gene identifiers or chromosome coverage.
 

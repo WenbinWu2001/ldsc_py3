@@ -19,6 +19,7 @@ import pandas as pd
 import pytest
 
 from ldsc.cli import run_cli
+from tests.gene_index_helpers import narrow_index_chromosomes
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
 BIM_COLUMNS = ["CHR", "SNP", "CM", "POS", "A1", "A2"]
@@ -112,18 +113,29 @@ def test_restriction_tolerates_unusable_panel_alleles_that_cleanup_then_drops(tm
         assert drops["reason"].tolist() == ["invalid_allele"]
 
 
-@pytest.mark.parametrize("command", ["ldscore", "build-r2-matrix"])
-def test_non_integral_bim_position_stops_every_plink_route_before_computation(tmp_path, caplog, command):
+@pytest.mark.parametrize("command", ["ldscore", "build-r2-matrix", "build-gene-ldscore-index"])
+def test_non_integral_bim_position_stops_every_plink_route_before_computation(tmp_path, caplog, monkeypatch, command):
     bim = read_fixture_bim().astype({"POS": float})
     bim.loc[5, "POS"] += 0.5  # SNP row 6
     prefix = write_panel(tmp_path / "panel", bim)
     output = tmp_path / "out"
     window = ["--snp-identifier", "chr_pos_allele_aware", "--ld-wind-kb", "1000", "--output-dir", str(output)]
+    regression = ["--regr-snps-file", str(prefix.parent / "regression_snps.tsv"), "--regr-snps-exclude-regions", "none"]
     if command == "ldscore":
-        argv = ["ldscore", "--plink-prefix", str(prefix), "--genome-build", "hg38", *window,
-                "--regr-snps-file", str(prefix.parent / "regression_snps.tsv"), "--regr-snps-exclude-regions", "none"]
-    else:
+        argv = ["ldscore", "--plink-prefix", str(prefix), "--genome-build", "hg38", *window, *regression]
+    elif command == "build-r2-matrix":
         argv = ["build-r2-matrix", "--plink-prefix", str(prefix), "--source-genome-build", "hg38", *window]
+    else:
+        # The fixture is chromosome 22 only; an index normally needs autosomes 1 to 22.
+        narrow_index_chromosomes(monkeypatch, ("22",))
+        baseline = tmp_path / "baseline.annot"
+        bim.loc[:, ["CHR", "SNP", "POS", "A1", "A2"]].assign(base=1.0).to_csv(baseline, sep="\t", index=False)
+        genes = tmp_path / "genes.tsv"
+        genes.write_text("gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
+                         "ENSG22\tG22\t22\t16000000\t17000000\thg38\n")
+        argv = ["build-gene-ldscore-index", "--plink-prefix", str(prefix), "--baseline-annot-sources", str(baseline),
+                "--gene-coordinate-file", str(genes), "--genome-build", "hg38", "--padding-bp", "0",
+                "--gene-exclude-regions", "none", *window, *regression]
 
     status = run_cli(argv)
 
@@ -131,6 +143,7 @@ def test_non_integral_bim_position_stops_every_plink_route_before_computation(tm
     assert status == 1
     assert f"SNP row 6 (SNP {bim.loc[5, 'SNP']}, BP {bim.loc[5, 'POS']})" in caplog.text
     assert not list(output.rglob("*.parquet"))
+    assert not (output / "metadata.json").exists()
 
 
 def write_two_chromosome_panel(tmp_path: Path) -> tuple[Path, pd.DataFrame, pd.DataFrame]:

@@ -770,48 +770,74 @@ def _discover_ldscore_family(root: Path, role: str, issues: list[dict[str, objec
                     ))
             continue
         groups.setdefault(match.group("prefix"), {}).setdefault(int(match.group("chrom")), []).append(path)
-    coherent = {prefix: shards for prefix, shards in groups.items() if set(shards) == set(_CHROMS)}
-    if len(coherent) != 1:
-        raise LDSCInputError(
+    prefix, shards = _complete_family(
+        groups, role, issues,
+        lambda prefixes: (
             f"Legacy {role} directory '{root}' must contain exactly one coherent chromosome 1-22 "
-            f".l2.ldscore family; found prefixes {sorted(coherent)}."
+            f".l2.ldscore family; found prefixes {prefixes}."
             + " " + (_WEIGHT_FILENAME_GUIDANCE if unsupported_weight_paths else _LDSCORE_FILENAME_GUIDANCE)
-        )
+        ),
+    )
     if unsupported_weight_paths:
         LOGGER.warning(
             "Ignoring %d unsupported weight filename(s) in '%s'; using the complete recognized family. %s",
             len(unsupported_weight_paths), root, _WEIGHT_FILENAME_GUIDANCE,
         )
+    selected = {
+        chrom: _one_representation(
+            chrom, representations, role, issues,
+            f"Legacy {role} family has conflicting plain/gzip representations for chromosome {chrom}: "
+            f"{[str(path) for path in representations]}. "
+            "Select the correct source release and organize one representation per chromosome in a separate "
+            "directory; retaining both requires identical decompressed contents.",
+        )
+        for chrom, representations in shards.items()
+    }
+    return _DiscoveredFamily(prefix=prefix, paths=selected)
+
+
+def _complete_family(groups: dict[str, dict[int, list[Path]]], role: str, issues: list[dict[str, object]],
+                     missing_message) -> tuple[str, dict[int, list[Path]]]:
+    """Return the one prefix whose files cover chromosomes 1-22, and its files by chromosome.
+
+    ``groups`` maps each filename prefix to its files by chromosome. Files of
+    every other prefix are recorded as discarded ``role`` issues. Without
+    exactly one complete prefix, raise ``LDSCInputError`` with
+    ``missing_message`` of the sorted complete prefixes.
+    """
+    coherent = {prefix: shards for prefix, shards in groups.items() if set(shards) == set(_CHROMS)}
+    if len(coherent) != 1:
+        raise LDSCInputError(missing_message(sorted(coherent)))
     prefix, shards = next(iter(coherent.items()))
     for discarded_prefix, discarded_shards in groups.items():
         if discarded_prefix == prefix:
             continue
         for representations in discarded_shards.values():
             for path in representations:
-                issues.append(
-                    _issue("warning", role, file=path, reason="discarded_nonselected_family_file")
-                )
-    selected: dict[int, Path] = {}
-    for chrom, representations in shards.items():
-        if len(representations) == 1:
-            selected[chrom] = representations[0]
-            continue
-        # The filename pattern allows one plain and one gzip name per chromosome, so these are the two.
-        contents = [_decompressed_bytes(path) for path in representations]
-        if contents[0] != contents[1]:
-            raise LDSCInputError(
-                f"Legacy {role} family has conflicting plain/gzip representations for chromosome {chrom}: "
-                f"{[str(path) for path in representations]}. "
-                "Select the correct source release and organize one representation per chromosome in a separate "
-                "directory; retaining both requires identical decompressed contents."
+                issues.append(_issue("warning", role, file=path, reason="discarded_nonselected_family_file"))
+    return prefix, shards
+
+
+def _one_representation(chrom: int, paths: list[Path], role: str, issues: list[dict[str, object]],
+                        conflict_message: str) -> Path:
+    """Return a chromosome's one file, preferring gzip when a plain copy has identical contents.
+
+    ``paths`` holds one file, or the plain and gzip names that a legacy
+    filename pattern allows for one chromosome. The plain copy is recorded as
+    a discarded ``role`` issue; differing contents raise
+    ``LDSCInputError(conflict_message)``.
+    """
+    if len(paths) == 1:
+        return paths[0]
+    if _decompressed_bytes(paths[0]) != _decompressed_bytes(paths[1]):
+        raise LDSCInputError(conflict_message)
+    selected = next(path for path in paths if path.suffix == ".gz")
+    for path in paths:
+        if path != selected:
+            issues.append(
+                _issue("warning", role, file=path, chromosome=chrom, reason="discarded_identical_plain_duplicate")
             )
-        selected[chrom] = next(path for path in representations if path.suffix == ".gz")
-        for path in representations:
-            if path != selected[chrom]:
-                issues.append(
-                    _issue("warning", role, file=path, chromosome=chrom, reason="discarded_identical_plain_duplicate")
-                )
-    return _DiscoveredFamily(prefix=prefix, paths=selected)
+    return selected
 
 
 def _discover_associated_family(
@@ -823,29 +849,14 @@ def _discover_associated_family(
 ) -> dict[int, Path]:
     found: dict[int, Path] = {}
     for chrom in _CHROMS:
-        matches = [root / f"{prefix}{chrom}{suffix}" for suffix in suffixes]
-        existing = [path for path in matches if path.exists()]
-        if len(existing) == 2:
-            if _decompressed_bytes(existing[0]) != _decompressed_bytes(existing[1]):
-                raise LDSCInputError(
-                    f"Legacy suite has conflicting plain/gzip representations for chromosome {chrom}: {existing}. "
-                    "Use one annotation copy matching the reference release and prefix; retaining both "
-                    "requires identical decompressed contents."
-                )
-            found[chrom] = next(path for path in existing if path.suffix == ".gz")
-            for path in existing:
-                if path != found[chrom]:
-                    issues.append(
-                        _issue(
-                            "warning",
-                            "annotation",
-                            file=path,
-                            chromosome=chrom,
-                            reason="discarded_identical_plain_duplicate",
-                        )
-                    )
-        elif existing:
-            found[chrom] = existing[0]
+        existing = [path for path in (root / f"{prefix}{chrom}{suffix}" for suffix in suffixes) if path.exists()]
+        if existing:
+            found[chrom] = _one_representation(
+                chrom, existing, "annotation", issues,
+                f"Legacy suite has conflicting plain/gzip representations for chromosome {chrom}: {existing}. "
+                "Use one annotation copy matching the reference release and prefix; retaining both "
+                "requires identical decompressed contents.",
+            )
     return found
 
 
@@ -858,52 +869,27 @@ def _discover_frequency_family(
         if match is None:
             continue
         groups.setdefault(match.group("prefix"), {}).setdefault(int(match.group("chrom")), []).append(path)
-    coherent = {prefix: shards for prefix, shards in groups.items() if set(shards) == set(_CHROMS)}
-    if len(coherent) != 1:
-        raise LDSCInputError(
+    prefix, shards = _complete_family(
+        groups, "frequency", issues,
+        lambda prefixes: (
             f"Legacy frequency directory '{root}' must contain exactly one coherent chromosome 1-22 .frq family; "
-            f"found prefixes {sorted(coherent)}. Use '<prefix><chrom>.frq(.gz)', e.g. '1000G.EUR.QC.1.frq.gz', "
+            f"found prefixes {prefixes}. Use '<prefix><chrom>.frq(.gz)', e.g. '1000G.EUR.QC.1.frq.gz', "
             "with one constant prefix (possibly empty) and unpadded chromosomes 1-22. "
             "Restore missing shards or rename misnamed copies; place one complete family directly in this "
             "directory and keep different releases in separate directories. "
             "See docs/user-guide/troubleshooting.md#convert-legacy-ldscores."
-        )
-    prefix, shards = next(iter(coherent.items()))
-    for discarded_prefix, discarded_shards in groups.items():
-        if discarded_prefix == prefix:
-            continue
-        for representations in discarded_shards.values():
-            for path in representations:
-                issues.append(
-                    _issue("warning", "frequency", file=path, reason="discarded_nonselected_family_file")
-                )
-    selected: dict[int, Path] = {}
-    for chrom, representations in shards.items():
-        if len(representations) == 1:
-            selected[chrom] = representations[0]
-            continue
-        if len(representations) == 2 and _decompressed_bytes(representations[0]) == _decompressed_bytes(
-            representations[1]
-        ):
-            selected[chrom] = next(path for path in representations if path.suffix == ".gz")
-            for path in representations:
-                if path != selected[chrom]:
-                    issues.append(
-                        _issue(
-                            "warning",
-                            "frequency",
-                            file=path,
-                            chromosome=chrom,
-                            reason="discarded_identical_plain_duplicate",
-                        )
-                    )
-            continue
-        raise LDSCInputError(
+        ),
+    )
+    selected = {
+        chrom: _one_representation(
+            chrom, representations, "frequency", issues,
             f"Legacy frequency family has ambiguous or conflicting representations for chromosome {chrom}: "
             f"{[str(path) for path in representations]}. "
             "Keep one '<prefix><chrom>.frq(.gz)' copy from the matching source release per chromosome; "
-            "retaining plain and gzip copies requires identical decompressed contents."
+            "retaining plain and gzip copies requires identical decompressed contents.",
         )
+        for chrom, representations in shards.items()
+    }
     return _DiscoveredFamily(prefix, selected)
 
 

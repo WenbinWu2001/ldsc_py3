@@ -398,7 +398,7 @@ Like the run, it still warns when an explicit sample-size column overrides autom
 It takes the `MungeConfig` that `SumstatsMunger.run` would take, reads every option from it and resolves the munging plan the run resolves: the header and first data row, the keep-list path, the `INC_ALLELE`/`DEC_ALLELE` orientation check, the source genome build and liftover method in coordinate-family modes, and a bounded scan for columns without values.
 So a QC threshold whose column is missing, a keep-list file that does not exist, or a source build that cannot be inferred appears in `missing_fields`, at the stage where the run would stop.
 Problems that only the munging pass over the data rows reveals, such as a stage that leaves no row, are found by the run alone.
-`suggested_args` holds the `munge-sumstats` flags that repeat the request: the resolved format and build choices and inferred column hints, then every `MungeConfig` option, and the `GlobalConfig` log level, that differs from its command-line default.
+`suggested_args` holds the `munge-sumstats` flags that repeat the request, except `--raw-sumstats-file` and `--output-dir`: the resolved format and build choices, inferred column hints, and each other `MungeConfig` option, and the `GlobalConfig` SNP identifier mode and log level, that differs from its command-line default.
 
 ```python
 from ldsc import MungeConfig, infer_raw_sumstats

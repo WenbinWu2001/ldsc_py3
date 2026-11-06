@@ -1004,11 +1004,12 @@ def infer_raw_sumstats(config: MungeConfig, *, global_config: GlobalConfig | Non
     detects plain text, old DANER, and new DANER inputs; identifies
     numeric/NA comma-separated INFO lists; and returns exact CLI hints for
     cases that still need user confirmation. Its ``suggested_args`` are the
-    ``munge-sumstats`` flags of the suggested command: the resolved format
-    and build choices, inferred column hints, and every other option of
-    ``config``, and the log level of ``global_config``, that differs from its
-    CLI default. VCF-style headers with leading
-    ``##`` metadata are treated as plain input. It intentionally does not
+    ``munge-sumstats`` flags of the suggested command except
+    ``--raw-sumstats-file`` and ``--output-dir``: the resolved format and
+    build choices, inferred column hints, and each other option of
+    ``config``, and the SNP identifier mode and log level of
+    ``global_config``, that differs from its CLI default. VCF-style headers
+    with leading ``##`` metadata are treated as plain input. It intentionally does not
     treat ``NEFF`` as total sample size ``N``. Missing ``A1/A2`` is reported
     only when the resolved ``global_config`` uses an allele-aware SNP
     identifier mode; base modes ignore alleles and can munge raw summary

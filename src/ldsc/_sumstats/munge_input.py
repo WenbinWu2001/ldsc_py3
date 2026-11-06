@@ -1,7 +1,8 @@
 # (C) 2014-2019 Brendan Bulik-Sullivan and Hilary Finucane
 # Header parsing and aliases derive from LDSC munge_sumstats.py; GPLv3 (LICENSE).
 # Python 3 adaptation by Anthony Abrantes, 2024. Modified 2026-09-10:
-# extracted input resolution from the munging kernel.
+# extracted input resolution from the munging kernel. Modified 2026-11-06:
+# read the raw header block in one pass.
 # See NOTICE for attribution and dated modifications.
 
 """Resolve raw summary-statistics inputs for the munging workflow.
@@ -208,48 +209,25 @@ class RawSchema:
         )
 
 
-def _decode_header_line(line):
-    """Decode one raw header/comment line from plain or compressed input."""
-    if isinstance(line, bytes):
-        return line.decode('utf-8')
-    return line
+def _read_header_block(path):
+    """Read the start of a raw file once: compression, ``##`` metadata lines, header and first data row.
 
-
-def count_leading_sumstats_comment_lines(fh):
-    """Count leading raw summary-statistics metadata lines that begin with ``##``."""
-    openfunc, _compression = get_compression(fh)
-    count = 0
-    with openfunc(fh) as handle:
-        for raw_line in handle:
-            line = _decode_header_line(raw_line)
-            if not line.startswith('##'):
-                break
-            count += 1
-    return count
-
-
-def read_header(fh, skiprows):
-    '''Read the line after ``skiprows`` leading metadata lines and return its column names.'''
-    (openfunc, _compression) = get_compression(fh)
-    with openfunc(fh) as handle:
-        for _idx in range(skiprows):
-            handle.readline()
-        line = _decode_header_line(handle.readline())
-        return [x.rstrip('\n') for x in line.split()]
-
-
-def _read_first_data_row(path, headers, skiprows):
-    """Return the first data row keyed by raw header names."""
-    openfunc, _compression = get_compression(path)
-    with openfunc(path) as handle:
-        for _idx in range(skiprows + 1):
-            handle.readline()
-        for line in handle:
-            line = _decode_header_line(line)
-            if line.strip():
-                values = line.split()
-                return {column: values[idx] for idx, column in enumerate(headers) if idx < len(values)}
-    return {}
+    The compression is ``gzip``, ``bz2`` or ``None`` from the file suffix.
+    Compressed lines are decoded as UTF-8. The header is the first line after
+    the leading ``##`` metadata lines; the first data row is the next
+    nonblank line, keyed by header name, or empty when there is none.
+    """
+    compression = 'gzip' if path.endswith('gz') else 'bz2' if path.endswith('bz2') else None
+    opener = {'gzip': gzip.open, 'bz2': bz2.BZ2File, None: open}[compression]
+    with opener(path) as handle:
+        lines = (line.decode('utf-8') if isinstance(line, bytes) else line for line in handle)
+        skiprows, header = 0, next(lines, '')
+        while header.startswith('##'):
+            skiprows, header = skiprows + 1, next(lines, '')
+        headers = header.split()
+        first_row = next(({column: values[idx] for idx, column in enumerate(headers) if idx < len(values)}
+                          for values in (line.split() for line in lines if line.strip())), {})
+    return compression, skiprows, headers, first_row
 
 
 def get_cname_map(flag, default, ignore):
@@ -260,23 +238,6 @@ def get_cname_map(flag, default, ignore):
     cname_map.update(
         {x: default[x] for x in default if x not in clean_ignore + list(flag.keys()) and default[x] not in used_targets})
     return cname_map
-
-
-def get_compression(fh):
-    '''
-    Read filename suffixes and figure out whether it is gzipped,bzip2'ed or not compressed
-    '''
-    if fh.endswith('gz'):
-        compression = 'gzip'
-        openfunc = gzip.open
-    elif fh.endswith('bz2'):
-        compression = 'bz2'
-        openfunc = bz2.BZ2File
-    else:
-        openfunc = open
-        compression = None
-
-    return openfunc, compression
 
 
 def _detect_format(clean_headers, requested_format):
@@ -301,9 +262,8 @@ def _format_hints(headers, detected_format):
     return hints
 
 
-def _first_row_info_lists(source_path, headers, skiprows):
-    """Return INFO-alias columns whose first value is a comma-separated list, with a note for each."""
-    sample = _read_first_data_row(source_path, headers, skiprows)
+def _first_row_info_lists(headers, sample):
+    """Return INFO-alias columns whose first-row value ``sample`` is a comma-separated list, with a note for each."""
     columns = [column for column in headers
                if default_cnames.get(clean_header(column)) == 'INFO' and ',' in sample.get(column, '')]
     return columns, [f"{column} appears to contain comma-separated per-study INFO values." for column in columns]
@@ -524,13 +484,12 @@ def resolve_raw_schema(source_path: str, config: MungeConfig, global_config: Glo
         ``issues`` instead of being raised, so one report or one error lists
         them all; :meth:`RawSchema.raise_issues` raises them.
     """
-    _, compression = get_compression(source_path)
-    metadata_skiprows = count_leading_sumstats_comment_lines(source_path)
-    headers = tuple(read_header(source_path, metadata_skiprows))
+    compression, metadata_skiprows, headers, first_row = _read_header_block(source_path)
+    headers = tuple(headers)
     clean_set = {clean_header(column) for column in headers}
     detected_format = _detect_format(clean_set, config.sumstats_format)
     inferred_hints = _format_hints(headers, detected_format)
-    info_lists, notes = _first_row_info_lists(source_path, headers, metadata_skiprows)
+    info_lists, notes = _first_row_info_lists(headers, first_row)
     hints = {**inferred_hints, **config.column_hints}
     config = replace(
         config,

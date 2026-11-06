@@ -85,7 +85,7 @@ from ._regression.outputs import (
     RgOutputConfig,
 )
 from ._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
-from ._ldscore.results import ChromLDScoreResult, LDScoreResult
+from ._ldscore.results import LDScoreResult
 from ._ldscore.workflow import run_ldscore
 from ._refpanel.builder import R2MatrixBuildResult, R2MatrixBuilder, run_build_r2_matrix
 from ._refpanel.adapters import R2MatrixRefPanel, PlinkRefPanel, RefPanel, RefPanelLoader
@@ -139,7 +139,6 @@ __all__ = [
     "AnnotationBuilder",
     "AnnotationBundle",
     "AnnotationResult",
-    "ChromLDScoreResult",
     "ChrPosBuildInference",
     "ConfigMismatchError",
     "GlobalConfig",

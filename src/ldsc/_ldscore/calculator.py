@@ -28,19 +28,15 @@ from typing import Any
 
 import pandas as pd
 
-from .._runtime.serial_calculation import serial_calculation
 from .diagnostics import ldscore_logs, log_reference_snp_funnel_warning
 from .batch_execution import finalize_batch, run_chromosome_batch, run_query_batches
-from .direct_batches import _DirectProducer, _init_worker, _warn_ld_window_snp_subset, compute_direct_chromosome
-from .results import ChromLDScoreResult
+from .direct_batches import _DirectProducer, _init_worker, _warn_ld_window_snp_subset
 from .._runtime.parallelism import chromosome_pool, resolve_worker_count
 from .._runtime.progress import report_phase
 from .._annotation.saved_results import AnnotationResult
 from .._core.snp_identity import identity_mode_family
 from ..config import GlobalConfig, LDScoreConfig
 from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
-from .._core import regions as kernel_regions
-from .._core.snp_identity import RestrictionIdentityKeys
 from ..errors import LDSCUsageError
 from .._genome.build_policy import GenomeBuildCheck
 
@@ -197,8 +193,12 @@ class LDScoreCalculator:
         if not isinstance(annotation_bundle, AnnotationResult):
             return self._run_prepared(annotation_bundle, *arguments, **options)
         if output_config is None:
-            raise LDSCUsageError(_annotation_result_message("LDScoreCalculator.run() without output_config") +
-                                 " Alternatively pass output_config, and run() prepares it inside the output directory.")
+            raise LDSCUsageError(
+                "LDScoreCalculator.run() without output_config cannot read an annotation result (AnnotationResult) "
+                "from run_annotate directly: it reads no files until you prepare it. Call result.prepared_in(directory), "
+                "which prepares the exported annotation files in a private folder of a directory you choose, and pass "
+                "the returned AnnotationBundle; close that bundle when you are done. Alternatively pass output_config, "
+                "and run() prepares it inside the output directory.")
         with annotation_bundle.prepared_in(output_config.output_dir) as bundle:
             return self._run_prepared(bundle, *arguments, **options)
 
@@ -268,35 +268,6 @@ class LDScoreCalculator:
             _log_annotation_classification(result)
             return result
 
-    @serial_calculation
-    def compute_chromosome(
-        self,
-        chrom: str,
-        annotation_bundle,
-        ref_panel,
-        ldscore_config: LDScoreConfig,
-        global_config: GlobalConfig,
-        regression_snps: set[str] | RestrictionIdentityKeys | None = None,
-        regression_regions: kernel_regions.RegionIntervals | None = None,
-        export_dir: str | None = None,
-    ) -> ChromLDScoreResult:
-        """Compute normalized LD-score outputs for one chromosome.
-
-        ``ref_panel.prepare_chromosome`` aligns annotations to the retained
-        reference SNPs ``B_chrom & A'_chrom`` and owns the reader until the
-        kernel returns or raises. The same aligned annotation values feed
-        numerical projection, counts, overlap, and result provenance.
-        ``regression_snps`` defines weight contributions and later restricts
-        the normalized output rows.
-        Standalone calls use one worker with 1 BLAS thread; calls inside an
-        existing calculation worker reuse that process.
-        """
-        if isinstance(annotation_bundle, AnnotationResult):
-            raise LDSCUsageError(_annotation_result_message("compute_chromosome()"))
-        return compute_direct_chromosome(chrom, annotation_bundle, ref_panel, ldscore_config, global_config,
-                                         regression_snps, regression_regions, export_dir=export_dir,
-                                         source_drops=annotation_bundle.identity_drops)
-
 
 def _format_ldscore_start_message(annotation_bundle, n_chromosomes: int) -> str:
     """Return the workflow-level LD-score start message for a bundle."""
@@ -347,12 +318,3 @@ def _resolve_calculator_build(annotation_bundle, ref_panel, global_config: Globa
         ref_panel = copy(ref_panel)
         ref_panel.global_config = dataclass_replace(ref_panel.global_config, genome_build=global_config.genome_build)
     return global_config, ref_panel
-
-
-def _annotation_result_message(caller: str) -> str:
-    """Explain how to read an annotation result where a bundle is required."""
-    return (f"{caller} cannot read an annotation result (AnnotationResult) from run_annotate directly: "
-            "it reads no files until you prepare it. Call result.prepared_in(directory), which prepares the "
-            "exported annotation files in a private folder of a directory you choose, and pass the returned "
-            "AnnotationBundle; "
-            "close that bundle when you are done.")

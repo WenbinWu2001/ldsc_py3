@@ -80,7 +80,6 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | `AnnotationBundle` | Complete annotation dataset represented by on-demand chromosome shards. |
 | `AnnotationResult` | Files a completed ``run_annotate`` wrote; values are read after explicit preparation. |
 | `ChrPosBuildInference` | Resolved build and coordinate-basis decision for one ``chr_pos`` table. |
-| `ChromLDScoreResult` | Normalized per-chromosome LD-score output in split baseline/query form. |
 | `H2Result` | Result of one `h2` run: its summary and the files it wrote. |
 | `H2ScaleConversionArtifact` | Files written by one liability-scale conversion. |
 | `LDScoreResult` | Materialized LD scores for one cross-chromosome calculation batch. |

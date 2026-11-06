@@ -340,7 +340,7 @@ An R² matrix stores only the SNP pairs inside the window it was built with, rec
 A window in a different unit is rejected even when the R² matrix happens to cover it, because coverage is not inferred from per-SNP coordinates.
 The CLI checks every selected chromosome file in its header preflight, before pair scans, annotation preparation or LD-score computation.
 `LDScoreCalculator.run` runs the same checks for every chromosome before computing any, and lists all issues in one `LDSCInputError`.
-`R2MatrixRefPanel.prepare_chromosome` repeats the check for each chromosome it prepares, for example through `LDScoreCalculator.compute_chromosome`.
+`R2MatrixRefPanel.prepare_chromosome` repeats the check for each chromosome it prepares, for example in each chromosome task of `LDScoreCalculator.run`.
 Because `build-r2-matrix` chooses the stored pairs from the `CM` values as written to the sidecar (section 2.7), a window no wider than the R² matrix's never needs a pair the R² matrix did not store, in any unit.
 A PLINK `--ld-wind-cm` run matches an R² matrix cM run only when both use the same `CM` values: `.bim` column 3, or the genetic map the R² matrix was built with.
 Code: `R2MatrixChromosome.check_ld_window` in `src/ldsc/_refpanel/r2_format.py` and `inspect_r2_headers` in `src/ldsc/_refpanel/preflight.py`.

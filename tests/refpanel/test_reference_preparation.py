@@ -8,6 +8,7 @@ import pytest
 from ldsc import GlobalConfig, LDScoreCalculator, LDScoreConfig, RefPanelConfig
 from ldsc.config import LDWindow
 from ldsc._ldscore import compute as ldscore
+from ldsc._ldscore.direct_batches import compute_direct_chromosome
 from ldsc._refpanel.prepared import ChromosomeAnnotations
 from ldsc._refpanel.r2_format import SortedR2BlockReader
 from ldsc._refpanel.adapters import PlinkRefPanel, R2MatrixRefPanel
@@ -59,7 +60,7 @@ def test_package_r2_is_read_as_unbiased_through_public_calculation(tmp_path):
     metadata = write_panel(tmp_path)
     config = GlobalConfig(snp_identifier="rsid")
     panel = R2MatrixRefPanel(config, RefPanelConfig(backend="r2_matrix", r2_matrix_dir=tmp_path))
-    result = LDScoreCalculator().compute_chromosome(
+    result = compute_direct_chromosome(
         "1", public_bundle(metadata), panel, LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True), config,
     )
     np.testing.assert_allclose(result.baseline_table[["base", "regression_ld_scores"]], 1.0 + STORED_R2, rtol=1e-7)
@@ -113,7 +114,7 @@ def test_allele_mismatch_is_rejected_before_reader_creation(tmp_path):
     config = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19")
     panel = R2MatrixRefPanel(config, RefPanelConfig(backend="r2_matrix", r2_matrix_dir=tmp_path))
     with pytest.raises(LDSCInputError, match="retained no reference SNPs"):
-        LDScoreCalculator().compute_chromosome(
+        compute_direct_chromosome(
             "1", public_bundle(metadata), panel, LDScoreConfig(ld_wind_snps=1), config,
         )
 
@@ -139,7 +140,7 @@ def test_public_calculation_uses_panel_maf_filter_for_aligned_annotations(tmp_pa
     metadata = write_panel(tmp_path)
     config = GlobalConfig(snp_identifier="rsid")
     panel = R2MatrixRefPanel(config, RefPanelConfig(backend="r2_matrix", r2_matrix_dir=tmp_path, maf_min=0.1))
-    result = LDScoreCalculator().compute_chromosome(
+    result = compute_direct_chromosome(
         "1", public_bundle(metadata, pd.DataFrame({"base": [2.0, 3.0]})), panel,
         LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True), config,
     )

@@ -553,11 +553,9 @@ def test_a_saved_annotation_is_read_only_after_explicit_preparation(tmp_path, mo
     assert isinstance(saved, AnnotationResult)
     assert {chrom: shard.n_rows for chrom, shard in saved.shards.items()} == {"1": 4, "2": 3}
 
-    # Without an output directory, LD scoring and single chromosomes refuse a saved result in every mode.
+    # Without an output directory, LD scoring refuses a saved result in every mode.
     with pytest.raises(LDSCUsageError, match="prepared_in"):
         LDScoreCalculator().run(saved, panel, numerical, config, output_config=None)
-    with pytest.raises(LDSCUsageError, match="prepared_in"):
-        LDScoreCalculator().compute_chromosome("1", saved, panel, numerical, config)
     assert _tree(annotated) == annotated_before
 
     scratch = tmp_path / "scratch"

@@ -1,8 +1,9 @@
 """LD-score result records shared by the producers, the writer, regression and the converter.
 
-``ChromLDScoreResult`` and ``LDScoreResult`` are the public, materialized
-per-chromosome and cross-chromosome results. ``DirectChromosomeFragment`` and
-``StagedLDScoreBatch`` are their private file-backed counterparts: a writing
+``LDScoreResult`` is the public, materialized cross-chromosome result and
+``ChromLDScoreResult`` its private per-chromosome record.
+``DirectChromosomeFragment`` and ``StagedLDScoreBatch`` are their private
+file-backed counterparts: a writing
 run's chromosome tasks stage query scores in Parquet fragments, and the staged
 batch carries the ordered fragment paths to the writer. These records hold
 data and check their own shape; computing, aggregating and writing them

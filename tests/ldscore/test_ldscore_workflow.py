@@ -1069,7 +1069,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             gc = GlobalConfig(snp_identifier="rsid")
             ref_panel = RefPanelLoader(gc).load(RefPanelConfig(backend="plink", plink_prefix=str(prefix)))
             out = tmpdir / "out"
-            LDScoreCalculator().compute_chromosome(
+            direct_batches.compute_direct_chromosome(
                 chrom="1", annotation_bundle=wb, ref_panel=ref_panel,
                 ldscore_config=LDScoreConfig(ld_wind_snps=10, export_ref_metadata=True, whole_chromosome_ok=True),
                 global_config=gc, regression_snps=None, export_dir=str(out),
@@ -1105,10 +1105,10 @@ class LDScoreWorkflowTest(unittest.TestCase):
             )
             ldscore_config = LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True)
 
-            bool_result = LDScoreCalculator().compute_chromosome(
+            bool_result = direct_batches.compute_direct_chromosome(
                 "1", bool_bundle, panel, ldscore_config, global_config
             )
-            float_result = LDScoreCalculator().compute_chromosome(
+            float_result = direct_batches.compute_direct_chromosome(
                 "1", float_bundle, panel, ldscore_config, global_config
             )
 
@@ -1861,7 +1861,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         common = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38")
         panel = PlinkRefPanel(common, RefPanelConfig(backend="plink", plink_prefix=str(prefix)))
 
-        result = LDScoreCalculator().compute_chromosome(
+        result = direct_batches.compute_direct_chromosome(
             chrom="22",
             annotation_bundle=bundle,
             ref_panel=panel,
@@ -2209,7 +2209,7 @@ def test_public_plink_calculation_prepares_genotypes_once():
         return reader
 
     with mock.patch("ldsc._refpanel.adapters.PlinkBEDFile", side_effect=open_reader):
-        result = LDScoreCalculator().compute_chromosome(
+        result = direct_batches.compute_direct_chromosome(
             "1", bundle, panel, LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True), config,
         )
 

@@ -657,7 +657,7 @@ The resulting directory opens with `load_ldscore_from_dir()` like any other LD-s
 Its keyword arguments carry the command-line option names with underscores: exactly one of `ref_snp_annot_sources` or `ref_snp_bim_sources`, exactly one of `query_annot_bed_sources` or `query_annot_gene_list_sources`, and `output_dir`.
 The SNP identifier mode and genome build come from `global_config=GlobalConfig(...)` or the registered global configuration, and `genome_build=` overrides the genome build for one call.
 The former keyword `baseline_annot_sources` is not accepted; use `ref_snp_annot_sources` for an annotation grid.
-An unsupported option mix raises `LDSCUsageError` before any output is written: both or neither grid, both or neither query route, no `output_dir`, gene-list options without gene lists, or gene lists without `padding_bp`.
+An unsupported option mix raises `LDSCUsageError` before any output is written: both or neither grid, both or neither query route, `output_dir=None`, gene-list options without gene lists, or gene lists without `padding_bp`.
 With `overwrite=True`, such a failed call still leaves `RUN_FAILED.txt` in `output_dir`.
 Invalid inputs, query names or gene identifiers raise `LDSCInputError`.
 

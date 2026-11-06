@@ -140,8 +140,8 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
     Raises
     ------
     LDSCUsageError
-        Both or neither grid source, both or neither query route, no
-        ``output_dir``, gene-list options without gene lists, or gene lists
+        Both or neither grid source, both or neither query route,
+        ``output_dir=None``, gene-list options without gene lists, or gene lists
         without ``padding_bp``. No output is written, but with
         ``overwrite=True`` the failed call still leaves ``RUN_FAILED.txt`` in
         ``output_dir``.

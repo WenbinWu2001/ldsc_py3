@@ -48,6 +48,7 @@ SUPPORTED_LIFTOVER_BUILDS = {"hg19", "hg38"}
 _SUMSTATS_LIFTOVER_TROUBLESHOOTING = (
     "docs/user-guide/troubleshooting.md#munge-sumstats-liftover-dropped-all-rows"
 )
+_WORKFLOW_LABEL = "Summary-statistics liftover"
 
 
 @dataclass(frozen=True)
@@ -199,7 +200,7 @@ def apply_sumstats_liftover(
     log_liftover_drop_report(
         logger,
         source_duplicate_result.report,
-        workflow_label="Summary-statistics liftover",
+        workflow_label=_WORKFLOW_LABEL,
     )
     work = work.take(np.flatnonzero(source_duplicate_result.keep_mask))
     if len(work) == 0:
@@ -249,7 +250,7 @@ def apply_sumstats_liftover(
     log_liftover_drop_report(
         logger,
         target_duplicate_result.report,
-        workflow_label="Summary-statistics liftover",
+        workflow_label=_WORKFLOW_LABEL,
     )
     if target_duplicate_count:
         lifted = lifted.take(np.flatnonzero(target_duplicate_result.keep_mask))
@@ -353,6 +354,17 @@ def _raise_sumstats_all_dropped(
     )
 
 
+def _mapping_drops(frame: pd.DataFrame, mask: np.ndarray, reason: str, logger: logging.Logger) -> pd.DataFrame:
+    """Return the dropped-SNP rows of positions ``mask`` failed to map, logging their count-only report."""
+    drop_frame = _liftover_drop_frame(frame, mask, reason=reason, source_pos_col="_ldsc_source_POS")
+    log_liftover_drop_report(
+        logger,
+        liftover_drop_report(frame, mask, reason=reason, source_pos_col="_ldsc_source_POS"),
+        workflow_label=_WORKFLOW_LABEL,
+    )
+    return drop_frame
+
+
 def _apply_hm3_liftover(
     frame: pd.DataFrame,
     request: SumstatsLiftoverRequest,
@@ -375,22 +387,7 @@ def _apply_hm3_liftover(
     joined = frame.loc[:, ["CHR", "POS"]].merge(lookup, on=["CHR", "POS"], how="left", sort=False)
     unmapped = joined[target_column].isna()
     unmapped_mask = unmapped.to_numpy(dtype=bool)
-    drop_frame = _liftover_drop_frame(
-        frame,
-        unmapped_mask,
-        reason="unmapped_liftover",
-        source_pos_col="_ldsc_source_POS",
-    )
-    log_liftover_drop_report(
-        logger,
-        liftover_drop_report(
-            frame,
-            unmapped_mask,
-            reason="unmapped_liftover",
-            source_pos_col="_ldsc_source_POS",
-        ),
-        workflow_label="Summary-statistics liftover",
-    )
+    drop_frame = _mapping_drops(frame, unmapped_mask, "unmapped_liftover", logger)
     lifted = frame.take(np.flatnonzero(~unmapped_mask))
     lifted["POS"] = joined.loc[~unmapped, target_column].to_numpy(dtype=np.int64)
     return lifted, int(unmapped.sum()), drop_frame
@@ -421,41 +418,9 @@ def _apply_chain_liftover(
         cross_chrom_count += int(result.cross_chrom_count)
         unmapped_mask, cross_chrom_mask = result.unmapped_mask, result.cross_chrom_mask
         drop_frames.append(
-            _liftover_drop_frame(
-                group,
-                unmapped_mask,
-                reason="unmapped_liftover",
-                source_pos_col="_ldsc_source_POS",
-            )
+            _mapping_drops(group, unmapped_mask, "unmapped_liftover", logger)
         )
-        drop_frames.append(
-            _liftover_drop_frame(
-                group,
-                cross_chrom_mask,
-                reason="cross_chromosome_liftover",
-                source_pos_col="_ldsc_source_POS",
-            )
-        )
-        log_liftover_drop_report(
-            logger,
-            liftover_drop_report(
-                group,
-                unmapped_mask,
-                reason="unmapped_liftover",
-                source_pos_col="_ldsc_source_POS",
-            ),
-            workflow_label="Summary-statistics liftover",
-        )
-        log_liftover_drop_report(
-            logger,
-            liftover_drop_report(
-                group,
-                cross_chrom_mask,
-                reason="cross_chromosome_liftover",
-                source_pos_col="_ldsc_source_POS",
-            ),
-            workflow_label="Summary-statistics liftover",
-        )
+        drop_frames.append(_mapping_drops(group, cross_chrom_mask, "cross_chromosome_liftover", logger))
         kept = group.loc[result.keep_mask].copy()
         kept["POS"] = result.translated_positions.astype(np.int64)
         lifted_parts.append(kept)

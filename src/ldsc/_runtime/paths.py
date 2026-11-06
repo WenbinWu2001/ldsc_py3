@@ -437,7 +437,8 @@ def _require_whole_bim_positions(bim, prefix: str) -> None:
 
     Truncating or dropping such a row would silently change the reference
     SNPs, so every PLINK route stops here, before any computation, and the
-    error names the rows.
+    error names the rows. Rows are numbered in SNP (BED variant) order, which
+    differs from file line numbers when the ``.bim`` contains blank lines.
     """
     import pandas as pd
 
@@ -446,7 +447,7 @@ def _require_whole_bim_positions(bim, prefix: str) -> None:
     if not bad.any():
         return
     rows = bad.nonzero()[0]
-    listed = ", ".join(f"line {row + 1} (SNP {bim.SNP.iat[row]}, BP {bim.BP.iat[row]})" for row in rows[:5])
+    listed = ", ".join(f"SNP row {row + 1} (SNP {bim.SNP.iat[row]}, BP {bim.BP.iat[row]})" for row in rows[:5])
     more = f" and {len(rows) - 5:,} more" if len(rows) > 5 else ""
     raise LDSCInputError(
         f"PLINK SNP table '{prefix}.bim' has {len(rows):,} row{'s' if len(rows) != 1 else ''} whose BP position "

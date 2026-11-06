@@ -324,6 +324,21 @@ def test_plink_inspection_names_every_kind_of_bad_bim_position(tmp_path):
         result.require_valid()
     message = str(failure.value)
     assert "has 7 rows whose BP position is not a positive whole number" in message
-    assert "line 2 (SNP rs1, BP 11.5), line 3 (SNP rs2, BP abc), line 4 (SNP rs3, BP 0)" in message
-    assert "line 7 (SNP rs6, BP 16.25), line 8 (SNP rs7, BP 17.5) and 2 more" in message
+    assert "SNP row 2 (SNP rs1, BP 11.5), SNP row 3 (SNP rs2, BP abc), SNP row 4 (SNP rs3, BP 0)" in message
+    assert "SNP row 7 (SNP rs6, BP 16.25), SNP row 8 (SNP rs7, BP 17.5) and 2 more" in message
     assert result.issues[0]["reason"] == "invalid_required_input"
+
+
+def test_bad_bim_position_is_numbered_by_snp_row_after_a_blank_line(tmp_path):
+    # The table reader skips blank lines, so the number counts SNP rows (BED
+    # variant order), not physical file lines: rs1 is the second SNP row.
+    prefix = tmp_path / "panel"
+    Path(str(prefix) + ".bed").write_bytes(b"\x6c\x1b\x01" + b"\x00" * 2)
+    Path(str(prefix) + ".bim").write_text("22 rs0 0 10 A G\n\n22 rs1 0 11.5 A G\n")
+    Path(str(prefix) + ".fam").write_text("F I 0 0 1 -9\n")
+
+    with pytest.raises(LDSCInputError) as failure:
+        inspect_plink_inputs(str(prefix)).require_valid()
+
+    message = str(failure.value)
+    assert "SNP row 2 (SNP rs1, BP 11.5)" in message

@@ -2,10 +2,10 @@
 
 Identity cleanup runs within the restricted panel: a position is multi-allelic
 only if the restriction keeps more than one of its allele pairs. So, without
-liftover, duplicate positions or non-integral positions,
-``ldscore --plink-prefix`` and ``build-r2-matrix`` followed by
-``ldscore --r2-matrix-dir`` keep the same reference SNPs from one panel and
-one restriction.
+liftover or duplicate positions, ``ldscore --plink-prefix`` and
+``build-r2-matrix`` followed by ``ldscore --r2-matrix-dir`` keep the same
+reference SNPs from one panel and one restriction. A ``.bim`` with a
+non-integral position stops every route before computation.
 
 Each test copies the 32-SNP chromosome-22 fixture (one row per position, all
 allele pairs valid) and edits its ``.bim``. Expected SNP sets follow from the
@@ -115,7 +115,7 @@ def test_restriction_tolerates_unusable_panel_alleles_that_cleanup_then_drops(tm
 @pytest.mark.parametrize("command", ["ldscore", "build-r2-matrix"])
 def test_non_integral_bim_position_stops_every_plink_route_before_computation(tmp_path, caplog, command):
     bim = read_fixture_bim().astype({"POS": float})
-    bim.loc[5, "POS"] += 0.5  # .bim line 6
+    bim.loc[5, "POS"] += 0.5  # SNP row 6
     prefix = write_panel(tmp_path / "panel", bim)
     output = tmp_path / "out"
     window = ["--snp-identifier", "chr_pos_allele_aware", "--ld-wind-kb", "1000", "--output-dir", str(output)]
@@ -129,7 +129,7 @@ def test_non_integral_bim_position_stops_every_plink_route_before_computation(tm
 
     # Truncating the position or dropping the row would change the reference SNPs, so the run stops.
     assert status == 1
-    assert f"line 6 (SNP {bim.loc[5, 'SNP']}, BP {bim.loc[5, 'POS']})" in caplog.text
+    assert f"SNP row 6 (SNP {bim.loc[5, 'SNP']}, BP {bim.loc[5, 'POS']})" in caplog.text
     assert not list(output.rglob("*.parquet"))
 
 

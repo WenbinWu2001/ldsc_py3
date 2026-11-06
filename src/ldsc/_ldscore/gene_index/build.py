@@ -1575,7 +1575,9 @@ def _publish_staged_gene_ldscore_index(
     anything the destination is checked again: a top-level entry other than
     the build directory that ``accepted_entries`` does not name, such as an
     index another builder published meanwhile or a file a user added, stops
-    publication with the destination unchanged.
+    publication with the destination unchanged. A regular failure marker is
+    the builder's own: a concurrent ``--overwrite`` attempt refused by the
+    lock writes one, and this build's successful marker scope removes it.
 
     The root ``metadata.json`` records ``index_id`` and the loader rejects a
     directory without it. Removing the old root metadata first and writing
@@ -1587,7 +1589,11 @@ def _publish_staged_gene_ldscore_index(
     removed here; the caller moves the new build's logs in afterwards.
     """
     load_gene_ldscore_index(staged_index)
-    gained = sorted({entry.name for entry in destination.iterdir()} - accepted_entries - {_BUILD_DIR})
+    gained = sorted(
+        entry.name for entry in destination.iterdir()
+        if entry.name not in accepted_entries | {_BUILD_DIR}
+        and not (entry.name == FAILURE_MARKER and entry.is_file() and not entry.is_symlink())
+    )
     if gained:
         raise FileExistsError(
             f"Gene LD-score index output directory changed during the build: {destination} gained "

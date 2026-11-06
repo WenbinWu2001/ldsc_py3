@@ -341,6 +341,51 @@ def test_a_failure_during_publication_leaves_an_index_no_reader_accepts(tmp_path
     load_gene_ldscore_index(index)
 
 
+@pytest.mark.parametrize("existing_index", [False, True], ids=["empty", "complete-index"])
+def test_a_concurrent_overwrite_refused_by_the_lock_does_not_stop_the_running_build(
+    tmp_path, index_inputs, monkeypatch, existing_index,
+):
+    import threading
+
+    from ldsc._ldscore.gene_index import build as gene_index_build
+    from ldsc._ldscore.gene_index.artifact import load_gene_ldscore_index
+    from tests.ldscore.test_plink_workflow_resolution import index_args
+
+    index = tmp_path / "parent" / "index"
+    if existing_index:
+        _build_index(index_inputs, index, monkeypatch)
+    duplicate_args = index_args(index_inputs, str(index_inputs / "1000G.EUR.QC."), index, monkeypatch)
+    duplicate_args.overwrite = True
+    duplicate = {}
+    real_stage = gene_index_build._create_gene_index_stage
+
+    def stage_while_a_duplicate_job_starts(destination):
+        # The same --overwrite job submitted again while this build holds the lock: it is refused
+        # by the lock, and its own failure-marker scope (another thread) writes RUN_FAILED.txt.
+        def run_duplicate():
+            try:
+                gene_index_build.run_build_gene_ldscore_index_from_args(duplicate_args)
+            except Exception as exc:  # noqa: BLE001 - the refusal is inspected below
+                duplicate["error"] = exc
+
+        thread = threading.Thread(target=run_duplicate)
+        thread.start()
+        thread.join()
+        duplicate["marker"] = (index / "RUN_FAILED.txt").is_file()
+        return real_stage(destination)
+
+    monkeypatch.setattr(gene_index_build, "_create_gene_index_stage", stage_while_a_duplicate_job_starts)
+    _build_index(index_inputs, index, monkeypatch, overwrite=existing_index)
+
+    assert isinstance(duplicate["error"], LDSCInputError)
+    assert "Another build-gene-ldscore-index process is active" in str(duplicate["error"])
+    assert duplicate["marker"]
+    # The running build still publishes, and its successful marker scope removes the marker.
+    load_gene_ldscore_index(index)
+    assert not (index / "RUN_FAILED.txt").exists()
+    assert not (index / ".build").exists()
+
+
 @pytest.mark.parametrize("intruder", ["user-file", "another-index"])
 @pytest.mark.parametrize("overwrite", [False, True])
 def test_publication_refuses_a_destination_that_changed_during_the_build(

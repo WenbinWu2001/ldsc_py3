@@ -1,6 +1,6 @@
 # Column Schema: Canonical Names, Data Types, and Ordering
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-06
 
 This document is the single source of truth for column conventions across all
 Python-written artifacts in this package. It governs `_core/columns.py`, all
@@ -30,7 +30,8 @@ These aliases apply to annotation files, SNP restriction files, `quantile-h2` ta
 | `CM` | `CM`, `CMBP`, `CENTIMORGAN` |
 | `MAF` | `MAF` |
 
-`MAF` accepts only the name `MAF`, a folded minor-allele frequency.
+`MAF`, a folded minor-allele frequency, has no alias besides its own name.
+Under the ranking above, a header ending in `MAF`, such as `EUR_MAF`, still matches it when no header is named `MAF`.
 
 Allele columns in SNP restriction files and in `quantile-h2` target annotations and reference metadata also accept genome-oriented names, because SNP identity treats the two alleles as an unordered set:
 

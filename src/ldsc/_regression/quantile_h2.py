@@ -43,7 +43,7 @@ from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_o
 from .._runtime.preflight import inspect_declared_inputs, inspect_artifact_paths
 from .estimators import liability_conversion_factor
 from .._runtime.workflow_kwargs import run_from_kwargs
-from .._ldscore.source import LDScoreManifest, read_ldscore_manifest
+from .._ldscore.source import read_ldscore_manifest
 from ..config import AnnotationBuildConfig, get_global_config
 
 
@@ -420,15 +420,19 @@ def _read_fitted_metadata(path: Path) -> dict:
     return metadata
 
 
-def _read_fitted_ldscores(ldscore_dir: Path) -> LDScoreManifest:
-    """Check the fit's LD-score directory as the loader does and return its manifest.
+def _inspect_ldscore_files(ldscore_dir: Path) -> None:
+    """Check that every file the fit's LD-score manifest declares is readable, as the regression preflight does.
 
-    Every file the manifest declares must be readable, as in the regression
-    commands' preflight.
+    This runs beside the manifest check, so both report in one preflight. A
+    ``metadata.json`` that does not decode to an object with a ``files``
+    mapping lists no files; the manifest check reports it.
     """
-    manifest = read_ldscore_manifest(ldscore_dir)
-    inspect_artifact_paths(ldscore_dir)
-    return manifest
+    try:
+        metadata = json.loads((ldscore_dir / "metadata.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    if isinstance(metadata, dict) and isinstance(metadata.get("files", {}), dict):
+        inspect_artifact_paths(ldscore_dir)
 
 
 def add_quantile_h2_arguments(parser: argparse.ArgumentParser) -> None:
@@ -728,7 +732,8 @@ def _run_quantile_h2(
             model = load_fitted_partitioned_model(partitioned_h2_result_dir)
             # The linked LD scores pass the loader's manifest checks before any annotation is read.
             ldscores = inspect_declared_inputs(
-                checks=[('LD scores', str(model.ldscore_dir), lambda: _read_fitted_ldscores(model.ldscore_dir))],
+                checks=[('LD scores', str(model.ldscore_dir), lambda: read_ldscore_manifest(model.ldscore_dir)),
+                        ('LD-score files', str(model.ldscore_dir), lambda: _inspect_ldscore_files(model.ldscore_dir))],
                 issues_path=input_issues_path).files['LD scores']
             try:
                 inputs = prepare_quantile_statistics(

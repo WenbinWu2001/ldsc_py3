@@ -93,7 +93,8 @@ The checks below run after the output preflight.
 The input preflight checks the declared annotation and reference-metadata files and every file the fitted model's metadata declares.
 A query folder's metadata is resolved against the aggregate result root only when the folder sits under `diagnostics/query_annotations`; any other directory holding a `metadata.json`, such as an LD-score directory, is read in place and rejected as not a partitioned-h2 fitted model.
 After loading the fitted model, and before reading any annotation, a second preflight checks the linked LD-score directory as `load_ldscore_from_dir()` does, without reading its LD-score values: `metadata.json` must be readable, every declared file readable and inside the directory, and the identity, row-group, query-batch, count and overlap metadata consistent (`read_ldscore_manifest()` in [_ldscore/source.py](../../../src/ldsc/_ldscore/source.py)).
-A failure stops the run with an `LDSCInputError` and lists the directory under the role `LD scores` in `diagnostics/input_issues.tsv`.
+The manifest check and the readability check of every declared file run side by side, so one run reports both kinds of defect.
+A failure stops the run with an `LDSCInputError` and lists the directory under the role `LD scores` in `diagnostics/input_issues.tsv` for a manifest defect, and each unreadable declared file under its `files` key.
 Undecodable fitted-model metadata, from `run_quantile_h2()` or `load_fitted_partitioned_model()`, is also an `LDSCInputError`.
 
 The workflow inherits the linked LD-score directory's inclusive common-MAF threshold from its `count_config`; it has no common-MAF override and no default for a missing `count_config`.

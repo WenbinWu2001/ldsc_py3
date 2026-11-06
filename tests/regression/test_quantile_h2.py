@@ -475,9 +475,34 @@ def test_a_damaged_ldscore_directory_fails_in_the_preflight(tmp_path, damage):
         run_quantile_h2_from_args(args)
 
     issues = pd.read_csv(Path(args.output_dir) / "diagnostics" / "input_issues.tsv", sep="\t")
-    assert issues["input_role"].tolist() == ["LD scores"]
-    assert issues["source"].tolist() == [str(tmp_path / "ldscores")]
+    if damage == "missing overlap":
+        # The manifest check and the declared-file check each name the missing file.
+        assert issues["input_role"].tolist() == ["LD scores", "overlap"]
+        assert issues["source"].tolist() == [str(tmp_path / "ldscores"),
+                                             str(tmp_path / "ldscores" / "ldscore.overlap.parquet")]
+    else:
+        # Undecodable metadata is reported once; the declared files cannot be listed.
+        assert issues["input_role"].tolist() == ["LD scores"]
+        assert issues["source"].tolist() == [str(tmp_path / "ldscores")]
     assert not (Path(args.output_dir) / "quantile_h2.tsv").exists()
+
+
+def test_the_ldscore_preflight_reports_manifest_and_file_defects_in_one_run(tmp_path):
+    args = write_quantile_inputs(tmp_path)
+    ldscore_dir = tmp_path / "ldscores"
+    (ldscore_dir / "diagnostics").mkdir(exist_ok=True)
+    (ldscore_dir / "diagnostics" / "notes.tsv").write_text("x\n", encoding="utf-8")
+    _edit_ldscore_metadata(tmp_path, lambda metadata: (metadata.pop("count_config"),
+                                                       metadata["files"].update(notes="diagnostics/notes.tsv")))
+    (ldscore_dir / "diagnostics" / "notes.tsv").unlink()
+
+    with pytest.raises(LDSCInputError, match="2 input issues"):
+        run_quantile_h2_from_args(args)
+
+    issues = pd.read_csv(Path(args.output_dir) / "diagnostics" / "input_issues.tsv", sep="\t")
+    assert issues["input_role"].tolist() == ["LD scores", "notes"]
+    assert "count_config" in issues["details"].iloc[0]
+    assert issues["source"].iloc[1] == str(ldscore_dir / "diagnostics" / "notes.tsv")
 
 
 def test_an_ldscore_directory_is_not_read_as_a_fitted_model(tmp_path):

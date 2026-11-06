@@ -140,7 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
         '    --output-dir DIR [options]'
     )
     identity =parser.add_argument_group('Step 1: SNP identity and genome build')
-    baseline = parser.add_argument_group('Step 2: Baseline annotations', description='Required when Step 3 adds query annotations. Omit Steps 2 and 3 to compute unpartitioned LD scores.')
+    baseline = parser.add_argument_group('Step 2: Baseline annotations', description='Required when Step 3 adds query annotations. Omit Steps 2 and 3 to compute unpartitioned LD scores when you only need SNP heritability or genetic correlation.')
     queries = parser.add_argument_group('Step 3: Query annotations (optional; choose at most one source type)')
     panel = parser.add_argument_group('Step 4: Reference panel (choose one: R2 matrix or PLINK)')
     plink = parser.add_argument_group('Step 4 continued: PLINK reference panel only (optional)')

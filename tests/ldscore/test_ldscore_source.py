@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 import pandas as pd
+import pytest
 
 from ldsc.config import ConfigMismatchError, GlobalConfig
 from ldsc.errors import LDSCInputError, LDSCInternalError
@@ -118,3 +119,92 @@ class LoadLDScoreFromDirTest(unittest.TestCase):
 
             with self.assertRaisesRegex(ConfigMismatchError, "snp_identifier mismatch"):
                 load_ldscore_from_dir(str(tmpdir), snp_identifier="chr_pos")
+
+
+def _edit_metadata(root, edit):
+    """Apply ``edit`` to the parsed ``metadata.json`` of the LD-score directory ``root`` and save it."""
+    path = root / "metadata.json"
+    metadata = json.loads(path.read_text(encoding="utf-8"))
+    edit(metadata)
+    path.write_text(json.dumps(metadata), encoding="utf-8")
+
+
+def _quantile_ldscores(tmp_path):
+    from tests.quantile_fixtures import write_quantile_ldscores
+    return write_quantile_ldscores(tmp_path)
+
+
+def test_manifest_reads_metadata_and_the_overlap_without_the_tables(tmp_path, monkeypatch):
+    from ldsc import load_ldscore_from_dir
+    from ldsc._ldscore.source import read_ldscore_manifest
+
+    root = _quantile_ldscores(tmp_path)
+    loaded = load_ldscore_from_dir(str(root))
+    monkeypatch.setattr(pd, "read_parquet", lambda *args, **kwargs: pytest.fail("the manifest read a table"))
+    manifest = read_ldscore_manifest(root)
+
+    assert manifest.snp_identifier == "rsid" and manifest.genome_build is None
+    assert manifest.baseline_columns == ["base", "cont"] and manifest.query_columns == []
+    assert manifest.count_records == loaded.count_records
+    assert manifest.count_config == {"common_reference_snp_maf_min": 0.05, "common_reference_snp_maf_operator": ">="}
+    assert manifest.annotation_types == {"base": "binary", "cont": "quantitative"}
+    assert manifest.overlap_config["total_common_reference_snps"] == 4.0
+    monkeypatch.undo()
+    overlap = manifest.load_overlap()
+    pd.testing.assert_frame_equal(overlap.baseline_block_common, loaded.overlap.baseline_block_common)
+    assert overlap.total_all_reference_snps == loaded.overlap.total_all_reference_snps
+
+
+@pytest.mark.parametrize("content", ["{not json", "[]"])
+def test_unreadable_metadata_is_an_input_error(tmp_path, content):
+    from ldsc import load_ldscore_from_dir
+
+    root = write_one_snp_ldscore_dir(tmp_path / "ldscores", include_query=False)
+    (root / "metadata.json").write_text(content, encoding="utf-8")
+
+    with pytest.raises(LDSCInputError, match="metadata.json.*JSON object"):
+        load_ldscore_from_dir(str(root))
+
+
+@pytest.mark.parametrize("name", ["ldscore.baseline.parquet", "ldscore.overlap.parquet"])
+def test_a_missing_declared_table_is_an_input_error(tmp_path, name):
+    from ldsc import load_ldscore_from_dir
+
+    root = _quantile_ldscores(tmp_path)
+    (root / name).unlink()
+
+    with pytest.raises(LDSCInputError, match=f"{name}.*missing"):
+        load_ldscore_from_dir(str(root))
+
+
+def test_a_declared_table_outside_the_directory_is_rejected(tmp_path):
+    from ldsc import load_ldscore_from_dir
+
+    root = _quantile_ldscores(tmp_path)
+    (root / "ldscore.overlap.parquet").rename(tmp_path / "ldscore.overlap.parquet")
+    _edit_metadata(root, lambda metadata: metadata["files"].update(overlap="../ldscore.overlap.parquet"))
+
+    with pytest.raises(LDSCInputError, match="escapes"):
+        load_ldscore_from_dir(str(root))
+
+
+def test_an_unreadable_parquet_footer_is_an_input_error(tmp_path):
+    from ldsc import load_ldscore_from_dir
+
+    root = write_one_snp_ldscore_dir(tmp_path / "ldscores", include_query=True)
+    (root / "ldscore.query.parquet").write_text("not parquet", encoding="utf-8")
+
+    with pytest.raises(LDSCInputError, match="ldscore.query.parquet"):
+        load_ldscore_from_dir(str(root))
+
+
+@pytest.mark.parametrize("count_config", [None, {}, {"common_reference_snp_maf_min": "x",
+                                                    "common_reference_snp_maf_operator": ">="}])
+def test_a_missing_or_unusable_count_config_is_rejected(tmp_path, count_config):
+    from ldsc import load_ldscore_from_dir
+
+    root = write_one_snp_ldscore_dir(tmp_path / "ldscores", include_query=False)
+    _edit_metadata(root, lambda metadata: metadata.update(count_config=count_config))
+
+    with pytest.raises(LDSCInputError, match="count_config"):
+        load_ldscore_from_dir(str(root))

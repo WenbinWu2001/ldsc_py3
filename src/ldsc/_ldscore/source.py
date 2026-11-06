@@ -15,6 +15,7 @@ import re
 from typing import Any
 
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .._annotation.semantics import require_unique_annotation_names
@@ -28,6 +29,7 @@ from .._core.snp_identity import (
     validate_identity_artifact_metadata,
 )
 from .._runtime.paths import normalize_path_token
+from .._runtime.result_files import declared_result_file
 
 _QUERY_BATCH_FILE_RE = re.compile(r"ldscore\.query\.batch\d{5}\.parquet")
 
@@ -67,7 +69,7 @@ def load_query_manifest(root, metadata, baseline_columns, baseline_schema):
                 "regenerate it with ldsc ldscore. Do not mix query batches from different runs."
             )
         paths.add(path)
-        schema = pq.read_schema(path).names
+        schema = _parquet_footer(path, pq.read_schema).names
         _validate_row_groups(
             path, entry["row_groups"],
             f"LD-score query batch {entry['file']} has inconsistent row-group metadata."
@@ -91,7 +93,7 @@ def _validate_row_groups(path, row_groups, message: str) -> None:
     Each record needs its position, its row offset in the file, its row count
     and a chromosome label; one record per chromosome row group.
     """
-    parquet_metadata = pq.read_metadata(path)
+    parquet_metadata = _parquet_footer(path, pq.read_metadata)
     if not isinstance(row_groups, list) or len(row_groups) != parquet_metadata.num_row_groups:
         raise LDSCInputError(message)
     offset = 0
@@ -338,6 +340,195 @@ class LDScoreSource:
         return pd.concat([metadata, *(values[name] for name in columns)], axis=1)
 
 
+@dataclass(frozen=True)
+class LDScoreManifest:
+    """The checked ``metadata.json`` manifest of one LD-score directory, without its tables.
+
+    Obtain it from ``read_ldscore_manifest``. Every check that needs no
+    LD-score values has passed: the identity metadata, the declared files
+    and their containment, the baseline and query row groups and schemas,
+    the count configuration and its agreement with the overlap
+    configuration.
+
+    Attributes
+    ----------
+    root : pathlib.Path
+        The LD-score directory, as given.
+    metadata : dict
+        The parsed ``metadata.json``.
+    config_snapshot : GlobalConfig
+        The saved identity configuration.
+    snp_identifier : str
+        The saved SNP identifier mode, validated.
+    genome_build : str or None
+        The saved genome build, as written.
+    files : dict of str to pathlib.Path
+        Every declared file, under ``root``.
+    baseline_columns, query_columns : list of str
+        Ordered annotation names.
+    query_batches : tuple of dict
+        Validated query-batch declarations with resolved paths and schemas.
+    count_records : list of dict
+        All-reference and common-reference annotation counts.
+    count_config : dict
+        The common-SNP MAF threshold and comparison of the counts.
+    overlap_config : dict or None
+        The overlap totals and common-SNP rule, when the directory has an overlap.
+    annotation_types : dict of str to str
+        Per-annotation semantic classification.
+    """
+
+    root: Path
+    metadata: dict[str, Any]
+    config_snapshot: GlobalConfig
+    snp_identifier: str
+    genome_build: str | None
+    files: dict[str, Path]
+    baseline_columns: list[str]
+    query_columns: list[str]
+    query_batches: tuple
+    count_records: list[dict]
+    count_config: dict
+    overlap_config: dict | None
+    annotation_types: dict[str, str]
+
+    def load_overlap(self):
+        """Read the overlap matrix as an ``LDScoreOverlap``, or return ``None`` when none is declared."""
+        path = self.files.get("overlap")
+        if path is None:
+            return None
+        from .overlap_table import overlap_from_long_frame
+        config = self.overlap_config or {}
+        return overlap_from_long_frame(
+            pd.read_parquet(path),
+            baseline_columns=self.baseline_columns,
+            query_columns=self.query_columns,
+            total_all_reference_snps=config.get("total_all_reference_snps"),
+            total_common_reference_snps=config.get("total_common_reference_snps"),
+        )
+
+
+def read_ldscore_manifest(ldscore_dir) -> LDScoreManifest:
+    """Read and check the manifest of an LD-score directory without reading LD-score values.
+
+    Parameters
+    ----------
+    ldscore_dir : str or os.PathLike[str]
+        Directory written by ``ldsc ldscore``, an indexed run or
+        ``convert-legacy-ldscores``.
+
+    Returns
+    -------
+    LDScoreManifest
+        Metadata, identity, declared files, counts, the overlap configuration
+        and a lazy overlap read. Only ``metadata.json`` and Parquet footers
+        are read.
+
+    Raises
+    ------
+    LDSCInputError
+        The directory or ``metadata.json`` is missing or unreadable, a
+        declared file is missing, absolute or outside the directory, a
+        Parquet footer is unreadable, the recorded row groups disagree with a
+        file, or the identity, query-batch, count or overlap metadata is
+        invalid.
+    LDSCInternalError
+        A declared baseline/query schema lacks required columns.
+    """
+    root = Path(normalize_path_token(ldscore_dir))
+    if not root.is_dir():
+        raise LDSCInputError(
+            f"Could not load LD-score directory '{root}': path is not an existing directory. "
+            "Most likely `--ldscore-dir` points at the wrong location. Pass the directory written by `ldsc ldscore`."
+        )
+    metadata_path = root / "metadata.json"
+    if not metadata_path.exists():
+        raise LDSCInputError(
+            f"Could not load LD-score directory '{root}': missing `metadata.json`. "
+            "Most likely this is not an LD-score directory written by `ldsc ldscore` or the diagnostics file "
+            "was copied without the data files. Pass the complete LD-score output directory."
+        )
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        metadata = exc
+    if not isinstance(metadata, dict) or not isinstance(metadata.get("files", {}), dict):
+        detail = f": {metadata}" if isinstance(metadata, Exception) else ""
+        raise LDSCInputError(
+            f"Could not load LD-score directory '{root}': `metadata.json` is not a JSON object with a `files` "
+            f"mapping{detail}. Most likely it was truncated, edited by hand or copied from another artifact. "
+            "Restore the complete LD-score directory from the same run, or regenerate it with `ldsc ldscore`. "
+            f"Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
+        )
+    config_snapshot = _global_config_from_metadata(metadata)
+    files = metadata.get("files", {})
+    baseline_rel = files.get("baseline")
+    if not baseline_rel:
+        raise LDSCInputError(
+            f"Could not load LD-score directory '{root}': metadata is missing `files.baseline`. "
+            "Most likely the LD-score directory was written by an older LDSC3 version or edited by hand. "
+            f"Regenerate it with the current `ldsc ldscore`. Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
+        )
+    # Only the data files this reader opens must exist; the others are checked for containment.
+    context = f"LD-score directory '{root}'"
+    for key in files:
+        declared_result_file(root.resolve(), metadata, key, context=context,
+                             allow_missing=key not in {"baseline", "overlap"})
+    declared = {key: root / value for key, value in files.items()}
+    _validate_row_groups(
+        declared["baseline"], metadata.get("baseline_row_groups"),
+        f"LD-score baseline file {baseline_rel} has inconsistent row-group metadata: metadata.json does not "
+        "describe its row groups. Most likely an earlier LDSC3 version wrote the directory, splitting a "
+        "chromosome of more than 1,048,576 rows into several row groups, or metadata.json and the data files "
+        "come from different runs. Regenerate the directory with the current ldsc ldscore. "
+        f"Other causes & fixes: {_LDSCORE_SCHEMA_DOC}",
+    )
+    baseline_columns = [str(column) for column in metadata.get("baseline_columns", [])]
+    query_columns = [str(column) for column in metadata.get("query_columns", [])]
+    query_batches = load_query_manifest(root, metadata, baseline_columns,
+                                        _parquet_footer(declared["baseline"], pq.read_schema).names)
+    count_config = metadata.get("count_config")
+    threshold = count_config.get("common_reference_snp_maf_min") if isinstance(count_config, dict) else None
+    if (not isinstance(threshold, (int, float)) or isinstance(threshold, bool)
+            or not isinstance(count_config.get("common_reference_snp_maf_operator"), str)):
+        raise LDSCInputError(
+            f"Could not load LD-score directory '{root}': metadata is missing a usable `count_config`, the "
+            "common-SNP MAF threshold (`common_reference_snp_maf_min`) and comparison "
+            "(`common_reference_snp_maf_operator`) of its counts. Most likely the directory was written by an "
+            "older LDSC3 version or edited by hand. Regenerate it with the current `ldsc ldscore`. "
+            f"Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
+        )
+    _validate_count_overlap_config(metadata, root)
+    return LDScoreManifest(
+        root=root,
+        metadata=metadata,
+        config_snapshot=config_snapshot,
+        snp_identifier=config_snapshot.snp_identifier,
+        genome_build=metadata.get("genome_build"),
+        files=declared,
+        baseline_columns=baseline_columns,
+        query_columns=query_columns,
+        query_batches=query_batches,
+        count_records=[dict(record) for record in metadata.get("counts", [])],
+        count_config=dict(count_config),
+        overlap_config=metadata.get("overlap_config") or None,
+        annotation_types={str(key): str(value) for key, value in (metadata.get("annotation_types") or {}).items()},
+    )
+
+
+def _parquet_footer(path, read):
+    """Return ``read(path)`` for a Parquet footer reader, raising ``LDSCInputError`` when the file is unreadable."""
+    try:
+        return read(path)
+    except (OSError, pa.ArrowException) as exc:
+        raise LDSCInputError(
+            f"Could not read LD-score file '{path}': {exc}. Most likely it is missing, truncated or not a "
+            "Parquet file, or metadata.json and the data files come from different runs. Restore the complete "
+            "LD-score directory from the same run, or regenerate it with `ldsc ldscore`. "
+            f"Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
+        ) from exc
+
+
 def load_ldscore_from_dir(
     ldscore_dir: str,
     snp_identifier: str | None = None,
@@ -367,9 +558,11 @@ def load_ldscore_from_dir(
     Raises
     ------
     LDSCInputError
-        The directory or root metadata is missing, the recorded baseline or
-        query row groups disagree with the Parquet files, or the manifest,
-        identity, count, or overlap contract is invalid.
+        The directory or root metadata is missing or unreadable, a declared
+        baseline, query or overlap file is missing or outside the directory,
+        the recorded baseline or query row groups disagree with the Parquet
+        files, or the manifest, identity, count, or overlap contract is
+        invalid.
     LDSCInternalError
         A declared baseline/query schema lacks required columns.
     ConfigMismatchError
@@ -377,61 +570,17 @@ def load_ldscore_from_dir(
 
     Notes
     -----
-    Opening checks all declared schemas and allele metadata without loading
-    query LD-score values. Selected-query numerical checks and alignment to
-    baseline rows are performed by the consuming regression workflow.
+    ``read_ldscore_manifest`` checks the manifest first. Opening checks all
+    declared schemas and allele metadata without loading query LD-score
+    values. Selected-query numerical checks and alignment to baseline rows
+    are performed by the consuming regression workflow.
     """
-    root = Path(normalize_path_token(ldscore_dir))
-    if not root.is_dir():
-        raise LDSCInputError(
-            f"Could not load LD-score directory '{root}': path is not an existing directory. "
-            "Most likely `--ldscore-dir` points at the wrong location. Pass the directory written by `ldsc ldscore`."
-        )
-    metadata_path = root / "metadata.json"
-    if not metadata_path.exists():
-        raise LDSCInputError(
-            f"Could not load LD-score directory '{root}': missing `metadata.json`. "
-            "Most likely this is not an LD-score directory written by `ldsc ldscore` or the diagnostics file "
-            "was copied without the data files. Pass the complete LD-score output directory."
-        )
+    manifest = read_ldscore_manifest(ldscore_dir)
+    root, metadata = manifest.root, manifest.metadata
     LOGGER.info(f"Loading LD-score directory from '{root}'.")
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    config_snapshot = _global_config_from_metadata(metadata)
-    files = metadata.get("files", {})
-    baseline_rel = files.get("baseline")
-    if not baseline_rel:
-        raise LDSCInputError(
-            f"Could not load LD-score directory '{root}': metadata is missing `files.baseline`. "
-            "Most likely the LD-score directory was written by an older LDSC3 version or edited by hand. "
-            f"Regenerate it with the current `ldsc ldscore`. Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
-        )
-    _validate_row_groups(
-        root / baseline_rel, metadata.get("baseline_row_groups"),
-        f"LD-score baseline file {baseline_rel} has inconsistent row-group metadata: metadata.json does not "
-        "describe its row groups. Most likely an earlier LDSC3 version wrote the directory, splitting a "
-        "chromosome of more than 1,048,576 rows into several row groups, or metadata.json and the data files "
-        "come from different runs. Regenerate the directory with the current ldsc ldscore. "
-        f"Other causes & fixes: {_LDSCORE_SCHEMA_DOC}",
-    )
-    baseline_table = pd.read_parquet(root / baseline_rel)
-    baseline_columns = [str(column) for column in metadata.get("baseline_columns", [])]
-    query_columns = [str(column) for column in metadata.get("query_columns", [])]
-    count_records = [dict(record) for record in metadata.get("counts", [])]
-    query_batches = load_query_manifest(root, metadata, baseline_columns, baseline_table.columns)
-    _validate_count_overlap_config(metadata, root)
-    overlap = None
-    overlap_rel = files.get("overlap")
-    if overlap_rel:
-        from .overlap_table import overlap_from_long_frame
-        overlap_config = metadata.get("overlap_config") or {}
-        overlap = overlap_from_long_frame(
-            pd.read_parquet(root / overlap_rel),
-            baseline_columns=baseline_columns,
-            query_columns=query_columns,
-            total_all_reference_snps=overlap_config.get("total_all_reference_snps"),
-            total_common_reference_snps=overlap_config.get("total_common_reference_snps"),
-        )
-    metadata_identifier = config_snapshot.snp_identifier
+    baseline_table = pd.read_parquet(manifest.files["baseline"])
+    overlap = manifest.load_overlap()
+    metadata_identifier = manifest.snp_identifier
     if snp_identifier is not None:
         requested_identifier = normalize_snp_identifier_mode(snp_identifier)
         if requested_identifier != metadata_identifier:
@@ -451,7 +600,7 @@ def load_ldscore_from_dir(
     query_table = None
     identity_columns = ("CHR", "SNP", "POS", "A1", "A2")
     baseline_identity = [name for name in identity_columns if name in baseline_table.columns]
-    for entry in query_batches:
+    for entry in manifest.query_batches:
         identities = pd.read_parquet(entry["path"], columns=[
             name for name in identity_columns if name in entry["schema"]])
         # Rows identical to the validated baseline rows, with the same identity
@@ -469,19 +618,19 @@ def load_ldscore_from_dir(
     result = LDScoreSource(
         baseline_table=baseline_table,
         query_metadata=query_table,
-        query_batches=query_batches,
-        count_records=count_records,
-        baseline_columns=baseline_columns,
-        query_columns=query_columns,
+        query_batches=manifest.query_batches,
+        count_records=manifest.count_records,
+        baseline_columns=manifest.baseline_columns,
+        query_columns=manifest.query_columns,
         output_paths={
-            "metadata": str(metadata_path),
-            "baseline": str(root / baseline_rel),
-            **{key: str(root / value) for key, value in files.items()},
+            "metadata": str(root / "metadata.json"),
+            "baseline": str(manifest.files["baseline"]),
+            **{key: str(path) for key, path in manifest.files.items()},
         },
-        count_config=dict(metadata.get("count_config", {})),
-        config_snapshot=config_snapshot,
+        count_config=manifest.count_config,
+        config_snapshot=manifest.config_snapshot,
         overlap=overlap,
-        annotation_types={str(key): str(value) for key, value in (metadata.get("annotation_types") or {}).items()},
+        annotation_types=manifest.annotation_types,
         snp_identifier=effective_identifier,
         chromosome_scope=metadata.get("chromosome_scope") or {},
         snp_universe_policy=metadata.get("snp_universe_policy"),

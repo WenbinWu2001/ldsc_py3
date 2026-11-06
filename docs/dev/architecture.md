@@ -364,7 +364,8 @@ It supplies `ResolvedMungeInput` to `_sumstats.munge_kernel.munge_sumstats()`, w
 
 ### `ldsc._ldscore.source`
 
-`load_ldscore_from_dir()` opens an `LDScoreSource`, retaining baseline values, identities, counts, and overlap while leaving query LD-score values on disk.
+`read_ldscore_manifest()` reads and checks `metadata.json` without LD-score values and returns an `LDScoreManifest`: identity, declared files resolved inside the directory, baseline and query row groups and schemas from Parquet footers, counts, `count_config` and its agreement with `overlap_config`, and a lazy `load_overlap()`; read and decoding failures become `LDSCInputError`.
+`load_ldscore_from_dir()` calls it and opens an `LDScoreSource`, retaining baseline values, identities, counts, and overlap while leaving query LD-score values on disk.
 This module owns manifest/schema checks, count/overlap consistency, and table/identity validation shared by materialized and staged output.
 `validate_ldscore_baseline_table()` validates the complete shared baseline; `validate_ldscore_query_table()` checks a materialized query table against its already-validated baseline rows, and `_ldscore.outputs._write_query_fragments()` requires each staged fragment's identity columns to equal the shared first-batch baseline rows exactly.
 `LDScoreSource.read_queries()` returns explicit, uncached selections in requested column order; callers own their memory and must keep the source directory available and unchanged.

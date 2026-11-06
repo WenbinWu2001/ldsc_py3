@@ -555,14 +555,11 @@ root `partitioned_h2.tsv` plus diagnostics; `rg` writes root `rg.tsv`,
 `diagnostics/pairs/`. `rg` result tables report nominal p-values only; corrected
 p-value columns are left to downstream analysis. Existing owned TSVs, optional
 trees, or logs raise before the new table is written unless the command includes
-`--overwrite`. For
-`partitioned-h2`, `partitioned_h2.tsv`, `diagnostics/query_annotations/`, and
-`diagnostics/partitioned-h2.log` are treated as one owned family;
-baseline-only overwrites remove stale `diagnostics/query_annotations/` after
-the new summary is written. Query-mode `partitioned-h2` always writes its
-per-query tree; retired `--write-per-query-results` is rejected. The aggregate `partitioned_h2.tsv` remains the stable summary entry
-point. Baseline-only directories run the functional-annotation regime and keep
-complete-model artifacts at the result root.
+`--overwrite`.
+For `partitioned-h2`, the owned family includes `partitioned_h2.tsv`, `diagnostics/metadata.json`, `diagnostics/partitioned-h2.log`, the baseline-only `diagnostics/coefficient_delete_values.parquet`, the query-run `diagnostics/query_annotations/` and `diagnostics/query_status.tsv`, and, for a legacy summary-statistics input, `diagnostics/dropped_snps/legacy_sumstats.tsv.gz`; baseline-only overwrites remove stale `diagnostics/query_annotations/` after the new summary is written.
+Query-mode `partitioned-h2` always writes its per-query tree; retired `--write-per-query-results` is rejected.
+The aggregate `partitioned_h2.tsv` remains the stable summary entry point.
+Baseline-only directories run the functional-annotation regime and keep their complete-model artifacts in the result directory itself rather than in a per-query folder: root `partitioned_h2.tsv` is the full table, beside `diagnostics/coefficient_delete_values.parquet` and `diagnostics/metadata.json`.
 The output writer appends `query_result_dir` to the root TSV using the same folder records as the manifest. Paths are relative to the output directory and follow the sorted summary; baseline-only rows contain `NaN`. In-memory summaries and per-query tables retain their scientific schema.
 For `rg`, `--sumstats-sources` accepts two or more files; three or more files
 produce all unordered pairs unless `--anchor-trait` selects one trait label or

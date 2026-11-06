@@ -303,7 +303,6 @@ class LegacyLDScoreConverter:
                 "Supply the original .l2.ldscore(.gz) reference tables containing LD scores, rather than SNP metadata or weight-only files."
             )
         if present_annotations:
-            profile = "baseline_partitioned"
             if frequency_root is None:
                 raise LDSCInputError(
                     "Baseline partitioned legacy LDSC conversion requires --legacy-frequency-dir so common-SNP counts and "

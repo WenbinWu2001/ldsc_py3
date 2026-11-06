@@ -175,20 +175,16 @@ def test_rg_reports_trait_and_pair_totals_without_repeating_input_provenance(tmp
     assert "Regression genome build for sumstats" not in caplog.text
 
 
-def test_quantile_log_points_to_bin_table():
-    from tests.regression.test_quantile_h2 import QuantileH2WorkflowTest
+def test_quantile_log_points_to_bin_table(tmp_path):
+    from tests.quantile_fixtures import write_quantile_inputs
     from ldsc._regression.quantile_h2 import run_quantile_h2_from_args
 
-    case = QuantileH2WorkflowTest()
-    case.setUp()
-    try:
-        result = run_quantile_h2_from_args(case.args)
-        text = (Path(case.args.output_dir) / "diagnostics/quantile-h2.log").read_text()
-        assert "Quantile summary: bins=2;" in text and "See quantile_h2.tsv" in text
-        assert "Quantile 1:" not in text
-        assert result.quantile_h2.n_snps.tolist() == [3, 1]
-    finally:
-        case.doCleanups()
+    args = write_quantile_inputs(tmp_path)
+    result = run_quantile_h2_from_args(args)
+    text = (Path(args.output_dir) / "diagnostics/quantile-h2.log").read_text()
+    assert "Quantile summary: bins=2;" in text and "See quantile_h2.tsv" in text
+    assert "Quantile 1:" not in text
+    assert result.quantile_h2.n_snps.tolist() == [3, 1]
 
 
 @pytest.mark.parametrize("invalid_query", [False, True])

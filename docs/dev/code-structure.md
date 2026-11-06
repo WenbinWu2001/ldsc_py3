@@ -29,8 +29,8 @@ ldsc_py3_restructured/
 │   ├── _regression/          tier 7: estimators, h2/partitioned-h2/rg, liability scale, quantile-h2
 │   └── _plotting/            tier 8: result plots
 ├── tests/
-│   ├── conftest.py  annotation_fixtures.py  gene_index_helpers.py  ref_panel_helpers.py  regression_fixtures.py
-│   │   worker_fixtures.py    shared helpers
+│   ├── conftest.py  annotation_fixtures.py  gene_index_helpers.py  ldscore_helpers.py  quantile_fixtures.py
+│   │   ref_panel_helpers.py  regression_fixtures.py  worker_fixtures.py    shared helpers
 │   ├── fixtures/             small checked-in inputs and golden expectations
 │   ├── core/  runtime/  genome/  annotation/  refpanel/  sumstats/  ldscore/  regression/  plotting/
 │   │                         one folder per domain package, named without the underscore
@@ -262,6 +262,8 @@ Tests of shared machinery that every workflow uses, such as output writers, work
 Tests of the root shell and of the package as a whole are in `tests/package/`.
 Shared helpers and `fixtures/` stay at the top of `tests/`; tests import them, and one another, by full module path, for example `from tests.annotation.test_annotate_streaming import inputs`.
 Gene LD-score index fixtures are written by `tests/gene_index_helpers.py` through the build's own staging and commit steps; a test that builds or loads an index covering fewer than autosomes 1 to 22 narrows the index chromosome set with its `narrow_index_chromosomes`.
+LD-score directory fixtures are written by `tests/ldscore_helpers.py` through `LDScoreDirectoryWriter.write_batches`, so they carry the writer's real manifest; a test of a rejected directory starts from that output and changes it.
+The four-SNP quantile-h2 problem, with its writer-built LD scores, hand-written fitted model and source tables, comes from `tests/quantile_fixtures.py`.
 Each test folder has an `__init__.py`, which makes those full module paths importable.
 
 | Area | Main tests |

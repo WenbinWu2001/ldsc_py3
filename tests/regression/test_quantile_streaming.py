@@ -3,28 +3,28 @@
 import gzip
 import json
 from pathlib import Path
+from types import SimpleNamespace
 import weakref
 
 import numpy as np
 import pandas as pd
 import pytest
 
-import tests.regression.test_quantile_h2 as fixtures
 from ldsc.errors import LDSCInputError
 from ldsc._regression.quantile_h2 import run_quantile_h2_from_args
+from tests.quantile_fixtures import write_quantile_inputs, write_quantile_ldscores
 
 
 @pytest.fixture
-def workflow():
-    case = fixtures.QuantileH2WorkflowTest()
-    case.setUp()
+def workflow(tmp_path):
+    """The four-SNP problem of ``tests.quantile_fixtures`` with rs2 and rs4 moved to chromosome 2."""
+    case = SimpleNamespace(root=tmp_path, args=write_quantile_inputs(tmp_path))
     for name in ("annotations.tsv", "target.tsv", "ref.tsv"):
         path = case.root / name
         frame = pd.read_csv(path, sep="\t")
         frame["CHR"] = [1, 2, 1, 2]
         frame.to_csv(path, sep="\t", index=False)
-    yield case
-    case.doCleanups()
+    return case
 
 
 def test_exact_float64_targets_across_chromosomes(workflow):
@@ -73,11 +73,7 @@ def test_high_offset_annotation_variance_is_stable(workflow):
     frame = pd.read_csv(path, sep="\t")
     frame["cont"] = np.array([1e6, 1e6 + .125, 1e6 + .25, 1e6 + .375], dtype=np.float32)
     frame.to_csv(path, sep="\t", index=False)
-    metadata_path = workflow.root / "ldscores/metadata.json"
-    metadata = json.loads(metadata_path.read_text())
-    metadata["counts"][1]["common_reference_snp_count"] = float(frame.cont.sum())
-    metadata["files"] = {}
-    metadata_path.write_text(json.dumps(metadata))
+    write_quantile_ldscores(workflow.root, overlap=False, cont_common_count=float(frame.cont.sum()), overwrite=True)
     result = run_quantile_h2_from_args(workflow.args)
     np.testing.assert_allclose(result.standardized_coefficients.annotation_sd, [0, np.std(frame.cont.to_numpy(dtype=np.float64))], rtol=1e-12)
 
@@ -113,10 +109,7 @@ def test_bounded_reads_and_released_chromosome_arrays(workflow):
 
 
 def test_omitted_alleles_require_globally_unique_reference_bases(workflow):
-    metadata_path = workflow.root / "ldscores/metadata.json"
-    metadata = json.loads(metadata_path.read_text())
-    metadata["snp_identifier"] = "rsid_allele_aware"
-    metadata_path.write_text(json.dumps(metadata))
+    write_quantile_ldscores(workflow.root, snp_identifier="rsid_allele_aware", overwrite=True)
     path = workflow.root / "ref.tsv"
     frame = pd.read_csv(path, sep="\t")
     frame["A1"], frame["A2"] = "A", "C"
@@ -130,10 +123,7 @@ def test_omitted_alleles_require_globally_unique_reference_bases(workflow):
 
 
 def test_allele_less_annotations_and_target_log_base_identity_matching(workflow):
-    metadata_path = workflow.root / "ldscores/metadata.json"
-    metadata = json.loads(metadata_path.read_text())
-    metadata["snp_identifier"] = "rsid_allele_aware"
-    metadata_path.write_text(json.dumps(metadata))
+    write_quantile_ldscores(workflow.root, snp_identifier="rsid_allele_aware", overwrite=True)
     path = workflow.root / "ref.tsv"
     frame = pd.read_csv(path, sep="\t")
     frame["A1"], frame["A2"] = "A", "C"
@@ -150,10 +140,7 @@ def test_allele_less_annotations_and_target_log_base_identity_matching(workflow)
 
 
 def test_allele_aware_fit_names_reference_metadata_without_alleles(workflow):
-    metadata_path = workflow.root / "ldscores/metadata.json"
-    metadata = json.loads(metadata_path.read_text())
-    metadata["snp_identifier"] = "rsid_allele_aware"
-    metadata_path.write_text(json.dumps(metadata))
+    write_quantile_ldscores(workflow.root, snp_identifier="rsid_allele_aware", overwrite=True)
 
     with pytest.raises(LDSCInputError) as error:
         run_quantile_h2_from_args(workflow.args)
@@ -167,10 +154,7 @@ def test_allele_aware_fit_names_reference_metadata_without_alleles(workflow):
 def test_r2_matrix_sidecars_serve_as_reference_metadata(workflow, snp_identifier):
     from ldsc._refpanel.r2_format import SIDECAR_COLUMNS, write_runtime_metadata_sidecar
 
-    metadata_path = workflow.root / "ldscores/metadata.json"
-    metadata = json.loads(metadata_path.read_text())
-    metadata["snp_identifier"] = snp_identifier
-    metadata_path.write_text(json.dumps(metadata))
+    write_quantile_ldscores(workflow.root, snp_identifier=snp_identifier, overwrite=True)
     reference = pd.read_csv(workflow.root / "ref.tsv", sep="\t")
     reference["A1"], reference["A2"], reference["CM"] = "A", "C", 0.0
     for chrom, rows in reference.groupby("CHR"):
@@ -242,24 +226,25 @@ def test_global_ties_and_sharded_baselines(workflow):
 
 @pytest.mark.parametrize("route", ["annot", "bed", "gene"])
 def test_single_query_model_reconstructs_each_query_route(workflow, route):
+    from ldsc._ldscore.overlap_table import LDScoreOverlap
     from ldsc._regression.outputs import (
         PARTITIONED_H2_COLUMNS, PartitionedH2DirectoryWriter, PartitionedH2OutputConfig,
         stage_partitioned_h2_fit,
     )
+    from tests.ldscore_helpers import write_ldscore_dir
 
     path = workflow.root / "annotations.tsv"
     frame = pd.read_csv(path, sep="\t")
     frame.drop(columns="cont").to_csv(path, sep="\t", index=False)
-    metadata_path = workflow.root / "ldscores/metadata.json"
-    metadata = json.loads(metadata_path.read_text())
-    metadata.update(snp_identifier="chr_pos", genome_build="hg38", baseline_columns=["base"], query_columns=["cont"])
-    metadata["counts"][1]["common_reference_snp_count"] = 2.0
-    metadata_path.write_text(json.dumps(metadata))
-    overlap_path = workflow.root / "ldscores/ldscore.overlap.parquet"
-    overlap = pd.read_parquet(overlap_path)
-    overlap["overlap_all_snps"] = overlap["overlap_common_snps"] = [4., 2., 2., 2.]
-    overlap = overlap.loc[~(overlap.row_annotation.eq("cont") & overlap.col_annotation.eq("base"))]
-    overlap.to_parquet(overlap_path, index=False)
+    # The fit's LD scores: baseline base and query cont, which covers rs2 and rs3 (one SNP per chromosome).
+    identity = pd.DataFrame({"CHR": ["1", "1", "2", "2"], "SNP": ["rs1", "rs3", "rs2", "rs4"], "POS": [10, 30, 20, 40]})
+    block = pd.DataFrame([[4.0, 2.0]], index=["base"], columns=["base", "cont"])
+    write_ldscore_dir(
+        workflow.root / "ldscores", identity.assign(regression_ld_scores=1.0, base=1.0), baseline_columns=["base"],
+        query=identity.assign(cont=1.0), query_columns=["cont"], counts={"base": (4.0, 4.0), "cont": (2.0, 2.0)},
+        snp_identifier="chr_pos", genome_build="hg38", overwrite=True,
+        overlap=LDScoreOverlap(block, block.copy(), pd.Series({"cont": 2.0}), pd.Series({"cont": 2.0}), 4.0, 4.0),
+    )
     fitted = workflow.root / "fitted"
     full = pd.read_csv(fitted / "partitioned_h2.tsv", sep="\t").reindex(columns=PARTITIONED_H2_COLUMNS)
     deletes = pd.read_parquet(fitted / "diagnostics/coefficient_delete_values.parquet")

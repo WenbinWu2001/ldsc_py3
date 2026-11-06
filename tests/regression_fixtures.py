@@ -22,7 +22,7 @@ from ldsc._regression import estimators as reg
 from ldsc._sumstats.table import SumstatsTable
 from tests.annotation_fixtures import make_annotation_bundle
 from tests.cli_parsing import parse_command
-from tests.ldscore.test_ldscore_source import write_ldscore_dir
+from tests.ldscore_helpers import write_one_snp_ldscore_dir
 
 
 @contextlib.contextmanager
@@ -285,7 +285,7 @@ class RegressionFixtures:
         )
 
     def write_ldscore_dir(self, root: Path, *, include_query: bool = True) -> Path:
-        return write_ldscore_dir(root, include_query=include_query)
+        return write_one_snp_ldscore_dir(root, include_query=include_query)
 
     def allele_free_table(self, trait_name):
         table = self.make_sumstats_table()

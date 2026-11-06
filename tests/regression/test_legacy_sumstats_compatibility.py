@@ -16,6 +16,7 @@ from ldsc._ldscore.results import LDScoreResult
 from ldsc._regression.alignment import _project_legacy_sumstats_to_panel
 from ldsc._regression.runner import RegressionRunner
 from ldsc._sumstats.table import SumstatsTable, load_sumstats
+from tests.ldscore_helpers import write_ldscore_dir
 
 
 def _panel(frame: pd.DataFrame, mode: str) -> LDScoreResult:
@@ -476,23 +477,17 @@ def test_h2_command_runs_allele_less_legacy_sumstats_and_records_the_downgrade(t
     n_snps = 60
     rng = np.random.default_rng(11)
     snps = [f"rs{index}" for index in range(n_snps)]
-    ldscore_dir = tmp_path / "ldscores"
-    ldscore_dir.mkdir()
-    pd.DataFrame(
-        {
-            "CHR": ["1"] * n_snps, "SNP": snps, "POS": np.arange(1, n_snps + 1) * 100,
-            "A1": ["A"] * n_snps, "A2": ["C"] * n_snps,
-            "regression_ld_scores": rng.uniform(1.0, 5.0, n_snps), "base": rng.uniform(1.0, 5.0, n_snps),
-        }
-    ).to_parquet(ldscore_dir / "ldscore.baseline.parquet", index=False)
-    (ldscore_dir / "metadata.json").write_text(json.dumps({
-        "schema_version": 1, "artifact_type": "ldscore", "files": {"baseline": "ldscore.baseline.parquet"},
-        "snp_identifier": "rsid_allele_aware", "genome_build": "hg38", "chromosomes": ["1"],
-        "baseline_columns": ["base"], "query_columns": [], "query_batches": [],
-        "baseline_row_groups": [{"chrom": "1", "row_group_index": 0, "row_offset": 0, "n_rows": n_snps}],
-        "counts": [{"group": "baseline", "column": "base", "all_reference_snp_count": 100.0,
-                    "common_reference_snp_count": 80.0}],
-    }), encoding="utf-8")
+    ldscore_dir = write_ldscore_dir(
+        tmp_path / "ldscores",
+        pd.DataFrame(
+            {
+                "CHR": ["1"] * n_snps, "SNP": snps, "POS": np.arange(1, n_snps + 1) * 100,
+                "A1": ["A"] * n_snps, "A2": ["C"] * n_snps,
+                "regression_ld_scores": rng.uniform(1.0, 5.0, n_snps), "base": rng.uniform(1.0, 5.0, n_snps),
+            }
+        ),
+        baseline_columns=["base"], counts={"base": (100.0, 80.0)}, snp_identifier="rsid_allele_aware",
+    )
     sumstats = tmp_path / "trait.sumstats.gz"
     with gzip.open(sumstats, "wt", encoding="utf-8") as handle:
         handle.write("SNP\tZ\tN\n")
@@ -511,23 +506,17 @@ def test_h2_command_records_legacy_projection_drops_in_its_audit(tmp_path: Path)
     n_snps = 60
     rng = np.random.default_rng(7)
     snps = [f"rs{index}" for index in range(n_snps)]
-    ldscore_dir = tmp_path / "ldscores"
-    ldscore_dir.mkdir()
-    pd.DataFrame(
-        {
-            "CHR": ["1"] * n_snps, "SNP": snps, "POS": np.arange(1, n_snps + 1) * 100,
-            "A1": ["A"] * n_snps, "A2": ["C"] * n_snps,
-            "regression_ld_scores": rng.uniform(1.0, 5.0, n_snps), "base": rng.uniform(1.0, 5.0, n_snps),
-        }
-    ).to_parquet(ldscore_dir / "ldscore.baseline.parquet", index=False)
-    (ldscore_dir / "metadata.json").write_text(json.dumps({
-        "schema_version": 1, "artifact_type": "ldscore", "files": {"baseline": "ldscore.baseline.parquet"},
-        "snp_identifier": "rsid", "genome_build": "hg38", "chromosomes": ["1"], "baseline_columns": ["base"],
-        "query_columns": [], "query_batches": [],
-        "baseline_row_groups": [{"chrom": "1", "row_group_index": 0, "row_offset": 0, "n_rows": n_snps}],
-        "counts": [{"group": "baseline", "column": "base", "all_reference_snp_count": 100.0,
-                    "common_reference_snp_count": 80.0}],
-    }), encoding="utf-8")
+    ldscore_dir = write_ldscore_dir(
+        tmp_path / "ldscores",
+        pd.DataFrame(
+            {
+                "CHR": ["1"] * n_snps, "SNP": snps, "POS": np.arange(1, n_snps + 1) * 100,
+                "A1": ["A"] * n_snps, "A2": ["C"] * n_snps,
+                "regression_ld_scores": rng.uniform(1.0, 5.0, n_snps), "base": rng.uniform(1.0, 5.0, n_snps),
+            }
+        ),
+        baseline_columns=["base"], counts={"base": (100.0, 80.0)}, snp_identifier="rsid",
+    )
     # rs0 appears twice and "missing" is absent from the LD scores.
     rows = [(snp, rng.normal(0.0, 1.5)) for snp in snps] + [("rs0", 0.5), ("missing", 1.0)]
     sumstats = tmp_path / "trait.sumstats.gz"

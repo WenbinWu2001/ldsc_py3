@@ -18,6 +18,7 @@ from ldsc._regression.quantile_h2 import (
     load_fitted_partitioned_model,
     run_quantile_h2_from_args,
 )
+from tests.quantile_fixtures import write_quantile_inputs, write_quantile_ldscores
 
 
 class QuantileH2NumericsTest(unittest.TestCase):
@@ -171,117 +172,8 @@ class QuantileH2WorkflowTest(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        root = self.root = Path(temporary.name)
-        ldscore_dir = root / "ldscores"
-        ldscore_dir.mkdir()
-        (ldscore_dir / "metadata.json").write_text(
-            json.dumps(
-                {
-                    "artifact_type": "ldscore",
-                    "snp_identifier": "rsid",
-                    "genome_build": None,
-                    "baseline_columns": ["base", "cont"],
-                    "query_columns": [],
-                    "count_config": {
-                        "common_reference_snp_maf_min": 0.05,
-                        "common_reference_snp_maf_operator": ">=",
-                    },
-                    "overlap_config": {"total_all_reference_snps": 4, "total_common_reference_snps": 4},
-                    "files": {"overlap": "ldscore.overlap.parquet"},
-                    "counts": [
-                        {"column": "base", "common_reference_snp_count": 4.0},
-                        {"column": "cont", "common_reference_snp_count": 6.0},
-                    ],
-                    "annotation_types": {"base": "binary", "cont": "quantitative"},
-                }
-            ),
-            encoding="utf-8",
-        )
-        fitted_dir = root / "fitted"
-        (fitted_dir / "diagnostics").mkdir(parents=True)
-        (fitted_dir / "diagnostics" / "metadata.json").write_text(
-            json.dumps(
-                {
-                    "artifact_type": "partitioned_h2_result",
-                    "analysis_type": "functional_category",
-                    "ldscore_dir": str(ldscore_dir),
-                    "retained_ld_columns": ["base", "cont"],
-                }
-            ),
-            encoding="utf-8",
-        )
-        pd.DataFrame(
-            {
-                "category": ["base", "cont"],
-                "coefficient": [0.05, 0.10],
-                "coefficient_se": [0.01, 0.02],
-                "samp_prev": [np.nan, np.nan],
-                "pop_prev": [np.nan, np.nan],
-            }
-        ).to_csv(fitted_dir / "partitioned_h2.tsv", sep="\t", index=False, na_rep="NaN")
-        pd.DataFrame(
-            {
-                "delete_block": [0, 1],
-                "base": np.array([0.04, 0.06], dtype=np.float64),
-                "cont": np.array([0.09, 0.11], dtype=np.float64),
-            }
-        ).to_parquet(fitted_dir / "diagnostics" / "coefficient_delete_values.parquet", index=False)
-        annot = root / "annotations.tsv"
-        annot.write_text(
-            "CHR\tPOS\tSNP\tCM\tbase\tcont\n"
-            "1\t10\trs1\t0\t1\t0\n"
-            "1\t20\trs2\t0\t1\t1\n"
-            "1\t30\trs3\t0\t1\t2\n"
-            "1\t40\trs4\t0\t1\t3\n",
-            encoding="utf-8",
-        )
-        target = root / "target.tsv"
-        target.write_text(
-            "CHR\tPOS\tSNP\ttarget\n"
-            "1\t10\trs1\t0\n"
-            "1\t20\trs2\t1\n"
-            "1\t30\trs3\t2\n"
-            "1\t40\trs4\t3\n",
-            encoding="utf-8",
-        )
-        reference = root / "ref.tsv"
-        reference.write_text(
-            "CHR\tPOS\tSNP\tMAF\n"
-            "1\t10\trs1\t0.2\n"
-            "1\t20\trs2\t0.2\n"
-            "1\t30\trs3\t0.2\n"
-            "1\t40\trs4\t0.2\n",
-            encoding="utf-8",
-        )
-        output = root / "quantile"
-        pd.DataFrame(
-            {
-                "row_annotation": ["base", "base", "cont", "cont"],
-                "col_annotation": ["base", "cont", "base", "cont"],
-                "overlap_all_snps": [4.0, 6.0, 6.0, 14.0],
-                "overlap_common_snps": [4.0, 6.0, 6.0, 14.0],
-            }
-        ).to_parquet(ldscore_dir / "ldscore.overlap.parquet", index=False)
-        self.args = Namespace(
-            partitioned_h2_result_dir=str(fitted_dir),
-            baseline_annot_sources=[str(annot)],
-            query_annot_sources=None,
-            query_annot_bed_sources=None,
-            query_annot_gene_list_sources=None,
-            gene_coordinate_file=None,
-            control_gene_list_file=None,
-            gene_list_resolution_policy="strict",
-            gene_exclude_regions="none",
-            padding_bp=0,
-            target_annot_sources=[str(target)],
-            target_annot_column="target",
-            ref_metadata_sources=[str(reference)],
-            target_missing_value=None,
-            num_quantiles=2,
-            output_dir=str(output),
-            overwrite=False,
-            log_level="INFO",
-        )
+        self.root = Path(temporary.name)
+        self.args = write_quantile_inputs(self.root)
 
     def test_baseline_only_workflow_writes_complete_result_family(self):
         output = Path(self.args.output_dir)
@@ -501,10 +393,7 @@ class QuantileH2WorkflowTest(unittest.TestCase):
         np.testing.assert_allclose(result.quantile_h2["h2_obs"], [0.45, 0.35])
 
     def test_counts_are_usable_without_an_overlap_artifact(self):
-        path = self.root / "ldscores" / "metadata.json"
-        metadata = json.loads(path.read_text(encoding="utf-8"))
-        metadata["files"] = {}
-        path.write_text(json.dumps(metadata), encoding="utf-8")
+        write_quantile_ldscores(self.root, overlap=False, overwrite=True)
 
         result = run_quantile_h2_from_args(self.args)
 

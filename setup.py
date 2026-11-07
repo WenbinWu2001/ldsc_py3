@@ -51,6 +51,7 @@ setup(
     maintainer="Wenbin Wu",
     maintainer_email="drkwu999@gmail.com",
     project_urls={
+        "Documentation": "https://wenbinwu2001.github.io/ldsc_py3/",
         "Source": "https://github.com/WenbinWu2001/ldsc_py3",
         "Issues": "https://github.com/WenbinWu2001/ldsc_py3/issues",
         "License": "https://github.com/WenbinWu2001/ldsc_py3/blob/restructure/LICENSE",

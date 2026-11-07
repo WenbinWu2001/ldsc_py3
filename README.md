@@ -1,11 +1,11 @@
 # ldsc
 
-Last updated on: 2026-10-29
+Last updated on: 2026-11-07
 
 LDSC3 is a Python 3 implementation of LD score regression (LDSC).
 It estimates SNP heritability, genetic correlation and partitioned heritability from GWAS summary statistics, computes LD scores from PLINK files or package-built R² matrices, and builds annotations from BED files or gene lists.
 It provides one command, `ldsc`, and a Python package of the same name (distribution `ldsc`, version 2.0b0).
-Legacy LDSC, the original Python 2 software, is described with its differences in [migrating from legacy LDSC](docs/user-guide/workflows/migrating-from-legacy-ldsc.md).
+Legacy LDSC, the original Python 2 software, is described with its differences in [migrating from legacy LDSC](https://wenbinwu2001.github.io/ldsc_py3/user-guide/workflows/migrating-from-legacy-ldsc.html).
 
 ## Install
 
@@ -21,7 +21,7 @@ ldsc --help
 ```
 
 LDSC3 supports Python 3.11 to 3.13.
-The development branch, updates and optional extras are covered in [installation](docs/user-guide/installation.md).
+The development branch, updates and optional extras are covered in [installation](https://wenbinwu2001.github.io/ldsc_py3/user-guide/installation.html).
 
 ## Quick start
 
@@ -33,17 +33,18 @@ ldsc ldscore --snp-identifier chr_pos_allele_aware --genome-build hg19 --plink-p
 ldsc h2 --sumstats-file results/munged/sumstats.parquet --ldscore-dir results/ldscores --output-dir results/h2
 ```
 
-The [guided tutorial](docs/user-guide/guided-tutorial.md) walks through a complete analysis, and `ldsc <command> --help` lists every option.
+The [guided tutorial](https://wenbinwu2001.github.io/ldsc_py3/user-guide/guided-tutorial.html) walks through a complete analysis, and `ldsc <command> --help` lists every option.
 
 ## Documentation
 
 | Section | Content |
 | --- | --- |
-| [User guide](docs/user-guide/index.md) | Installation, guided tutorial, task guides, Python usage, troubleshooting. |
-| [Reference](docs/reference/index.md) | Every command and option, the Python API, file formats, result columns, methods. |
-| [Developer guide](docs/dev/index.md) | Code structure, architecture, design guides, writing rules, validation, release. |
+| [User guide](https://wenbinwu2001.github.io/ldsc_py3/user-guide/) | Installation, guided tutorial, task guides, Python usage, troubleshooting. |
+| [Reference](https://wenbinwu2001.github.io/ldsc_py3/reference/) | Every command and option, the Python API, file formats, result columns, methods. |
+| [Developer guide](https://wenbinwu2001.github.io/ldsc_py3/dev/) | Code structure, architecture, design guides, writing rules, validation, release. |
 
-Start at the [documentation home](docs/index.md); terms are defined in the [glossary](docs/dev/DOCS_VOCABULARY.md).
+The documentation is published at <https://wenbinwu2001.github.io/ldsc_py3/>.
+Start at the [documentation home](https://wenbinwu2001.github.io/ldsc_py3/); terms are defined in the [glossary](docs/dev/DOCS_VOCABULARY.md).
 
 ## Authors and maintainer
 

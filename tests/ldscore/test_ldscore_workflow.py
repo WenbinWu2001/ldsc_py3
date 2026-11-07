@@ -10,7 +10,6 @@ import importlib.util
 import json
 from pathlib import Path
 from types import SimpleNamespace
-import tempfile
 import unittest
 from unittest import mock
 
@@ -137,18 +136,17 @@ class R2AutoLoadCLITest(unittest.TestCase):
     def test_package_parquet_metadata_duplicates_remain_invariant_failures(self):
         from ldsc._refpanel.adapters import R2MatrixRefPanel
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            write_r2_matrix_chromosome(root, pd.DataFrame({
-                "CHR": ["1"] * 3, "POS": [10, 10, 20], "SNP": ["rs1", "rs2", "rs3"], "A1": ["A"] * 3,
-                "A2": ["C", "G", "C"], "CM": [0.1, 0.2, 0.3], "MAF": [0.2, 0.3, 0.4]}))
-            panel = R2MatrixRefPanel(
-                GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
-                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(root)),
-            )
+        root = self.tmp_path
+        write_r2_matrix_chromosome(root, pd.DataFrame({
+            "CHR": ["1"] * 3, "POS": [10, 10, 20], "SNP": ["rs1", "rs2", "rs3"], "A1": ["A"] * 3,
+            "A2": ["C", "G", "C"], "CM": [0.1, 0.2, 0.3], "MAF": [0.2, 0.3, 0.4]}))
+        panel = R2MatrixRefPanel(
+            GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
+            RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(root)),
+        )
 
-            with self.assertRaisesRegex(LDSCInputError, "non-unique SNP identifiers"):
-                panel.load_metadata("1")
+        with self.assertRaisesRegex(LDSCInputError, "non-unique SNP identifiers"):
+            panel.load_metadata("1")
 
 
 class LDScoreWorkflowTest(unittest.TestCase):
@@ -213,67 +211,67 @@ class LDScoreWorkflowTest(unittest.TestCase):
     def test_calculator_rejects_ref_metadata_export_from_an_r2_matrix_before_writing(self):
         from ldsc import LDScoreOutputConfig, R2MatrixRefPanel
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "out"
-            panel = R2MatrixRefPanel(GlobalConfig(snp_identifier="rsid"),
-                                     RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(Path(tmpdir) / "r2")))
-            with self.assertRaisesRegex(LDSCUsageError, "R2 matrix sidecars .* already hold"):
-                LDScoreCalculator().run(
-                    None, panel, LDScoreConfig(ld_wind_snps=10, export_ref_metadata=True),
-                    GlobalConfig(snp_identifier="rsid"), LDScoreOutputConfig(output_dir=str(output_dir)),
-                )
-            self.assertFalse(output_dir.exists())
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "out"
+        panel = R2MatrixRefPanel(GlobalConfig(snp_identifier="rsid"),
+                                 RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(tmpdir / "r2")))
+        with self.assertRaisesRegex(LDSCUsageError, "R2 matrix sidecars .* already hold"):
+            LDScoreCalculator().run(
+                None, panel, LDScoreConfig(ld_wind_snps=10, export_ref_metadata=True),
+                GlobalConfig(snp_identifier="rsid"), LDScoreOutputConfig(output_dir=str(output_dir)),
+            )
+        self.assertFalse(output_dir.exists())
 
     def test_auto_genome_build_does_not_infer_from_r2_matrix_directory_name_without_parquet_metadata(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            r2_matrix_dir = Path(tmpdir) / "hg38"
-            r2_matrix_dir.mkdir()
-            configs = direct_configs("--r2-matrix-dir", str(r2_matrix_dir), "--snp-identifier", "chr_pos",
-                                     "--genome-build", "auto")
+        tmpdir = self.tmp_path
+        r2_matrix_dir = tmpdir / "hg38"
+        r2_matrix_dir.mkdir()
+        configs = direct_configs("--r2-matrix-dir", str(r2_matrix_dir), "--snp-identifier", "chr_pos",
+                                 "--genome-build", "auto")
 
-            with self.assertRaisesRegex(LDSCInputError, "Genome-build consistency check failed"):
-                _resolve_build(configs)
+        with self.assertRaisesRegex(LDSCInputError, "Genome-build consistency check failed"):
+            _resolve_build(configs)
 
     def test_auto_genome_build_uses_r2_schema_metadata_not_directory_name(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            r2_matrix_dir = Path(tmpdir) / "hg38"
-            _write_minimal_r2_parquet(
-                r2_matrix_dir / "chr1_r2.parquet",
-                {b"ldsc:sorted_by_build": b"hg19"},
-            )
-            global_config, _ = _resolve_build(direct_configs(
-                "--r2-matrix-dir", str(r2_matrix_dir), "--snp-identifier", "chr_pos", "--genome-build", "auto"))
+        tmpdir = self.tmp_path
+        r2_matrix_dir = tmpdir / "hg38"
+        _write_minimal_r2_parquet(
+            r2_matrix_dir / "chr1_r2.parquet",
+            {b"ldsc:sorted_by_build": b"hg19"},
+        )
+        global_config, _ = _resolve_build(direct_configs(
+            "--r2-matrix-dir", str(r2_matrix_dir), "--snp-identifier", "chr_pos", "--genome-build", "auto"))
 
         self.assertEqual(global_config.genome_build, "hg19")
 
     def test_auto_genome_build_uses_single_child_r2_schema_metadata_not_child_name(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            r2_parent = Path(tmpdir) / "panel"
-            _write_minimal_r2_parquet(
-                r2_parent / "hg38" / "chr1_r2.parquet",
-                {b"ldsc:sorted_by_build": b"hg19"},
-            )
-            global_config, _ = _resolve_build(direct_configs(
-                "--r2-matrix-dir", str(r2_parent), "--snp-identifier", "chr_pos", "--genome-build", "auto"))
+        tmpdir = self.tmp_path
+        r2_parent = tmpdir / "panel"
+        _write_minimal_r2_parquet(
+            r2_parent / "hg38" / "chr1_r2.parquet",
+            {b"ldsc:sorted_by_build": b"hg19"},
+        )
+        global_config, _ = _resolve_build(direct_configs(
+            "--r2-matrix-dir", str(r2_parent), "--snp-identifier", "chr_pos", "--genome-build", "auto"))
 
         self.assertEqual(global_config.genome_build, "hg19")
 
     def test_auto_genome_build_requires_selection_among_r2_alternatives(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            r2_parent = Path(tmpdir) / "panel"
-            _write_minimal_r2_parquet(
-                r2_parent / "hg19" / "chr1_r2.parquet",
-                {b"ldsc:sorted_by_build": b"hg19"},
-            )
-            _write_minimal_r2_parquet(
-                r2_parent / "hg38" / "chr1_r2.parquet",
-                {b"ldsc:sorted_by_build": b"hg38"},
-            )
-            configs = direct_configs("--r2-matrix-dir", str(r2_parent), "--snp-identifier", "chr_pos",
-                                     "--genome-build", "auto")
+        tmpdir = self.tmp_path
+        r2_parent = tmpdir / "panel"
+        _write_minimal_r2_parquet(
+            r2_parent / "hg19" / "chr1_r2.parquet",
+            {b"ldsc:sorted_by_build": b"hg19"},
+        )
+        _write_minimal_r2_parquet(
+            r2_parent / "hg38" / "chr1_r2.parquet",
+            {b"ldsc:sorted_by_build": b"hg38"},
+        )
+        configs = direct_configs("--r2-matrix-dir", str(r2_parent), "--snp-identifier", "chr_pos",
+                                 "--genome-build", "auto")
 
-            with self.assertRaisesRegex(LDSCInputError, "could not be inferred or resolved"):
-                _resolve_build(configs)
+        with self.assertRaisesRegex(LDSCInputError, "could not be inferred or resolved"):
+            _resolve_build(configs)
 
     def make_chrom_result(self, chrom: str, bp: int, score: float, count: float):
         baseline_table = pd.DataFrame(
@@ -935,132 +933,131 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
 
     def test_plink_compute_accepts_restriction_identity_keys(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            prefix = self._copy_plink_fixture_with_distinct_fids(Path(tmpdir))
-            workflow_bundle = self._build_annotation_bundle(prefix)
-            bundle = ChromosomeAnnotations(
-                metadata=fixture_metadata(workflow_bundle),
-                annotations=fixture_values(workflow_bundle, 'baseline'),
-                baseline_columns=workflow_bundle.baseline_columns,
-                query_columns=workflow_bundle.query_columns,
-            )
-            panel = plink_panel(prefix)
-            config = LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True, snp_batch_size=50)
-            restriction = RestrictionIdentityKeys(
-                keys={"rs_1", "rs_2"},
-                match_kind="base",
-                dropped=empty_identity_drop_frame(),
-                n_input_rows=2,
-                n_retained_keys=2,
-            )
+        tmpdir = self.tmp_path
+        prefix = self._copy_plink_fixture_with_distinct_fids(tmpdir)
+        workflow_bundle = self._build_annotation_bundle(prefix)
+        bundle = ChromosomeAnnotations(
+            metadata=fixture_metadata(workflow_bundle),
+            annotations=fixture_values(workflow_bundle, 'baseline'),
+            baseline_columns=workflow_bundle.baseline_columns,
+            query_columns=workflow_bundle.query_columns,
+        )
+        panel = plink_panel(prefix)
+        config = LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True, snp_batch_size=50)
+        restriction = RestrictionIdentityKeys(
+            keys={"rs_1", "rs_2"},
+            match_kind="base",
+            dropped=empty_identity_drop_frame(),
+            n_input_rows=2,
+            n_retained_keys=2,
+        )
 
-            result = compute_plink("1", bundle, panel, config, restriction)
+        result = compute_plink("1", bundle, panel, config, restriction)
 
-            self.assertEqual(result.chrom, "1")
-            self.assertGreater(result.reference_snp_count, 0)
-            self.assertEqual(result.metadata.SNP.tolist(), [])
-            self.assertEqual(result.w_ld.shape[0], len(result.metadata))
+        self.assertEqual(result.chrom, "1")
+        self.assertGreater(result.reference_snp_count, 0)
+        self.assertEqual(result.metadata.SNP.tolist(), [])
+        self.assertEqual(result.w_ld.shape[0], len(result.metadata))
 
     def test_plink_compute_rejects_unsorted_window_positions(self):
         # geno_meta inherits the annotation bundle's row order via keep_snps, so a
         # bundle whose positions are not coordinate-sorted must trip the window-sort
         # guard before get_block_lefts runs (otherwise LD windows are silently wrong).
-        with tempfile.TemporaryDirectory() as tmpdir:
-            prefix = self._copy_plink_fixture_with_distinct_fids(Path(tmpdir))
-            wb = self._build_annotation_bundle(prefix)
-            order = np.argsort(fixture_metadata(wb)["POS"].to_numpy(), kind="mergesort")[::-1]
-            bundle = ChromosomeAnnotations(
-                metadata=fixture_metadata(wb).iloc[order].reset_index(drop=True),
-                annotations=fixture_values(wb, 'baseline').iloc[order].reset_index(drop=True),
-                baseline_columns=wb.baseline_columns,
-                query_columns=wb.query_columns,
-            )
-            panel = plink_panel(prefix)
-            config = LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True, snp_batch_size=50)
-            with self.assertRaisesRegex(LDSCInternalError, "non-decreasing order"):
-                compute_plink("1", bundle, panel, config, None)
+        tmpdir = self.tmp_path
+        prefix = self._copy_plink_fixture_with_distinct_fids(tmpdir)
+        wb = self._build_annotation_bundle(prefix)
+        order = np.argsort(fixture_metadata(wb)["POS"].to_numpy(), kind="mergesort")[::-1]
+        bundle = ChromosomeAnnotations(
+            metadata=fixture_metadata(wb).iloc[order].reset_index(drop=True),
+            annotations=fixture_values(wb, 'baseline').iloc[order].reset_index(drop=True),
+            baseline_columns=wb.baseline_columns,
+            query_columns=wb.query_columns,
+        )
+        panel = plink_panel(prefix)
+        config = LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True, snp_batch_size=50)
+        with self.assertRaisesRegex(LDSCInternalError, "non-decreasing order"):
+            compute_plink("1", bundle, panel, config, None)
 
     def _plink_cm(self, prefix: Path):
         return plink_panel(prefix), LDScoreConfig(ld_wind_cm=1.0, whole_chromosome_ok=True, snp_batch_size=50)
 
     def test_plink_cm_window_rejects_all_zero_bim_cm_without_map(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            prefix = self._copy_plink_fixture_with_distinct_fids(Path(tmpdir))
-            wb = self._build_annotation_bundle(prefix)
-            bundle = ChromosomeAnnotations(
-                metadata=fixture_metadata(wb), annotations=fixture_values(wb, 'baseline'),
-                baseline_columns=wb.baseline_columns, query_columns=wb.query_columns,
-            )
-            # The fixture .bim CM is all zero; without a map this must error even under
-            # --yes-really (yes_really=True below).
-            with self.assertRaisesRegex(LDSCInputError, "uninformative|all zero"):
-                compute_plink("1", bundle, *self._plink_cm(prefix), None)
+        tmpdir = self.tmp_path
+        prefix = self._copy_plink_fixture_with_distinct_fids(tmpdir)
+        wb = self._build_annotation_bundle(prefix)
+        bundle = ChromosomeAnnotations(
+            metadata=fixture_metadata(wb), annotations=fixture_values(wb, 'baseline'),
+            baseline_columns=wb.baseline_columns, query_columns=wb.query_columns,
+        )
+        # The fixture .bim CM is all zero; without a map this must error even under
+        # --yes-really (yes_really=True below).
+        with self.assertRaisesRegex(LDSCInputError, "uninformative|all zero"):
+            compute_plink("1", bundle, *self._plink_cm(prefix), None)
 
     def test_plink_cm_window_uses_genetic_map(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            prefix = self._copy_plink_fixture_with_distinct_fids(Path(tmpdir))
-            wb = self._build_annotation_bundle(prefix)
-            bundle = ChromosomeAnnotations(
-                metadata=fixture_metadata(wb), annotations=fixture_values(wb, 'baseline'),
-                baseline_columns=wb.baseline_columns, query_columns=wb.query_columns,
-            )
-            gmap = pd.DataFrame({"CHR": ["1", "1"], "POS": [1, 8], "CM": [0.0, 4.0]})
-            result = compute_plink("1", bundle, *self._plink_cm(prefix), None, genetic_map=gmap)
-            self.assertGreater(len(result.metadata), 0)
-            # interpolated CM is non-degenerate -> a real cM window, not whole-chromosome
-            self.assertGreaterEqual(result.metadata["CM"].nunique(), 2)
+        tmpdir = self.tmp_path
+        prefix = self._copy_plink_fixture_with_distinct_fids(tmpdir)
+        wb = self._build_annotation_bundle(prefix)
+        bundle = ChromosomeAnnotations(
+            metadata=fixture_metadata(wb), annotations=fixture_values(wb, 'baseline'),
+            baseline_columns=wb.baseline_columns, query_columns=wb.query_columns,
+        )
+        gmap = pd.DataFrame({"CHR": ["1", "1"], "POS": [1, 8], "CM": [0.0, 4.0]})
+        result = compute_plink("1", bundle, *self._plink_cm(prefix), None, genetic_map=gmap)
+        self.assertGreater(len(result.metadata), 0)
+        # interpolated CM is non-degenerate -> a real cM window, not whole-chromosome
+        self.assertGreaterEqual(result.metadata["CM"].nunique(), 2)
 
     def test_compute_chromosome_writes_ref_metadata_sidecar(self):
         from ldsc._refpanel.adapters import RefPanelLoader
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            prefix = self._copy_plink_fixture_with_distinct_fids(tmpdir)
-            wb = self._build_annotation_bundle(prefix)
-            gc = GlobalConfig(snp_identifier="rsid")
-            ref_panel = RefPanelLoader(gc).load(RefPanelConfig(backend="plink", plink_prefix=str(prefix)))
-            out = tmpdir / "out"
-            direct_batches.compute_direct_chromosome(
-                chrom="1", annotation_bundle=wb, ref_panel=ref_panel,
-                ldscore_config=LDScoreConfig(ld_wind_snps=10, export_ref_metadata=True, whole_chromosome_ok=True),
-                global_config=gc, regression_snps=None, export_dir=str(out),
-            )
-            sidecar = out / "ref_metadata" / "chr1_meta.tsv.gz"
-            self.assertTrue(sidecar.exists())
-            df = pd.read_csv(sidecar, sep="\t")
-            self.assertEqual(list(df.columns), ["CHR", "POS", "SNP", "A1", "A2", "CM", "MAF"])
-            self.assertTrue(df["MAF"].notna().any())  # genotype-derived MAF present
+        tmpdir = self.tmp_path
+        prefix = self._copy_plink_fixture_with_distinct_fids(tmpdir)
+        wb = self._build_annotation_bundle(prefix)
+        gc = GlobalConfig(snp_identifier="rsid")
+        ref_panel = RefPanelLoader(gc).load(RefPanelConfig(backend="plink", plink_prefix=str(prefix)))
+        out = tmpdir / "out"
+        direct_batches.compute_direct_chromosome(
+            chrom="1", annotation_bundle=wb, ref_panel=ref_panel,
+            ldscore_config=LDScoreConfig(ld_wind_snps=10, export_ref_metadata=True, whole_chromosome_ok=True),
+            global_config=gc, regression_snps=None, export_dir=str(out),
+        )
+        sidecar = out / "ref_metadata" / "chr1_meta.tsv.gz"
+        self.assertTrue(sidecar.exists())
+        df = pd.read_csv(sidecar, sep="\t")
+        self.assertEqual(list(df.columns), ["CHR", "POS", "SNP", "A1", "A2", "CM", "MAF"])
+        self.assertTrue(df["MAF"].notna().any())  # genotype-derived MAF present
 
     @unittest.skipUnless(_HAS_BITARRAY, "bitarray is not installed")
     def test_generated_bool_annotations_produce_identical_ld_scores_to_float32_equivalents(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            prefix = self._copy_plink_fixture_with_distinct_fids(Path(tmpdir))
-            base_bundle = self._build_annotation_bundle(prefix)
-            generated = np.arange(len(fixture_metadata(base_bundle))) % 2 == 0
-            continuous = np.linspace(0.125, 0.875, len(fixture_metadata(base_bundle)), dtype=np.float32)
-            bool_bundle = replace_fixture_queries(
-                base_bundle,
-                query_annotations=pd.DataFrame(
-                    {"generated": generated, "continuous": continuous}
-                ),
-                query_columns=["generated", "continuous"],
-            )
-            float_bundle = replace_fixture_queries(
-                bool_bundle,
-                query_annotations=fixture_values(bool_bundle, 'query').astype(np.float32),
-            )
-            global_config = GlobalConfig(snp_identifier="rsid")
-            panel = PlinkRefPanel(
-                global_config,
-                RefPanelConfig(backend="plink", plink_prefix=str(prefix)),
-            )
-            ldscore_config = LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True)
+        tmpdir = self.tmp_path
+        prefix = self._copy_plink_fixture_with_distinct_fids(tmpdir)
+        base_bundle = self._build_annotation_bundle(prefix)
+        generated = np.arange(len(fixture_metadata(base_bundle))) % 2 == 0
+        continuous = np.linspace(0.125, 0.875, len(fixture_metadata(base_bundle)), dtype=np.float32)
+        bool_bundle = replace_fixture_queries(
+            base_bundle,
+            query_annotations=pd.DataFrame(
+                {"generated": generated, "continuous": continuous}
+            ),
+            query_columns=["generated", "continuous"],
+        )
+        float_bundle = replace_fixture_queries(
+            bool_bundle,
+            query_annotations=fixture_values(bool_bundle, 'query').astype(np.float32),
+        )
+        global_config = GlobalConfig(snp_identifier="rsid")
+        panel = PlinkRefPanel(
+            global_config,
+            RefPanelConfig(backend="plink", plink_prefix=str(prefix)),
+        )
+        ldscore_config = LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True)
 
-            bool_result = direct_batches.compute_direct_chromosome(
-                "1", bool_bundle, panel, ldscore_config, global_config
-            )
-            float_result = direct_batches.compute_direct_chromosome(
-                "1", float_bundle, panel, ldscore_config, global_config
-            )
+        bool_result = direct_batches.compute_direct_chromosome(
+            "1", bool_bundle, panel, ldscore_config, global_config
+        )
+        float_result = direct_batches.compute_direct_chromosome(
+            "1", float_bundle, panel, ldscore_config, global_config
+        )
 
         np.testing.assert_allclose(
             bool_result.baseline_table[["regression_ld_scores", "base"]],
@@ -1107,106 +1104,105 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
     def test_run_ldscore_from_args_writes_outputs(self):
         from tests.ldscore.test_ldscore_chromosome_scope import write_r2_inputs
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            inputs = write_r2_inputs(root)
-            regression = root/'regression.txt'
-            regression.write_text('SNP\nrs1\nrs2\nrs3\n')
-            argv = ['--output-dir',str(root/'out'),'--r2-matrix-dir',inputs.r2_matrix_dir,
-                    '--baseline-annot-sources',inputs.baseline_annot_sources,
-                    '--regr-snps-file',str(regression),'--regr-snps-exclude-regions','none',
-                    '--snp-identifier','rsid','--ld-wind-snps','2','--yes-really']
-            query = root/'query.annot'
-            pd.read_csv(inputs.baseline_annot_sources,sep='\t').drop(columns='base').assign(query=[0,1,0]).to_csv(query,sep='\t',index=False)
-            result = ldscore_workflow.run_ldscore_from_args(parse_command_line(build_parser(), [*argv,'--query-annot-sources',str(query)]))
-            # A parquet --ld-wind-snps run also records its panel/kept SNP counts; every run records its funnel.
-            self.assertEqual(set(result.output_paths),{'baseline','query','metadata','overlap','chromosome_scope',
-                                                      'dropped_snps_chr22','ld_window_snp_counts','reference_snp_funnel'})
-            for path in result.output_paths.values():
-                self.assertTrue(Path(path).is_file())
-            pd.testing.assert_frame_equal(pd.read_parquet(result.output_paths['query']),result.read_queries(result.query_columns))
-            self.assertTrue((root/'out/diagnostics/ldscore.log').is_file())
-            self.assertFalse(list((root/'out').glob('.ldsc-annotation-*')))
+        root = self.tmp_path
+        inputs = write_r2_inputs(root)
+        regression = root/'regression.txt'
+        regression.write_text('SNP\nrs1\nrs2\nrs3\n')
+        argv = ['--output-dir',str(root/'out'),'--r2-matrix-dir',inputs.r2_matrix_dir,
+                '--baseline-annot-sources',inputs.baseline_annot_sources,
+                '--regr-snps-file',str(regression),'--regr-snps-exclude-regions','none',
+                '--snp-identifier','rsid','--ld-wind-snps','2','--yes-really']
+        query = root/'query.annot'
+        pd.read_csv(inputs.baseline_annot_sources,sep='\t').drop(columns='base').assign(query=[0,1,0]).to_csv(query,sep='\t',index=False)
+        result = ldscore_workflow.run_ldscore_from_args(parse_command_line(build_parser(), [*argv,'--query-annot-sources',str(query)]))
+        # A parquet --ld-wind-snps run also records its panel/kept SNP counts; every run records its funnel.
+        self.assertEqual(set(result.output_paths),{'baseline','query','metadata','overlap','chromosome_scope',
+                                                  'dropped_snps_chr22','ld_window_snp_counts','reference_snp_funnel'})
+        for path in result.output_paths.values():
+            self.assertTrue(Path(path).is_file())
+        pd.testing.assert_frame_equal(pd.read_parquet(result.output_paths['query']),result.read_queries(result.query_columns))
+        self.assertTrue((root/'out/diagnostics/ldscore.log').is_file())
+        self.assertFalse(list((root/'out').glob('.ldsc-annotation-*')))
 
 
     def test_run_ldscore_from_args_all_skipped_writes_diagnostics_then_raises(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "ldscore_result"
-            args = parse_command_line(build_parser(),
-                [
-                    "--output-dir",
-                    str(output_dir),
-                    "--baseline-annot-sources",
-                    "baseline.annot",
-                    "--query-annot-bed-sources",
-                    "bad.bed",
-                    "--plink-prefix",
-                    "panel",
-                    "--ld-wind-snps",
-                    "10",
-                    "--snp-identifier",
-                    "rsid",
-                    "--regr-snps-exclude-regions",
-                    "none",
-                ]
-            )
-            fixture_root = Path(tmpdir)
-            baseline_path = fixture_root / "baseline.annot"
-            baseline_path.write_text("CHR\tSNP\tPOS\tbase\n1\trs1\t10\t1\n")
-            bed_path = fixture_root / "empty.bed"
-            bed_path.write_text("")
-            args.baseline_annot_sources = str(baseline_path)
-            args.query_annot_bed_sources = str(bed_path)
-            args.plink_prefix = str(write_tiny_plink(fixture_root / "panel", pd.DataFrame({"CHR": ["1"], "SNP": ["rs1"], "POS": [10]})))
-            annotation_bundle = self.make_annotation_bundle([("1", "rs1", 10)])
-            status = QueryAnnotationStatus(
-                "bad",
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "ldscore_result"
+        args = parse_command_line(build_parser(),
+            [
+                "--output-dir",
+                str(output_dir),
+                "--baseline-annot-sources",
+                "baseline.annot",
+                "--query-annot-bed-sources",
                 "bad.bed",
-                "bed",
-                "skipped",
-                "empty_input",
-                details="BED source contains no intervals",
-            )
-            annotation_bundle = dataclass_replace(annotation_bundle, query_statuses=(status,))
-            result = LDScoreResult(
-                baseline_table=pd.DataFrame(
-                    {
-                        "CHR": ["1"],
-                        "SNP": ["rs1"],
-                        "POS": [10],
-                        "regression_ld_scores": [1.0],
-                        "base": [1.0],
-                    }
-                ),
-                query_table=None,
-                count_records=[{"group": "baseline", "column": "base", "all_reference_snp_count": 1.0}],
-                baseline_columns=["base"],
-                query_columns=[],
-                config_snapshot=GlobalConfig(snp_identifier="rsid"),
-                query_statuses=(status,),
-            )
+                "--plink-prefix",
+                "panel",
+                "--ld-wind-snps",
+                "10",
+                "--snp-identifier",
+                "rsid",
+                "--regr-snps-exclude-regions",
+                "none",
+            ]
+        )
+        fixture_root = tmpdir
+        baseline_path = fixture_root / "baseline.annot"
+        baseline_path.write_text("CHR\tSNP\tPOS\tbase\n1\trs1\t10\t1\n")
+        bed_path = fixture_root / "empty.bed"
+        bed_path.write_text("")
+        args.baseline_annot_sources = str(baseline_path)
+        args.query_annot_bed_sources = str(bed_path)
+        args.plink_prefix = str(write_tiny_plink(fixture_root / "panel", pd.DataFrame({"CHR": ["1"], "SNP": ["rs1"], "POS": [10]})))
+        annotation_bundle = self.make_annotation_bundle([("1", "rs1", 10)])
+        status = QueryAnnotationStatus(
+            "bad",
+            "bad.bed",
+            "bed",
+            "skipped",
+            "empty_input",
+            details="BED source contains no intervals",
+        )
+        annotation_bundle = dataclass_replace(annotation_bundle, query_statuses=(status,))
+        result = LDScoreResult(
+            baseline_table=pd.DataFrame(
+                {
+                    "CHR": ["1"],
+                    "SNP": ["rs1"],
+                    "POS": [10],
+                    "regression_ld_scores": [1.0],
+                    "base": [1.0],
+                }
+            ),
+            query_table=None,
+            count_records=[{"group": "baseline", "column": "base", "all_reference_snp_count": 1.0}],
+            baseline_columns=["base"],
+            query_columns=[],
+            config_snapshot=GlobalConfig(snp_identifier="rsid"),
+            query_statuses=(status,),
+        )
 
-            with mock.patch(
-                "ldsc._annotation.builder.AnnotationBuilder.run",
-                autospec=True,
-                return_value=annotation_bundle,
-            ), mock.patch(
-                "ldsc._refpanel.adapters.RefPanelLoader.load",
-                autospec=True,
-                return_value=self.make_ref_panel_stub(backend="plink"),
-            ), mock.patch.object(
-                LDScoreCalculator,
-                "run",
-                autospec=True,
-                return_value=result,
-            ):
-                with self.assertRaisesRegex(LDSCInputError, "all 1 requested query annotations were skipped"):
-                    ldscore_workflow.run_ldscore_from_args(args)
+        with mock.patch(
+            "ldsc._annotation.builder.AnnotationBuilder.run",
+            autospec=True,
+            return_value=annotation_bundle,
+        ), mock.patch(
+            "ldsc._refpanel.adapters.RefPanelLoader.load",
+            autospec=True,
+            return_value=self.make_ref_panel_stub(backend="plink"),
+        ), mock.patch.object(
+            LDScoreCalculator,
+            "run",
+            autospec=True,
+            return_value=result,
+        ):
+            with self.assertRaisesRegex(LDSCInputError, "all 1 requested query annotations were skipped"):
+                ldscore_workflow.run_ldscore_from_args(args)
 
-            self.assertTrue((output_dir / "diagnostics" / "query_annotation_status.tsv").exists())
-            self.assertTrue((output_dir / "diagnostics" / "ldscore.log").exists())
-            self.assertFalse((output_dir / "metadata.json").exists())
-            self.assertIn("empty_input", (output_dir / "diagnostics" / "ldscore.log").read_text(encoding="utf-8"))
+        self.assertTrue((output_dir / "diagnostics" / "query_annotation_status.tsv").exists())
+        self.assertTrue((output_dir / "diagnostics" / "ldscore.log").exists())
+        self.assertFalse((output_dir / "metadata.json").exists())
+        self.assertIn("empty_input", (output_dir / "diagnostics" / "ldscore.log").read_text(encoding="utf-8"))
 
     def test_run_ldscore_from_args_gene_list_writes_query_and_resolution_diagnostics(self):
         # Output ownership is tested here with a mocked chromosome task that stages a fixed
@@ -1214,312 +1210,306 @@ class LDScoreWorkflowTest(unittest.TestCase):
         from tests.worker_fixtures import calculation_body, local_task_pool
         self.enterContext(calculation_body())
         self.enterContext(mock.patch("ldsc._runtime.parallelism.ProcessPoolExecutor", local_task_pool))
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            output_dir = tmpdir / "ldscore_result"
-            baseline = tmpdir / "baseline.annot"
-            genes = tmpdir / "immune.txt"
-            catalog = tmpdir / "genes.tsv"
-            baseline.write_text(
-                "CHR\tPOS\tSNP\tCM\tbase\n"
-                "1\t65419\trs1\t0\t1\n"
-                "1\t80000\trs2\t0\t1\n",
-                encoding="utf-8",
-            )
-            genes.write_text("OR4F5\nNOT_A_GENE\n", encoding="utf-8")
-            catalog.write_text(
-                "gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
-                "ENSG00000186092\tOR4F5\t1\t65419\t71585\thg38\n",
-                encoding="utf-8",
-            )
-            args = parse_command_line(build_parser(),
-                [
-                    "--output-dir",
-                    str(output_dir),
-                    "--baseline-annot-sources",
-                    str(baseline),
-                    "--query-annot-gene-list-sources",
-                    str(genes),
-                    "--gene-coordinate-file",
-                    str(catalog),
-                    "--allow-unresolved-genes",
-                    "--padding-bp",
-                    "0",
-                    "--plink-prefix",
-                    "panel",
-                    "--ld-wind-snps",
-                    "10",
-                    "--snp-identifier",
-                    "rsid",
-                    "--genome-build",
-                    "hg38",
-                    "--regr-snps-exclude-regions",
-                    "none",
-                ]
-            )
-            args.plink_prefix = str(write_tiny_plink(tmpdir / "panel", pd.read_csv(baseline, sep="\t")))
-            args.yes_really = True
-            chrom_result = ChromLDScoreResult(
-                chrom="1",
-                baseline_table=pd.DataFrame(
-                    {
-                        "CHR": ["1", "1"],
-                        "SNP": ["rs1", "rs2"],
-                        "POS": [65419, 80000],
-                        "regression_ld_scores": [2.0, 2.5],
-                        "base": [1.0, 1.5],
-                    }
-                ),
-                query_table=pd.DataFrame(
-                    {"CHR": ["1", "1"], "SNP": ["rs1", "rs2"], "POS": [65419, 80000], "immune": [1.0, 2.0]}
-                ),
-                baseline_columns=["base"],
-                query_columns=["immune"],
-                snp_count_totals={"all_reference_snp_counts": np.array([2.0, 1.0])},
-                config_snapshot=GlobalConfig(snp_identifier="rsid"),
-            )
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "ldscore_result"
+        baseline = tmpdir / "baseline.annot"
+        genes = tmpdir / "immune.txt"
+        catalog = tmpdir / "genes.tsv"
+        baseline.write_text(
+            "CHR\tPOS\tSNP\tCM\tbase\n"
+            "1\t65419\trs1\t0\t1\n"
+            "1\t80000\trs2\t0\t1\n",
+            encoding="utf-8",
+        )
+        genes.write_text("OR4F5\nNOT_A_GENE\n", encoding="utf-8")
+        catalog.write_text(
+            "gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
+            "ENSG00000186092\tOR4F5\t1\t65419\t71585\thg38\n",
+            encoding="utf-8",
+        )
+        args = parse_command_line(build_parser(),
+            [
+                "--output-dir",
+                str(output_dir),
+                "--baseline-annot-sources",
+                str(baseline),
+                "--query-annot-gene-list-sources",
+                str(genes),
+                "--gene-coordinate-file",
+                str(catalog),
+                "--allow-unresolved-genes",
+                "--padding-bp",
+                "0",
+                "--plink-prefix",
+                "panel",
+                "--ld-wind-snps",
+                "10",
+                "--snp-identifier",
+                "rsid",
+                "--genome-build",
+                "hg38",
+                "--regr-snps-exclude-regions",
+                "none",
+            ]
+        )
+        args.plink_prefix = str(write_tiny_plink(tmpdir / "panel", pd.read_csv(baseline, sep="\t")))
+        args.yes_really = True
+        chrom_result = ChromLDScoreResult(
+            chrom="1",
+            baseline_table=pd.DataFrame(
+                {
+                    "CHR": ["1", "1"],
+                    "SNP": ["rs1", "rs2"],
+                    "POS": [65419, 80000],
+                    "regression_ld_scores": [2.0, 2.5],
+                    "base": [1.0, 1.5],
+                }
+            ),
+            query_table=pd.DataFrame(
+                {"CHR": ["1", "1"], "SNP": ["rs1", "rs2"], "POS": [65419, 80000], "immune": [1.0, 2.0]}
+            ),
+            baseline_columns=["base"],
+            query_columns=["immune"],
+            snp_count_totals={"all_reference_snp_counts": np.array([2.0, 1.0])},
+            config_snapshot=GlobalConfig(snp_identifier="rsid"),
+        )
 
-            with mock.patch.object(
-                direct_batches,
-                "compute_direct_chromosome",
-                autospec=True,
-                side_effect=staged_chromosome_task(chrom_result),
-            ), recorded_batches() as batches:
-                result = ldscore_workflow.run_ldscore_from_args(args)
+        with mock.patch.object(
+            direct_batches,
+            "compute_direct_chromosome",
+            autospec=True,
+            side_effect=staged_chromosome_task(chrom_result),
+        ), recorded_batches() as batches:
+            result = ldscore_workflow.run_ldscore_from_args(args)
 
-            self.assertTrue(batches and all(isinstance(batch, StagedLDScoreBatch) for batch in batches))
-            self.assertEqual(result.query_columns, ["immune"])
-            self.assertEqual(result.query_statuses[0].status, "warning")
-            self.assertTrue((output_dir / "ldscore.query.parquet").exists())
-            self.assertEqual(
-                pd.read_csv(output_dir / "diagnostics" / "gene_list_audit.tsv.gz", sep="\t")["input_gene"].tolist(),
-                ["OR4F5", "NOT_A_GENE"],
-            )
-            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(metadata["gene_list_resolution_policy"], "resolved-only")
-            self.assertEqual(
-                metadata["snp_universe_policy"]["regression_rows_and_weights"]["weight_contributors"],
-                "same_filtered_regression_set",
-            )
-            log_text = (output_dir / "diagnostics" / "ldscore.log").read_text(encoding="utf-8")
-            self.assertIn("Gene-list catalog projection build: hg38", log_text)
-            self.assertIn("status=warning; reason=partial_gene_resolution", log_text)
+        self.assertTrue(batches and all(isinstance(batch, StagedLDScoreBatch) for batch in batches))
+        self.assertEqual(result.query_columns, ["immune"])
+        self.assertEqual(result.query_statuses[0].status, "warning")
+        self.assertTrue((output_dir / "ldscore.query.parquet").exists())
+        self.assertEqual(
+            pd.read_csv(output_dir / "diagnostics" / "gene_list_audit.tsv.gz", sep="\t")["input_gene"].tolist(),
+            ["OR4F5", "NOT_A_GENE"],
+        )
+        metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+        self.assertEqual(metadata["gene_list_resolution_policy"], "resolved-only")
+        self.assertEqual(
+            metadata["snp_universe_policy"]["regression_rows_and_weights"]["weight_contributors"],
+            "same_filtered_regression_set",
+        )
+        log_text = (output_dir / "diagnostics" / "ldscore.log").read_text(encoding="utf-8")
+        self.assertIn("Gene-list catalog projection build: hg38", log_text)
+        self.assertIn("status=warning; reason=partial_gene_resolution", log_text)
 
     def test_strict_gene_gate_a_batches_focal_and_control_before_reference_load(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            output_dir = tmpdir / "result"
-            baseline = tmpdir / "baseline.annot"
-            catalog = tmpdir / "genes.tsv"
-            focal = tmpdir / "focal.txt"
-            control = tmpdir / "control.txt"
-            baseline.write_text("CHR\tPOS\tSNP\tCM\tbase\n1\t10\trs1\t0\t1\n", encoding="utf-8")
-            catalog.write_text(
-                "gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
-                "G1\tGENE1\t1\t10\t20\thg19\n",
-                encoding="utf-8",
-            )
-            focal.write_text("GENE1\nMISSING_FOCAL\n", encoding="utf-8")
-            control.write_text("MISSING_CONTROL\n", encoding="utf-8")
-            from tests.ldscore.test_gene_ldscore_index import _write_plink_trio
-            _write_plink_trio(tmpdir / "panel", ["1"])
-            args = parse_command_line(build_parser(),
-                [
-                    "--output-dir", str(output_dir),
-                    "--baseline-annot-sources", str(baseline),
-                    "--query-annot-gene-list-sources", str(focal),
-                    "--gene-coordinate-file", str(catalog),
-                    "--control-gene-list-file", str(control),
-                    "--padding-bp", "0",
-                    "--plink-prefix", str(tmpdir / "panel"),
-                    "--ld-wind-snps", "10",
-                    "--snp-identifier", "rsid",
-                    "--genome-build", "hg19",
-                ]
-            )
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "result"
+        baseline = tmpdir / "baseline.annot"
+        catalog = tmpdir / "genes.tsv"
+        focal = tmpdir / "focal.txt"
+        control = tmpdir / "control.txt"
+        baseline.write_text("CHR\tPOS\tSNP\tCM\tbase\n1\t10\trs1\t0\t1\n", encoding="utf-8")
+        catalog.write_text(
+            "gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
+            "G1\tGENE1\t1\t10\t20\thg19\n",
+            encoding="utf-8",
+        )
+        focal.write_text("GENE1\nMISSING_FOCAL\n", encoding="utf-8")
+        control.write_text("MISSING_CONTROL\n", encoding="utf-8")
+        from tests.ldscore.test_gene_ldscore_index import _write_plink_trio
+        _write_plink_trio(tmpdir / "panel", ["1"])
+        args = parse_command_line(build_parser(),
+            [
+                "--output-dir", str(output_dir),
+                "--baseline-annot-sources", str(baseline),
+                "--query-annot-gene-list-sources", str(focal),
+                "--gene-coordinate-file", str(catalog),
+                "--control-gene-list-file", str(control),
+                "--padding-bp", "0",
+                "--plink-prefix", str(tmpdir / "panel"),
+                "--ld-wind-snps", "10",
+                "--snp-identifier", "rsid",
+                "--genome-build", "hg19",
+            ]
+        )
 
-            with mock.patch(
-                "ldsc._refpanel.adapters.RefPanelLoader.load",
-                autospec=True,
-            ) as load_panel, self.assertRaisesRegex(LDSCInputError, "rejected 2 of 3") as error:
-                ldscore_workflow.run_ldscore_from_args(args)
+        with mock.patch(
+            "ldsc._refpanel.adapters.RefPanelLoader.load",
+            autospec=True,
+        ) as load_panel, self.assertRaisesRegex(LDSCInputError, "rejected 2 of 3") as error:
+            ldscore_workflow.run_ldscore_from_args(args)
 
-            load_panel.assert_not_called()
-            self.assertIn(
-                "source == 'focal.txt' & disposition == 'rejected'",
-                str(error.exception),
-            )
-            audit = pd.read_csv(output_dir / "diagnostics" / "gene_list_audit.tsv.gz", sep="\t")
-            summary = pd.read_csv(output_dir / "diagnostics" / "gene_list_resolution_summary.tsv", sep="\t")
-            self.assertEqual(audit["input_gene"].tolist(), ["GENE1", "MISSING_FOCAL", "MISSING_CONTROL"])
-            self.assertEqual(summary["input_role"].tolist(), ["focal", "control"])
-            self.assertFalse((output_dir / "diagnostics" / "query_annotation_status.tsv").exists())
-            self.assertFalse((output_dir / "metadata.json").exists())
-            log_text = (output_dir / "diagnostics" / "ldscore.log").read_text(encoding="utf-8")
-            self.assertIn("MISSING_FOCAL", log_text)
-            self.assertIn("MISSING_CONTROL", log_text)
+        load_panel.assert_not_called()
+        self.assertIn(
+            "source == 'focal.txt' & disposition == 'rejected'",
+            str(error.exception),
+        )
+        audit = pd.read_csv(output_dir / "diagnostics" / "gene_list_audit.tsv.gz", sep="\t")
+        summary = pd.read_csv(output_dir / "diagnostics" / "gene_list_resolution_summary.tsv", sep="\t")
+        self.assertEqual(audit["input_gene"].tolist(), ["GENE1", "MISSING_FOCAL", "MISSING_CONTROL"])
+        self.assertEqual(summary["input_role"].tolist(), ["focal", "control"])
+        self.assertFalse((output_dir / "diagnostics" / "query_annotation_status.tsv").exists())
+        self.assertFalse((output_dir / "metadata.json").exists())
+        log_text = (output_dir / "diagnostics" / "ldscore.log").read_text(encoding="utf-8")
+        self.assertIn("MISSING_FOCAL", log_text)
+        self.assertIn("MISSING_CONTROL", log_text)
 
     def test_gene_gate_b_batches_zero_support_queries_and_preserves_usable_siblings(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            baseline = tmpdir / "baseline.annot"
-            catalog = tmpdir / "genes.tsv"
-            mixed = tmpdir / "mixed.txt"
-            unsupported = tmpdir / "unsupported.txt"
-            control = tmpdir / "control.txt"
-            baseline.write_text(
-                "CHR\tPOS\tSNP\tCM\tbase\n1\t10\trs1\t0\t1\n1\t100\trs2\t0\t1\n",
-                encoding="utf-8",
+        tmpdir = self.tmp_path
+        baseline = tmpdir / "baseline.annot"
+        catalog = tmpdir / "genes.tsv"
+        mixed = tmpdir / "mixed.txt"
+        unsupported = tmpdir / "unsupported.txt"
+        control = tmpdir / "control.txt"
+        baseline.write_text(
+            "CHR\tPOS\tSNP\tCM\tbase\n1\t10\trs1\t0\t1\n1\t100\trs2\t0\t1\n",
+            encoding="utf-8",
+        )
+        catalog.write_text(
+            "gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
+            "G1\tSUPPORTED\t1\t10\t20\thg19\n"
+            "G2\tUNSUPPORTED\t1\t100\t110\thg19\n",
+            encoding="utf-8",
+        )
+        mixed.write_text("G1\nG2\n", encoding="utf-8")
+        unsupported.write_text("G2\n", encoding="utf-8")
+        control.write_text("G1\n", encoding="utf-8")
+        bundle = build_annotation_fixture(AnnotationBuilder(
+            GlobalConfig(snp_identifier="rsid"), projection_genome_build="hg19"
+        ),
+            AnnotationBuildConfig(
+                baseline_annot_sources=(baseline,),
+                query_annot_gene_list_sources=(mixed, unsupported),
+                gene_coordinate_file=catalog,
+                control_gene_list_file=control,
+                gene_list_resolution_policy="resolved-only",
+                padding_bp=0,
             )
-            catalog.write_text(
-                "gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
-                "G1\tSUPPORTED\t1\t10\t20\thg19\n"
-                "G2\tUNSUPPORTED\t1\t100\t110\thg19\n",
-                encoding="utf-8",
-            )
-            mixed.write_text("G1\nG2\n", encoding="utf-8")
-            unsupported.write_text("G2\n", encoding="utf-8")
-            control.write_text("G1\n", encoding="utf-8")
-            bundle = build_annotation_fixture(AnnotationBuilder(
-                GlobalConfig(snp_identifier="rsid"), projection_genome_build="hg19"
-            ),
-                AnnotationBuildConfig(
-                    baseline_annot_sources=(baseline,),
-                    query_annot_gene_list_sources=(mixed, unsupported),
-                    gene_coordinate_file=catalog,
-                    control_gene_list_file=control,
-                    gene_list_resolution_policy="resolved-only",
-                    padding_bp=0,
-                )
-            )
-            metadata = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"]})
-            prefix = write_tiny_plink(tmpdir / "panel", metadata)
-            panel = PlinkRefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(backend="plink", plink_prefix=prefix))
+        )
+        metadata = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"]})
+        prefix = write_tiny_plink(tmpdir / "panel", metadata)
+        panel = PlinkRefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(backend="plink", plink_prefix=prefix))
 
 
-            gated, control_error, _ = ldscore_workflow._apply_direct_gene_gate_b(bundle, panel, LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True))
+        gated, control_error, _ = ldscore_workflow._apply_direct_gene_gate_b(bundle, panel, LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True))
 
-            self.assertIsNone(control_error)
-            self.assertEqual(gated.query_columns, ["mixed"])
-            self.assertEqual(
-                [(status.query, status.status, status.reason) for status in gated.query_statuses],
-                [("mixed", "warning", "partial_snp_support"), ("unsupported", "skipped", "zero_annotation_snps")],
-            )
-            audit = pd.concat(gated.gene_list_batch.audit_frames(), ignore_index=True)
-            self.assertEqual(
-                audit.loc[audit["input_gene"].eq("G2"), "disposition"].tolist(),
-                ["unsupported", "unsupported"],
-            )
-            summary = gated.gene_list_batch.summary
-            self.assertEqual(summary["zero_support_genes"].tolist(), [1, 1, 0])
-            self.assertEqual(summary["genes_with_snp_support"].tolist(), [1, 0, 1])
+        self.assertIsNone(control_error)
+        self.assertEqual(gated.query_columns, ["mixed"])
+        self.assertEqual(
+            [(status.query, status.status, status.reason) for status in gated.query_statuses],
+            [("mixed", "warning", "partial_snp_support"), ("unsupported", "skipped", "zero_annotation_snps")],
+        )
+        audit = pd.concat(gated.gene_list_batch.audit_frames(), ignore_index=True)
+        self.assertEqual(
+            audit.loc[audit["input_gene"].eq("G2"), "disposition"].tolist(),
+            ["unsupported", "unsupported"],
+        )
+        summary = gated.gene_list_batch.summary
+        self.assertEqual(summary["zero_support_genes"].tolist(), [1, 1, 0])
+        self.assertEqual(summary["genes_with_snp_support"].tolist(), [1, 0, 1])
 
-            notice = gene_gate_b_notice(
-                gated.query_statuses,
-                gated.gene_list_batch,
-                command="ldscore",
-            )
-            self.assertIn("2 gene-list row(s) have no retained reference-SNP support", notice)
-            self.assertIn("1 query annotation(s) retained despite some genes having no retained reference-SNP support (partial_snp_support)", notice)
-            self.assertIn("1 query annotation(s) skipped because they overlap no retained reference SNPs (zero_annotation_snps)", notice)
-            self.assertIn("Skipped queries are omitted from LD-score outputs.", notice)
-            self.assertIn("mixed=partial_snp_support", notice)
-            self.assertIn("unsupported=zero_annotation_snps", notice)
-            self.assertIn("diagnostics/query_annotation_status.tsv", notice)
+        notice = gene_gate_b_notice(
+            gated.query_statuses,
+            gated.gene_list_batch,
+            command="ldscore",
+        )
+        self.assertIn("2 gene-list row(s) have no retained reference-SNP support", notice)
+        self.assertIn("1 query annotation(s) retained despite some genes having no retained reference-SNP support (partial_snp_support)", notice)
+        self.assertIn("1 query annotation(s) skipped because they overlap no retained reference SNPs (zero_annotation_snps)", notice)
+        self.assertIn("Skipped queries are omitted from LD-score outputs.", notice)
+        self.assertIn("mixed=partial_snp_support", notice)
+        self.assertIn("unsupported=zero_annotation_snps", notice)
+        self.assertIn("diagnostics/query_annotation_status.tsv", notice)
 
     def test_gene_gate_b_uses_the_same_padded_intervals_as_annotation_projection(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            baseline = tmpdir / "baseline.annot"
-            catalog = tmpdir / "genes.tsv"
-            genes = tmpdir / "padded.txt"
-            baseline.write_text(
-                "CHR\tPOS\tSNP\tCM\tbase\n1\t10\trs1\t0\t1\n",
-                encoding="utf-8",
+        tmpdir = self.tmp_path
+        baseline = tmpdir / "baseline.annot"
+        catalog = tmpdir / "genes.tsv"
+        genes = tmpdir / "padded.txt"
+        baseline.write_text(
+            "CHR\tPOS\tSNP\tCM\tbase\n1\t10\trs1\t0\t1\n",
+            encoding="utf-8",
+        )
+        catalog.write_text(
+            "gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
+            "G1\tPADDED\t1\t20\t30\thg19\n",
+            encoding="utf-8",
+        )
+        genes.write_text("G1\n", encoding="utf-8")
+        bundle = build_annotation_fixture(AnnotationBuilder(
+            GlobalConfig(snp_identifier="rsid"), projection_genome_build="hg19"
+        ),
+            AnnotationBuildConfig(
+                baseline_annot_sources=(baseline,),
+                query_annot_gene_list_sources=(genes,),
+                gene_coordinate_file=catalog,
+                padding_bp=10,
             )
-            catalog.write_text(
-                "gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
-                "G1\tPADDED\t1\t20\t30\thg19\n",
-                encoding="utf-8",
-            )
-            genes.write_text("G1\n", encoding="utf-8")
-            bundle = build_annotation_fixture(AnnotationBuilder(
-                GlobalConfig(snp_identifier="rsid"), projection_genome_build="hg19"
-            ),
-                AnnotationBuildConfig(
-                    baseline_annot_sources=(baseline,),
-                    query_annot_gene_list_sources=(genes,),
-                    gene_coordinate_file=catalog,
-                    padding_bp=10,
-                )
-            )
-            metadata = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"]})
-            prefix = write_tiny_plink(tmpdir / "panel", metadata)
-            panel = PlinkRefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(backend="plink", plink_prefix=prefix))
+        )
+        metadata = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"]})
+        prefix = write_tiny_plink(tmpdir / "panel", metadata)
+        panel = PlinkRefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(backend="plink", plink_prefix=prefix))
 
 
-            gated, control_error, _ = ldscore_workflow._apply_direct_gene_gate_b(bundle, panel, LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True))
+        gated, control_error, _ = ldscore_workflow._apply_direct_gene_gate_b(bundle, panel, LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True))
 
-            self.assertIsNone(control_error)
-            self.assertEqual(gated.query_columns, ["padded"])
-            self.assertEqual(gated.query_statuses[0].status, "ok")
-            self.assertEqual(gated.gene_list_batch.summary.loc[0, "genes_with_snp_support"], 1)
+        self.assertIsNone(control_error)
+        self.assertEqual(gated.query_columns, ["padded"])
+        self.assertEqual(gated.query_statuses[0].status, "ok")
+        self.assertEqual(gated.gene_list_batch.summary.loc[0, "genes_with_snp_support"], 1)
 
     def test_run_ldscore_from_args_synthesizes_base_when_baseline_and_query_are_omitted(self):
         from tests.ldscore.test_ldscore_chromosome_scope import write_r2_inputs
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            inputs = write_r2_inputs(root)
-            regression = root/'regression.txt'
-            regression.write_text('SNP\nrs1\nrs2\nrs3\n')
-            argv = ['--output-dir',str(root/'out'),'--r2-matrix-dir',inputs.r2_matrix_dir,
-                    '--baseline-annot-sources',inputs.baseline_annot_sources,
-                    '--regr-snps-file',str(regression),'--regr-snps-exclude-regions','none',
-                    '--snp-identifier','rsid','--ld-wind-snps','2','--yes-really']
-            position = argv.index('--baseline-annot-sources')
-            del argv[position:position+2]
-            result = ldscore_workflow.run_ldscore_from_args(parse_command_line(build_parser(), argv))
-            self.assertEqual(result.baseline_columns,['base'])
-            self.assertEqual(result.query_columns,[])
-            self.assertIsNone(result.read_queries([]))
-            self.assertNotIn('query',result.output_paths)
-            self.assertEqual(result.count_records[0]['all_reference_snp_count'],3)
-            self.assertEqual(result.baseline_table.columns.tolist(),['CHR','SNP','POS','A1','A2','regression_ld_scores','base'])
-            np.testing.assert_array_equal(result.baseline_table.base,np.array([1+16384/32767,1+24576/32767,1+8192/32767],dtype=np.float32))
+        root = self.tmp_path
+        inputs = write_r2_inputs(root)
+        regression = root/'regression.txt'
+        regression.write_text('SNP\nrs1\nrs2\nrs3\n')
+        argv = ['--output-dir',str(root/'out'),'--r2-matrix-dir',inputs.r2_matrix_dir,
+                '--baseline-annot-sources',inputs.baseline_annot_sources,
+                '--regr-snps-file',str(regression),'--regr-snps-exclude-regions','none',
+                '--snp-identifier','rsid','--ld-wind-snps','2','--yes-really']
+        position = argv.index('--baseline-annot-sources')
+        del argv[position:position+2]
+        result = ldscore_workflow.run_ldscore_from_args(parse_command_line(build_parser(), argv))
+        self.assertEqual(result.baseline_columns,['base'])
+        self.assertEqual(result.query_columns,[])
+        self.assertIsNone(result.read_queries([]))
+        self.assertNotIn('query',result.output_paths)
+        self.assertEqual(result.count_records[0]['all_reference_snp_count'],3)
+        self.assertEqual(result.baseline_table.columns.tolist(),['CHR','SNP','POS','A1','A2','regression_ld_scores','base'])
+        np.testing.assert_array_equal(result.baseline_table.base,np.array([1+16384/32767,1+24576/32767,1+8192/32767],dtype=np.float32))
 
 
     def test_run_ldscore_from_args_refuses_stale_query_parquet_without_overwrite(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            output_dir = tmpdir / "ldscore_result"
-            output_dir.mkdir()
-            stale = output_dir / "ldscore.query.parquet"
-            stale.write_text("stale\n", encoding="utf-8")
-            args = parse_command_line(build_parser(), [
-                "--output-dir", str(output_dir), "--plink-prefix", "panel", "--snp-identifier", "rsid",
-                "--ld-wind-snps", "10", "--snp-batch-size", "50", "--regr-snps-exclude-regions", "none",
-            ])
-            ref_panel = self.make_ref_panel_stub(
-                backend="plink",
-                metadata=pd.DataFrame({"CHR": ["1"], "SNP": ["rs1"], "CM": [0.1], "POS": [10]}),
-            )
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "ldscore_result"
+        output_dir.mkdir()
+        stale = output_dir / "ldscore.query.parquet"
+        stale.write_text("stale\n", encoding="utf-8")
+        args = parse_command_line(build_parser(), [
+            "--output-dir", str(output_dir), "--plink-prefix", "panel", "--snp-identifier", "rsid",
+            "--ld-wind-snps", "10", "--snp-batch-size", "50", "--regr-snps-exclude-regions", "none",
+        ])
+        ref_panel = self.make_ref_panel_stub(
+            backend="plink",
+            metadata=pd.DataFrame({"CHR": ["1"], "SNP": ["rs1"], "CM": [0.1], "POS": [10]}),
+        )
 
-            with mock.patch(
-                "ldsc._refpanel.adapters.RefPanelLoader.load",
-                autospec=True,
-                return_value=ref_panel,
-            ), mock.patch.object(
-                direct_batches,
-                "compute_direct_chromosome",
-                autospec=True,
-                side_effect=AssertionError("calculation should not run after preflight failure"),
-            ):
-                with self.assertRaisesRegex(FileExistsError, "overwrite"):
-                    ldscore_workflow.run_ldscore_from_args(args)
+        with mock.patch(
+            "ldsc._refpanel.adapters.RefPanelLoader.load",
+            autospec=True,
+            return_value=ref_panel,
+        ), mock.patch.object(
+            direct_batches,
+            "compute_direct_chromosome",
+            autospec=True,
+            side_effect=AssertionError("calculation should not run after preflight failure"),
+        ):
+            with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                ldscore_workflow.run_ldscore_from_args(args)
 
-            self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
-            self.assertFalse((output_dir / "metadata.json").exists())
-            self.assertFalse((output_dir / "diagnostics" / "ldscore.log").exists())
+        self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
+        self.assertFalse((output_dir / "metadata.json").exists())
+        self.assertFalse((output_dir / "diagnostics" / "ldscore.log").exists())
 
     def test_run_ldscore_from_args_overwrite_removes_stale_query_parquet(self):
         # Output ownership is tested here with a mocked chromosome task that stages a fixed
@@ -1527,32 +1517,31 @@ class LDScoreWorkflowTest(unittest.TestCase):
         from tests.worker_fixtures import calculation_body, local_task_pool
         self.enterContext(calculation_body())
         self.enterContext(mock.patch("ldsc._runtime.parallelism.ProcessPoolExecutor", local_task_pool))
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            output_dir = tmpdir / "ldscore_result"
-            output_dir.mkdir()
-            stale = output_dir / "ldscore.query.parquet"
-            stale.write_text("stale\n", encoding="utf-8")
-            from tests.ref_panel_helpers import write_counted_plink
-            write_counted_plink(tmpdir / "panel", [("rs1", "A", "G", (2, 0))])
-            args = parse_command_line(build_parser(), [
-                "--output-dir", str(output_dir), "--plink-prefix", str(tmpdir / "panel"), "--snp-identifier", "rsid",
-                "--ld-wind-snps", "10", "--snp-batch-size", "50", "--regr-snps-exclude-regions", "none", "--overwrite",
-            ])
-            with mock.patch.object(
-                direct_batches,
-                "compute_direct_chromosome",
-                autospec=True,
-                side_effect=staged_chromosome_task(self.make_baseline_only_chrom_result("1", 10, 1.0, 5.0)),
-            ), recorded_batches() as batches:
-                result = ldscore_workflow.run_ldscore_from_args(args)
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "ldscore_result"
+        output_dir.mkdir()
+        stale = output_dir / "ldscore.query.parquet"
+        stale.write_text("stale\n", encoding="utf-8")
+        from tests.ref_panel_helpers import write_counted_plink
+        write_counted_plink(tmpdir / "panel", [("rs1", "A", "G", (2, 0))])
+        args = parse_command_line(build_parser(), [
+            "--output-dir", str(output_dir), "--plink-prefix", str(tmpdir / "panel"), "--snp-identifier", "rsid",
+            "--ld-wind-snps", "10", "--snp-batch-size", "50", "--regr-snps-exclude-regions", "none", "--overwrite",
+        ])
+        with mock.patch.object(
+            direct_batches,
+            "compute_direct_chromosome",
+            autospec=True,
+            side_effect=staged_chromosome_task(self.make_baseline_only_chrom_result("1", 10, 1.0, 5.0)),
+        ), recorded_batches() as batches:
+            result = ldscore_workflow.run_ldscore_from_args(args)
 
-            self.assertTrue(batches and all(isinstance(batch, StagedLDScoreBatch) for batch in batches))
+        self.assertTrue(batches and all(isinstance(batch, StagedLDScoreBatch) for batch in batches))
 
-            self.assertTrue((output_dir / "metadata.json").exists())
-            self.assertTrue((output_dir / "diagnostics" / "ldscore.log").exists())
-            self.assertFalse(stale.exists())
-            self.assertNotIn("query", result.output_paths)
+        self.assertTrue((output_dir / "metadata.json").exists())
+        self.assertTrue((output_dir / "diagnostics" / "ldscore.log").exists())
+        self.assertFalse(stale.exists())
+        self.assertNotIn("query", result.output_paths)
 
     def test_run_ldscore_from_args_overwrite_preserves_current_overlap_artifact(self):
         # Output ownership is tested here with a mocked chromosome task that stages a fixed
@@ -1562,154 +1551,149 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.enterContext(mock.patch("ldsc._runtime.parallelism.ProcessPoolExecutor", local_task_pool))
         from ldsc._annotation.overlap import OverlapContribution
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "ldscore_result"
-            argv = [
-                "--output-dir",
-                str(output_dir),
-                "--baseline-annot-sources",
-                "baseline.annot.gz",
-                "--query-annot-sources",
-                "query.annot.gz",
-                "--plink-prefix",
-                "panel",
-                "--snp-identifier",
-                "rsid",
-                "--regr-snps-exclude-regions",
-                "none",
-                "--ld-wind-snps",
-                "10",
-            ]
-            fixture_root = Path(tmpdir)
-            baseline_path, query_path = fixture_root / "baseline.annot", fixture_root / "query.annot"
-            baseline_path.write_text("CHR\tSNP\tPOS\tbase\n1\trs1\t10\t1\n")
-            query_path.write_text("CHR\tSNP\tPOS\tquery\n1\trs1\t10\t1\n")
-            prefix = write_tiny_plink(fixture_root / "panel", pd.DataFrame({"CHR": ["1"], "SNP": ["rs1"], "POS": [10]}))
-            argv[argv.index("--baseline-annot-sources") + 1] = str(baseline_path)
-            argv[argv.index("--query-annot-sources") + 1] = str(query_path)
-            argv[argv.index("--plink-prefix") + 1] = str(prefix)
-            annotation_bundle = replace_fixture_queries(
-                self.make_annotation_bundle([("1", "rs1", 10)]),
-                query_annotations=pd.DataFrame({"query": [1.0]}),
-                query_columns=["query"],
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "ldscore_result"
+        argv = [
+            "--output-dir",
+            str(output_dir),
+            "--baseline-annot-sources",
+            "baseline.annot.gz",
+            "--query-annot-sources",
+            "query.annot.gz",
+            "--plink-prefix",
+            "panel",
+            "--snp-identifier",
+            "rsid",
+            "--regr-snps-exclude-regions",
+            "none",
+            "--ld-wind-snps",
+            "10",
+        ]
+        fixture_root = tmpdir
+        baseline_path, query_path = fixture_root / "baseline.annot", fixture_root / "query.annot"
+        baseline_path.write_text("CHR\tSNP\tPOS\tbase\n1\trs1\t10\t1\n")
+        query_path.write_text("CHR\tSNP\tPOS\tquery\n1\trs1\t10\t1\n")
+        prefix = write_tiny_plink(fixture_root / "panel", pd.DataFrame({"CHR": ["1"], "SNP": ["rs1"], "POS": [10]}))
+        argv[argv.index("--baseline-annot-sources") + 1] = str(baseline_path)
+        argv[argv.index("--query-annot-sources") + 1] = str(query_path)
+        argv[argv.index("--plink-prefix") + 1] = str(prefix)
+        annotation_bundle = replace_fixture_queries(
+            self.make_annotation_bundle([("1", "rs1", 10)]),
+            query_annotations=pd.DataFrame({"query": [1.0]}),
+            query_columns=["query"],
+        )
+        chrom_result = dataclass_replace(
+            self.make_chrom_result("1", 10, 1.0, 5.0),
+            overlap=OverlapContribution(
+                baseline_block_all=np.array([[5.0, 4.0]]),
+                baseline_block_common=np.array([[4.0, 3.0]]),
+                query_diagonal_all=np.array([6.0]),
+                query_diagonal_common=np.array([5.0]),
+                n_all=5,
+                n_common=4,
+            ),
+        )
+        with mock.patch(
+            "ldsc._annotation.builder.AnnotationBuilder.run",
+            autospec=True,
+            return_value=annotation_bundle,
+        ), mock.patch.object(
+            direct_batches,
+            "compute_direct_chromosome",
+            autospec=True,
+            side_effect=staged_chromosome_task(chrom_result),
+        ), recorded_batches() as batches:
+            ldscore_workflow.run_ldscore_from_args(parse_command_line(build_parser(), argv))
+            result = ldscore_workflow.run_ldscore_from_args(
+                parse_command_line(build_parser(), [*argv, "--overwrite"])
             )
-            chrom_result = dataclass_replace(
-                self.make_chrom_result("1", 10, 1.0, 5.0),
-                overlap=OverlapContribution(
-                    baseline_block_all=np.array([[5.0, 4.0]]),
-                    baseline_block_common=np.array([[4.0, 3.0]]),
-                    query_diagonal_all=np.array([6.0]),
-                    query_diagonal_common=np.array([5.0]),
-                    n_all=5,
-                    n_common=4,
-                ),
-            )
-            with mock.patch(
-                "ldsc._annotation.builder.AnnotationBuilder.run",
-                autospec=True,
-                return_value=annotation_bundle,
-            ), mock.patch.object(
-                direct_batches,
-                "compute_direct_chromosome",
-                autospec=True,
-                side_effect=staged_chromosome_task(chrom_result),
-            ), recorded_batches() as batches:
-                ldscore_workflow.run_ldscore_from_args(parse_command_line(build_parser(), argv))
-                result = ldscore_workflow.run_ldscore_from_args(
-                    parse_command_line(build_parser(), [*argv, "--overwrite"])
-                )
 
-            self.assertTrue(batches and all(isinstance(batch, StagedLDScoreBatch) for batch in batches))
+        self.assertTrue(batches and all(isinstance(batch, StagedLDScoreBatch) for batch in batches))
 
-            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
-            for relative_path in metadata["files"].values():
-                self.assertTrue((output_dir / relative_path).exists(), relative_path)
-            self.assertIn("overlap", result.output_paths)
-            self.assertEqual(
-                [(row["group"], row["column"]) for row in metadata["counts"]],
-                [("baseline", "base"), ("query", "query")],
-            )
-            from ldsc import load_ldscore_from_dir
+        metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+        for relative_path in metadata["files"].values():
+            self.assertTrue((output_dir / relative_path).exists(), relative_path)
+        self.assertIn("overlap", result.output_paths)
+        self.assertEqual(
+            [(row["group"], row["column"]) for row in metadata["counts"]],
+            [("baseline", "base"), ("query", "query")],
+        )
+        from ldsc import load_ldscore_from_dir
 
-            loaded = load_ldscore_from_dir(output_dir)
-            self.assertIsNotNone(loaded.overlap)
-            self.assertEqual(loaded.count_records, result.count_records)
+        loaded = load_ldscore_from_dir(output_dir)
+        self.assertIsNotNone(loaded.overlap)
+        self.assertEqual(loaded.count_records, result.count_records)
 
     def test_run_ldscore_from_args_loads_regression_snps_and_writes_filtered_ldscore(self):
         from tests.ldscore.test_ldscore_chromosome_scope import write_r2_inputs
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            inputs = write_r2_inputs(root)
-            regression = root/'regression.txt'
-            regression.write_text('SNP\nrs1\nrs2\nrs3\n')
-            argv = ['--output-dir',str(root/'out'),'--r2-matrix-dir',inputs.r2_matrix_dir,
-                    '--baseline-annot-sources',inputs.baseline_annot_sources,
-                    '--regr-snps-file',str(regression),'--regr-snps-exclude-regions','none',
-                    '--snp-identifier','rsid','--ld-wind-snps','2','--yes-really']
-            regression.write_text('SNP\nrs2\n')
-            result = ldscore_workflow.run_ldscore_from_args(parse_command_line(build_parser(), argv))
-            self.assertEqual(result.baseline_table.SNP.tolist(),['rs2'])
-            np.testing.assert_array_equal(result.baseline_table.base,np.array([1+24576/32767],dtype=np.float32))
-            np.testing.assert_array_equal(result.baseline_table.regression_ld_scores,[1])
-            pd.testing.assert_frame_equal(pd.read_parquet(result.output_paths['baseline']),result.baseline_table)
+        root = self.tmp_path
+        inputs = write_r2_inputs(root)
+        regression = root/'regression.txt'
+        regression.write_text('SNP\nrs1\nrs2\nrs3\n')
+        argv = ['--output-dir',str(root/'out'),'--r2-matrix-dir',inputs.r2_matrix_dir,
+                '--baseline-annot-sources',inputs.baseline_annot_sources,
+                '--regr-snps-file',str(regression),'--regr-snps-exclude-regions','none',
+                '--snp-identifier','rsid','--ld-wind-snps','2','--yes-really']
+        regression.write_text('SNP\nrs2\n')
+        result = ldscore_workflow.run_ldscore_from_args(parse_command_line(build_parser(), argv))
+        self.assertEqual(result.baseline_table.SNP.tolist(),['rs2'])
+        np.testing.assert_array_equal(result.baseline_table.base,np.array([1+24576/32767],dtype=np.float32))
+        np.testing.assert_array_equal(result.baseline_table.regression_ld_scores,[1])
+        pd.testing.assert_frame_equal(pd.read_parquet(result.output_paths['baseline']),result.baseline_table)
 
 
     def test_run_ldscore_from_args_resolves_annotation_and_plink_suites(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            for chrom in range(1,23):
-                metadata = pd.DataFrame({'CHR':[str(chrom)],'SNP':[f'rs{chrom}'],'POS':[10]})
-                metadata.assign(base=1).to_csv(root/f'baseline.{chrom}.annot.gz',sep='\t',index=False)
-                write_tiny_plink(root/f'panel{chrom}',metadata)
-            regression = root/'regression.txt'
-            regression.write_text('SNP\n'+'\n'.join(f'rs{i}' for i in range(1,23))+'\n')
-            args = parse_command_line(build_parser(), ['--output-dir',str(root/'out'),
-                '--baseline-annot-sources',str(root/'baseline.@.annot.gz'),'--plink-prefix',str(root/'panel@'),
-                '--regr-snps-file',str(regression),'--regr-snps-exclude-regions','none',
-                '--snp-identifier','rsid','--ld-wind-snps','2','--yes-really'])
-            result = ldscore_workflow.run_ldscore_from_args(args)
-            self.assertEqual(result.baseline_table.CHR.tolist(),list(map(str,range(1,23))))
-            np.testing.assert_allclose(result.baseline_table.base,1,rtol=0,atol=1e-6)
+        root = self.tmp_path
+        for chrom in range(1,23):
+            metadata = pd.DataFrame({'CHR':[str(chrom)],'SNP':[f'rs{chrom}'],'POS':[10]})
+            metadata.assign(base=1).to_csv(root/f'baseline.{chrom}.annot.gz',sep='\t',index=False)
+            write_tiny_plink(root/f'panel{chrom}',metadata)
+        regression = root/'regression.txt'
+        regression.write_text('SNP\n'+'\n'.join(f'rs{i}' for i in range(1,23))+'\n')
+        args = parse_command_line(build_parser(), ['--output-dir',str(root/'out'),
+            '--baseline-annot-sources',str(root/'baseline.@.annot.gz'),'--plink-prefix',str(root/'panel@'),
+            '--regr-snps-file',str(regression),'--regr-snps-exclude-regions','none',
+            '--snp-identifier','rsid','--ld-wind-snps','2','--yes-really'])
+        result = ldscore_workflow.run_ldscore_from_args(args)
+        self.assertEqual(result.baseline_table.CHR.tolist(),list(map(str,range(1,23))))
+        np.testing.assert_allclose(result.baseline_table.base,1,rtol=0,atol=1e-6)
 
 
     def test_run_ldscore_from_args_resolves_r2_matrix_directory(self):
         from tests.ldscore.test_ldscore_chromosome_scope import write_r2_inputs
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            inputs = write_r2_inputs(root)
-            regression = root/'regression.txt'
-            regression.write_text('SNP\nrs1\nrs2\nrs3\n')
-            argv = ['--output-dir',str(root/'out'),'--r2-matrix-dir',inputs.r2_matrix_dir,
-                    '--baseline-annot-sources',inputs.baseline_annot_sources,
-                    '--regr-snps-file',str(regression),'--regr-snps-exclude-regions','none',
-                    '--snp-identifier','rsid','--ld-wind-snps','2','--yes-really']
-            result = ldscore_workflow.run_ldscore_from_args(parse_command_line(build_parser(), argv))
-            self.assertEqual(result.baseline_table.SNP.tolist(),['rs1','rs2','rs3'])
-            np.testing.assert_array_equal(result.baseline_table.base,np.array([1+16384/32767,1+24576/32767,1+8192/32767],dtype=np.float32))
+        root = self.tmp_path
+        inputs = write_r2_inputs(root)
+        regression = root/'regression.txt'
+        regression.write_text('SNP\nrs1\nrs2\nrs3\n')
+        argv = ['--output-dir',str(root/'out'),'--r2-matrix-dir',inputs.r2_matrix_dir,
+                '--baseline-annot-sources',inputs.baseline_annot_sources,
+                '--regr-snps-file',str(regression),'--regr-snps-exclude-regions','none',
+                '--snp-identifier','rsid','--ld-wind-snps','2','--yes-really']
+        result = ldscore_workflow.run_ldscore_from_args(parse_command_line(build_parser(), argv))
+        self.assertEqual(result.baseline_table.SNP.tolist(),['rs1','rs2','rs3'])
+        np.testing.assert_array_equal(result.baseline_table.base,np.array([1+16384/32767,1+24576/32767,1+8192/32767],dtype=np.float32))
 
 
     def test_chr_pos_auto_infers_matching_annotation_and_r2_matrix_dir_builds(self):
         from ldsc._genome.build_inference import load_packaged_reference_table
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            baseline, r2_matrix_dir = root / 'baseline.annot', root / 'panel'
-            rows = load_packaged_reference_table().head(500)
-            rows[['CHR', 'hg19_POS']].rename(columns={'hg19_POS': 'POS'}).assign(base=1).to_csv(baseline, sep='\t', index=False)
-            _write_minimal_r2_parquet(r2_matrix_dir / 'chr1_r2.parquet', {b'ldsc:sorted_by_build': b'hg19'})
-            config, _ = _resolve_build(direct_configs(
-                '--baseline-annot-sources', str(baseline), '--r2-matrix-dir', str(r2_matrix_dir),
-                '--snp-identifier', 'chr_pos', '--genome-build', 'auto'))
-            self.assertEqual(config.genome_build, 'hg19')
+        root = self.tmp_path
+        baseline, r2_matrix_dir = root / 'baseline.annot', root / 'panel'
+        rows = load_packaged_reference_table().head(500)
+        rows[['CHR', 'hg19_POS']].rename(columns={'hg19_POS': 'POS'}).assign(base=1).to_csv(baseline, sep='\t', index=False)
+        _write_minimal_r2_parquet(r2_matrix_dir / 'chr1_r2.parquet', {b'ldsc:sorted_by_build': b'hg19'})
+        config, _ = _resolve_build(direct_configs(
+            '--baseline-annot-sources', str(baseline), '--r2-matrix-dir', str(r2_matrix_dir),
+            '--snp-identifier', 'chr_pos', '--genome-build', 'auto'))
+        self.assertEqual(config.genome_build, 'hg19')
 
     def test_chr_pos_auto_does_not_infer_from_ref_panel_child_directory(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            root = tmpdir / "r2_ref_panel_1kg30x_1cM_hm3"
-            (root / "hg38").mkdir(parents=True)
-            configs = direct_configs("--r2-matrix-dir", str(root), "--snp-identifier", "chr_pos", "--genome-build", "auto")
+        tmpdir = self.tmp_path
+        root = tmpdir / "r2_ref_panel_1kg30x_1cM_hm3"
+        (root / "hg38").mkdir(parents=True)
+        configs = direct_configs("--r2-matrix-dir", str(root), "--snp-identifier", "chr_pos", "--genome-build", "auto")
 
-            with self.assertRaisesRegex(LDSCInputError, "Genome-build consistency check failed"):
-                _resolve_build(configs)
+        with self.assertRaisesRegex(LDSCInputError, "Genome-build consistency check failed"):
+            _resolve_build(configs)
 
     def test_rsid_concrete_genome_build_selects_coordinates_without_entering_identity(self):
         import warnings
@@ -1724,38 +1708,36 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
     def test_chr_pos_auto_rejects_annotation_r2_build_mismatch(self):
         from ldsc._genome.build_inference import load_packaged_reference_table
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            baseline, r2_matrix_dir = root / 'baseline.annot', root / 'panel'
-            rows = load_packaged_reference_table().head(500)
-            rows[['CHR', 'hg19_POS']].rename(columns={'hg19_POS': 'POS'}).assign(base=1).to_csv(baseline, sep='\t', index=False)
-            _write_minimal_r2_parquet(r2_matrix_dir / 'chr1_r2.parquet', {b'ldsc:sorted_by_build': b'hg38'})
-            configs = direct_configs('--baseline-annot-sources', str(baseline), '--r2-matrix-dir', str(r2_matrix_dir),
-                                     '--snp-identifier', 'chr_pos', '--genome-build', 'auto')
-            with self.assertRaisesRegex(LDSCInputError, 'Conflicting genome-build evidence') as caught:
-                _resolve_build(configs)
-            self.assertIn(str(baseline), str(caught.exception))
-            self.assertIn('chr1_r2.parquet', str(caught.exception))
+        root = self.tmp_path
+        baseline, r2_matrix_dir = root / 'baseline.annot', root / 'panel'
+        rows = load_packaged_reference_table().head(500)
+        rows[['CHR', 'hg19_POS']].rename(columns={'hg19_POS': 'POS'}).assign(base=1).to_csv(baseline, sep='\t', index=False)
+        _write_minimal_r2_parquet(r2_matrix_dir / 'chr1_r2.parquet', {b'ldsc:sorted_by_build': b'hg38'})
+        configs = direct_configs('--baseline-annot-sources', str(baseline), '--r2-matrix-dir', str(r2_matrix_dir),
+                                 '--snp-identifier', 'chr_pos', '--genome-build', 'auto')
+        with self.assertRaisesRegex(LDSCInputError, 'Conflicting genome-build evidence') as caught:
+            _resolve_build(configs)
+        self.assertIn(str(baseline), str(caught.exception))
+        self.assertIn('chr1_r2.parquet', str(caught.exception))
 
     def test_run_ldscore_from_args_fails_when_the_grid_misses_a_whole_chromosome(self):
         from tests.ldscore.test_ldscore_chromosome_scope import write_r2_inputs
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            inputs = write_r2_inputs(root)
-            regression = root/'regression.txt'
-            regression.write_text('SNP\nrs1\nrs2\nrs3\n')
-            argv = ['--output-dir',str(root/'out'),'--r2-matrix-dir',inputs.r2_matrix_dir,
-                    '--baseline-annot-sources',inputs.baseline_annot_sources,
-                    '--regr-snps-file',str(regression),'--regr-snps-exclude-regions','none',
-                    '--snp-identifier','rsid','--ld-wind-snps','2','--yes-really']
-            from tests.refpanel.test_reference_preparation import write_panel
-            write_panel(Path(inputs.r2_matrix_dir),chrom='1')
-            metadata = pd.read_csv(inputs.baseline_annot_sources,sep='\t')
-            missing = metadata.iloc[[0]].assign(CHR='1',SNP='absent')
-            pd.concat([missing,metadata],ignore_index=True).to_csv(inputs.baseline_annot_sources,sep='\t',index=False)
-            with self.assertRaisesRegex(LDSCInputError,
-                    r'no reference SNPs on the annotation SNP grid for chromosome 1 \(1 annotation rows, 2 reference-panel SNPs\)'):
-                ldscore_workflow.run_ldscore_from_args(parse_command_line(build_parser(), argv))
+        root = self.tmp_path
+        inputs = write_r2_inputs(root)
+        regression = root/'regression.txt'
+        regression.write_text('SNP\nrs1\nrs2\nrs3\n')
+        argv = ['--output-dir',str(root/'out'),'--r2-matrix-dir',inputs.r2_matrix_dir,
+                '--baseline-annot-sources',inputs.baseline_annot_sources,
+                '--regr-snps-file',str(regression),'--regr-snps-exclude-regions','none',
+                '--snp-identifier','rsid','--ld-wind-snps','2','--yes-really']
+        from tests.refpanel.test_reference_preparation import write_panel
+        write_panel(Path(inputs.r2_matrix_dir),chrom='1')
+        metadata = pd.read_csv(inputs.baseline_annot_sources,sep='\t')
+        missing = metadata.iloc[[0]].assign(CHR='1',SNP='absent')
+        pd.concat([missing,metadata],ignore_index=True).to_csv(inputs.baseline_annot_sources,sep='\t',index=False)
+        with self.assertRaisesRegex(LDSCInputError,
+                r'no reference SNPs on the annotation SNP grid for chromosome 1 \(1 annotation rows, 2 reference-panel SNPs\)'):
+            ldscore_workflow.run_ldscore_from_args(parse_command_line(build_parser(), argv))
 
 
     @unittest.skipUnless(_HAS_BITARRAY, "bitarray is not installed")
@@ -1792,93 +1774,90 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
     @unittest.skipUnless(_HAS_BITARRAY, "bitarray is not installed")
     def test_ldscore_calculator_run_applies_keep_filter_by_fam_iid(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            prefix = self._copy_plink_fixture_with_distinct_fids(tmpdir)
-            keep_path = tmpdir / "samples.keep"
-            self._write_keep_file(keep_path, ["per0", "per1"])
+        tmpdir = self.tmp_path
+        prefix = self._copy_plink_fixture_with_distinct_fids(tmpdir)
+        keep_path = tmpdir / "samples.keep"
+        self._write_keep_file(keep_path, ["per0", "per1"])
 
-            expected_metadata, expected_ld = self._expected_plink_result(prefix, keep_path, maf_min=None)
-            bundle = self._build_annotation_bundle(prefix)
-            common = GlobalConfig(snp_identifier="rsid")
-            panel = PlinkRefPanel(common, RefPanelConfig(backend="plink", plink_prefix=prefix, keep_indivs_file=keep_path))
-            result = LDScoreCalculator().run(
-                annotation_bundle=bundle,
-                ref_panel=panel,
-                ldscore_config=LDScoreConfig(
-                    ld_wind_snps=10,
-                    whole_chromosome_ok=True,
-                ),
-                global_config=common,
-            )
+        expected_metadata, expected_ld = self._expected_plink_result(prefix, keep_path, maf_min=None)
+        bundle = self._build_annotation_bundle(prefix)
+        common = GlobalConfig(snp_identifier="rsid")
+        panel = PlinkRefPanel(common, RefPanelConfig(backend="plink", plink_prefix=prefix, keep_indivs_file=keep_path))
+        result = LDScoreCalculator().run(
+            annotation_bundle=bundle,
+            ref_panel=panel,
+            ldscore_config=LDScoreConfig(
+                ld_wind_snps=10,
+                whole_chromosome_ok=True,
+            ),
+            global_config=common,
+        )
 
-            self.assertEqual(result.baseline_table["SNP"].tolist(), expected_metadata["SNP"].tolist())
-            np.testing.assert_allclose(result.baseline_table["base"].to_numpy(), expected_ld)
-            np.testing.assert_allclose(result.baseline_table["regression_ld_scores"].to_numpy(), expected_ld)
+        self.assertEqual(result.baseline_table["SNP"].tolist(), expected_metadata["SNP"].tolist())
+        np.testing.assert_allclose(result.baseline_table["base"].to_numpy(), expected_ld)
+        np.testing.assert_allclose(result.baseline_table["regression_ld_scores"].to_numpy(), expected_ld)
 
     @unittest.skipUnless(_HAS_BITARRAY, "bitarray is not installed")
     def test_ldscore_calculator_run_applies_ref_panel_snp_restriction_before_plink_compute(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            prefix = self._copy_plink_fixture_with_distinct_fids(tmpdir)
-            restrict_path = tmpdir / "restrict.snps"
-            restrict_path.write_text("SNP\nrs_1\nrs_3\nrs_6\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        prefix = self._copy_plink_fixture_with_distinct_fids(tmpdir)
+        restrict_path = tmpdir / "restrict.snps"
+        restrict_path.write_text("SNP\nrs_1\nrs_3\nrs_6\n", encoding="utf-8")
 
-            bundle = self._build_annotation_bundle(prefix)
-            common = GlobalConfig(snp_identifier="rsid")
-            panel = PlinkRefPanel(
-                common,
-                RefPanelConfig(
-                    backend="plink",
-                    plink_prefix=prefix,
-                    ref_panel_snps_file=restrict_path,
-                ),
-            )
-            result = LDScoreCalculator().run(
-                annotation_bundle=bundle,
-                ref_panel=panel,
-                ldscore_config=LDScoreConfig(
-                    ld_wind_snps=10,
-                    whole_chromosome_ok=True,
-                ),
-                global_config=common,
-            )
+        bundle = self._build_annotation_bundle(prefix)
+        common = GlobalConfig(snp_identifier="rsid")
+        panel = PlinkRefPanel(
+            common,
+            RefPanelConfig(
+                backend="plink",
+                plink_prefix=prefix,
+                ref_panel_snps_file=restrict_path,
+            ),
+        )
+        result = LDScoreCalculator().run(
+            annotation_bundle=bundle,
+            ref_panel=panel,
+            ldscore_config=LDScoreConfig(
+                ld_wind_snps=10,
+                whole_chromosome_ok=True,
+            ),
+            global_config=common,
+        )
 
-            self.assertEqual(result.baseline_table["SNP"].tolist(), ["rs_6"])
-            self.assertEqual(result.count_records[0]["all_reference_snp_count"], 1.0)
+        self.assertEqual(result.baseline_table["SNP"].tolist(), ["rs_6"])
+        self.assertEqual(result.count_records[0]["all_reference_snp_count"], 1.0)
 
     @unittest.skipUnless(_HAS_BITARRAY, "bitarray is not installed")
     def test_ldscore_calculator_run_filters_individuals_before_maf_in_plink_mode(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            prefix = self._copy_plink_fixture_with_distinct_fids(tmpdir)
-            keep_path = tmpdir / "samples.keep"
-            self._write_keep_file(keep_path, ["per0", "per1"])
+        tmpdir = self.tmp_path
+        prefix = self._copy_plink_fixture_with_distinct_fids(tmpdir)
+        keep_path = tmpdir / "samples.keep"
+        self._write_keep_file(keep_path, ["per0", "per1"])
 
-            expected_metadata, expected_ld = self._expected_plink_result(prefix, keep_path, maf_min=0.01)
-            bundle = self._build_annotation_bundle(prefix)
-            common = GlobalConfig(snp_identifier="rsid")
-            panel = PlinkRefPanel(
-                common,
-                RefPanelConfig(
-                    backend="plink",
-                    plink_prefix=prefix,
-                    maf_min=0.01,
-                    keep_indivs_file=keep_path,
-                ),
-            )
-            result = LDScoreCalculator().run(
-                annotation_bundle=bundle,
-                ref_panel=panel,
-                ldscore_config=LDScoreConfig(
-                    ld_wind_snps=10,
-                    whole_chromosome_ok=True,
-                ),
-                global_config=common,
-            )
+        expected_metadata, expected_ld = self._expected_plink_result(prefix, keep_path, maf_min=0.01)
+        bundle = self._build_annotation_bundle(prefix)
+        common = GlobalConfig(snp_identifier="rsid")
+        panel = PlinkRefPanel(
+            common,
+            RefPanelConfig(
+                backend="plink",
+                plink_prefix=prefix,
+                maf_min=0.01,
+                keep_indivs_file=keep_path,
+            ),
+        )
+        result = LDScoreCalculator().run(
+            annotation_bundle=bundle,
+            ref_panel=panel,
+            ldscore_config=LDScoreConfig(
+                ld_wind_snps=10,
+                whole_chromosome_ok=True,
+            ),
+            global_config=common,
+        )
 
-            self.assertEqual(result.baseline_table["SNP"].tolist(), expected_metadata["SNP"].tolist())
-            np.testing.assert_allclose(result.baseline_table["base"].to_numpy(), expected_ld)
+        self.assertEqual(result.baseline_table["SNP"].tolist(), expected_metadata["SNP"].tolist())
+        np.testing.assert_allclose(result.baseline_table["base"].to_numpy(), expected_ld)
 
 
 class IndexCrossModeParityTest(unittest.TestCase):
@@ -1904,24 +1883,24 @@ class IndexCrossModeParityTest(unittest.TestCase):
         ], dtype=np.float64)
         expected = oracle.sum(axis=1)  # [1.6, 2.0, 2.3, 1.5]
 
-        with tempfile.TemporaryDirectory() as tmp:
-            chromosome = open_r2_matrix_chromosome(Path(tmp), panel, pairs)
-            mode_scores = {}
-            for mode in ("rsid", "chr_pos", "rsid_allele_aware", "chr_pos_allele_aware"):
-                reader = chromosome.pair_reader(panel, mode, "hg19")
-                scores = kernel_ldscore.ld_score_streaming_from_r2_reader(
-                    block_left=np.zeros(4, dtype=np.int64),
-                    annot=np.ones((4, 1), dtype=np.float32), block_reader=reader,
-                )
-                reader.close()
-                mode_scores[mode] = scores[:, 0]
-            # All four modes read one quantized parquet -> bit-identical to each other.
-            first = mode_scores["rsid"]
-            for mode, s in mode_scores.items():
-                np.testing.assert_array_equal(s, first, err_msg=f"mode {mode} differs from rsid")
-            # Dense oracle uses exact R2; int16 quantization adds <= a few half-steps.
-            np.testing.assert_allclose(first, expected, rtol=0, atol=5e-5,
-                                       err_msg="quantized LD scores drifted from dense oracle")
+        tmp = self.tmp_path
+        chromosome = open_r2_matrix_chromosome(tmp, panel, pairs)
+        mode_scores = {}
+        for mode in ("rsid", "chr_pos", "rsid_allele_aware", "chr_pos_allele_aware"):
+            reader = chromosome.pair_reader(panel, mode, "hg19")
+            scores = kernel_ldscore.ld_score_streaming_from_r2_reader(
+                block_left=np.zeros(4, dtype=np.int64),
+                annot=np.ones((4, 1), dtype=np.float32), block_reader=reader,
+            )
+            reader.close()
+            mode_scores[mode] = scores[:, 0]
+        # All four modes read one quantized parquet -> bit-identical to each other.
+        first = mode_scores["rsid"]
+        for mode, s in mode_scores.items():
+            np.testing.assert_array_equal(s, first, err_msg=f"mode {mode} differs from rsid")
+        # Dense oracle uses exact R2; int16 quantization adds <= a few half-steps.
+        np.testing.assert_allclose(first, expected, rtol=0, atol=5e-5,
+                                   err_msg="quantized LD scores drifted from dense oracle")
 
 
 def test_ldscore_parser_regr_snp_region_flag_default_and_choices():

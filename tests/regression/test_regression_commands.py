@@ -6,8 +6,6 @@ from dataclasses import replace
 import gzip
 import io
 import json
-from pathlib import Path
-import tempfile
 import unittest
 from unittest import mock
 
@@ -27,84 +25,83 @@ from tests.regression_fixtures import RegressionFixtures, fake_total_h2_hsq, par
 
 class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
     def test_run_h2_from_args_uses_ldscore_dir(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid"))
-            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
-            self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
-            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            args = parsed_regression_args(
-                "h2",
-                {
-                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
-                    "trait_name": "trait",
-                    "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "common",
-                    "output_dir": "$LDSC_REGRESSION_OUT/h2_out",
-                    "log_level": "INFO",
-                },
-            )
+        tmpdir = self.tmp_path
+        set_global_config(GlobalConfig(snp_identifier="rsid"))
+        with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
+            handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
+        self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
+        ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+        args = parsed_regression_args(
+            "h2",
+            {
+                "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
+                "trait_name": "trait",
+                "ldscore_dir": str(ldscore_dir),
+                "count_kind": "common",
+                "output_dir": "$LDSC_REGRESSION_OUT/h2_out",
+                "log_level": "INFO",
+            },
+        )
 
-            marker = tmpdir / "h2_out/RUN_FAILED.txt"
-            marker.parent.mkdir()
-            marker.write_text("earlier failed overwrite")
-            with mock.patch.dict("os.environ", {"LDSC_REGRESSION_OUT": str(tmpdir)}), contextlib.chdir(tmpdir), stub_h2_kernel(
-                fake_total_h2_hsq(coef=np.array([0.001])),
-            ) as patched:
-                result = commands.run_h2_from_args(args)
+        marker = tmpdir / "h2_out/RUN_FAILED.txt"
+        marker.parent.mkdir()
+        marker.write_text("earlier failed overwrite")
+        with mock.patch.dict("os.environ", {"LDSC_REGRESSION_OUT": str(tmpdir)}), contextlib.chdir(tmpdir), stub_h2_kernel(
+            fake_total_h2_hsq(coef=np.array([0.001])),
+        ) as patched:
+            result = commands.run_h2_from_args(args)
 
-            summary = result.summary
-            self.assertEqual(result.output_paths["summary"], str(tmpdir / "h2_out" / "h2.tsv"))
-            self.assertEqual(result.legacy_sumstats_drops.columns.tolist(), LEGACY_SUMSTATS_DROP_COLUMNS)
-            patched.assert_called_once()
-            self.assertFalse(marker.exists())
-            self.assertFalse((tmpdir / "$LDSC_REGRESSION_OUT").exists())
-            self.assertEqual(patched.call_args.args[1].shape[1], 1)
-            self.assertEqual(summary.loc[0, "trait_name"], "trait")
-            self.assertTrue((tmpdir / "h2_out" / "h2.tsv").exists())
-            self.assertFalse((tmpdir / "h2_out" / "metadata.json").exists())
-            metadata = json.loads((tmpdir / "h2_out" / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(
-                metadata,
-                {
-                    "artifact_type": "h2_result",
-                    "files": {
-                        "summary": "h2.tsv",
-                        "ld_score_regression_bins": "diagnostics/ld_score_regression_bins.tsv",
-                        "legacy_sumstats_drops": "diagnostics/dropped_snps/legacy_sumstats.tsv.gz",
-                    },
-                    "trait_name": "trait",
-                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
-                    "ldscore_dir": str(ldscore_dir.resolve()),
-                    "effective_snp_identifier": "rsid",
-                    "genome_build": None,
-                    "identity_downgrade_applied": False,
-                    "count_key_used_for_regression": "common_reference_snp_counts",
-                    "retained_ld_columns": ["base"],
-                    "dropped_zero_variance_ld_columns": [],
-                    "dropped_nonfinite_statistic_rows": 0,
-                    "n_snps": 1,
-                    "n_blocks_used": 1,
-                    "effective_chisq_max": None,
-                    "effective_two_step_cutoff": 30,
-                    "intercept_h2_policy": "free",
-                    "samp_prev": None,
-                    "pop_prev": None,
-                    "scale": "observed",
+        summary = result.summary
+        self.assertEqual(result.output_paths["summary"], str(tmpdir / "h2_out" / "h2.tsv"))
+        self.assertEqual(result.legacy_sumstats_drops.columns.tolist(), LEGACY_SUMSTATS_DROP_COLUMNS)
+        patched.assert_called_once()
+        self.assertFalse(marker.exists())
+        self.assertFalse((tmpdir / "$LDSC_REGRESSION_OUT").exists())
+        self.assertEqual(patched.call_args.args[1].shape[1], 1)
+        self.assertEqual(summary.loc[0, "trait_name"], "trait")
+        self.assertTrue((tmpdir / "h2_out" / "h2.tsv").exists())
+        self.assertFalse((tmpdir / "h2_out" / "metadata.json").exists())
+        metadata = json.loads((tmpdir / "h2_out" / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            metadata,
+            {
+                "artifact_type": "h2_result",
+                "files": {
+                    "summary": "h2.tsv",
+                    "ld_score_regression_bins": "diagnostics/ld_score_regression_bins.tsv",
+                    "legacy_sumstats_drops": "diagnostics/dropped_snps/legacy_sumstats.tsv.gz",
                 },
-            )
-            log_text = (tmpdir / "h2_out" / "diagnostics" / "h2.log").read_text(encoding="utf-8")
-            # The command is the entry point and logs the GlobalConfig once; dataset assembly logs none.
-            self.assertEqual(log_text.count("using GlobalConfig("), 1)
-            self.assertIn("run_h2_from_args using GlobalConfig(", log_text)
-            self.assertTrue((tmpdir / "h2_out" / "diagnostics" / "ld_score_regression_bins.tsv").exists())
-            legacy_audit = tmpdir / "h2_out" / "diagnostics" / "dropped_snps" / "legacy_sumstats.tsv.gz"
-            self.assertTrue(legacy_audit.exists())
-            self.assertEqual(
-                pd.read_csv(legacy_audit, sep="\t", compression="gzip").columns.tolist(),
-                ["trait_name", "source_path", "SNP", "A1", "A2", "reason", "panel_candidate_count"],
-            )
+                "trait_name": "trait",
+                "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
+                "ldscore_dir": str(ldscore_dir.resolve()),
+                "effective_snp_identifier": "rsid",
+                "genome_build": None,
+                "identity_downgrade_applied": False,
+                "count_key_used_for_regression": "common_reference_snp_counts",
+                "retained_ld_columns": ["base"],
+                "dropped_zero_variance_ld_columns": [],
+                "dropped_nonfinite_statistic_rows": 0,
+                "n_snps": 1,
+                "n_blocks_used": 1,
+                "effective_chisq_max": None,
+                "effective_two_step_cutoff": 30,
+                "intercept_h2_policy": "free",
+                "samp_prev": None,
+                "pop_prev": None,
+                "scale": "observed",
+            },
+        )
+        log_text = (tmpdir / "h2_out" / "diagnostics" / "h2.log").read_text(encoding="utf-8")
+        # The command is the entry point and logs the GlobalConfig once; dataset assembly logs none.
+        self.assertEqual(log_text.count("using GlobalConfig("), 1)
+        self.assertIn("run_h2_from_args using GlobalConfig(", log_text)
+        self.assertTrue((tmpdir / "h2_out" / "diagnostics" / "ld_score_regression_bins.tsv").exists())
+        legacy_audit = tmpdir / "h2_out" / "diagnostics" / "dropped_snps" / "legacy_sumstats.tsv.gz"
+        self.assertTrue(legacy_audit.exists())
+        self.assertEqual(
+            pd.read_csv(legacy_audit, sep="\t", compression="gzip").columns.tolist(),
+            ["trait_name", "source_path", "SNP", "A1", "A2", "reason", "panel_candidate_count"],
+        )
 
     def _h2_args(self, tmpdir, ldscore_dir, *, samp_prev=None, pop_prev=None):
         return parsed_regression_args(
@@ -136,12 +133,11 @@ class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
     def test_run_h2_from_args_liability_scale(self):
         from ldsc._regression.estimators import liability_conversion_factor
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            ldscore_dir = self._write_h2_inputs(tmpdir)
-            args = self._h2_args(tmpdir, ldscore_dir, samp_prev=0.5, pop_prev=0.01)
-            with self._patched_h2():
-                summary = commands.run_h2_from_args(args).summary
+        tmpdir = self.tmp_path
+        ldscore_dir = self._write_h2_inputs(tmpdir)
+        args = self._h2_args(tmpdir, ldscore_dir, samp_prev=0.5, pop_prev=0.01)
+        with self._patched_h2():
+            summary = commands.run_h2_from_args(args).summary
         c = liability_conversion_factor(0.5, 0.01)
         row = summary.iloc[0]
         self.assertAlmostEqual(row["total_h2_liab"], 0.2 * c, places=12)
@@ -150,66 +146,63 @@ class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
         self.assertEqual(row["pop_prev"], 0.01)
 
     def test_run_h2_from_args_half_specified_prevalence_raises(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            ldscore_dir = self._write_h2_inputs(tmpdir)
-            args = self._h2_args(tmpdir, ldscore_dir, samp_prev=0.5, pop_prev=None)
-            with self._patched_h2(), self.assertRaisesRegex(LDSCConfigError, "exactly one of sample/population"):
-                commands.run_h2_from_args(args)
+        tmpdir = self.tmp_path
+        ldscore_dir = self._write_h2_inputs(tmpdir)
+        args = self._h2_args(tmpdir, ldscore_dir, samp_prev=0.5, pop_prev=None)
+        with self._patched_h2(), self.assertRaisesRegex(LDSCConfigError, "exactly one of sample/population"):
+            commands.run_h2_from_args(args)
 
     def test_run_h2_from_args_requires_output_dir_before_loading_inputs(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid"))
-            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
-            self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
-            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            args = parsed_regression_args(
-                "h2",
-                {
-                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
-                    "trait_name": "trait",
-                    "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "common",
-                    "output_dir": None,
-                    "log_level": "INFO",
-                },
-            )
+        tmpdir = self.tmp_path
+        set_global_config(GlobalConfig(snp_identifier="rsid"))
+        with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
+            handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
+        self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
+        ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+        args = parsed_regression_args(
+            "h2",
+            {
+                "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
+                "trait_name": "trait",
+                "ldscore_dir": str(ldscore_dir),
+                "count_kind": "common",
+                "output_dir": None,
+                "log_level": "INFO",
+            },
+        )
 
-            with mock.patch.object(
-                commands,
-                "_load_sumstats_table",
-                side_effect=AssertionError("sumstats should not load"),
-            ):
-                with self.assertRaisesRegex(LDSCUsageError, "requires `--output-dir`"):
-                    commands.run_h2_from_args(args)
+        with mock.patch.object(
+            commands,
+            "_load_sumstats_table",
+            side_effect=AssertionError("sumstats should not load"),
+        ):
+            with self.assertRaisesRegex(LDSCUsageError, "requires `--output-dir`"):
+                commands.run_h2_from_args(args)
 
-            self.assertFalse(list(tmpdir.glob("*.log")))
-            self.assertFalse((tmpdir / "h2_out" / "metadata.json").exists())
-            self.assertFalse((tmpdir / "h2_out" / "diagnostics").exists())
+        self.assertFalse(list(tmpdir.glob("*.log")))
+        self.assertFalse((tmpdir / "h2_out" / "metadata.json").exists())
+        self.assertFalse((tmpdir / "h2_out" / "diagnostics").exists())
 
     def test_run_h2_from_args_labels_unnamed_trait_by_filename(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid"))
-            self.write_footer_sumstats_parquet(tmpdir / "trait.parquet", trait_name=None, snp_identifier="rsid")
-            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            args = parsed_regression_args(
-                "h2",
-                {
-                    "sumstats_file": str(tmpdir / "trait.parquet"),
-                    "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "common",
-                    "output_dir": str(tmpdir / "h2_out"),
-                    "log_level": "INFO",
-                },
-            )
+        tmpdir = self.tmp_path
+        set_global_config(GlobalConfig(snp_identifier="rsid"))
+        self.write_footer_sumstats_parquet(tmpdir / "trait.parquet", trait_name=None, snp_identifier="rsid")
+        ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+        args = parsed_regression_args(
+            "h2",
+            {
+                "sumstats_file": str(tmpdir / "trait.parquet"),
+                "ldscore_dir": str(ldscore_dir),
+                "count_kind": "common",
+                "output_dir": str(tmpdir / "h2_out"),
+                "log_level": "INFO",
+            },
+        )
 
-            with stub_h2_kernel(
-                fake_total_h2_hsq(coef=np.array([0.001])),
-            ):
-                summary = commands.run_h2_from_args(args).summary
+        with stub_h2_kernel(
+            fake_total_h2_hsq(coef=np.array([0.001])),
+        ):
+            summary = commands.run_h2_from_args(args).summary
 
         self.assertEqual(summary.loc[0, "trait_name"], "trait.parquet")
 
@@ -381,52 +374,51 @@ class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
 
     def test_run_rg_from_args_returns_result_family_and_writes_output(self):
         from ldsc._regression.outputs import RG_FULL_COLUMNS
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid"))
-            sumstats_sources = []
-            for name in ("a", "b"):
-                trait_dir = tmpdir / name
-                trait_dir.mkdir()
-                source = trait_dir / "sumstats.sumstats.gz"
-                with gzip.open(source, "wt", encoding="utf-8") as handle:
-                    handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
-                self.write_sumstats_sidecar(trait_dir / "metadata.json", trait_name=name)
-                sumstats_sources.append(str(source))
-            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            expected = RgResultFamily(
-                rg=pd.DataFrame([{"trait_1": "a", "trait_2": "b", "n_snps_used": 1, "rg": 0.1, "rg_se": 0.01, "p": 0.02, "note": ""}]),
-                rg_full=pd.DataFrame([{"trait_1": "a", "trait_2": "b", "n_snps_used": 1, "rg": 0.1, "rg_se": 0.01, "z": 10.0, "p": 0.02, "status": "ok", "error": ""}]),
-                h2_per_trait=pd.DataFrame([{"trait_name": "a"}, {"trait_name": "b"}]),
-                per_pair_metadata=[],
-                legacy_sumstats_drops=pd.DataFrame(columns=LEGACY_SUMSTATS_DROP_COLUMNS),
-            )
-            args = parsed_regression_args(
-                "rg",
-                {
-                    "sumstats_sources": sumstats_sources,
-                    "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "common",
-                    "output_dir": "$LDSC_REGRESSION_OUT/out",
-                    "log_level": "INFO",
-                },
-            )
+        tmpdir = self.tmp_path
+        set_global_config(GlobalConfig(snp_identifier="rsid"))
+        sumstats_sources = []
+        for name in ("a", "b"):
+            trait_dir = tmpdir / name
+            trait_dir.mkdir()
+            source = trait_dir / "sumstats.sumstats.gz"
+            with gzip.open(source, "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
+            self.write_sumstats_sidecar(trait_dir / "metadata.json", trait_name=name)
+            sumstats_sources.append(str(source))
+        ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+        expected = RgResultFamily(
+            rg=pd.DataFrame([{"trait_1": "a", "trait_2": "b", "n_snps_used": 1, "rg": 0.1, "rg_se": 0.01, "p": 0.02, "note": ""}]),
+            rg_full=pd.DataFrame([{"trait_1": "a", "trait_2": "b", "n_snps_used": 1, "rg": 0.1, "rg_se": 0.01, "z": 10.0, "p": 0.02, "status": "ok", "error": ""}]),
+            h2_per_trait=pd.DataFrame([{"trait_name": "a"}, {"trait_name": "b"}]),
+            per_pair_metadata=[],
+            legacy_sumstats_drops=pd.DataFrame(columns=LEGACY_SUMSTATS_DROP_COLUMNS),
+        )
+        args = parsed_regression_args(
+            "rg",
+            {
+                "sumstats_sources": sumstats_sources,
+                "ldscore_dir": str(ldscore_dir),
+                "count_kind": "common",
+                "output_dir": "$LDSC_REGRESSION_OUT/out",
+                "log_level": "INFO",
+            },
+        )
 
-            expected = replace(expected, rg_full=expected.rg_full.reindex(columns=RG_FULL_COLUMNS))
-            marker = tmpdir / "out/RUN_FAILED.txt"
-            marker.parent.mkdir()
-            marker.write_text("earlier failed overwrite")
-            stdout = io.StringIO()
-            with mock.patch.dict("os.environ", {"LDSC_REGRESSION_OUT": str(tmpdir)}), contextlib.chdir(tmpdir), mock.patch.object(rg, "estimate_rg_pairs", return_value=expected), mock.patch.object(
-                RgDirectoryWriter,
-                "write",
-                wraps=RgDirectoryWriter().write,
-            ) as writer, contextlib.redirect_stdout(stdout):
-                result = commands.run_rg_from_args(args)
-            self.assertFalse(marker.exists())
-            self.assertFalse((tmpdir / "$LDSC_REGRESSION_OUT").exists())
-            self.assertTrue((tmpdir / "out/rg.tsv").is_file())
-            self.assertTrue((tmpdir / "out/diagnostics/dropped_snps/legacy_sumstats.tsv.gz").is_file())
+        expected = replace(expected, rg_full=expected.rg_full.reindex(columns=RG_FULL_COLUMNS))
+        marker = tmpdir / "out/RUN_FAILED.txt"
+        marker.parent.mkdir()
+        marker.write_text("earlier failed overwrite")
+        stdout = io.StringIO()
+        with mock.patch.dict("os.environ", {"LDSC_REGRESSION_OUT": str(tmpdir)}), contextlib.chdir(tmpdir), mock.patch.object(rg, "estimate_rg_pairs", return_value=expected), mock.patch.object(
+            RgDirectoryWriter,
+            "write",
+            wraps=RgDirectoryWriter().write,
+        ) as writer, contextlib.redirect_stdout(stdout):
+            result = commands.run_rg_from_args(args)
+        self.assertFalse(marker.exists())
+        self.assertFalse((tmpdir / "$LDSC_REGRESSION_OUT").exists())
+        self.assertTrue((tmpdir / "out/rg.tsv").is_file())
+        self.assertTrue((tmpdir / "out/diagnostics/dropped_snps/legacy_sumstats.tsv.gz").is_file())
 
         # The returned family is the estimated one plus the paths the writer reports.
         self.assertIs(result.rg_full, expected.rg_full)
@@ -437,37 +429,36 @@ class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
         self.assertEqual(stdout.getvalue(), "")
 
     def test_run_rg_from_args_recovers_metadata_labels_and_resolves_anchor_by_trait_name(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid"))
-            sumstats_sources = []
-            for stem, trait_name in (("a", "MDD"), ("b", "SCZ")):
-                trait_dir = tmpdir / stem
-                trait_dir.mkdir()
-                source = trait_dir / "sumstats.parquet"
-                self.write_footer_sumstats_parquet(source, trait_name=trait_name, snp_identifier="rsid")
-                sumstats_sources.append(str(source))
-            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            expected = RgResultFamily(
-                rg=pd.DataFrame(),
-                rg_full=pd.DataFrame(),
-                h2_per_trait=pd.DataFrame(),
-                per_pair_metadata=[],
-            )
-            args = parsed_regression_args(
-                "rg",
-                {
-                    "sumstats_sources": sumstats_sources,
-                    "anchor_trait": "SCZ",
-                    "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "common",
-                    "output_dir": str(tmpdir / "out"),
-                    "log_level": "INFO",
-                },
-            )
+        tmpdir = self.tmp_path
+        set_global_config(GlobalConfig(snp_identifier="rsid"))
+        sumstats_sources = []
+        for stem, trait_name in (("a", "MDD"), ("b", "SCZ")):
+            trait_dir = tmpdir / stem
+            trait_dir.mkdir()
+            source = trait_dir / "sumstats.parquet"
+            self.write_footer_sumstats_parquet(source, trait_name=trait_name, snp_identifier="rsid")
+            sumstats_sources.append(str(source))
+        ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+        expected = RgResultFamily(
+            rg=pd.DataFrame(),
+            rg_full=pd.DataFrame(),
+            h2_per_trait=pd.DataFrame(),
+            per_pair_metadata=[],
+        )
+        args = parsed_regression_args(
+            "rg",
+            {
+                "sumstats_sources": sumstats_sources,
+                "anchor_trait": "SCZ",
+                "ldscore_dir": str(ldscore_dir),
+                "count_kind": "common",
+                "output_dir": str(tmpdir / "out"),
+                "log_level": "INFO",
+            },
+        )
 
-            with mock.patch.object(rg, "estimate_rg_pairs", return_value=expected) as patched:
-                result = commands.run_rg_from_args(args)
+        with mock.patch.object(rg, "estimate_rg_pairs", return_value=expected) as patched:
+            result = commands.run_rg_from_args(args)
 
         self.assertIs(result.rg, expected.rg)
         tables = patched.call_args.args[0]
@@ -475,40 +466,39 @@ class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
         self.assertEqual(patched.call_args.kwargs["anchor_index"], 1)
 
     def test_run_rg_from_args_resolves_anchor_by_path_when_no_trait_name_matches(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid"))
-            sumstats_sources = []
-            for name in ("a", "b"):
-                trait_dir = tmpdir / name
-                trait_dir.mkdir()
-                source = trait_dir / "sumstats.sumstats.gz"
-                with gzip.open(source, "wt", encoding="utf-8") as handle:
-                    handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
-                self.write_sumstats_sidecar(trait_dir / "metadata.json", trait_name=name)
-                sumstats_sources.append(str(source))
-            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            expected = RgResultFamily(
-                rg=pd.DataFrame(),
-                rg_full=pd.DataFrame(),
-                h2_per_trait=pd.DataFrame(),
-                per_pair_metadata=[],
-                legacy_sumstats_drops=pd.DataFrame(columns=LEGACY_SUMSTATS_DROP_COLUMNS),
-            )
-            args = parsed_regression_args(
-                "rg",
-                {
-                    "sumstats_sources": sumstats_sources,
-                    "anchor_trait": sumstats_sources[1],
-                    "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "common",
-                    "output_dir": str(tmpdir / "out"),
-                    "log_level": "INFO",
-                },
-            )
+        tmpdir = self.tmp_path
+        set_global_config(GlobalConfig(snp_identifier="rsid"))
+        sumstats_sources = []
+        for name in ("a", "b"):
+            trait_dir = tmpdir / name
+            trait_dir.mkdir()
+            source = trait_dir / "sumstats.sumstats.gz"
+            with gzip.open(source, "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
+            self.write_sumstats_sidecar(trait_dir / "metadata.json", trait_name=name)
+            sumstats_sources.append(str(source))
+        ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+        expected = RgResultFamily(
+            rg=pd.DataFrame(),
+            rg_full=pd.DataFrame(),
+            h2_per_trait=pd.DataFrame(),
+            per_pair_metadata=[],
+            legacy_sumstats_drops=pd.DataFrame(columns=LEGACY_SUMSTATS_DROP_COLUMNS),
+        )
+        args = parsed_regression_args(
+            "rg",
+            {
+                "sumstats_sources": sumstats_sources,
+                "anchor_trait": sumstats_sources[1],
+                "ldscore_dir": str(ldscore_dir),
+                "count_kind": "common",
+                "output_dir": str(tmpdir / "out"),
+                "log_level": "INFO",
+            },
+        )
 
-            with mock.patch.object(rg, "estimate_rg_pairs", return_value=expected) as patched:
-                commands.run_rg_from_args(args)
+        with mock.patch.object(rg, "estimate_rg_pairs", return_value=expected) as patched:
+            commands.run_rg_from_args(args)
 
         self.assertEqual(patched.call_args.kwargs["anchor_index"], 1)
 
@@ -616,152 +606,147 @@ class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
         self.assertEqual(stdout.getvalue(), "")
 
     def test_run_partitioned_h2_from_args_refuses_stale_per_query_tree_without_overwrite(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            output_dir = tmpdir / "out"
-            stale = output_dir / "diagnostics" / "query_annotations" / "old"
-            stale.mkdir(parents=True)
-            (stale / "metadata.json").write_text("{}\n", encoding="utf-8")
-            args = parsed_regression_args(
-                "partitioned-h2",
-                {
-                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
-                    "trait_name": "trait",
-                    "ldscore_dir": str(tmpdir / "ldscores"),
-                    "count_kind": "common",
-                    "output_dir": str(output_dir),
-                },
-            )
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "out"
+        stale = output_dir / "diagnostics" / "query_annotations" / "old"
+        stale.mkdir(parents=True)
+        (stale / "metadata.json").write_text("{}\n", encoding="utf-8")
+        args = parsed_regression_args(
+            "partitioned-h2",
+            {
+                "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
+                "trait_name": "trait",
+                "ldscore_dir": str(tmpdir / "ldscores"),
+                "count_kind": "common",
+                "output_dir": str(output_dir),
+            },
+        )
 
-            with mock.patch.object(
-                partitioned,
-                "estimate_partitioned_h2_batch",
-                side_effect=AssertionError("estimation should not run after preflight failure"),
-            ):
-                with self.assertRaisesRegex(FileExistsError, "overwrite"):
-                    commands.run_partitioned_h2_from_args(args)
+        with mock.patch.object(
+            partitioned,
+            "estimate_partitioned_h2_batch",
+            side_effect=AssertionError("estimation should not run after preflight failure"),
+        ):
+            with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                commands.run_partitioned_h2_from_args(args)
 
-            self.assertTrue(stale.exists())
-            self.assertFalse((output_dir / "partitioned_h2.tsv").exists())
-            self.assertFalse((output_dir / "partitioned-h2.log").exists())
-            self.assertFalse((output_dir / "diagnostics" / "partitioned-h2.log").exists())
+        self.assertTrue(stale.exists())
+        self.assertFalse((output_dir / "partitioned_h2.tsv").exists())
+        self.assertFalse((output_dir / "partitioned-h2.log").exists())
+        self.assertFalse((output_dir / "diagnostics" / "partitioned-h2.log").exists())
 
     def test_regression_cli_refuses_existing_result_file_by_default(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid"))
-            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
-            self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
-            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            output_dir = tmpdir / "out"
-            output_dir.mkdir()
-            existing = output_dir / "h2.tsv"
-            existing.write_text("existing\n", encoding="utf-8")
-            args = parsed_regression_args(
-                "h2",
-                {
-                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
-                    "trait_name": "trait",
-                    "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "common",
-                    "output_dir": str(output_dir),
-                },
-            )
+        tmpdir = self.tmp_path
+        set_global_config(GlobalConfig(snp_identifier="rsid"))
+        with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
+            handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
+        self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
+        ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+        output_dir = tmpdir / "out"
+        output_dir.mkdir()
+        existing = output_dir / "h2.tsv"
+        existing.write_text("existing\n", encoding="utf-8")
+        args = parsed_regression_args(
+            "h2",
+            {
+                "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
+                "trait_name": "trait",
+                "ldscore_dir": str(ldscore_dir),
+                "count_kind": "common",
+                "output_dir": str(output_dir),
+            },
+        )
 
-            with stub_h2_kernel(
-                fake_total_h2_hsq(coef=np.array([0.001])),
-            ):
-                with self.assertRaisesRegex(FileExistsError, "overwrite"):
-                    commands.run_h2_from_args(args)
-
-            self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
-            self.assertFalse((output_dir / "h2.log").exists())
-            self.assertFalse((output_dir / "diagnostics" / "h2.log").exists())
-
-    def test_regression_cli_refuses_existing_h2_metadata_by_default_before_estimation(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            output_dir = tmpdir / "out"
-            existing = output_dir / "diagnostics" / "metadata.json"
-            existing.parent.mkdir(parents=True)
-            existing.write_text("{}\n", encoding="utf-8")
-            args = parsed_regression_args(
-                "h2",
-                {
-                    "sumstats_file": str(tmpdir / "missing.sumstats.gz"),
-                    "trait_name": "trait",
-                    "ldscore_dir": str(tmpdir / "missing_ldscores"),
-                    "count_kind": "common",
-                    "output_dir": str(output_dir),
-                },
-            )
-
-            with mock.patch.object(
-                commands,
-                "_fit_h2_dataset",
-                side_effect=AssertionError("estimation should not run after preflight failure"),
-            ):
-                with self.assertRaisesRegex(FileExistsError, "overwrite"):
-                    commands.run_h2_from_args(args)
-
-            self.assertEqual(existing.read_text(encoding="utf-8"), "{}\n")
-            self.assertFalse((output_dir / "h2.tsv").exists())
-            self.assertFalse((output_dir / "h2.log").exists())
-            self.assertFalse((output_dir / "diagnostics" / "h2.log").exists())
-
-    def test_regression_cli_allows_existing_result_file_with_overwrite(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid"))
-            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
-            self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
-            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            output_dir = tmpdir / "out"
-            output_dir.mkdir()
-            existing = output_dir / "h2.tsv"
-            existing.write_text("existing\n", encoding="utf-8")
-            existing_metadata = output_dir / "diagnostics" / "metadata.json"
-            existing_metadata.parent.mkdir()
-            existing_metadata.write_text('{"old": true}\n', encoding="utf-8")
-            args = parsed_regression_args(
-                "h2",
-                {
-                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
-                    "trait_name": "trait",
-                    "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "common",
-                    "output_dir": str(output_dir),
-                    "overwrite": True,
-                },
-            )
-
-            with stub_h2_kernel(
-                fake_total_h2_hsq(coef=np.array([0.001])),
-            ):
+        with stub_h2_kernel(
+            fake_total_h2_hsq(coef=np.array([0.001])),
+        ):
+            with self.assertRaisesRegex(FileExistsError, "overwrite"):
                 commands.run_h2_from_args(args)
 
-            self.assertIn("total_h2", existing.read_text(encoding="utf-8"))
-            self.assertFalse((output_dir / "metadata.json").exists())
-            metadata = json.loads(existing_metadata.read_text(encoding="utf-8"))
-            self.assertNotIn("old", metadata)
-            self.assertEqual(metadata["artifact_type"], "h2_result")
+        self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
+        self.assertFalse((output_dir / "h2.log").exists())
+        self.assertFalse((output_dir / "diagnostics" / "h2.log").exists())
+
+    def test_regression_cli_refuses_existing_h2_metadata_by_default_before_estimation(self):
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "out"
+        existing = output_dir / "diagnostics" / "metadata.json"
+        existing.parent.mkdir(parents=True)
+        existing.write_text("{}\n", encoding="utf-8")
+        args = parsed_regression_args(
+            "h2",
+            {
+                "sumstats_file": str(tmpdir / "missing.sumstats.gz"),
+                "trait_name": "trait",
+                "ldscore_dir": str(tmpdir / "missing_ldscores"),
+                "count_kind": "common",
+                "output_dir": str(output_dir),
+            },
+        )
+
+        with mock.patch.object(
+            commands,
+            "_fit_h2_dataset",
+            side_effect=AssertionError("estimation should not run after preflight failure"),
+        ):
+            with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                commands.run_h2_from_args(args)
+
+        self.assertEqual(existing.read_text(encoding="utf-8"), "{}\n")
+        self.assertFalse((output_dir / "h2.tsv").exists())
+        self.assertFalse((output_dir / "h2.log").exists())
+        self.assertFalse((output_dir / "diagnostics" / "h2.log").exists())
+
+    def test_regression_cli_allows_existing_result_file_with_overwrite(self):
+        tmpdir = self.tmp_path
+        set_global_config(GlobalConfig(snp_identifier="rsid"))
+        with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
+            handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
+        self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
+        ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+        output_dir = tmpdir / "out"
+        output_dir.mkdir()
+        existing = output_dir / "h2.tsv"
+        existing.write_text("existing\n", encoding="utf-8")
+        existing_metadata = output_dir / "diagnostics" / "metadata.json"
+        existing_metadata.parent.mkdir()
+        existing_metadata.write_text('{"old": true}\n', encoding="utf-8")
+        args = parsed_regression_args(
+            "h2",
+            {
+                "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
+                "trait_name": "trait",
+                "ldscore_dir": str(ldscore_dir),
+                "count_kind": "common",
+                "output_dir": str(output_dir),
+                "overwrite": True,
+            },
+        )
+
+        with stub_h2_kernel(
+            fake_total_h2_hsq(coef=np.array([0.001])),
+        ):
+            commands.run_h2_from_args(args)
+
+        self.assertIn("total_h2", existing.read_text(encoding="utf-8"))
+        self.assertFalse((output_dir / "metadata.json").exists())
+        metadata = json.loads(existing_metadata.read_text(encoding="utf-8"))
+        self.assertNotIn("old", metadata)
+        self.assertEqual(metadata["artifact_type"], "h2_result")
 
     def test_regression_writer_refuses_each_fixed_summary_filename(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir)
-            from ldsc._regression.outputs import H2DirectoryWriter, PartitionedH2DirectoryWriter, RgDirectoryWriter
+        output_dir = self.tmp_path
+        from ldsc._regression.outputs import H2DirectoryWriter, PartitionedH2DirectoryWriter, RgDirectoryWriter
 
-            for filename, writer in (("h2.tsv", H2DirectoryWriter), ("partitioned_h2.tsv", PartitionedH2DirectoryWriter), ("rg.tsv", RgDirectoryWriter)):
-                with self.subTest(filename=filename):
-                    existing = output_dir / filename
-                    existing.write_text("existing\n", encoding="utf-8")
+        for filename, writer in (("h2.tsv", H2DirectoryWriter), ("partitioned_h2.tsv", PartitionedH2DirectoryWriter), ("rg.tsv", RgDirectoryWriter)):
+            with self.subTest(filename=filename):
+                existing = output_dir / filename
+                existing.write_text("existing\n", encoding="utf-8")
 
-                    with self.assertRaisesRegex(FileExistsError, "overwrite"):
-                        writer.artifact_family(output_dir).preflight(overwrite=False)
+                with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                    writer.artifact_family(output_dir).preflight(overwrite=False)
 
-                    self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
+                self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
 
 
 @pytest.mark.parametrize("command, flags, message", [

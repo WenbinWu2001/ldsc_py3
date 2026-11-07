@@ -1,7 +1,6 @@
 import inspect
 from pathlib import Path
 import re
-import tempfile
 import unittest
 from unittest import mock
 
@@ -90,47 +89,43 @@ class GlobalConfigRegistryTest(unittest.TestCase):
         self.assertEqual(config.genome_build, "auto")
 
     def test_run_annotate_uses_registered_global_config_and_logs_once(self):
-        import tempfile
-        from pathlib import Path
-
         set_global_config(GlobalConfig(snp_identifier="rsid", log_level="DEBUG"))
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            baseline, bed = root / "base.annot", root / "query.bed"
-            baseline.write_text("CHR\tPOS\tSNP\tbase\n1\t10\trs1\t1\n")
-            bed.write_text("1\t9\t10\n")
-            with mock.patch("builtins.print") as patched_print, self.assertLogs("LDSC.config", level="INFO") as caught:
-                result = ldsc.run_annotate(query_annot_bed_sources=[bed], ref_snp_annot_sources=[baseline], output_dir=root / "out")
-                self.assertEqual(result.config_snapshot.snp_identifier, "rsid")
-                self.assertIsNone(result.config_snapshot.genome_build)
-                self.assertEqual(result.config_snapshot.log_level, "DEBUG")
-            patched_print.assert_not_called()
-            self.assertEqual(len(caught.records), 1)
-            self.assertIn("GlobalConfig", caught.records[0].getMessage())
+        root = self.tmp_path
+        baseline, bed = root / "base.annot", root / "query.bed"
+        baseline.write_text("CHR\tPOS\tSNP\tbase\n1\t10\trs1\t1\n")
+        bed.write_text("1\t9\t10\n")
+        with mock.patch("builtins.print") as patched_print, self.assertLogs("LDSC.config", level="INFO") as caught:
+            result = ldsc.run_annotate(query_annot_bed_sources=[bed], ref_snp_annot_sources=[baseline], output_dir=root / "out")
+            self.assertEqual(result.config_snapshot.snp_identifier, "rsid")
+            self.assertIsNone(result.config_snapshot.genome_build)
+            self.assertEqual(result.config_snapshot.log_level, "DEBUG")
+        patched_print.assert_not_called()
+        self.assertEqual(len(caught.records), 1)
+        self.assertIn("GlobalConfig", caught.records[0].getMessage())
 
     def test_reference_panel_builder_uses_registered_global_config_and_logs_once(self):
         from tests.worker_fixtures import calculation_body
         self.enterContext(calculation_body())
         set_global_config(GlobalConfig(snp_identifier="rsid", log_level="DEBUG"))
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config = _make_build_config(Path(tmpdir))
-            Path(config.genetic_map_hg19_sources).write_text("CHR POS CM\n1 100 0.1\n")
-            Path(config.genetic_map_hg38_sources).write_text("CHR POS CM\n1 100 0.1\n")
-            builder = R2MatrixBuilder()
-            _write_plink_trio(Path(tmpdir) / "panel.1", ["1"])
+        tmpdir = self.tmp_path
+        config = _make_build_config(tmpdir)
+        Path(config.genetic_map_hg19_sources).write_text("CHR POS CM\n1 100 0.1\n")
+        Path(config.genetic_map_hg38_sources).write_text("CHR POS CM\n1 100 0.1\n")
+        builder = R2MatrixBuilder()
+        _write_plink_trio(tmpdir / "panel.1", ["1"])
 
-            with mock.patch.object(
-                builder, "_prepare_build_state", return_value=mock.sentinel.state
-            ), mock.patch.object(
-                builder, "_check_chromosome_selections", side_effect=lambda chrom_sources, *_args: chrom_sources
-            ), mock.patch.object(
-                builder,
-                "_build_chromosome",
-                return_value={"r2_hg19": "r2-19", "r2_hg38": "r2-38", "meta_hg19": "m19", "meta_hg38": "m38"},
-            ), mock.patch("builtins.print") as patched_print:
-                with self.assertLogs("LDSC.config", level="INFO") as caught:
-                    result = builder.run(config)
+        with mock.patch.object(
+            builder, "_prepare_build_state", return_value=mock.sentinel.state
+        ), mock.patch.object(
+            builder, "_check_chromosome_selections", side_effect=lambda chrom_sources, *_args: chrom_sources
+        ), mock.patch.object(
+            builder,
+            "_build_chromosome",
+            return_value={"r2_hg19": "r2-19", "r2_hg38": "r2-38", "meta_hg19": "m19", "meta_hg38": "m38"},
+        ), mock.patch("builtins.print") as patched_print:
+            with self.assertLogs("LDSC.config", level="INFO") as caught:
+                result = builder.run(config)
 
         self.assertEqual(builder.global_config, ldsc.get_global_config())
         self.assertEqual(result.chromosomes, ["1"])

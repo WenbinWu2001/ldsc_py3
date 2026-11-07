@@ -1,5 +1,4 @@
 from pathlib import Path
-import tempfile
 import unittest
 
 import pandas as pd
@@ -68,16 +67,16 @@ class GlobalConfigTest(unittest.TestCase):
     def test_workflow_logging_rejects_a_log_level_as_global_config_does(self):
         from ldsc._runtime.workflow_logging import workflow_logging
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            log_path = Path(tmpdir) / "run.log"
-            with self.assertRaisesRegex(
-                ldsc.LDSCConfigError,
-                "Could not start workflow logging: log_level='trace' is invalid.*"
-                "Use one of DEBUG, INFO, WARNING, ERROR",
-            ):
-                with workflow_logging("annotate", log_path, log_level="trace"):
-                    pass
-            self.assertFalse(log_path.exists())
+        tmpdir = self.tmp_path
+        log_path = tmpdir / "run.log"
+        with self.assertRaisesRegex(
+            ldsc.LDSCConfigError,
+            "Could not start workflow logging: log_level='trace' is invalid.*"
+            "Use one of DEBUG, INFO, WARNING, ERROR",
+        ):
+            with workflow_logging("annotate", log_path, log_level="trace"):
+                pass
+        self.assertFalse(log_path.exists())
 
     def test_normalizes_genome_build_aliases(self):
         self.assertEqual(GlobalConfig(snp_identifier="chr_pos", genome_build="hg37").genome_build, "hg19")
@@ -444,221 +443,221 @@ class RestrictionReadersTest(unittest.TestCase):
         self.assertIn("ALT", A2_COLUMN_SPEC.aliases)
 
     def test_read_global_snp_restriction_rsid_requires_header(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.txt"
-            path.write_text("rs1\nrs2\n", encoding="utf-8")
-            with self.assertRaisesRegex(LDSCInputError, "header"):
-                read_global_snp_restriction(path, "rsid")
+        tmpdir = self.tmp_path
+        path = tmpdir / "restrict.txt"
+        path.write_text("rs1\nrs2\n", encoding="utf-8")
+        with self.assertRaisesRegex(LDSCInputError, "header"):
+            read_global_snp_restriction(path, "rsid")
 
     def test_read_global_snp_restriction_rsid_table(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.tsv"
-            path.write_text("id\tother\nrs1\ta\nrs2\tb\n", encoding="utf-8")
-            self.assertEqual(read_global_snp_restriction(path, "rsid"), {"rs1", "rs2"})
+        tmpdir = self.tmp_path
+        path = tmpdir / "restrict.tsv"
+        path.write_text("id\tother\nrs1\ta\nrs2\tb\n", encoding="utf-8")
+        self.assertEqual(read_global_snp_restriction(path, "rsid"), {"rs1", "rs2"})
 
     def test_read_global_snp_restriction_rsid_family_table(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.tsv"
-            path.write_text("id\tA1\tA2\nrs1\tA\tC\nrs2\tG\tT\n", encoding="utf-8")
-            self.assertEqual(read_global_snp_restriction(path, "rsid_allele_aware"), {"rs1", "rs2"})
+        tmpdir = self.tmp_path
+        path = tmpdir / "restrict.tsv"
+        path.write_text("id\tA1\tA2\nrs1\tA\tC\nrs2\tG\tT\n", encoding="utf-8")
+        self.assertEqual(read_global_snp_restriction(path, "rsid_allele_aware"), {"rs1", "rs2"})
 
     def test_read_global_snp_restriction_chr_pos_table(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.tsv"
-            path.write_text("chrom\tbp\nchr1.0\t10\n2\t20\n", encoding="utf-8")
-            self.assertEqual(read_global_snp_restriction(path, "chr_pos"), {"1:10", "2:20"})
+        tmpdir = self.tmp_path
+        path = tmpdir / "restrict.tsv"
+        path.write_text("chrom\tbp\nchr1.0\t10\n2\t20\n", encoding="utf-8")
+        self.assertEqual(read_global_snp_restriction(path, "chr_pos"), {"1:10", "2:20"})
 
     def test_read_global_snp_restriction_chr_pos_fixed_build_reads_directly(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.tsv"
-            path.write_text("CHR\tBP\n1\t20\n2\t30\n", encoding="utf-8")
-            self.assertEqual(
-                read_global_snp_restriction(path, "chr_pos", genome_build="hg38"),
-                {"1:20", "2:30"},
-            )
+        tmpdir = self.tmp_path
+        path = tmpdir / "restrict.tsv"
+        path.write_text("CHR\tBP\n1\t20\n2\t30\n", encoding="utf-8")
+        self.assertEqual(
+            read_global_snp_restriction(path, "chr_pos", genome_build="hg38"),
+            {"1:20", "2:30"},
+        )
 
     def test_read_global_snp_restriction_rejects_auto_genome_build_at_kernel_boundary(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.tsv"
-            path.write_text("CHR\tBP\n1\t20\n2\t30\n", encoding="utf-8")
-            with self.assertRaisesRegex(AssertionError, "workflow entry"):
-                read_global_snp_restriction(path, "chr_pos", genome_build="auto")
+        tmpdir = self.tmp_path
+        path = tmpdir / "restrict.tsv"
+        path.write_text("CHR\tBP\n1\t20\n2\t30\n", encoding="utf-8")
+        with self.assertRaisesRegex(AssertionError, "workflow entry"):
+            read_global_snp_restriction(path, "chr_pos", genome_build="auto")
 
     def test_read_global_snp_restriction_chr_pos_uses_build_specific_position_header(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.tsv"
-            path.write_text(
-                "rsID\tA1\tchr\thg19_pos\thg38_pos\n"
-                "rs1\tA\t1\t10.0\t100.0\n"
-                "rs2\tG\tchr2\t20.0\t200.0\n",
-                encoding="utf-8",
-            )
-            self.assertEqual(
-                read_global_snp_restriction(path, "chr_pos", genome_build="hg19"),
-                {"1:10", "2:20"},
-            )
+        tmpdir = self.tmp_path
+        path = tmpdir / "restrict.tsv"
+        path.write_text(
+            "rsID\tA1\tchr\thg19_pos\thg38_pos\n"
+            "rs1\tA\t1\t10.0\t100.0\n"
+            "rs2\tG\tchr2\t20.0\t200.0\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            read_global_snp_restriction(path, "chr_pos", genome_build="hg19"),
+            {"1:10", "2:20"},
+        )
 
     def test_read_global_snp_restriction_chr_pos_drops_rows_missing_chr_or_pos(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.tsv"
-            path.write_text(
-                "rsID\tA1\tchr\thg19_pos\thg38_pos\n"
-                "rs1\tA\t1\t10.0\t100.0\n"
-                "rs2\tG\t2\t\t200.0\n"
-                "rs3\tT\t\t30.0\t300.0\n",
-                encoding="utf-8",
-            )
-            self.assertEqual(
-                read_global_snp_restriction(path, "chr_pos", genome_build="hg19"),
-                {"1:10"},
-            )
+        tmpdir = self.tmp_path
+        path = tmpdir / "restrict.tsv"
+        path.write_text(
+            "rsID\tA1\tchr\thg19_pos\thg38_pos\n"
+            "rs1\tA\t1\t10.0\t100.0\n"
+            "rs2\tG\t2\t\t200.0\n"
+            "rs3\tT\t\t30.0\t300.0\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            read_global_snp_restriction(path, "chr_pos", genome_build="hg19"),
+            {"1:10"},
+        )
 
     def test_read_global_snp_restriction_chr_pos_treats_dot_as_missing(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.tsv"
-            path.write_text(
-                "CHR\tPOS\n"
-                "1\t10\n"
-                ".\t20\n"
-                "2\t.\n",
-                encoding="utf-8",
-            )
-            with self.assertLogs("LDSC.identifiers", level="WARNING") as caught:
-                values = read_global_snp_restriction(path, "chr_pos", genome_build="hg19")
+        tmpdir = self.tmp_path
+        path = tmpdir / "restrict.tsv"
+        path.write_text(
+            "CHR\tPOS\n"
+            "1\t10\n"
+            ".\t20\n"
+            "2\t.\n",
+            encoding="utf-8",
+        )
+        with self.assertLogs("LDSC.identifiers", level="WARNING") as caught:
+            values = read_global_snp_restriction(path, "chr_pos", genome_build="hg19")
 
-            self.assertEqual(values, {"1:10"})
-            log_text = "\n".join(caught.output)
-            self.assertIn("Dropped 2 SNPs with invalid or missing CHR/POS", log_text)
-            self.assertIn("missing CHR=1", log_text)
-            self.assertIn("missing POS=1", log_text)
+        self.assertEqual(values, {"1:10"})
+        log_text = "\n".join(caught.output)
+        self.assertIn("Dropped 2 SNPs with invalid or missing CHR/POS", log_text)
+        self.assertIn("missing CHR=1", log_text)
+        self.assertIn("missing POS=1", log_text)
 
     def test_read_global_snp_restriction_chr_pos_drops_invalid_non_missing_pos(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.tsv"
-            path.write_text("CHR\tPOS\n1\tabc\n", encoding="utf-8")
-            with self.assertLogs("LDSC.identifiers", level="WARNING") as caught:
-                values = read_global_snp_restriction(path, "chr_pos", genome_build="hg19")
+        tmpdir = self.tmp_path
+        path = tmpdir / "restrict.tsv"
+        path.write_text("CHR\tPOS\n1\tabc\n", encoding="utf-8")
+        with self.assertLogs("LDSC.identifiers", level="WARNING") as caught:
+            values = read_global_snp_restriction(path, "chr_pos", genome_build="hg19")
 
-            self.assertEqual(values, set())
-            log_text = "\n".join(caught.output)
-            self.assertIn("Dropped 1 SNPs with invalid or missing CHR/POS", log_text)
-            self.assertIn("invalid POS=1", log_text)
+        self.assertEqual(values, set())
+        log_text = "\n".join(caught.output)
+        self.assertIn("Dropped 1 SNPs with invalid or missing CHR/POS", log_text)
+        self.assertIn("invalid POS=1", log_text)
 
     def test_read_global_snp_restriction_chr_pos_requires_header(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.tsv"
-            path.write_text("1\t10\n2\t20\n", encoding="utf-8")
-            with self.assertRaisesRegex(LDSCInputError, "header"):
-                read_global_snp_restriction(path, "chr_pos")
+        tmpdir = self.tmp_path
+        path = tmpdir / "restrict.tsv"
+        path.write_text("1\t10\n2\t20\n", encoding="utf-8")
+        with self.assertRaisesRegex(LDSCInputError, "header"):
+            read_global_snp_restriction(path, "chr_pos")
 
     def test_read_global_snp_restriction_rsid_missing_alias_raises_clear_error(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.tsv"
-            path.write_text("variant\tother\nrs1\ta\n", encoding="utf-8")
-            with self.assertRaisesRegex(LDSCInputError, "SNP"):
-                read_global_snp_restriction(path, "rsid")
+        tmpdir = self.tmp_path
+        path = tmpdir / "restrict.tsv"
+        path.write_text("variant\tother\nrs1\ta\n", encoding="utf-8")
+        with self.assertRaisesRegex(LDSCInputError, "SNP"):
+            read_global_snp_restriction(path, "rsid")
 
     def test_read_global_snp_restriction_chr_pos_missing_alias_raises_clear_error(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.tsv"
-            path.write_text("variant\tother\nrs1\ta\n", encoding="utf-8")
-            with self.assertRaisesRegex(LDSCInputError, "CHR, POS|POS, CHR"):
-                read_global_snp_restriction(path, "chr_pos")
+        tmpdir = self.tmp_path
+        path = tmpdir / "restrict.tsv"
+        path.write_text("variant\tother\nrs1\ta\n", encoding="utf-8")
+        with self.assertRaisesRegex(LDSCInputError, "CHR, POS|POS, CHR"):
+            read_global_snp_restriction(path, "chr_pos")
 
     def test_read_snp_restriction_keys_without_alleles_uses_base_match_in_allele_aware_mode(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.tsv"
-            path.write_text("SNP\nrs1\nrs2\nrs1\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        path = tmpdir / "restrict.tsv"
+        path.write_text("SNP\nrs1\nrs2\nrs1\n", encoding="utf-8")
 
-            restriction = read_snp_restriction_keys(path, "rsid_allele_aware")
+        restriction = read_snp_restriction_keys(path, "rsid_allele_aware")
 
-            self.assertEqual(restriction.match_kind, "base")
-            self.assertEqual(restriction.keys, {"rs1", "rs2"})
-            self.assertEqual(restriction.n_input_rows, 3)
-            self.assertEqual(restriction.n_retained_keys, 2)
-            self.assertTrue(restriction.dropped.empty)
+        self.assertEqual(restriction.match_kind, "base")
+        self.assertEqual(restriction.keys, {"rs1", "rs2"})
+        self.assertEqual(restriction.n_input_rows, 3)
+        self.assertEqual(restriction.n_retained_keys, 2)
+        self.assertTrue(restriction.dropped.empty)
 
     def test_read_snp_restriction_keys_with_alleles_uses_identity_match_in_allele_aware_mode(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.tsv"
-            path.write_text("SNP\tREF\tALT\nrs1\tA\tC\nrs2\tT\tG\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        path = tmpdir / "restrict.tsv"
+        path.write_text("SNP\tREF\tALT\nrs1\tA\tC\nrs2\tT\tG\n", encoding="utf-8")
 
-            restriction = read_snp_restriction_keys(path, "rsid_allele_aware")
+        restriction = read_snp_restriction_keys(path, "rsid_allele_aware")
 
-            self.assertEqual(restriction.match_kind, "identity")
-            self.assertEqual(restriction.keys, {"rs1:A:C", "rs2:A:C"})
+        self.assertEqual(restriction.match_kind, "identity")
+        self.assertEqual(restriction.keys, {"rs1:A:C", "rs2:A:C"})
 
     def test_read_snp_restriction_keys_requires_both_allele_columns_when_one_resolves(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.tsv"
-            path.write_text("SNP\tREF\nrs1\tA\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        path = tmpdir / "restrict.tsv"
+        path.write_text("SNP\tREF\nrs1\tA\n", encoding="utf-8")
 
-            with self.assertRaisesRegex(LDSCInputError, "both A1 and A2"):
-                read_snp_restriction_keys(path, "rsid_allele_aware")
+        with self.assertRaisesRegex(LDSCInputError, "both A1 and A2"):
+            read_snp_restriction_keys(path, "rsid_allele_aware")
 
     def test_read_snp_restriction_keys_drops_invalid_allele_rows_with_warning(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.tsv"
-            path.write_text("SNP\tA1\tA2\nrs1\tA\tC\nrs_bad\t\tG\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        path = tmpdir / "restrict.tsv"
+        path.write_text("SNP\tA1\tA2\nrs1\tA\tC\nrs_bad\t\tG\n", encoding="utf-8")
 
-            with self.assertLogs("LDSC.identifiers", level="WARNING") as caught:
-                restriction = read_snp_restriction_keys(path, "rsid_allele_aware")
-
-            self.assertEqual(restriction.match_kind, "identity")
-            self.assertEqual(restriction.keys, {"rs1:A:C"})
-            self.assertEqual(restriction.dropped["reason"].tolist(), ["missing_allele"])
-            self.assertIn("Dropped 1 SNP identity rows", "\n".join(caught.output))
-
-    def test_read_snp_restriction_keys_collapses_duplicate_identity_keys(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.tsv"
-            path.write_text("SNP\tA1\tA2\nrs1\tA\tC\nrs1\tC\tA\n", encoding="utf-8")
-
+        with self.assertLogs("LDSC.identifiers", level="WARNING") as caught:
             restriction = read_snp_restriction_keys(path, "rsid_allele_aware")
 
-            self.assertEqual(restriction.match_kind, "identity")
-            self.assertEqual(restriction.keys, {"rs1:A:C"})
-            self.assertEqual(restriction.n_retained_keys, 1)
+        self.assertEqual(restriction.match_kind, "identity")
+        self.assertEqual(restriction.keys, {"rs1:A:C"})
+        self.assertEqual(restriction.dropped["reason"].tolist(), ["missing_allele"])
+        self.assertIn("Dropped 1 SNP identity rows", "\n".join(caught.output))
+
+    def test_read_snp_restriction_keys_collapses_duplicate_identity_keys(self):
+        tmpdir = self.tmp_path
+        path = tmpdir / "restrict.tsv"
+        path.write_text("SNP\tA1\tA2\nrs1\tA\tC\nrs1\tC\tA\n", encoding="utf-8")
+
+        restriction = read_snp_restriction_keys(path, "rsid_allele_aware")
+
+        self.assertEqual(restriction.match_kind, "identity")
+        self.assertEqual(restriction.keys, {"rs1:A:C"})
+        self.assertEqual(restriction.n_retained_keys, 1)
 
     def test_read_snp_restriction_keys_drops_multiallelic_restriction_clusters(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.tsv"
-            path.write_text("CHR\tPOS\tA1\tA2\n1\t10\tA\tC\n1\t10\tA\tG\n2\t20\tA\tC\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        path = tmpdir / "restrict.tsv"
+        path.write_text("CHR\tPOS\tA1\tA2\n1\t10\tA\tC\n1\t10\tA\tG\n2\t20\tA\tC\n", encoding="utf-8")
 
-            with self.assertLogs("LDSC.identifiers", level="WARNING"):
-                restriction = read_snp_restriction_keys(path, "chr_pos_allele_aware")
+        with self.assertLogs("LDSC.identifiers", level="WARNING"):
+            restriction = read_snp_restriction_keys(path, "chr_pos_allele_aware")
 
-            self.assertEqual(restriction.match_kind, "identity")
-            self.assertEqual(restriction.keys, {"2:20:A:C"})
-            self.assertEqual(restriction.dropped["reason"].tolist(), ["multi_allelic_base_key", "multi_allelic_base_key"])
+        self.assertEqual(restriction.match_kind, "identity")
+        self.assertEqual(restriction.keys, {"2:20:A:C"})
+        self.assertEqual(restriction.dropped["reason"].tolist(), ["multi_allelic_base_key", "multi_allelic_base_key"])
 
     def test_read_snp_restriction_keys_base_modes_ignore_bad_allele_columns(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.tsv"
-            path.write_text(
-                "CHR\tPOS\tA1\tA2\n"
-                "1\t10\tA\tT\n"
-                "1\t10\tC\tG\n"
-                "2\t20\t\tAT\n",
-                encoding="utf-8",
-            )
+        tmpdir = self.tmp_path
+        path = tmpdir / "restrict.tsv"
+        path.write_text(
+            "CHR\tPOS\tA1\tA2\n"
+            "1\t10\tA\tT\n"
+            "1\t10\tC\tG\n"
+            "2\t20\t\tAT\n",
+            encoding="utf-8",
+        )
 
-            restriction = read_snp_restriction_keys(path, "chr_pos")
+        restriction = read_snp_restriction_keys(path, "chr_pos")
 
-            self.assertEqual(restriction.match_kind, "base")
-            self.assertEqual(restriction.keys, {"1:10", "2:20"})
-            self.assertTrue(restriction.dropped.empty)
+        self.assertEqual(restriction.match_kind, "base")
+        self.assertEqual(restriction.keys, {"1:10", "2:20"})
+        self.assertTrue(restriction.dropped.empty)
 
     def test_read_snp_restriction_keys_base_modes_ignore_single_allele_like_column(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.tsv"
-            path.write_text("SNP\tREF\nrs1\tA\nrs2\tT\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        path = tmpdir / "restrict.tsv"
+        path.write_text("SNP\tREF\nrs1\tA\nrs2\tT\n", encoding="utf-8")
 
-            restriction = read_snp_restriction_keys(path, "rsid")
+        restriction = read_snp_restriction_keys(path, "rsid")
 
-            self.assertEqual(restriction.match_kind, "base")
-            self.assertEqual(restriction.keys, {"rs1", "rs2"})
-            self.assertTrue(restriction.dropped.empty)
+        self.assertEqual(restriction.match_kind, "base")
+        self.assertEqual(restriction.keys, {"rs1", "rs2"})
+        self.assertTrue(restriction.dropped.empty)
 
 
 import pytest

@@ -24,19 +24,19 @@ from tests.quantile_fixtures import write_quantile_inputs, write_quantile_ldscor
 
 class QuantileH2NumericsTest(unittest.TestCase):
     def test_literal_nan_missing_token_is_excluded_explicitly(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            target = Path(tmpdir) / "target.tsv"
-            target.write_text(
-                "CHR\tPOS\tSNP\ttarget\n1\t10\trs1\tNaN\n1\t20\trs2\t1.5\n",
-                encoding="utf-8",
-            )
+        tmpdir = self.tmp_path
+        target = tmpdir / "target.tsv"
+        target.write_text(
+            "CHR\tPOS\tSNP\ttarget\n1\t10\trs1\tNaN\n1\t20\trs2\t1.5\n",
+            encoding="utf-8",
+        )
 
-            chunk = next(target_chunks([str(target)], "target", parse_missing_token("NaN")))
-            values, excluded = chunk.target_value, chunk.target_excluded
+        chunk = next(target_chunks([str(target)], "target", parse_missing_token("NaN")))
+        values, excluded = chunk.target_value, chunk.target_excluded
 
-            self.assertEqual(excluded.tolist(), [True, False])
-            self.assertTrue(math.isnan(values.iloc[0]))
-            self.assertEqual(values.iloc[1], 1.5)
+        self.assertEqual(excluded.tolist(), [True, False])
+        self.assertTrue(math.isnan(values.iloc[0]))
+        self.assertEqual(values.iloc[1], 1.5)
 
     def test_missing_token_is_parsed_once_into_a_number_or_text(self):
         # A finite number matches numerically equal values; any other token matches its stripped text.
@@ -127,45 +127,43 @@ class QuantileH2NumericsTest(unittest.TestCase):
         self.assertTrue(math.isnan(result.loc[0, "tau_star_p"]))
 
     def test_loader_accepts_one_complete_per_query_model(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            ldscore_dir = root / "ldscores"
-            ldscore_dir.mkdir()
-            model_dir = root / "query"
-            model_dir.mkdir()
-            (model_dir / "metadata.json").write_text(
-                json.dumps({"artifact_type": "partitioned_h2_query_result", "ldscore_dir": str(ldscore_dir),
-                            "retained_ld_columns": ["base", "query"]}),
-                encoding="utf-8",
-            )
-            pd.DataFrame(
-                {
-                    "category": ["base", "query"],
-                    "coefficient": [0.1, 0.2],
-                    "coefficient_se": [0.01, 0.02],
-                }
-            ).to_csv(model_dir / "partitioned_h2_full.tsv", sep="\t", index=False)
-            pd.DataFrame(
-                {"delete_block": [0, 1], "base": [0.09, 0.11], "query": [0.19, 0.21]}
-            ).to_parquet(model_dir / "coefficient_delete_values.parquet", index=False)
+        root = self.tmp_path
+        ldscore_dir = root / "ldscores"
+        ldscore_dir.mkdir()
+        model_dir = root / "query"
+        model_dir.mkdir()
+        (model_dir / "metadata.json").write_text(
+            json.dumps({"artifact_type": "partitioned_h2_query_result", "ldscore_dir": str(ldscore_dir),
+                        "retained_ld_columns": ["base", "query"]}),
+            encoding="utf-8",
+        )
+        pd.DataFrame(
+            {
+                "category": ["base", "query"],
+                "coefficient": [0.1, 0.2],
+                "coefficient_se": [0.01, 0.02],
+            }
+        ).to_csv(model_dir / "partitioned_h2_full.tsv", sep="\t", index=False)
+        pd.DataFrame(
+            {"delete_block": [0, 1], "base": [0.09, 0.11], "query": [0.19, 0.21]}
+        ).to_parquet(model_dir / "coefficient_delete_values.parquet", index=False)
 
-            model = load_fitted_partitioned_model(model_dir)
+        model = load_fitted_partitioned_model(model_dir)
 
-            self.assertEqual(model.model_type, "baseline_plus_query")
-            self.assertEqual(model.annotation_names, ["base", "query"])
-            self.assertEqual(model.tau_delete.shape, (2, 2))
+        self.assertEqual(model.model_type, "baseline_plus_query")
+        self.assertEqual(model.annotation_names, ["base", "query"])
+        self.assertEqual(model.tau_delete.shape, (2, 2))
 
     def test_loader_rejects_aggregate_multi_query_root(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            (root / "diagnostics").mkdir()
-            (root / "diagnostics" / "metadata.json").write_text(
-                json.dumps({"artifact_type": "partitioned_h2_result", "analysis_type": "cell_type_specific"}),
-                encoding="utf-8",
-            )
+        root = self.tmp_path
+        (root / "diagnostics").mkdir()
+        (root / "diagnostics" / "metadata.json").write_text(
+            json.dumps({"artifact_type": "partitioned_h2_result", "analysis_type": "cell_type_specific"}),
+            encoding="utf-8",
+        )
 
-            with self.assertRaisesRegex(LDSCInputError, "aggregate multi-query"):
-                load_fitted_partitioned_model(root)
+        with self.assertRaisesRegex(LDSCInputError, "aggregate multi-query"):
+            load_fitted_partitioned_model(root)
 
 
 

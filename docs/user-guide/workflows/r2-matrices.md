@@ -1,6 +1,6 @@
 # Build and query R² matrices
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-07
 
 `ldsc build-r2-matrix` computes the unbiased R² between pairs of SNPs within an LD window from the genotypes of a PLINK reference panel and saves them as an R² matrix.
 An R² matrix is a reusable reference panel: build it once, then use it with `ldsc ldscore --r2-matrix-dir` to compute LD scores for any annotations and traits, or with `ldsc query-r2-matrix` to look up the LD between specific SNP pairs.
@@ -255,4 +255,4 @@ Memory also grows with the number of retained individuals and SNPs, the density 
 Wider windows store more pairs and take longer.
 There is no general run-time estimate: time one representative chromosome before scheduling a genome-wide build.
 
-For the Python API, see [Python usage](../python-usage.md#r2-matrices).
+For the Python API, see [Python usage](../python-usage.md#r-matrices).

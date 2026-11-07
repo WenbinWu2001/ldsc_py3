@@ -1,6 +1,6 @@
 # Memory and CPU efficiency design
 
-Last updated on: 2026-11-06
+Last updated on: 2026-11-07
 
 <a id="annotation-and-workflow-memory-design"></a>
 
@@ -22,10 +22,10 @@ The older annotation benchmark scripts were removed from the active tree on Sept
 | Two content passes and disk-backed global identity checks | [Source preparation](#bounded-source-preparation) | Avoid a dense whole-genome annotation matrix and numeric spool; repeat input parsing/decompression. |
 | Exact binary classification and bit-packing | [Annotation format](#annotation-format-policy) | About 32 times smaller binary payload than float32; decode only selected tiles. |
 | Shared baseline/control plus active query preparation | [BED and gene queries](#bed-and-gene-queries) | Retain one generated query batch; preserve complete source validation outside the batch loop. |
-| Selective BED reads and unrestricted build streaming | [Genotypes and R² matrix construction](#genotype-access-and-r2-matrix-construction) | Avoid whole-source/sample-filter copies; streaming rereads genotype bytes. |
-| Numeric pair emission and compact R² storage | [Genotypes and R² matrix construction](#genotype-access-and-r2-matrix-construction) | Avoid per-pair Python objects and repeated SNP identities; R² quantization is lossy. |
+| Selective BED reads and unrestricted build streaming | [Genotypes and R² matrix construction](#genotype-access-and-r-matrix-construction) | Avoid whole-source/sample-filter copies; streaming rereads genotype bytes. |
+| Numeric pair emission and compact R² storage | [Genotypes and R² matrix construction](#genotype-access-and-r-matrix-construction) | Avoid per-pair Python objects and repeated SNP identities; R² quantization is lossy. |
 | Output-row accumulators, tiled float64 operands, fused weights | [Direct LD scoring](#direct-ld-score-computation) | Reuse each correlation block within a batch; another batch repeats reference traversal. |
-| Bounded R² pair buffers and rectangular sparse products | [Sparse projection](#streamed-r2-projection) | Read stored pairs once per traversal; CSR construction and operand/product tiles still allocate. |
+| Bounded R² pair buffers and rectangular sparse products | [Sparse projection](#streamed-r-projection) | Read stored pairs once per traversal; CSR construction and operand/product tiles still allocate. |
 | Baseline-by-query overlaps and query diagonals | [Compact sufficient statistics](#compact-count-and-overlap-statistics) | Avoid a query-by-query matrix without changing separate-query models. |
 | Persistent workers, bounded dispatch, controlled native threads | [Chromosome parallelism](#chromosome-parallelism) | Reuse startup and avoid thread oversubscription; each worker adds a live working set. |
 | One active fragment batch and chromosome-order assembly | [Direct scoring](#direct-ld-score-computation), [index access](#immutable-gene-ld-score-index-access) | Avoid genome-wide query transport/concatenation; write compressed fragments and staged final files. |
@@ -275,8 +275,6 @@ Its audits use `annotation_snp_count`; reference-panel support remains unevaluat
 Direct LD scoring evaluates support on retained reference rows and applies its additional regression-specific viability rules.
 See the [gene-list condition–outcome table](../../reference/annotate.md#gene-list-queries).
 
-<a id="genotype-access-and-r2-matrix-construction"></a>
-
 ## Genotype access and R² matrix construction
 
 [`PlinkBEDFile`](../../../src/ldsc/_refpanel/plink.py) reads physical SNP records selectively and applies individual filtering during each read.
@@ -366,8 +364,6 @@ The concatenation checks that order and raises `LDSCInternalError` if a chromoso
 [`_ldscore/query_variation.py`](../../../src/ldsc/_ldscore/query_variation.py) combines each chromosome's first values and within-chromosome variation flags, including columns that are constant within chromosomes but differ between chromosomes.
 Direct filtering uses the same float32 values as the materialized API; indexed filtering continues to use float64.
 The small prepared no-output Python route still returns a materialized `LDScoreResult`.
-
-<a id="streamed-r2-projection"></a>
 
 ### Streamed R² projection
 

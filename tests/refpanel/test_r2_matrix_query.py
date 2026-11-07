@@ -480,14 +480,6 @@ class TestQueryR2MatrixCLI:
         result = pd.read_csv(out_dir / "query_r2_matrix.tsv", sep="\t")
         assert result["r2"].iloc[0] == pytest.approx(0.64, abs=1e-4)
 
-    def test_out_flag_is_removed(self, tmp_path):
-        from ldsc.cli import main as cli_main
-
-        pairs_path = self._write_pairs(tmp_path)
-        with pytest.raises(SystemExit):
-            cli_main(self._argv(tmp_path, pairs_path, "--out", str(tmp_path / "x.tsv")))
-
-
 class TestQueryR2MatrixWriter:
     def test_writes_nan_literal_for_missing_values(self, tmp_path):
         # Missing numeric r2/r render as the explicit literal "NaN", consistent

@@ -1395,18 +1395,6 @@ class SumstatsMungerTest(unittest.TestCase):
             ):
                 SumstatsMunger().run(MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path, output_dir=tmpdir / "out", source_genome_build="hg38", output_genome_build="hg38"), global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"))
 
-    def test_parser_rejects_removed_no_alleles_flag(self):
-        with self.assertRaises(SystemExit):
-            sumstats_workflow.build_parser().parse_args(
-                [
-                    "--raw-sumstats-file",
-                    "raw.tsv",
-                    "--output-dir",
-                    "sumstats",
-                    "--no-alleles",
-                ]
-            )
-
     def test_rsid_allele_aware_requires_alleles(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -1672,10 +1660,6 @@ class SumstatsMungerTest(unittest.TestCase):
 
             with self.assertRaisesRegex(ldsc.LDSCInputError, "--signed-sumstats EFFECT_SIZE,0"):
                 SumstatsMunger().run(MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path, output_dir=tmpdir / "out"), global_config=GlobalConfig(snp_identifier="rsid"))
-
-    def test_parser_rejects_removed_merge_alleles(self):
-        with self.assertRaises(SystemExit):
-            sumstats_workflow.build_parser().parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "sumstats", "--merge-alleles", "hm3.tsv.gz"])
 
     def test_run_restricts_sumstats_snps_file_by_rsid_without_reordering(self):
         with tempfile.TemporaryDirectory() as tmpdir:

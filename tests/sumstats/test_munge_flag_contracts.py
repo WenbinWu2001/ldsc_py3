@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from ldsc import LDSCInputError, load_sumstats
-from ldsc._sumstats.munger import build_parser, main
+from ldsc._sumstats.munger import main
 
 
 @pytest.mark.parametrize("frequency_column", ["FRQ", "MAF", None])
@@ -68,12 +68,6 @@ def test_daner_auto_and_explicit_share_missing_sample_size_validation(tmp_path):
                 "--raw-sumstats-file", str(raw), "--output-dir", str(tmp_path / profile),
                 "--snp-identifier", "rsid", "--no-snp-restriction", "--input-format", profile,
             ])
-
-
-def test_legacy_keep_maf_flag_is_rejected():
-    with pytest.raises(SystemExit) as caught:
-        build_parser().parse_args(["--raw-sumstats-file", "unused.tsv", "--output-dir", "unused", "--keep-maf"])
-    assert caught.value.code == 2
 
 
 @pytest.mark.parametrize("options", [[], ["--N-min", "0"]])

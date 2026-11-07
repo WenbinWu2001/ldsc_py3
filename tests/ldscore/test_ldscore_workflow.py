@@ -908,7 +908,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 ]
             )
 
-    def test_build_parser_accepts_maf_min_and_common_maf_min_but_rejects_old_maf(self):
+    def test_build_parser_accepts_maf_min_and_common_maf_min(self):
         parser = ldscore_workflow.build_parser()
         args = parse_command_line(parser,
             [
@@ -928,21 +928,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
         )
         self.assertEqual(args.maf_min, 0.01)
         self.assertEqual(args.common_maf_min, 0.2)
-        with self.assertRaises(SystemExit):
-            parse_command_line(parser,
-                [
-                    "--output-dir",
-                    "out/example",
-                    "--baseline-annot-sources",
-                    "baseline.annot.gz",
-                    "--plink-prefix",
-                    "panel",
-                    "--ld-wind-snps",
-                    "10",
-                    "--maf",
-                    "0.01",
-                ]
-            )
 
     def test_common_counts_use_an_inclusive_maf_threshold(self):
         metadata = pd.DataFrame({"MAF": [0.05, 0.0500001, 0.2, 0.04]})

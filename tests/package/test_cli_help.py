@@ -204,17 +204,44 @@ def test_wrapped_help_keeps_companion_flag_names_intact(commands):
     assert "--gene-ldscore-index-dir" in r2_description
 
 
-@pytest.mark.parametrize("command", ["h2", "partitioned-h2", "rg"])
-def test_regression_rejects_removed_no_intercept(commands, command, capsys):
-    inputs = (["--sumstats-sources", "one.parquet", "two.parquet"] if command == "rg"
-              else ["--sumstats-file", "one.parquet"])
+# Minimal valid inputs for each command, so the removed flag is the only error.
+_MINIMAL_ARGV = {
+    "ldscore": ["--baseline-annot-sources", "baseline.annot.gz", "--plink-prefix", "panel",
+                "--ld-wind-snps", "10", "--output-dir", "out"],
+    "build-r2-matrix": ["--plink-prefix", "panel_chr@", "--source-genome-build", "hg38",
+                        "--ld-wind-kb", "10", "--output-dir", "out"],
+    "munge-sumstats": ["--raw-sumstats-file", "raw.tsv", "--output-dir", "out"],
+    "query-r2-matrix": ["--r2-matrix-dir", "r2", "--genome-build", "hg38", "--pairs-file", "pairs.tsv",
+                        "--output-dir", "out"],
+    "h2": ["--sumstats-file", "one.parquet", "--ldscore-dir", "ldscores", "--output-dir", "results"],
+    "partitioned-h2": ["--sumstats-file", "one.parquet", "--ldscore-dir", "ldscores", "--output-dir", "results"],
+    "rg": ["--sumstats-sources", "one.parquet", "two.parquet", "--ldscore-dir", "ldscores",
+           "--output-dir", "results"],
+}
+
+
+# `--maf` and `--out` would abbreviate `--maf-min` and `--output-dir` if a
+# parser allowed abbreviations, so these cases also pin `allow_abbrev=False`.
+@pytest.mark.parametrize("command, removed", [
+    ("ldscore", ["--print-snps", "filters/print_snps.txt"]),
+    ("ldscore", ["--out", "out/example"]),
+    ("ldscore", ["--maf", "0.01"]),
+    ("build-r2-matrix", ["--maf", "0.01"]),
+    ("munge-sumstats", ["--no-alleles"]),
+    ("munge-sumstats", ["--merge-alleles", "hm3.tsv.gz"]),
+    ("munge-sumstats", ["--keep-maf"]),
+    ("query-r2-matrix", ["--out", "x.tsv"]),
+    ("h2", ["--no-intercept"]),
+    ("partitioned-h2", ["--no-intercept"]),
+    ("rg", ["--no-intercept"]),
+])
+def test_removed_flags_are_rejected(commands, command, removed, capsys):
+    parser = commands[command]
     with pytest.raises(SystemExit) as error:
-        commands[command].parse_args([
-            *inputs, "--ldscore-dir", "ldscores", "--output-dir", "results", "--no-intercept",
-        ])
+        parser.parse_args([*_MINIMAL_ARGV[command], *removed])
     assert error.value.code == 2
-    assert "unrecognized arguments: --no-intercept" in capsys.readouterr().err
-    assert "--no-intercept" not in commands[command].format_help()
+    assert f"unrecognized arguments: {' '.join(removed)}" in capsys.readouterr().err
+    assert not re.search(rf"(?<![\w-]){removed[0]}(?![\w-])", parser.format_help())
 
 
 def test_path_help_distinguishes_suites_globs_and_single_files(commands):

@@ -6,8 +6,6 @@ import unittest
 
 import pandas as pd
 
-from tests.cli_parsing import parse_command
-
 
 class PackageLayoutTest(unittest.TestCase):
     def test_installed_import_cli_and_resources_outside_repository(self):
@@ -238,72 +236,3 @@ print(ldsc.__file__)
         ):
             self.assertTrue(hasattr(annotation_builder, name), f"{name} should be public")
 
-    def test_ldscore_subcommand_rejects_legacy_print_snps_flag(self):
-        with self.assertRaises(SystemExit):
-            parse_command(
-                [
-                    "ldscore",
-                    "--output-dir",
-                    "out/ldscores",
-                    "--baseline-annot-sources",
-                    "baseline.annot.gz",
-                    "--plink-prefix",
-                    "panel",
-                    "--ld-wind-snps",
-                    "10",
-                    "--print-snps",
-                    "filters/print_snps.txt",
-                ]
-            )
-
-    def test_ldscore_subcommand_rejects_removed_out_flag(self):
-        with self.assertRaises(SystemExit) as exc:
-            parse_command(
-                [
-                    "ldscore",
-                    "--out",
-                    "out/example",
-                    "--baseline-annot-sources",
-                    "baseline.annot.gz",
-                    "--plink-prefix",
-                    "panel",
-                    "--ld-wind-snps",
-                    "10",
-                ]
-            )
-
-        self.assertNotEqual(exc.exception.code, 0)
-
-    def test_old_maf_flag_is_rejected_for_reference_panel_workflows(self):
-        with self.assertRaises(SystemExit):
-            parse_command(
-                [
-                    "ldscore",
-                    "--output-dir",
-                    "out/ldscores",
-                    "--baseline-annot-sources",
-                    "baseline.annot.gz",
-                    "--plink-prefix",
-                    "panel",
-                    "--ld-wind-snps",
-                    "10",
-                    "--maf",
-                    "0.01",
-                ]
-            )
-        with self.assertRaises(SystemExit):
-            parse_command(
-                [
-                    "build-r2-matrix",
-                    "--plink-prefix",
-                    "data/reference/panel_chr@",
-                    "--source-genome-build",
-                    "hg38",
-                    "--ld-wind-kb",
-                    "10",
-                    "--output-dir",
-                    "out/panel",
-                    "--maf",
-                    "0.01",
-                ]
-            )

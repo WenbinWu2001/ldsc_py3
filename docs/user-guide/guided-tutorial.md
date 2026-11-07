@@ -460,49 +460,8 @@ The cell-type summary plot uses the aggregate `partitioned-h2` result directory 
 
 ## Make annotations
 
-**Goal:** curate binary annotations from BED files, given a set of baseline annotation files.
-
-This step is not part of the analysis pipeline. We preserve it for convenience in case you need it for other purposes.
-
-```bash
-ANNOT_OUT_DIR="${OUTPUT_ROOT}/annot_processed"
-
-ldsc annotate \
-    --snp-identifier chr_pos \
-    --genome-build hg19 \
-    --ref-snp-annot-sources "$BASELINE_ANNOT_SOURCES" \
-    --query-annot-bed-sources "$RAW_QUERY_BED_SOURCES" \
-    --output-dir "$ANNOT_OUT_DIR" \
-    --overwrite
-```
-
-**Remarks:**
-
-- For each chromosome, all input query annotations are combined into one file as separate columns, with each column name being the input's base filename (used as the annotation name).
-- The output pair is aligned after identity cleanup.
-  Pass `--baseline-annot-sources "$ANNOT_OUT_DIR/baseline.@.annot.gz"` and `--query-annot-sources "$ANNOT_OUT_DIR/query.@.annot.gz"` together to downstream `ldsc ldscore`, using the exported baselines instead of the original inputs.
-  Each query file contains all query columns for its chromosome.
-- To use BIM SNP metadata instead, replace `--ref-snp-annot-sources` with `--ref-snp-bim-sources 'panel/reference.@.bim'`.
-  These options are mutually exclusive; BIM mode writes only query files and requires no BED/FAM companions.
-- Do not create one chromosome-sharded annotation suite per query. In sharded annotation-input mode, `ldscore` expects one query annotation file per chromosome and reads the separate queries from its columns. This input rule is distinct from the numbered genome-wide query LD-score output files described above.
-- The generated annotation header includes `CM` for compatibility, with values written as `NA`. Input annotation CM values are discarded; LD scoring uses reference-panel CM. See [`_annotation.parsing.normalize_annotation_chunk`](../../src/ldsc/_annotation/parsing.py).
-- See the `annotate` wiki for more on this functionality.
-
-**Outputs:**
-
-Upon a successful run, you should expect the following files in your output directory:
-
-```
-annot_processed/
-    baseline.1.annot.gz ... baseline.22.annot.gz
-    query.1.annot.gz ... query.22.annot.gz
-    diagnostics/
-        metadata.json
-        annotate.log
-        dropped_snps/
-            dropped.tsv.gz
-```
-
+The analyses above use prebuilt annotations.
+To build binary query annotations from BED files or gene lists on the rows of your baseline annotations, run `ldsc annotate` and pass its exported baseline and query files together to `ldsc ldscore`; see [create reusable SNP annotations](workflows/annotations.md#annotate-from-bed-files).
 
 ## Backward compatibility with legacy LDSC
 

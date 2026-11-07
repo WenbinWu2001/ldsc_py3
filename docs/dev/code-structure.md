@@ -279,10 +279,11 @@ Each test folder has an `__init__.py`, which makes those full module paths impor
 | output layer | `tests/runtime/test_output.py` |
 | annotation workflow | `tests/annotation/test_annotation.py`, `tests/annotation/test_annotate_grid.py`, `tests/annotation/test_annotate_streaming.py` |
 | reference-panel builder | `tests/refpanel/test_r2_matrix_builder.py` |
-| runtime reference panels | `tests/refpanel/test_ref_panel.py` |
+| runtime reference panels | `tests/refpanel/test_ref_panel.py`; `tests/refpanel/test_reference_preparation.py`: known raw and unbiased results, alignment, authoritative metadata, physical row mapping and failure cleanup |
+| reference-SNP funnel and shared PLINK selection | `tests/ldscore/test_reference_snp_funnel.py`: funnel counts on both backends, the grid-emptied failure and the published diagnostics; `tests/ldscore/test_restriction_before_identity_cleanup.py`: `ldscore --plink-prefix`, `build-r2-matrix` and `ldscore --r2-matrix-dir` keep the same reference SNPs from one panel and restriction, a non-whole-number `.bim` position stops a run, and a chromosome emptied by the restriction or by identity cleanup is skipped |
 | R² pair query | `tests/refpanel/test_r2_matrix_query.py` |
 | R² matrix chromosome reads and LD windows | `tests/refpanel/test_r2_format.py`, `tests/refpanel/test_windows.py`; also `tests/refpanel/test_plink_io.py` (row remap, pair iteration, `get_block_lefts`), `tests/refpanel/test_r2_parquet_contract.py` (file contract and the int16 scale) and `tests/refpanel/test_r2_matrix_chromosome.py` (sidecar damage through `ldscore` and `query-r2-matrix`) |
-| LD-score workflow | `tests/ldscore/test_ldscore_workflow.py` |
+| LD-score workflow | `tests/ldscore/test_ldscore_workflow.py`, including the public single-reader path |
 | gene coordinate catalog and gene-list resolution | `tests/annotation/test_gene_list_resolver.py` |
 | summary-statistics munging | `tests/sumstats/test_sumstats_munger.py`, `tests/sumstats/test_sumstats_outputs.py`, `tests/sumstats/test_sumstats_liftover.py` |
 | regression workflow | `tests/regression/test_alignment.py`, `tests/regression/test_fitting.py`, `tests/regression/test_partitioned.py`, `tests/regression/test_rg.py`, `tests/regression/test_regression_commands.py` |

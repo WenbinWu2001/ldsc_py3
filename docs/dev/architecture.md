@@ -115,48 +115,23 @@ The CLI opens no scope; `run_cli()` wraps dispatch in `cli_command()`, and the m
 
 `_plotting.dispatch` and `_regression.h2_scale` read canonical result directories through `_runtime.artifacts.declared_result_file()` and declare their derived families as `ArtifactFamily` values, as the domain writers do; their seams, output families and the `rg` heritability annotations are in [plotting](design/plotting.md).
 
-### `ldsc._annotation.builder`
+### Annotations
 
-This is the public annotation API and CLI dispatch seam: `AnnotationBuilder`, `AnnotationBundle`, `AnnotationResult`, `run_annotate()`, `build_parser()`, `run_annotate_from_args()`, and `main()`.
-`AnnotationBuilder.run(..., output_dir=...)` prepares a chromosome-backed dataset with explicit ownership.
-`_annotation.annotate` owns standalone BED/gene validation and incremental canonical output.
-`_annotation.bim_grid` stages metadata-only BIM grids through `_annotation.sources.stage_retained_rows()`, the global identity cleanup that annotation-file preparation also uses.
-Annotation-grid input emits aligned baseline/query families; BIM input emits query values only.
-`_annotation.saved_results` records these exports in the returned `AnnotationResult`, which owns no files; `prepared_in(directory)` reopens them, without original-input dependencies, as a bundle that owns its private folder in the directory the caller chooses.
-`_annotation.preflight` holds the query checks that `run_annotate()`, `ldscore` and `build_annotation_shards()` (behind `AnnotationBuilder` and `quantile-h2`) share: BED and gene-list query names that are reserved or collide stop before any grid is read, and the gene-list Gate A error and the projection genome build come from one place; `ldscore` resolves its own build against the reference panel.
-Gene-list Gate A is one call in all four gene-list workflows (`annotate`, `ldscore`, indexed scoring and `build_annotation_shards()`): `_annotation.gene_query_storage.resolve_gene_lists_staged()` resolves the lists and applies the query-name check against its required `existing_columns`, and each workflow keeps its own failure handling.
-Each preparation path turns its `PreparedAnnotationSources` into a bundle with `PreparedAnnotationSources.bundle()`.
-The other `_annotation` modules own bounded discovery, identity cleanup, separate metadata/value artifacts, projection, and storage lifetime; `_ldscore.direct_annotation` integrates them with direct LD-score scope and support gates.
-The complete module and ownership map is in [memory-and-cpu.md](design/memory-and-cpu.md).
+`run_annotate()` (`_annotation.annotate`), `ldscore` and `_annotation.loading.build_annotation_shards()` (behind `AnnotationBuilder` and `quantile-h2`) share the query checks of `_annotation.preflight`: reserved or colliding BED and gene-list query names stop a run before any grid is read, and the gene-list Gate A error and the projection genome build come from one place, while `ldscore` resolves its own build against the reference panel.
+Gate A itself is one call, `_annotation.gene_query_storage.resolve_gene_lists_staged()`, in `annotate`, `ldscore`, indexed scoring and `build_annotation_shards()`; each workflow keeps its own failure handling.
+BED and gene intervals reach SNPs through one projector: `_annotation.interval_queries.build_query_shards()` applies `_annotation.interval_projection.ChromosomeProjector` to BED rows from `_core.regions.iter_bed_rows()` and to resolved gene intervals.
+Only `annotate` measures gene support in that pass, by passing a `gene_support` object; direct `ldscore` measures it later on the prepared reference SNPs (Gate B).
+`_ldscore.direct_annotation` joins the annotation modules to the direct LD-score scope and support gates; storage ownership and lifetimes are in [memory and CPU](design/memory-and-cpu.md#ownership-and-lifetime).
 
-For interval projection, `_annotation.interval_queries.prepare_bed_queries()` streams validated BED rows from `_core.regions.iter_bed_rows()` into chromosome spools.
-`_annotation.interval_queries.build_query_shards()` uses `_annotation.interval_projection.ChromosomeProjector` for both BED and gene intervals, preserving zero-based half-open membership against one-based SNP positions.
-`annotate` measures annotation-row gene support in the same pass by passing a `gene_support` object, which also sets the gene query statuses; the other callers only project.
+### Reference panels
 
-### `ldsc._annotation.gene_lists`, `ldsc._annotation.query_outcomes`
-
-These internal helpers validate the user-supplied or index-embedded gene coordinate catalog, resolve exact identifiers, and apply ordered query-status rules.
-`_annotation.gene_query_storage` shares gene-coordinate-catalog lookups, stages per-source selections and complete audits, and returns compact summaries.
-Gene-coordinate-catalog build selection, scientific-query pruning, and final diagnostic publication remain with the consuming workflow.
-
-### `ldsc._refpanel.builder`
-
-This module builds R² matrices from PLINK inputs.
-It handles optional genetic-map loading, optional chain-file liftover selection and liftover-stage rows of the dropped-SNP table, then delegates pairwise-R² emission to the kernel.
-`_refpanel.outputs.R2MatrixBuildDirectoryWriter` owns the output layout: its `artifact_family()` declares the files a run writes and owns (one chromosome's files, with chromosome-scoped metadata, log and failure-marker names, for a concrete single-chromosome run; the whole directory for an `@` suite run), and it writes the build metadata and the dropped-SNP tables in the shared identity-drop columns.
-Each chromosome's SNPs come from `_refpanel.plink_source.select_plink_chromosome()`, the selection stage `ldscore --plink-prefix` also uses (SNP restriction, then identity cleanup of the rows it keeps, and the keep list mapped to `.fam` rows); the builder adds liftover and duplicate-position filtering on the rows it returns.
-The SNP restriction and the keep list are read once per run, in `_prepare_build_state()`.
-PLINK source build is explicit or inferred locally; a matching chain emits the opposite build only in `chr_pos`-family modes, while `rsid`-family builds are source-build-only.
-Coordinate duplicate handling is `chr_pos`-family behavior and always uses drop-all for source/target collision groups; processed chromosomes always write `diagnostics/dropped_snps/chr{chrom}_dropped.tsv.gz`, header-only when no liftover-stage rows dropped.
-Named MHC and centromere exclusion is not part of reference-panel construction; `ldscore` and `build-gene-ldscore-index` apply it only to regression/output SNPs.
-Architecture invariant: emitted parquet schemas are part of the public file contract for parquet-backed LDSC3 workflows.
-
-### `ldsc._refpanel.query`
-
-This module is the public pair-query surface for package-built R² matrices.
-`R2Matrix.open()` accepts a `build-r2-matrix` output directory or its genome-build child and checks every chromosome's files and Parquet footer through `R2MatrixChromosome`; each sidecar and its binding are validated, and per-chromosome index state cached, when a query first touches the chromosome.
-`R2Matrix.query_pairs()` and `query_r2_matrix()` accept endpoint-suffixed pair tables and append `r2`, nullable `sign_r`, signed Pearson `r`, and `status`; low-level Parquet lookup lives in `ldsc._refpanel.r2_format`.
-Architecture invariant: `query-r2-matrix` reads canonical package-built R² matrices only; it does not define a second external R² format.
+`_refpanel.plink_source.select_plink_chromosome()` is the one BIM-level selection stage of every PLINK route: `PlinkRefPanel` (`ldscore --plink-prefix` and gene LD-score index construction) records the reference-SNP funnel from the counts it returns, and `R2MatrixBuilder` adds liftover and duplicate-position filtering to the rows it returns.
+`RefPanel.prepare_chromosome()` is the boundary between reference panels and LD-score computation: direct `ldscore` chromosome tasks (`compute_direct_chromosome()`) and PLINK gene LD-score index construction call it, and `_ldscore.compute.compute_chromosome()` consumes the returned `PreparedChromosome` without reopening a source.
+Preparation keeps only reference SNPs on the annotation SNP grid (`_align_annotations()`) and records each step's removals in the reference-SNP funnel ([reference SNPs on the annotation SNP grid](../reference/ldscore-snp-universes.md#reference-snps-on-the-annotation-snp-grid)).
+A panel reads `--ref-panel-snps-file` and `--keep-indivs-file` once, on first use; `_DirectProducer` resolves them on its task panel in the main process (`RefPanel._resolve_run_inputs()`), so the copies sent to chromosome workers carry them.
+`R2MatrixRefPanel.check_chromosome()` runs the footer and sidecar-binding checks of one R² matrix chromosome without preparing it; the `ldscore` input preflight (`_ldscore.preflight.inspect_reference_inputs()`) and `R2MatrixRefPanel.check_reference()`, which `LDScoreCalculator` calls, both use it, and preparation opens each chromosome once through `R2MatrixRefPanel.open_chromosome()`.
+`_ldscore.compute` picks its kernel from the prepared reader: a `SortedR2BlockReader` streams R² pairs, and a PLINK genotype reader is rewound before its block sums.
+`build-r2-matrix` (`_refpanel.builder`) and `query-r2-matrix` (`_refpanel.query`) write and read R² matrices only through `_refpanel.r2_format`; their contracts are in [R² matrices](../reference/formats/r2-matrices.md) and [`query-r2-matrix`](../reference/query-r2-matrix.md).
 
 ### `ldsc._ldscore.workflow`
 
@@ -194,23 +169,6 @@ Chromosome workers return only the typed `EmptyReferenceSNPs` outcome as a skip,
 The parent fails the run, naming every such chromosome, when the `annotation_snp_grid` step emptied a chromosome (`annotation_snp_grid_emptied()` in `_refpanel/funnel.py`), and otherwise logs the skip as a WARNING; the batch-1 funnels become `diagnostics/reference_snp_funnel.tsv`.
 Runs without annotation files skip such a chromosome earlier: `_ldscore.direct_annotation.prepare_synthetic_base()` builds the synthetic `base` from `RefPanel.load_metadata()`, which raises `EmptyReferenceSNPs` with the funnel when the panel's filters leave no SNP; the chromosome gets no task, its skip is logged as a WARNING, and `_DirectProducer` adds its funnel to the batch-1 funnels.
 Architecture invariant: computation stays chromosome-wise, global filtering uses the complete chromosome summaries, and final publication follows complete success.
-
-### `ldsc._refpanel.adapters`, `ldsc._ldscore.compute`
-
-`RefPanel.prepare_chromosome(chrom, annotations, config)` is the shared preparation boundary for the direct `ldscore` chromosome tasks (`compute_direct_chromosome()`) and PLINK gene LD-score index construction.
-The PLINK/parquet adapters own source resolution, identity and SNP restrictions, sample/MAF filtering, annotation alignment, authoritative reference CM/MAF, LD-window validation, and reader policy.
-`PlinkRefPanel._load_source()` selects a chromosome's rows through `_refpanel.plink_source.select_plink_chromosome()`, the stage `build-r2-matrix` uses, and records the reference-SNP funnel from the counts it returns.
-Each panel reads `--ref-panel-snps-file` (both backends) and `--keep-indivs-file` (PLINK) once, on first use; `_DirectProducer` resolves them on its task panel in the main process (`RefPanel._resolve_run_inputs()`), so the copies sent to chromosome workers carry them.
-They return `PreparedChromosome`: metadata, a selected annotation accessor mapping retained reference SNPs to stored annotation rows, window bounds, and one owned reader.
-The annotation rows are the annotation SNP grid: `_align_annotations()` excludes reference-panel SNPs without an annotation row, and `_refpanel.funnel.ReferenceSNPFunnel` records each step's removals as `PreparedChromosome.reference_snp_funnel`, or on `EmptyReferenceSNPs` when no reference SNP remains ([reference SNPs on the annotation SNP grid](../reference/ldscore-snp-universes.md#reference-snps-on-the-annotation-snp-grid)).
-Packed binary and dense float32 annotation stores remain behind that accessor.
-PLINK preparation preserves physical BIM/BED row indices through sorting and filtering.
-R²-matrix preparation opens each chromosome once through `R2MatrixRefPanel.open_chromosome()` and builds its reader from that handle, so the contract check, the single sidecar parse and the sidecar binding follow the same path in production and adapter tests.
-`R2MatrixRefPanel.check_chromosome()` runs the footer and sidecar-binding checks without preparing the chromosome, optionally reading every stored pair; the `ldscore` input preflight (`_ldscore.preflight.inspect_reference_inputs()`) and `R2MatrixRefPanel.check_reference()`, which `LDScoreCalculator` calls, both use it.
-The calculation picks the kernel from the prepared reader: a `SortedR2BlockReader` streams R² pairs, and a PLINK genotype reader is rewound (`rewind()`) before its genotype block sums.
-
-`_ldscore.compute.compute_chromosome()` projects baseline/query annotations and regression weights together, then derives counts and overlap. It consumes prepared state without reopening sources. Use prepared state in a `with` block: readers close on success or failure, and metadata caches retain tables only. Separate `load_metadata()` inspection may read PLINK data independently; one chromosome calculation itself constructs one BED reader. `tests/refpanel/test_reference_preparation.py` covers known raw/unbiased results, alignment, authoritative metadata, physical row mapping, and failure cleanup; `tests/ldscore/test_reference_snp_funnel.py` covers funnel counts on both backends, the grid-emptied failure, and the published diagnostics; `tests/ldscore/test_ldscore_workflow.py` verifies the public single-reader path.
-`tests/ldscore/test_restriction_before_identity_cleanup.py` checks that `ldscore --plink-prefix`, `build-r2-matrix` and `ldscore --r2-matrix-dir` keep the same reference SNPs from one panel and one `--ref-panel-snps-file` when no liftover or duplicate position intervenes, that a `.bim` row whose position is not a whole number stops `ldscore --plink-prefix` and `build-r2-matrix` before computation, and that a chromosome emptied by the restriction or by identity cleanup of the rows it kept is skipped, with or without annotation files.
 
 ### `ldsc._ldscore.legacy_converter`
 

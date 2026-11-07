@@ -144,52 +144,52 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
         from ldsc._annotation.gene_lists import GeneCatalog
         from ldsc._annotation.query_outcomes import QueryAnnotationStatus
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "out"
-            source = Path(tmpdir) / "query.txt"
-            catalog_path = Path(tmpdir) / "catalog.tsv"
-            source.write_text("OR4F5\nNOT_A_GENE\n", encoding="utf-8")
-            catalog_path.write_text(
-                "gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
-                "ENSG00000186092\tOR4F5\t1\t10\t20\thg38\n",
-                encoding="utf-8",
-            )
-            catalog = GeneCatalog.load(catalog_path)
-            batch = resolve_gene_fixture((source,), catalog, resolution_policy="resolved-only", output_dir=Path(tmpdir))
-            status = QueryAnnotationStatus(
-                "query",
-                "query.txt",
-                "gene_list",
-                "warning",
-                "partial_gene_resolution",
-                1.0,
-                "diagnostics/gene_list_audit.tsv.gz",
-            )
-            result = dataclass_replace(
-                make_split_ldscore_result(query=True),
-                query_statuses=(status,),
-                gene_list_batch=batch,
-            )
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "out"
+        source = tmpdir / "query.txt"
+        catalog_path = tmpdir / "catalog.tsv"
+        source.write_text("OR4F5\nNOT_A_GENE\n", encoding="utf-8")
+        catalog_path.write_text(
+            "gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
+            "ENSG00000186092\tOR4F5\t1\t10\t20\thg38\n",
+            encoding="utf-8",
+        )
+        catalog = GeneCatalog.load(catalog_path)
+        batch = resolve_gene_fixture((source,), catalog, resolution_policy="resolved-only", output_dir=tmpdir)
+        status = QueryAnnotationStatus(
+            "query",
+            "query.txt",
+            "gene_list",
+            "warning",
+            "partial_gene_resolution",
+            1.0,
+            "diagnostics/gene_list_audit.tsv.gz",
+        )
+        result = dataclass_replace(
+            make_split_ldscore_result(query=True),
+            query_statuses=(status,),
+            gene_list_batch=batch,
+        )
 
-            LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
+        LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
 
-            status_table = pd.read_csv(output_dir / "diagnostics" / "query_annotation_status.tsv", sep="\t")
-            audit = pd.read_csv(output_dir / "diagnostics" / "gene_list_audit.tsv.gz", sep="\t")
-            summary = pd.read_csv(output_dir / "diagnostics" / "gene_list_resolution_summary.tsv", sep="\t")
-            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(status_table.loc[0, "reason"], "partial_gene_resolution")
-            self.assertEqual(audit["input_gene"].tolist(), ["OR4F5", "NOT_A_GENE"])
-            self.assertEqual(summary.loc[0, "rejected_rows"], 1)
-            self.assertEqual(metadata["gene_list_resolution_policy"], "resolved-only")
-            self.assertEqual(
-                metadata["query_diagnostics"],
-                {
-                    "status": "diagnostics/query_annotation_status.tsv",
-                    "gene_list_audit": "diagnostics/gene_list_audit.tsv.gz",
-                    "gene_list_resolution_summary": "diagnostics/gene_list_resolution_summary.tsv",
-                },
-            )
-            self.assertNotIn(str(Path(tmpdir)), json.dumps(metadata))
+        status_table = pd.read_csv(output_dir / "diagnostics" / "query_annotation_status.tsv", sep="\t")
+        audit = pd.read_csv(output_dir / "diagnostics" / "gene_list_audit.tsv.gz", sep="\t")
+        summary = pd.read_csv(output_dir / "diagnostics" / "gene_list_resolution_summary.tsv", sep="\t")
+        metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+        self.assertEqual(status_table.loc[0, "reason"], "partial_gene_resolution")
+        self.assertEqual(audit["input_gene"].tolist(), ["OR4F5", "NOT_A_GENE"])
+        self.assertEqual(summary.loc[0, "rejected_rows"], 1)
+        self.assertEqual(metadata["gene_list_resolution_policy"], "resolved-only")
+        self.assertEqual(
+            metadata["query_diagnostics"],
+            {
+                "status": "diagnostics/query_annotation_status.tsv",
+                "gene_list_audit": "diagnostics/gene_list_audit.tsv.gz",
+                "gene_list_resolution_summary": "diagnostics/gene_list_resolution_summary.tsv",
+            },
+        )
+        self.assertNotIn(str(tmpdir), json.dumps(metadata))
 
     def test_ldscore_writer_can_commit_diagnostics_only_for_all_skipped_batch(self):
         from ldsc._annotation.query_outcomes import QueryAnnotationStatus
@@ -208,18 +208,18 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
                 ),
             ),
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "out"
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "out"
 
-            paths = LDScoreDirectoryWriter().write_query_diagnostics(
-                diagnostics,
-                LDScoreOutputConfig(output_dir=output_dir),
-            )
+        paths = LDScoreDirectoryWriter().write_query_diagnostics(
+            diagnostics,
+            LDScoreOutputConfig(output_dir=output_dir),
+        )
 
-            self.assertEqual(set(paths), {"query_status"})
-            self.assertTrue((output_dir / "diagnostics" / "query_annotation_status.tsv").exists())
-            self.assertFalse((output_dir / "metadata.json").exists())
-            self.assertFalse((output_dir / "ldscore.baseline.parquet").exists())
+        self.assertEqual(set(paths), {"query_status"})
+        self.assertTrue((output_dir / "diagnostics" / "query_annotation_status.tsv").exists())
+        self.assertFalse((output_dir / "metadata.json").exists())
+        self.assertFalse((output_dir / "ldscore.baseline.parquet").exists())
 
     def _overlap(self):
         import numpy as np
@@ -262,36 +262,36 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             annotation_types={"base": "binary", "query": "quantitative"},
         )
         writer = LDScoreDirectoryWriter()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "ldscores"
-            output_paths = writer.write_batches([result], LDScoreOutputConfig(output_dir=output_dir)).output_paths
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "ldscores"
+        output_paths = writer.write_batches([result], LDScoreOutputConfig(output_dir=output_dir)).output_paths
 
-            self.assertEqual(set(output_paths), {"metadata", "baseline", "query"})
-            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
-            self.assertNotIn("schema_version", metadata)
-            self.assertEqual(metadata["artifact_type"], "ldscore")
-            self.assertEqual(metadata["snp_identifier"], "rsid")
-            self.assertIsNone(metadata["genome_build"])
-            self.assertNotIn("config_snapshot", metadata)
-            self.assertEqual(metadata["files"], {"baseline": "ldscore.baseline.parquet", "query": "ldscore.query.parquet"})
-            self.assertEqual(metadata["baseline_columns"], ["base"])
-            self.assertEqual(metadata["query_columns"], ["query"])
-            self.assertEqual(metadata["annotation_types"], {"base": "binary", "query": "quantitative"})
-            loaded = load_ldscore_from_dir(output_dir)
-            self.assertEqual(loaded.annotation_types, result.annotation_types)
-            self.assertEqual(metadata["counts"][1]["column"], "query")
-            self.assertEqual(
-                metadata["count_config"],
-                {
-                    "common_reference_snp_maf_min": 0.05,
-                    "common_reference_snp_maf_operator": ">=",
-                },
-            )
+        self.assertEqual(set(output_paths), {"metadata", "baseline", "query"})
+        metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+        self.assertNotIn("schema_version", metadata)
+        self.assertEqual(metadata["artifact_type"], "ldscore")
+        self.assertEqual(metadata["snp_identifier"], "rsid")
+        self.assertIsNone(metadata["genome_build"])
+        self.assertNotIn("config_snapshot", metadata)
+        self.assertEqual(metadata["files"], {"baseline": "ldscore.baseline.parquet", "query": "ldscore.query.parquet"})
+        self.assertEqual(metadata["baseline_columns"], ["base"])
+        self.assertEqual(metadata["query_columns"], ["query"])
+        self.assertEqual(metadata["annotation_types"], {"base": "binary", "query": "quantitative"})
+        loaded = load_ldscore_from_dir(output_dir)
+        self.assertEqual(loaded.annotation_types, result.annotation_types)
+        self.assertEqual(metadata["counts"][1]["column"], "query")
+        self.assertEqual(
+            metadata["count_config"],
+            {
+                "common_reference_snp_maf_min": 0.05,
+                "common_reference_snp_maf_operator": ">=",
+            },
+        )
 
-            baseline = pd.read_parquet(output_dir / "ldscore.baseline.parquet")
-            query = pd.read_parquet(output_dir / "ldscore.query.parquet")
-            self.assertEqual(baseline.columns.tolist(), ["CHR", "SNP", "POS", "regression_ld_scores", "base"])
-            self.assertEqual(query.columns.tolist(), ["CHR", "SNP", "POS", "query"])
+        baseline = pd.read_parquet(output_dir / "ldscore.baseline.parquet")
+        query = pd.read_parquet(output_dir / "ldscore.query.parquet")
+        self.assertEqual(baseline.columns.tolist(), ["CHR", "SNP", "POS", "regression_ld_scores", "base"])
+        self.assertEqual(query.columns.tolist(), ["CHR", "SNP", "POS", "query"])
 
     def test_ldscore_writer_requires_config_snapshot(self):
         result = dataclass_replace(make_split_ldscore_result(query=False), config_snapshot=None)
@@ -328,11 +328,11 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
 
     def test_ldscore_writer_round_trips_through_public_loader(self):
         result = make_allele_aware_ldscore_result(query=True)
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "ldscores"
-            LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "ldscores"
+        LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
 
-            loaded = load_ldscore_from_dir(str(output_dir))
+        loaded = load_ldscore_from_dir(str(output_dir))
 
         self.assertEqual(loaded.config_snapshot, GlobalConfig(snp_identifier="rsid_allele_aware"))
         self.assertEqual(frozenset(identity_key_series(loaded.baseline_table, "rsid_allele_aware")),
@@ -342,65 +342,65 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
         import pyarrow.parquet as pq
 
         result = make_multi_chrom_result()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "out"
-            LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "out"
+        LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
 
-            for fname in ("ldscore.baseline.parquet", "ldscore.query.parquet"):
-                pf = pq.ParquetFile(output_dir / fname)
-                self.assertEqual(pf.metadata.num_row_groups, 3, f"{fname}: expected 3 row groups")
-                for i in range(pf.metadata.num_row_groups):
-                    chroms = pf.read_row_group(i)["CHR"].unique().to_pylist()
-                    self.assertEqual(len(chroms), 1, f"{fname} row group {i} mixes chromosomes: {chroms}")
+        for fname in ("ldscore.baseline.parquet", "ldscore.query.parquet"):
+            pf = pq.ParquetFile(output_dir / fname)
+            self.assertEqual(pf.metadata.num_row_groups, 3, f"{fname}: expected 3 row groups")
+            for i in range(pf.metadata.num_row_groups):
+                chroms = pf.read_row_group(i)["CHR"].unique().to_pylist()
+                self.assertEqual(len(chroms), 1, f"{fname} row group {i} mixes chromosomes: {chroms}")
 
     def test_chromosome_read_via_row_group_index_excludes_other_chromosomes(self):
         import pyarrow.parquet as pq
 
         result = make_multi_chrom_result()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "out"
-            LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "out"
+        LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
 
-            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
-            rg_by_chrom = {e["chrom"]: e["row_group_index"] for e in metadata["baseline_row_groups"]}
+        metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+        rg_by_chrom = {e["chrom"]: e["row_group_index"] for e in metadata["baseline_row_groups"]}
 
-            pf = pq.ParquetFile(output_dir / "ldscore.baseline.parquet")
-            df = pf.read_row_group(rg_by_chrom["1"]).to_pandas()
-            self.assertTrue((df["CHR"] == "1").all())
-            self.assertNotIn("2", df["CHR"].values)
-            self.assertNotIn("22", df["CHR"].values)
+        pf = pq.ParquetFile(output_dir / "ldscore.baseline.parquet")
+        df = pf.read_row_group(rg_by_chrom["1"]).to_pandas()
+        self.assertTrue((df["CHR"] == "1").all())
+        self.assertNotIn("2", df["CHR"].values)
+        self.assertNotIn("22", df["CHR"].values)
 
     def test_ldscore_row_group_metadata_is_consistent(self):
         result = make_multi_chrom_result()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "out"
-            LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "out"
+        LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
 
-            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(metadata["row_group_layout"], "one_per_chromosome")
+        metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+        self.assertEqual(metadata["row_group_layout"], "one_per_chromosome")
 
-            for field_name, total_field in [
-                ("baseline_row_groups", "n_baseline_rows"),
-                ("query_row_groups", "n_query_rows"),
-            ]:
-                entries = metadata[field_name]
-                self.assertIsNotNone(entries)
-                expected_offset = 0
-                for e in entries:
-                    self.assertEqual(e["row_offset"], expected_offset)
-                    expected_offset += e["n_rows"]
-                self.assertEqual(expected_offset, metadata[total_field])
+        for field_name, total_field in [
+            ("baseline_row_groups", "n_baseline_rows"),
+            ("query_row_groups", "n_query_rows"),
+        ]:
+            entries = metadata[field_name]
+            self.assertIsNotNone(entries)
+            expected_offset = 0
+            for e in entries:
+                self.assertEqual(e["row_offset"], expected_offset)
+                expected_offset += e["n_rows"]
+            self.assertEqual(expected_offset, metadata[total_field])
 
     def test_query_row_groups_null_when_no_query_table(self):
         result = make_split_ldscore_result(query=False)
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "out"
-            LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "out"
+        LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
 
-            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
-            self.assertIsNone(metadata["query_row_groups"])
-            self.assertIsNotNone(metadata["baseline_row_groups"])
-            self.assertEqual(len(metadata["baseline_row_groups"]), 1)
+        metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+        self.assertIsNone(metadata["query_row_groups"])
+        self.assertIsNotNone(metadata["baseline_row_groups"])
+        self.assertEqual(len(metadata["baseline_row_groups"]), 1)
 
     def test_chromosome_above_default_row_group_cap_is_one_row_group(self):
         # pyarrow caps a written row group at 1,048,576 rows unless told
@@ -416,86 +416,86 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             query_table=frame.assign(query=0.5), count_records=[], baseline_columns=["base"],
             query_columns=["query"], config_snapshot=GlobalConfig(genome_build="hg38", snp_identifier="rsid"),
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "out"
-            LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "out"
+        LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
 
-            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
-            for fname, recorded in (("ldscore.baseline.parquet", metadata["baseline_row_groups"]),
-                                    ("ldscore.query.parquet", metadata["query_row_groups"])):
-                footer = pq.read_metadata(output_dir / fname)
-                physical = [footer.row_group(index).num_rows for index in range(footer.num_row_groups)]
-                self.assertEqual(physical, list(sizes.values()), fname)
-                self.assertEqual([(group["chrom"], group["n_rows"]) for group in recorded], list(sizes.items()), fname)
+        metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+        for fname, recorded in (("ldscore.baseline.parquet", metadata["baseline_row_groups"]),
+                                ("ldscore.query.parquet", metadata["query_row_groups"])):
+            footer = pq.read_metadata(output_dir / fname)
+            physical = [footer.row_group(index).num_rows for index in range(footer.num_row_groups)]
+            self.assertEqual(physical, list(sizes.values()), fname)
+            self.assertEqual([(group["chrom"], group["n_rows"]) for group in recorded], list(sizes.items()), fname)
 
     def test_omits_query_parquet_for_baseline_only_result(self):
         result = make_split_ldscore_result(query=False)
         writer = LDScoreDirectoryWriter()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "ldscores"
-            output_paths = writer.write_batches([result], LDScoreOutputConfig(output_dir=output_dir)).output_paths
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "ldscores"
+        output_paths = writer.write_batches([result], LDScoreOutputConfig(output_dir=output_dir)).output_paths
 
-            self.assertEqual(set(output_paths), {"metadata", "baseline"})
-            self.assertFalse((output_dir / "ldscore.query.parquet").exists())
-            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(metadata["files"], {"baseline": "ldscore.baseline.parquet"})
-            self.assertEqual(metadata["query_columns"], [])
+        self.assertEqual(set(output_paths), {"metadata", "baseline"})
+        self.assertFalse((output_dir / "ldscore.query.parquet").exists())
+        metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+        self.assertEqual(metadata["files"], {"baseline": "ldscore.baseline.parquet"})
+        self.assertEqual(metadata["query_columns"], [])
 
     def test_baseline_only_write_refuses_stale_query_parquet_without_overwrite(self):
         result = make_split_ldscore_result(query=False)
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "ldscores"
-            output_dir.mkdir()
-            stale = output_dir / "ldscore.query.parquet"
-            stale.write_text("stale\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "ldscores"
+        output_dir.mkdir()
+        stale = output_dir / "ldscore.query.parquet"
+        stale.write_text("stale\n", encoding="utf-8")
 
-            with self.assertRaisesRegex(FileExistsError, "overwrite"):
-                LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
+        with self.assertRaisesRegex(FileExistsError, "overwrite"):
+            LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
 
-            self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
-            self.assertFalse((output_dir / "metadata.json").exists())
-            self.assertFalse((output_dir / "ldscore.baseline.parquet").exists())
+        self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
+        self.assertFalse((output_dir / "metadata.json").exists())
+        self.assertFalse((output_dir / "ldscore.baseline.parquet").exists())
 
     def test_baseline_only_overwrite_removes_stale_query_parquet(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "ldscores"
-            LDScoreDirectoryWriter().write_batches(
-                [make_split_ldscore_result(query=True)], LDScoreOutputConfig(output_dir=output_dir)
-            )
-            self.assertTrue((output_dir / "ldscore.query.parquet").exists())
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "ldscores"
+        LDScoreDirectoryWriter().write_batches(
+            [make_split_ldscore_result(query=True)], LDScoreOutputConfig(output_dir=output_dir)
+        )
+        self.assertTrue((output_dir / "ldscore.query.parquet").exists())
 
-            LDScoreDirectoryWriter().write_batches(
-                [make_split_ldscore_result(query=False)],
-                LDScoreOutputConfig(output_dir=output_dir, overwrite=True),
-            )
+        LDScoreDirectoryWriter().write_batches(
+            [make_split_ldscore_result(query=False)],
+            LDScoreOutputConfig(output_dir=output_dir, overwrite=True),
+        )
 
-            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
-            loaded = load_ldscore_from_dir(str(output_dir))
-            self.assertEqual(metadata["files"], {"baseline": "ldscore.baseline.parquet"})
-            self.assertFalse((output_dir / "ldscore.query.parquet").exists())
-            self.assertEqual(loaded.query_batches, ())
-            self.assertNotIn("query", loaded.output_paths)
+        metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+        loaded = load_ldscore_from_dir(str(output_dir))
+        self.assertEqual(metadata["files"], {"baseline": "ldscore.baseline.parquet"})
+        self.assertFalse((output_dir / "ldscore.query.parquet").exists())
+        self.assertEqual(loaded.query_batches, ())
+        self.assertNotIn("query", loaded.output_paths)
 
     def test_overwrite_removes_stale_overlap_parquet_for_unpartitioned_result(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "ldscores"
-            partitioned = dataclass_replace(make_split_ldscore_result(query=True), overlap=self._overlap())
-            LDScoreDirectoryWriter().write_batches([partitioned], LDScoreOutputConfig(output_dir=output_dir))
-            self.assertTrue((output_dir / "ldscore.overlap.parquet").exists())
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "ldscores"
+        partitioned = dataclass_replace(make_split_ldscore_result(query=True), overlap=self._overlap())
+        LDScoreDirectoryWriter().write_batches([partitioned], LDScoreOutputConfig(output_dir=output_dir))
+        self.assertTrue((output_dir / "ldscore.overlap.parquet").exists())
 
-            # Re-running the directory as an unpartitioned (overlap-free) result must
-            # clear the now-stale overlap sidecar via the canonical output family.
-            LDScoreDirectoryWriter().write_batches(
-                [make_split_ldscore_result(query=False)],
-                LDScoreOutputConfig(output_dir=output_dir, overwrite=True),
-            )
+        # Re-running the directory as an unpartitioned (overlap-free) result must
+        # clear the now-stale overlap sidecar via the canonical output family.
+        LDScoreDirectoryWriter().write_batches(
+            [make_split_ldscore_result(query=False)],
+            LDScoreOutputConfig(output_dir=output_dir, overwrite=True),
+        )
 
-            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
-            loaded = load_ldscore_from_dir(str(output_dir))
-            self.assertFalse((output_dir / "ldscore.overlap.parquet").exists())
-            self.assertNotIn("overlap", metadata["files"])
-            self.assertIsNone(metadata["overlap_config"])
-            self.assertIsNone(loaded.overlap)
+        metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+        loaded = load_ldscore_from_dir(str(output_dir))
+        self.assertFalse((output_dir / "ldscore.overlap.parquet").exists())
+        self.assertNotIn("overlap", metadata["files"])
+        self.assertIsNone(metadata["overlap_config"])
+        self.assertIsNone(loaded.overlap)
 
     def test_rejects_query_table_with_mismatched_row_keys(self):
         result = make_split_ldscore_result(query=True)
@@ -509,29 +509,27 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
 
     def test_refuses_overwrite_before_writing_any_file(self):
         result = make_split_ldscore_result(query=True)
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir)
-            (output_dir / "ldscore.baseline.parquet").write_text("existing", encoding="utf-8")
+        output_dir = self.tmp_path
+        (output_dir / "ldscore.baseline.parquet").write_text("existing", encoding="utf-8")
 
-            with self.assertRaisesRegex(FileExistsError, "overwrite=True"):
-                LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
+        with self.assertRaisesRegex(FileExistsError, "overwrite=True"):
+            LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
 
-            self.assertFalse((output_dir / "metadata.json").exists())
-            self.assertEqual((output_dir / "ldscore.baseline.parquet").read_text(encoding="utf-8"), "existing")
+        self.assertFalse((output_dir / "metadata.json").exists())
+        self.assertEqual((output_dir / "ldscore.baseline.parquet").read_text(encoding="utf-8"), "existing")
 
     def test_overwrite_true_replaces_existing_canonical_files(self):
         result = make_split_ldscore_result(query=True)
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir)
-            (output_dir / "metadata.json").write_text("existing", encoding="utf-8")
-            (output_dir / "ldscore.baseline.parquet").write_text("existing", encoding="utf-8")
+        output_dir = self.tmp_path
+        (output_dir / "metadata.json").write_text("existing", encoding="utf-8")
+        (output_dir / "ldscore.baseline.parquet").write_text("existing", encoding="utf-8")
 
-            LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir, overwrite=True))
+        LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir, overwrite=True))
 
-            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
-            baseline = pd.read_parquet(output_dir / "ldscore.baseline.parquet")
-            self.assertEqual(metadata["artifact_type"], "ldscore")
-            self.assertEqual(baseline["SNP"].tolist(), ["rs1", "rs2"])
+        metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+        baseline = pd.read_parquet(output_dir / "ldscore.baseline.parquet")
+        self.assertEqual(metadata["artifact_type"], "ldscore")
+        self.assertEqual(baseline["SNP"].tolist(), ["rs1", "rs2"])
 
     def test_omits_missing_common_count_values_from_metadata_records(self):
         result = make_split_ldscore_result(query=False)
@@ -545,11 +543,11 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
                 }
             ],
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "ldscores"
-            LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "ldscores"
+        LDScoreDirectoryWriter().write_batches([result], LDScoreOutputConfig(output_dir=output_dir))
 
-            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+        metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
 
         self.assertEqual(metadata["counts"][0]["all_reference_snp_count"], 10.0)
         self.assertNotIn("common_reference_snp_count", metadata["counts"][0])
@@ -613,94 +611,94 @@ class H2DirectoryWriterTest(unittest.TestCase):
         )
 
     def test_writes_summary_and_metadata(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "h2"
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "h2"
 
-            paths = H2DirectoryWriter().write(
-                self.make_summary(),
-                H2OutputConfig(output_dir=output_dir),
-                metadata=self.make_metadata(),
-                diagnostic_bins=self.make_bins(),
-            )
+        paths = H2DirectoryWriter().write(
+            self.make_summary(),
+            H2OutputConfig(output_dir=output_dir),
+            metadata=self.make_metadata(),
+            diagnostic_bins=self.make_bins(),
+        )
 
-            self.assertEqual(
-                paths,
-                {
-                    "summary": str(output_dir / "h2.tsv"),
-                    "metadata": str(output_dir / "diagnostics" / "metadata.json"),
-                    "ld_score_regression_bins": str(
-                        output_dir / "diagnostics" / "ld_score_regression_bins.tsv"
-                    ),
-                },
-            )
-            summary = pd.read_csv(output_dir / "h2.tsv", sep="\t")
-            self.assertEqual(summary.columns.tolist(), self.make_summary().columns.tolist())
-            self.assertFalse((output_dir / "metadata.json").exists())
-            metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(metadata["artifact_type"], "h2_result")
-            self.assertEqual(
-                metadata["files"],
-                {
-                    "summary": "h2.tsv",
-                    "ld_score_regression_bins": "diagnostics/ld_score_regression_bins.tsv",
-                },
-            )
-            self.assertEqual(metadata["retained_ld_columns"], ["base"])
-            bins = pd.read_csv(output_dir / "diagnostics" / "ld_score_regression_bins.tsv", sep="\t")
-            self.assertEqual(bins.columns.tolist(), self.make_bins().columns.tolist())
+        self.assertEqual(
+            paths,
+            {
+                "summary": str(output_dir / "h2.tsv"),
+                "metadata": str(output_dir / "diagnostics" / "metadata.json"),
+                "ld_score_regression_bins": str(
+                    output_dir / "diagnostics" / "ld_score_regression_bins.tsv"
+                ),
+            },
+        )
+        summary = pd.read_csv(output_dir / "h2.tsv", sep="\t")
+        self.assertEqual(summary.columns.tolist(), self.make_summary().columns.tolist())
+        self.assertFalse((output_dir / "metadata.json").exists())
+        metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
+        self.assertEqual(metadata["artifact_type"], "h2_result")
+        self.assertEqual(
+            metadata["files"],
+            {
+                "summary": "h2.tsv",
+                "ld_score_regression_bins": "diagnostics/ld_score_regression_bins.tsv",
+            },
+        )
+        self.assertEqual(metadata["retained_ld_columns"], ["base"])
+        bins = pd.read_csv(output_dir / "diagnostics" / "ld_score_regression_bins.tsv", sep="\t")
+        self.assertEqual(bins.columns.tolist(), self.make_bins().columns.tolist())
 
     def test_writes_nan_literal_for_missing_values(self):
         # Missing values (e.g. liability columns on an observed-scale run) render
         # as the explicit literal "NaN", consistent with the rg output family.
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "h2"
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "h2"
+        H2DirectoryWriter().write(
+            self.make_summary(),
+            H2OutputConfig(output_dir=output_dir),
+            metadata=self.make_metadata(),
+            diagnostic_bins=self.make_bins(),
+        )
+        text = (output_dir / "h2.tsv").read_text(encoding="utf-8")
+        self.assertIn("NaN", text)
+
+    def test_refuses_existing_metadata_without_overwrite(self):
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "h2"
+        diagnostics_dir = output_dir / "diagnostics"
+        diagnostics_dir.mkdir(parents=True)
+        existing = diagnostics_dir / "metadata.json"
+        existing.write_text('{"old": true}\n', encoding="utf-8")
+
+        with self.assertRaisesRegex(FileExistsError, "overwrite"):
             H2DirectoryWriter().write(
                 self.make_summary(),
                 H2OutputConfig(output_dir=output_dir),
                 metadata=self.make_metadata(),
                 diagnostic_bins=self.make_bins(),
             )
-            text = (output_dir / "h2.tsv").read_text(encoding="utf-8")
-            self.assertIn("NaN", text)
 
-    def test_refuses_existing_metadata_without_overwrite(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "h2"
-            diagnostics_dir = output_dir / "diagnostics"
-            diagnostics_dir.mkdir(parents=True)
-            existing = diagnostics_dir / "metadata.json"
-            existing.write_text('{"old": true}\n', encoding="utf-8")
-
-            with self.assertRaisesRegex(FileExistsError, "overwrite"):
-                H2DirectoryWriter().write(
-                    self.make_summary(),
-                    H2OutputConfig(output_dir=output_dir),
-                    metadata=self.make_metadata(),
-                    diagnostic_bins=self.make_bins(),
-                )
-
-            self.assertEqual(existing.read_text(encoding="utf-8"), '{"old": true}\n')
-            self.assertFalse((output_dir / "h2.tsv").exists())
+        self.assertEqual(existing.read_text(encoding="utf-8"), '{"old": true}\n')
+        self.assertFalse((output_dir / "h2.tsv").exists())
 
     def test_overwrite_replaces_existing_metadata(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "h2"
-            (output_dir / "diagnostics").mkdir(parents=True)
-            (output_dir / "h2.tsv").write_text("old\n", encoding="utf-8")
-            (output_dir / "diagnostics" / "metadata.json").write_text('{"old": true}\n', encoding="utf-8")
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "h2"
+        (output_dir / "diagnostics").mkdir(parents=True)
+        (output_dir / "h2.tsv").write_text("old\n", encoding="utf-8")
+        (output_dir / "diagnostics" / "metadata.json").write_text('{"old": true}\n', encoding="utf-8")
 
-            H2DirectoryWriter().write(
-                self.make_summary(),
-                H2OutputConfig(output_dir=output_dir, overwrite=True),
-                metadata=self.make_metadata(),
-                diagnostic_bins=self.make_bins(),
-            )
+        H2DirectoryWriter().write(
+            self.make_summary(),
+            H2OutputConfig(output_dir=output_dir, overwrite=True),
+            metadata=self.make_metadata(),
+            diagnostic_bins=self.make_bins(),
+        )
 
-            self.assertIn("total_h2_obs", (output_dir / "h2.tsv").read_text(encoding="utf-8"))
-            self.assertFalse((output_dir / "metadata.json").exists())
-            metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
-            self.assertNotIn("old", metadata)
-            self.assertNotIn("schema_version", metadata)
+        self.assertIn("total_h2_obs", (output_dir / "h2.tsv").read_text(encoding="utf-8"))
+        self.assertFalse((output_dir / "metadata.json").exists())
+        metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
+        self.assertNotIn("old", metadata)
+        self.assertNotIn("schema_version", metadata)
 
 class QuantileH2DirectoryWriterTest(unittest.TestCase):
     def test_writer_owns_complete_family_and_refuses_existing_diagnostic(self):
@@ -814,39 +812,39 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
     def test_writes_nan_literal_for_missing_values(self):
         # Missing values (e.g. liability columns on an observed-scale run) render
         # as the explicit literal "NaN", consistent with the rg output family.
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "partitioned"
-            PartitionedH2DirectoryWriter().write(
-                self.make_summary(),
-                PartitionedH2OutputConfig(output_dir=output_dir),
-            )
-            text = (output_dir / "partitioned_h2.tsv").read_text(encoding="utf-8")
-            self.assertIn("NaN", text)
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "partitioned"
+        PartitionedH2DirectoryWriter().write(
+            self.make_summary(),
+            PartitionedH2OutputConfig(output_dir=output_dir),
+        )
+        text = (output_dir / "partitioned_h2.tsv").read_text(encoding="utf-8")
+        self.assertIn("NaN", text)
 
     def test_writes_aggregate_only_by_default(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "partitioned"
-            paths = PartitionedH2DirectoryWriter().write(
-                self.make_summary(),
-                PartitionedH2OutputConfig(output_dir=output_dir),
-            )
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "partitioned"
+        paths = PartitionedH2DirectoryWriter().write(
+            self.make_summary(),
+            PartitionedH2OutputConfig(output_dir=output_dir),
+        )
 
-            self.assertTrue((output_dir / "partitioned_h2.tsv").exists())
-            summary = pd.read_csv(output_dir / "partitioned_h2.tsv", sep="\t")
-            self.assertEqual(summary.columns.tolist(), PARTITIONED_H2_COLUMNS + ["query_result_dir"])
-            self.assertTrue(summary["query_result_dir"].isna().all())
-            self.assertFalse((output_dir / "query_annotations").exists())
-            self.assertEqual(
-                paths,
-                {
-                    "summary": str(output_dir / "partitioned_h2.tsv"),
-                    "metadata": str(output_dir / "diagnostics" / "metadata.json"),
-                },
-            )
-            self.assertFalse((output_dir / "metadata.json").exists())
-            metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(metadata["artifact_type"], "partitioned_h2_result")
-            self.assertEqual(metadata["files"], {"summary": "partitioned_h2.tsv"})
+        self.assertTrue((output_dir / "partitioned_h2.tsv").exists())
+        summary = pd.read_csv(output_dir / "partitioned_h2.tsv", sep="\t")
+        self.assertEqual(summary.columns.tolist(), PARTITIONED_H2_COLUMNS + ["query_result_dir"])
+        self.assertTrue(summary["query_result_dir"].isna().all())
+        self.assertFalse((output_dir / "query_annotations").exists())
+        self.assertEqual(
+            paths,
+            {
+                "summary": str(output_dir / "partitioned_h2.tsv"),
+                "metadata": str(output_dir / "diagnostics" / "metadata.json"),
+            },
+        )
+        self.assertFalse((output_dir / "metadata.json").exists())
+        metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
+        self.assertEqual(metadata["artifact_type"], "partitioned_h2_result")
+        self.assertEqual(metadata["files"], {"summary": "partitioned_h2.tsv"})
 
     def make_fit_artifacts(self):
         from ldsc._regression.outputs import stage_partitioned_h2_fit
@@ -860,228 +858,228 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
         delete_values = pd.DataFrame(
             {"delete_block": [0, 1], "base": np.array([0.4, 0.6], dtype=np.float64)}
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "partitioned"
-            PartitionedH2DirectoryWriter().write(
-                self.make_summary(),
-                PartitionedH2OutputConfig(output_dir=output_dir),
-                coefficient_delete_values=delete_values,
-            )
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "partitioned"
+        PartitionedH2DirectoryWriter().write(
+            self.make_summary(),
+            PartitionedH2OutputConfig(output_dir=output_dir),
+            coefficient_delete_values=delete_values,
+        )
 
-            actual = pd.read_parquet(output_dir / "diagnostics" / "coefficient_delete_values.parquet")
-            metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
-            pd.testing.assert_frame_equal(actual, delete_values)
-            self.assertEqual(
-                metadata["files"]["coefficient_delete_values"],
-                "diagnostics/coefficient_delete_values.parquet",
-            )
-            self.assertEqual(metadata["coefficient_delete_block_count"], 2)
-            self.assertEqual(metadata["retained_ld_columns"], ["base"])
+        actual = pd.read_parquet(output_dir / "diagnostics" / "coefficient_delete_values.parquet")
+        metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
+        pd.testing.assert_frame_equal(actual, delete_values)
+        self.assertEqual(
+            metadata["files"]["coefficient_delete_values"],
+            "diagnostics/coefficient_delete_values.parquet",
+        )
+        self.assertEqual(metadata["coefficient_delete_block_count"], 2)
+        self.assertEqual(metadata["retained_ld_columns"], ["base"])
 
     def test_per_query_tree_writes_every_declared_root_file(self):
         delete_values = pd.DataFrame({"delete_block": [0, 1], "base": [0.4, 0.6]})
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "partitioned"
-            PartitionedH2DirectoryWriter().write(
-                self.make_summary(),
-                PartitionedH2OutputConfig(output_dir=output_dir, write_per_query_results=True),
-                per_query_artifacts=self.make_fit_artifacts(),
-                coefficient_delete_values=delete_values,
-            )
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "partitioned"
+        PartitionedH2DirectoryWriter().write(
+            self.make_summary(),
+            PartitionedH2OutputConfig(output_dir=output_dir, write_per_query_results=True),
+            per_query_artifacts=self.make_fit_artifacts(),
+            coefficient_delete_values=delete_values,
+        )
 
-            metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
-            for relative in metadata["files"].values():
-                self.assertTrue((output_dir / relative).exists(), relative)
-            pd.testing.assert_frame_equal(
-                pd.read_parquet(output_dir / "diagnostics" / "coefficient_delete_values.parquet"), delete_values,
-            )
+        metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
+        for relative in metadata["files"].values():
+            self.assertTrue((output_dir / relative).exists(), relative)
+        pd.testing.assert_frame_equal(
+            pd.read_parquet(output_dir / "diagnostics" / "coefficient_delete_values.parquet"), delete_values,
+        )
 
     def test_writes_per_query_tree_with_sanitized_manifest(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "partitioned"
-            paths = PartitionedH2DirectoryWriter().write(
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "partitioned"
+        paths = PartitionedH2DirectoryWriter().write(
+            self.make_summary(),
+            PartitionedH2OutputConfig(output_dir=output_dir, write_per_query_results=True),
+            per_query_artifacts=self.make_fit_artifacts(),
+            metadata={"trait_name": "trait", "count_kind": "common", "ldscore_dir": "ldscores"},
+        )
+
+        query_root = output_dir / "diagnostics" / "query_annotations"
+        manifest = pd.read_csv(query_root / "manifest.tsv", sep="\t")
+        summary = pd.read_csv(output_dir / "partitioned_h2.tsv", sep="\t")
+        self.assertEqual(summary.columns.tolist(), PARTITIONED_H2_COLUMNS + ["query_result_dir"])
+        self.assertEqual(summary["query_result_dir"].tolist(), [
+            "diagnostics/query_annotations/0001_il-6_jak_stat_hallmark",
+            "diagnostics/query_annotations/0002_il_6_jak_stat_hallmark",
+        ])
+        pd.testing.assert_frame_equal(summary[PARTITIONED_H2_COLUMNS], self.make_summary()[PARTITIONED_H2_COLUMNS])
+        for row in summary.sort_values("category").itertuples(index=False):
+            query_dir = output_dir / row.query_result_dir
+            self.assertTrue(query_dir.is_dir())
+            self.assertEqual(
+                pd.read_csv(query_dir / "partitioned_h2.tsv", sep="\t")["category"].tolist(),
+                [row.category],
+            )
+        self.assertEqual(
+            summary["query_result_dir"].tolist(),
+            [str(Path(path).parent) for path in manifest["summary_path"]],
+        )
+        self.assertEqual(manifest["ordinal"].tolist(), [1, 2])
+        self.assertEqual(
+            manifest["query_annotation"].tolist(),
+            ["IL-6/JAK STAT (Hallmark)", "IL 6 JAK STAT Hallmark"],
+        )
+        self.assertEqual(
+            manifest["folder"].tolist(),
+            ["0001_il-6_jak_stat_hallmark", "0002_il_6_jak_stat_hallmark"],
+        )
+        self.assertIn("partitioned_h2_full_path", manifest.columns)
+        self.assertNotIn("model_categories_path", manifest.columns)
+        self.assertFalse((output_dir / "metadata.json").exists())
+        self.assertFalse((output_dir / "query_annotations").exists())
+        root_metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
+        self.assertEqual(root_metadata["artifact_type"], "partitioned_h2_result")
+        self.assertEqual(root_metadata["trait_name"], "trait")
+        self.assertEqual(root_metadata["files"]["summary"], "partitioned_h2.tsv")
+        self.assertEqual(root_metadata["files"]["query_annotations"], "diagnostics/query_annotations")
+        self.assertTrue((query_root / "0001_il-6_jak_stat_hallmark" / "partitioned_h2.tsv").exists())
+        self.assertTrue((query_root / "0001_il-6_jak_stat_hallmark" / "partitioned_h2_full.tsv").exists())
+        self.assertFalse((query_root / "0001_il-6_jak_stat_hallmark" / "model_categories.tsv").exists())
+        metadata = json.loads(
+            (query_root / "0001_il-6_jak_stat_hallmark" / "metadata.json").read_text(encoding="utf-8")
+        )
+        query_summary = pd.read_csv(query_root / "0001_il-6_jak_stat_hallmark" / "partitioned_h2.tsv", sep="\t")
+        categories = pd.read_csv(query_root / "0001_il-6_jak_stat_hallmark" / "partitioned_h2_full.tsv", sep="\t")
+        self.assertEqual(metadata["query_annotation"], "IL-6/JAK STAT (Hallmark)")
+        self.assertNotIn("trait_name", metadata)
+        shared_path = query_root / "0001_il-6_jak_stat_hallmark" / metadata["global_metadata"]
+        self.assertEqual(json.loads(shared_path.read_text())["trait_name"], "trait")
+        self.assertEqual(metadata["artifact_type"], "partitioned_h2_query_result")
+        self.assertEqual(
+            metadata["files"],
+            {
+                "summary": "diagnostics/query_annotations/0001_il-6_jak_stat_hallmark/partitioned_h2.tsv",
+                "full": "diagnostics/query_annotations/0001_il-6_jak_stat_hallmark/partitioned_h2_full.tsv",
+                "coefficient_delete_values": "diagnostics/query_annotations/0001_il-6_jak_stat_hallmark/coefficient_delete_values.parquet",
+            },
+        )
+        delete_values = pd.read_parquet(
+            query_root / "0001_il-6_jak_stat_hallmark" / "coefficient_delete_values.parquet"
+        )
+        self.assertEqual(delete_values.columns.tolist(), ["delete_block", "base", "IL-6/JAK STAT (Hallmark)"])
+        self.assertTrue(all(dtype == np.dtype("float64") for dtype in delete_values.drop(columns="delete_block").dtypes))
+        self.assertEqual(query_summary.columns.tolist(), PARTITIONED_H2_COLUMNS)
+        self.assertEqual(categories.columns.tolist(), PARTITIONED_H2_COLUMNS)
+        self.assertEqual(categories["category"].tolist(), ["base", "IL-6/JAK STAT (Hallmark)"])
+        self.assertEqual(paths["per_query_root"], str(query_root))
+
+    def test_refuses_existing_outputs_before_writing(self):
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "partitioned"
+        output_dir.mkdir()
+        existing = output_dir / "partitioned_h2.tsv"
+        existing.write_text("existing\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(FileExistsError, "overwrite"):
+            PartitionedH2DirectoryWriter().write(
                 self.make_summary(),
                 PartitionedH2OutputConfig(output_dir=output_dir, write_per_query_results=True),
                 per_query_artifacts=self.make_fit_artifacts(),
-                metadata={"trait_name": "trait", "count_kind": "common", "ldscore_dir": "ldscores"},
             )
 
-            query_root = output_dir / "diagnostics" / "query_annotations"
-            manifest = pd.read_csv(query_root / "manifest.tsv", sep="\t")
-            summary = pd.read_csv(output_dir / "partitioned_h2.tsv", sep="\t")
-            self.assertEqual(summary.columns.tolist(), PARTITIONED_H2_COLUMNS + ["query_result_dir"])
-            self.assertEqual(summary["query_result_dir"].tolist(), [
-                "diagnostics/query_annotations/0001_il-6_jak_stat_hallmark",
-                "diagnostics/query_annotations/0002_il_6_jak_stat_hallmark",
-            ])
-            pd.testing.assert_frame_equal(summary[PARTITIONED_H2_COLUMNS], self.make_summary()[PARTITIONED_H2_COLUMNS])
-            for row in summary.sort_values("category").itertuples(index=False):
-                query_dir = output_dir / row.query_result_dir
-                self.assertTrue(query_dir.is_dir())
-                self.assertEqual(
-                    pd.read_csv(query_dir / "partitioned_h2.tsv", sep="\t")["category"].tolist(),
-                    [row.category],
-                )
-            self.assertEqual(
-                summary["query_result_dir"].tolist(),
-                [str(Path(path).parent) for path in manifest["summary_path"]],
-            )
-            self.assertEqual(manifest["ordinal"].tolist(), [1, 2])
-            self.assertEqual(
-                manifest["query_annotation"].tolist(),
-                ["IL-6/JAK STAT (Hallmark)", "IL 6 JAK STAT Hallmark"],
-            )
-            self.assertEqual(
-                manifest["folder"].tolist(),
-                ["0001_il-6_jak_stat_hallmark", "0002_il_6_jak_stat_hallmark"],
-            )
-            self.assertIn("partitioned_h2_full_path", manifest.columns)
-            self.assertNotIn("model_categories_path", manifest.columns)
-            self.assertFalse((output_dir / "metadata.json").exists())
-            self.assertFalse((output_dir / "query_annotations").exists())
-            root_metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(root_metadata["artifact_type"], "partitioned_h2_result")
-            self.assertEqual(root_metadata["trait_name"], "trait")
-            self.assertEqual(root_metadata["files"]["summary"], "partitioned_h2.tsv")
-            self.assertEqual(root_metadata["files"]["query_annotations"], "diagnostics/query_annotations")
-            self.assertTrue((query_root / "0001_il-6_jak_stat_hallmark" / "partitioned_h2.tsv").exists())
-            self.assertTrue((query_root / "0001_il-6_jak_stat_hallmark" / "partitioned_h2_full.tsv").exists())
-            self.assertFalse((query_root / "0001_il-6_jak_stat_hallmark" / "model_categories.tsv").exists())
-            metadata = json.loads(
-                (query_root / "0001_il-6_jak_stat_hallmark" / "metadata.json").read_text(encoding="utf-8")
-            )
-            query_summary = pd.read_csv(query_root / "0001_il-6_jak_stat_hallmark" / "partitioned_h2.tsv", sep="\t")
-            categories = pd.read_csv(query_root / "0001_il-6_jak_stat_hallmark" / "partitioned_h2_full.tsv", sep="\t")
-            self.assertEqual(metadata["query_annotation"], "IL-6/JAK STAT (Hallmark)")
-            self.assertNotIn("trait_name", metadata)
-            shared_path = query_root / "0001_il-6_jak_stat_hallmark" / metadata["global_metadata"]
-            self.assertEqual(json.loads(shared_path.read_text())["trait_name"], "trait")
-            self.assertEqual(metadata["artifact_type"], "partitioned_h2_query_result")
-            self.assertEqual(
-                metadata["files"],
-                {
-                    "summary": "diagnostics/query_annotations/0001_il-6_jak_stat_hallmark/partitioned_h2.tsv",
-                    "full": "diagnostics/query_annotations/0001_il-6_jak_stat_hallmark/partitioned_h2_full.tsv",
-                    "coefficient_delete_values": "diagnostics/query_annotations/0001_il-6_jak_stat_hallmark/coefficient_delete_values.parquet",
-                },
-            )
-            delete_values = pd.read_parquet(
-                query_root / "0001_il-6_jak_stat_hallmark" / "coefficient_delete_values.parquet"
-            )
-            self.assertEqual(delete_values.columns.tolist(), ["delete_block", "base", "IL-6/JAK STAT (Hallmark)"])
-            self.assertTrue(all(dtype == np.dtype("float64") for dtype in delete_values.drop(columns="delete_block").dtypes))
-            self.assertEqual(query_summary.columns.tolist(), PARTITIONED_H2_COLUMNS)
-            self.assertEqual(categories.columns.tolist(), PARTITIONED_H2_COLUMNS)
-            self.assertEqual(categories["category"].tolist(), ["base", "IL-6/JAK STAT (Hallmark)"])
-            self.assertEqual(paths["per_query_root"], str(query_root))
-
-    def test_refuses_existing_outputs_before_writing(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "partitioned"
-            output_dir.mkdir()
-            existing = output_dir / "partitioned_h2.tsv"
-            existing.write_text("existing\n", encoding="utf-8")
-
-            with self.assertRaisesRegex(FileExistsError, "overwrite"):
-                PartitionedH2DirectoryWriter().write(
-                    self.make_summary(),
-                    PartitionedH2OutputConfig(output_dir=output_dir, write_per_query_results=True),
-                    per_query_artifacts=self.make_fit_artifacts(),
-                )
-
-            self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
-            self.assertFalse((output_dir / "query_annotations").exists())
+        self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
+        self.assertFalse((output_dir / "query_annotations").exists())
 
     def test_overwrite_replaces_existing_per_query_tree(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "partitioned"
-            stale = output_dir / "diagnostics" / "query_annotations" / "stale"
-            stale.mkdir(parents=True)
-            (stale / "old.txt").write_text("old\n", encoding="utf-8")
-            (output_dir / "partitioned_h2.tsv").write_text("old\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "partitioned"
+        stale = output_dir / "diagnostics" / "query_annotations" / "stale"
+        stale.mkdir(parents=True)
+        (stale / "old.txt").write_text("old\n", encoding="utf-8")
+        (output_dir / "partitioned_h2.tsv").write_text("old\n", encoding="utf-8")
 
-            PartitionedH2DirectoryWriter().write(
-                self.make_summary(),
-                PartitionedH2OutputConfig(
-                    output_dir=output_dir,
-                    overwrite=True,
-                    write_per_query_results=True,
-                ),
-                per_query_artifacts=self.make_fit_artifacts(),
-            )
+        PartitionedH2DirectoryWriter().write(
+            self.make_summary(),
+            PartitionedH2OutputConfig(
+                output_dir=output_dir,
+                overwrite=True,
+                write_per_query_results=True,
+            ),
+            per_query_artifacts=self.make_fit_artifacts(),
+        )
 
-            self.assertFalse(stale.exists())
-            self.assertTrue((output_dir / "diagnostics" / "query_annotations" / "manifest.tsv").exists())
-            self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
-            self.assertFalse((output_dir / "metadata.json").exists())
-            self.assertIn("coefficient", (output_dir / "partitioned_h2.tsv").read_text(encoding="utf-8"))
+        self.assertFalse(stale.exists())
+        self.assertTrue((output_dir / "diagnostics" / "query_annotations" / "manifest.tsv").exists())
+        self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
+        self.assertFalse((output_dir / "metadata.json").exists())
+        self.assertIn("coefficient", (output_dir / "partitioned_h2.tsv").read_text(encoding="utf-8"))
 
     def test_failed_query_tree_swap_restores_the_previous_tree(self):
         from ldsc._regression import outputs
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "partitioned"
-            PartitionedH2DirectoryWriter().write(
-                self.make_summary(),
-                PartitionedH2OutputConfig(output_dir=output_dir, write_per_query_results=True),
-                per_query_artifacts=self.make_fit_artifacts(),
-            )
-            queries = output_dir / "diagnostics" / "query_annotations"
-            before = {path.relative_to(queries): path.read_bytes() for path in queries.rglob("*") if path.is_file()}
-            original = outputs.os.replace
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "partitioned"
+        PartitionedH2DirectoryWriter().write(
+            self.make_summary(),
+            PartitionedH2OutputConfig(output_dir=output_dir, write_per_query_results=True),
+            per_query_artifacts=self.make_fit_artifacts(),
+        )
+        queries = output_dir / "diagnostics" / "query_annotations"
+        before = {path.relative_to(queries): path.read_bytes() for path in queries.rglob("*") if path.is_file()}
+        original = outputs.os.replace
 
-            def replace(source, destination):
-                if ".query_annotations.tmp." in str(source) and Path(destination) == queries:
-                    raise OSError("injected publication failure")
-                return original(source, destination)
+        def replace(source, destination):
+            if ".query_annotations.tmp." in str(source) and Path(destination) == queries:
+                raise OSError("injected publication failure")
+            return original(source, destination)
 
-            with mock.patch.object(outputs.os, "replace", replace):
-                with self.assertRaisesRegex(OSError, "injected publication failure"):
-                    PartitionedH2DirectoryWriter().write(
-                        self.make_summary(),
-                        PartitionedH2OutputConfig(output_dir=output_dir, overwrite=True, write_per_query_results=True),
-                        per_query_artifacts=self.make_fit_artifacts(),
-                    )
-            after = {path.relative_to(queries): path.read_bytes() for path in queries.rglob("*") if path.is_file()}
-            self.assertEqual(after, before)
-            self.assertEqual(list(queries.parent.glob(".query_annotations.*")), [])
-
-    def test_aggregate_only_refuses_stale_per_query_tree_without_overwrite(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "partitioned"
-            stale = output_dir / "diagnostics" / "query_annotations" / "stale"
-            stale.mkdir(parents=True)
-            (stale / "old.txt").write_text("old\n", encoding="utf-8")
-
-            with self.assertRaisesRegex(FileExistsError, "overwrite"):
+        with mock.patch.object(outputs.os, "replace", replace):
+            with self.assertRaisesRegex(OSError, "injected publication failure"):
                 PartitionedH2DirectoryWriter().write(
                     self.make_summary(),
-                    PartitionedH2OutputConfig(output_dir=output_dir),
+                    PartitionedH2OutputConfig(output_dir=output_dir, overwrite=True, write_per_query_results=True),
+                    per_query_artifacts=self.make_fit_artifacts(),
                 )
+        after = {path.relative_to(queries): path.read_bytes() for path in queries.rglob("*") if path.is_file()}
+        self.assertEqual(after, before)
+        self.assertEqual(list(queries.parent.glob(".query_annotations.*")), [])
 
-            self.assertTrue(stale.exists())
-            self.assertFalse((output_dir / "partitioned_h2.tsv").exists())
+    def test_aggregate_only_refuses_stale_per_query_tree_without_overwrite(self):
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "partitioned"
+        stale = output_dir / "diagnostics" / "query_annotations" / "stale"
+        stale.mkdir(parents=True)
+        (stale / "old.txt").write_text("old\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(FileExistsError, "overwrite"):
+            PartitionedH2DirectoryWriter().write(
+                self.make_summary(),
+                PartitionedH2OutputConfig(output_dir=output_dir),
+            )
+
+        self.assertTrue(stale.exists())
+        self.assertFalse((output_dir / "partitioned_h2.tsv").exists())
 
     def test_aggregate_only_overwrite_removes_stale_per_query_tree(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "partitioned"
-            PartitionedH2DirectoryWriter().write(
-                self.make_summary(),
-                PartitionedH2OutputConfig(output_dir=output_dir, write_per_query_results=True),
-                per_query_artifacts=self.make_fit_artifacts(),
-            )
-            self.assertTrue((output_dir / "diagnostics" / "query_annotations" / "manifest.tsv").exists())
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "partitioned"
+        PartitionedH2DirectoryWriter().write(
+            self.make_summary(),
+            PartitionedH2OutputConfig(output_dir=output_dir, write_per_query_results=True),
+            per_query_artifacts=self.make_fit_artifacts(),
+        )
+        self.assertTrue((output_dir / "diagnostics" / "query_annotations" / "manifest.tsv").exists())
 
-            PartitionedH2DirectoryWriter().write(
-                self.make_summary(),
-                PartitionedH2OutputConfig(output_dir=output_dir, overwrite=True),
-            )
+        PartitionedH2DirectoryWriter().write(
+            self.make_summary(),
+            PartitionedH2OutputConfig(output_dir=output_dir, overwrite=True),
+        )
 
-            self.assertTrue((output_dir / "partitioned_h2.tsv").exists())
-            self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
-            self.assertFalse((output_dir / "metadata.json").exists())
-            self.assertFalse((output_dir / "query_annotations").exists())
-            self.assertFalse((output_dir / "diagnostics" / "query_annotations").exists())
+        self.assertTrue((output_dir / "partitioned_h2.tsv").exists())
+        self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
+        self.assertFalse((output_dir / "metadata.json").exists())
+        self.assertFalse((output_dir / "query_annotations").exists())
+        self.assertFalse((output_dir / "diagnostics" / "query_annotations").exists())
 
 
 class RgDirectoryWriterTest(unittest.TestCase):
@@ -1223,64 +1221,64 @@ class RgDirectoryWriterTest(unittest.TestCase):
         return RgResultFamily(rg=rg, rg_full=rg_full, h2_per_trait=h2_per_trait, per_pair_metadata=metadata)
 
     def test_writes_rg_family_and_optional_pair_tree_with_nan_literals(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "rg"
-            paths = RgDirectoryWriter().write(
-                self.make_result(),
-                RgOutputConfig(output_dir=output_dir, write_per_pair_detail=True),
-            )
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "rg"
+        paths = RgDirectoryWriter().write(
+            self.make_result(),
+            RgOutputConfig(output_dir=output_dir, write_per_pair_detail=True),
+        )
 
-            self.assertEqual(
-                set(paths),
-                {"metadata", "rg", "rg_full", "h2_per_trait", "pairs_root", "pairs_manifest"},
-            )
-            rg_text = (output_dir / "rg.tsv").read_text(encoding="utf-8")
-            self.assertIn("NaN", rg_text)
-            rg_full_path = output_dir / "rg_full.tsv"
-            self.assertTrue(rg_full_path.exists())
-            self.assertEqual(pd.read_csv(output_dir / "rg.tsv", sep="\t").columns.tolist(), RG_CONCISE_COLUMNS)
-            self.assertEqual(pd.read_csv(rg_full_path, sep="\t").columns.tolist(), RG_FULL_COLUMNS)
-            self.assertTrue((output_dir / "h2_per_trait.tsv").exists())
-            self.assertFalse((output_dir / "metadata.json").exists())
-            self.assertFalse((output_dir / "pairs").exists())
-            root_metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(root_metadata["artifact_type"], "rg_result")
-            self.assertEqual(root_metadata["files"]["rg"], "rg.tsv")
-            self.assertEqual(root_metadata["files"]["pairs"], "diagnostics/pairs")
-            manifest = pd.read_csv(output_dir / "diagnostics" / "pairs" / "manifest.tsv", sep="\t")
-            self.assertEqual(
-                manifest["folder"].tolist(),
-                ["0001_trait_a_vs_trait_b", "0002_trait_a_vs_trait_c"],
-            )
-            metadata = json.loads(
-                (output_dir / "diagnostics" / "pairs" / "0001_trait_a_vs_trait_b" / "metadata.json").read_text(encoding="utf-8")
-            )
-            self.assertEqual(metadata["artifact_type"], "rg_pair_result")
-            self.assertEqual(metadata["files"], {"rg_full": "diagnostics/pairs/0001_trait_a_vs_trait_b/rg_full.tsv"})
-            self.assertEqual(metadata["status"], "ok")
-            pair_full_path = output_dir / "diagnostics" / "pairs" / "0001_trait_a_vs_trait_b" / "rg_full.tsv"
-            self.assertTrue(pair_full_path.exists())
-            self.assertEqual(pd.read_csv(pair_full_path, sep="\t").columns.tolist(), RG_FULL_COLUMNS)
+        self.assertEqual(
+            set(paths),
+            {"metadata", "rg", "rg_full", "h2_per_trait", "pairs_root", "pairs_manifest"},
+        )
+        rg_text = (output_dir / "rg.tsv").read_text(encoding="utf-8")
+        self.assertIn("NaN", rg_text)
+        rg_full_path = output_dir / "rg_full.tsv"
+        self.assertTrue(rg_full_path.exists())
+        self.assertEqual(pd.read_csv(output_dir / "rg.tsv", sep="\t").columns.tolist(), RG_CONCISE_COLUMNS)
+        self.assertEqual(pd.read_csv(rg_full_path, sep="\t").columns.tolist(), RG_FULL_COLUMNS)
+        self.assertTrue((output_dir / "h2_per_trait.tsv").exists())
+        self.assertFalse((output_dir / "metadata.json").exists())
+        self.assertFalse((output_dir / "pairs").exists())
+        root_metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
+        self.assertEqual(root_metadata["artifact_type"], "rg_result")
+        self.assertEqual(root_metadata["files"]["rg"], "rg.tsv")
+        self.assertEqual(root_metadata["files"]["pairs"], "diagnostics/pairs")
+        manifest = pd.read_csv(output_dir / "diagnostics" / "pairs" / "manifest.tsv", sep="\t")
+        self.assertEqual(
+            manifest["folder"].tolist(),
+            ["0001_trait_a_vs_trait_b", "0002_trait_a_vs_trait_c"],
+        )
+        metadata = json.loads(
+            (output_dir / "diagnostics" / "pairs" / "0001_trait_a_vs_trait_b" / "metadata.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(metadata["artifact_type"], "rg_pair_result")
+        self.assertEqual(metadata["files"], {"rg_full": "diagnostics/pairs/0001_trait_a_vs_trait_b/rg_full.tsv"})
+        self.assertEqual(metadata["status"], "ok")
+        pair_full_path = output_dir / "diagnostics" / "pairs" / "0001_trait_a_vs_trait_b" / "rg_full.tsv"
+        self.assertTrue(pair_full_path.exists())
+        self.assertEqual(pd.read_csv(pair_full_path, sep="\t").columns.tolist(), RG_FULL_COLUMNS)
 
     def test_aggregate_only_overwrite_removes_stale_pair_tree(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "rg"
-            RgDirectoryWriter().write(
-                self.make_result(),
-                RgOutputConfig(output_dir=output_dir, write_per_pair_detail=True),
-            )
-            self.assertTrue((output_dir / "diagnostics" / "pairs" / "manifest.tsv").exists())
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "rg"
+        RgDirectoryWriter().write(
+            self.make_result(),
+            RgOutputConfig(output_dir=output_dir, write_per_pair_detail=True),
+        )
+        self.assertTrue((output_dir / "diagnostics" / "pairs" / "manifest.tsv").exists())
 
-            RgDirectoryWriter().write(
-                self.make_result(),
-                RgOutputConfig(output_dir=output_dir, overwrite=True),
-            )
+        RgDirectoryWriter().write(
+            self.make_result(),
+            RgOutputConfig(output_dir=output_dir, overwrite=True),
+        )
 
-            self.assertTrue((output_dir / "rg.tsv").exists())
-            self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
-            self.assertFalse((output_dir / "metadata.json").exists())
-            self.assertFalse((output_dir / "pairs").exists())
-            self.assertFalse((output_dir / "diagnostics" / "pairs").exists())
+        self.assertTrue((output_dir / "rg.tsv").exists())
+        self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
+        self.assertFalse((output_dir / "metadata.json").exists())
+        self.assertFalse((output_dir / "pairs").exists())
+        self.assertFalse((output_dir / "diagnostics" / "pairs").exists())
 
     def test_failed_pair_tree_staging_exposes_no_partial_tree(self):
         from ldsc._regression import outputs
@@ -1292,46 +1290,46 @@ class RgDirectoryWriterTest(unittest.TestCase):
                 raise OSError("injected publication failure")
             return original(payload, path)
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "rg"
-            with mock.patch.object(outputs, "atomic_write_json", fail_pair):
-                with self.assertRaisesRegex(OSError, "injected publication failure"):
-                    RgDirectoryWriter().write(
-                        self.make_result(), RgOutputConfig(output_dir=output_dir, write_per_pair_detail=True),
-                    )
-            diagnostics = output_dir / "diagnostics"
-            self.assertFalse((diagnostics / "pairs").exists())
-            self.assertEqual(list(diagnostics.glob(".pairs.*")), [])
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "rg"
+        with mock.patch.object(outputs, "atomic_write_json", fail_pair):
+            with self.assertRaisesRegex(OSError, "injected publication failure"):
+                RgDirectoryWriter().write(
+                    self.make_result(), RgOutputConfig(output_dir=output_dir, write_per_pair_detail=True),
+                )
+        diagnostics = output_dir / "diagnostics"
+        self.assertFalse((diagnostics / "pairs").exists())
+        self.assertEqual(list(diagnostics.glob(".pairs.*")), [])
 
     def test_failed_pair_tree_swap_restores_the_previous_tree(self):
         from ldsc._regression import outputs
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_dir = Path(tmpdir) / "rg"
-            RgDirectoryWriter().write(
-                self.make_result(), RgOutputConfig(output_dir=output_dir, write_per_pair_detail=True),
-            )
-            pairs = output_dir / "diagnostics" / "pairs"
-            before = {path.relative_to(pairs): path.read_bytes() for path in pairs.rglob("*") if path.is_file()}
-            original = outputs.os.replace
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "rg"
+        RgDirectoryWriter().write(
+            self.make_result(), RgOutputConfig(output_dir=output_dir, write_per_pair_detail=True),
+        )
+        pairs = output_dir / "diagnostics" / "pairs"
+        before = {path.relative_to(pairs): path.read_bytes() for path in pairs.rglob("*") if path.is_file()}
+        original = outputs.os.replace
 
-            def replace(source, destination):
-                if ".pairs.tmp." in str(source) and Path(destination) == pairs:
-                    raise OSError("injected publication failure")
-                return original(source, destination)
+        def replace(source, destination):
+            if ".pairs.tmp." in str(source) and Path(destination) == pairs:
+                raise OSError("injected publication failure")
+            return original(source, destination)
 
-            changed = dataclass_replace(self.make_result(), per_pair_metadata=[
-                {**record, "status": "changed"} for record in self.make_result().per_pair_metadata
-            ])
-            with mock.patch.object(outputs.os, "replace", replace):
-                with self.assertRaisesRegex(OSError, "injected publication failure"):
-                    RgDirectoryWriter().write(
-                        changed,
-                        RgOutputConfig(output_dir=output_dir, overwrite=True, write_per_pair_detail=True),
-                    )
-            after = {path.relative_to(pairs): path.read_bytes() for path in pairs.rglob("*") if path.is_file()}
-            self.assertEqual(after, before)
-            self.assertEqual(list(pairs.parent.glob(".pairs.*")), [])
+        changed = dataclass_replace(self.make_result(), per_pair_metadata=[
+            {**record, "status": "changed"} for record in self.make_result().per_pair_metadata
+        ])
+        with mock.patch.object(outputs.os, "replace", replace):
+            with self.assertRaisesRegex(OSError, "injected publication failure"):
+                RgDirectoryWriter().write(
+                    changed,
+                    RgOutputConfig(output_dir=output_dir, overwrite=True, write_per_pair_detail=True),
+                )
+        after = {path.relative_to(pairs): path.read_bytes() for path in pairs.rglob("*") if path.is_file()}
+        self.assertEqual(after, before)
+        self.assertEqual(list(pairs.parent.glob(".pairs.*")), [])
 
 
 class FixedOutputDirectoryTest(unittest.TestCase):

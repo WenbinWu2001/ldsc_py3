@@ -47,13 +47,13 @@ class LoggingRefactorTest(unittest.TestCase):
             "--out",
             "/out/sumstats",
         ]
-        with tempfile.TemporaryDirectory() as tmpdir:
-            log_path = Path(tmpdir) / "workflow.log"
-            with mock.patch.object(sys, "argv", argv):
-                with workflow_logging("unit", log_path, log_level="INFO"):
-                    pass
+        tmpdir = self.tmp_path
+        log_path = tmpdir / "workflow.log"
+        with mock.patch.object(sys, "argv", argv):
+            with workflow_logging("unit", log_path, log_level="INFO"):
+                pass
 
-            text = log_path.read_text(encoding="utf-8")
+        text = log_path.read_text(encoding="utf-8")
 
         self.assertIn(
             "Call:\n"
@@ -85,40 +85,40 @@ class LoggingRefactorTest(unittest.TestCase):
     def test_workflow_logging_leaves_blank_line_before_outputs(self):
         from ldsc._runtime.workflow_logging import log_outputs, workflow_logging
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            log_path = Path(tmpdir) / "workflow.log"
-            with workflow_logging("unit", log_path, log_level="INFO"):
-                logging.getLogger("LDSC.unit").info("Metadata:")
-                logging.getLogger("LDSC.unit").info("Mean chi^2 = 2.009")
-                log_outputs(sumstats_parquet="/out/sumstats.parquet")
+        tmpdir = self.tmp_path
+        log_path = tmpdir / "workflow.log"
+        with workflow_logging("unit", log_path, log_level="INFO"):
+            logging.getLogger("LDSC.unit").info("Metadata:")
+            logging.getLogger("LDSC.unit").info("Mean chi^2 = 2.009")
+            log_outputs(sumstats_parquet="/out/sumstats.parquet")
 
-            text = log_path.read_text(encoding="utf-8")
+        text = log_path.read_text(encoding="utf-8")
 
         self.assertIn("Mean chi^2 = 2.009\n\nOutputs:", text)
 
     def test_workflow_logging_preserves_subsecond_elapsed_time_on_failure(self):
         from ldsc._runtime.workflow_logging import workflow_logging
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            log_path = Path(tmpdir) / "workflow.log"
-            with mock.patch("ldsc._runtime.workflow_logging.time.monotonic", side_effect=[100.0, 100.16]):
-                with self.assertRaisesRegex(RuntimeError, "synthetic failure"):
-                    with workflow_logging("unit", log_path, log_level="INFO"):
-                        raise RuntimeError("synthetic failure")
-            text = log_path.read_text(encoding="utf-8")
+        tmpdir = self.tmp_path
+        log_path = tmpdir / "workflow.log"
+        with mock.patch("ldsc._runtime.workflow_logging.time.monotonic", side_effect=[100.0, 100.16]):
+            with self.assertRaisesRegex(RuntimeError, "synthetic failure"):
+                with workflow_logging("unit", log_path, log_level="INFO"):
+                    raise RuntimeError("synthetic failure")
+        text = log_path.read_text(encoding="utf-8")
         self.assertIn("Elapsed time: 0.16s", text)
         self.assertIn("RuntimeError: synthetic failure", text)
 
     def test_workflow_logging_formats_elapsed_time_with_units(self):
         from ldsc._runtime.workflow_logging import workflow_logging
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            log_path = Path(tmpdir) / "workflow.log"
-            with mock.patch("ldsc._runtime.workflow_logging.time.monotonic", side_effect=[100.0, 232.4]):
-                with workflow_logging("unit", log_path, log_level="INFO"):
-                    pass
+        tmpdir = self.tmp_path
+        log_path = tmpdir / "workflow.log"
+        with mock.patch("ldsc._runtime.workflow_logging.time.monotonic", side_effect=[100.0, 232.4]):
+            with workflow_logging("unit", log_path, log_level="INFO"):
+                pass
 
-            text = log_path.read_text(encoding="utf-8")
+        text = log_path.read_text(encoding="utf-8")
 
         self.assertIn("Elapsed time: 2.0min:12s", text)
         self.assertNotIn("Elapsed: 2:12", text)
@@ -143,18 +143,18 @@ class LoggingRefactorTest(unittest.TestCase):
             clock["offset"] += 5.0
             return original_mkdir(path, *args, **kwargs)
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            log_path = Path(tmpdir) / "workflow.log"
-            with (
-                mock.patch("ldsc._runtime.workflow_logging.datetime") as datetime_mock,
-                mock.patch("ldsc._runtime.workflow_logging.time.monotonic", side_effect=fake_monotonic),
-                mock.patch("ldsc._runtime.workflow_logging.Path.mkdir", autospec=True, side_effect=slow_mkdir),
-            ):
-                datetime_mock.now.side_effect = fake_datetime_now
-                with workflow_logging("unit", log_path, log_level="INFO"):
-                    clock["offset"] += 65.0
+        tmpdir = self.tmp_path
+        log_path = tmpdir / "workflow.log"
+        with (
+            mock.patch("ldsc._runtime.workflow_logging.datetime") as datetime_mock,
+            mock.patch("ldsc._runtime.workflow_logging.time.monotonic", side_effect=fake_monotonic),
+            mock.patch("ldsc._runtime.workflow_logging.Path.mkdir", autospec=True, side_effect=slow_mkdir),
+        ):
+            datetime_mock.now.side_effect = fake_datetime_now
+            with workflow_logging("unit", log_path, log_level="INFO"):
+                clock["offset"] += 65.0
 
-            text = log_path.read_text(encoding="utf-8")
+        text = log_path.read_text(encoding="utf-8")
 
         self.assertIn("LDSC unit Started 2026-01-02 03:04:05", text)
         self.assertIn("Finished 2026-01-02 03:05:20", text)
@@ -163,13 +163,13 @@ class LoggingRefactorTest(unittest.TestCase):
     def test_workflow_logging_keeps_audit_lines_at_error_level(self):
         from ldsc._runtime.workflow_logging import workflow_logging
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            log_path = Path(tmpdir) / "workflow.log"
-            with workflow_logging("unit", log_path, log_level="ERROR"):
-                logging.getLogger("LDSC.threshold").info("suppressed info")
-                logging.getLogger("LDSC.threshold").error("kept error")
+        tmpdir = self.tmp_path
+        log_path = tmpdir / "workflow.log"
+        with workflow_logging("unit", log_path, log_level="ERROR"):
+            logging.getLogger("LDSC.threshold").info("suppressed info")
+            logging.getLogger("LDSC.threshold").error("kept error")
 
-            text = log_path.read_text(encoding="utf-8")
+        text = log_path.read_text(encoding="utf-8")
 
         self.assertIn("LDSC unit Started", text)
         self.assertIn("kept error", text)
@@ -180,13 +180,13 @@ class LoggingRefactorTest(unittest.TestCase):
     def test_workflow_logging_failed_footer_records_traceback(self):
         from ldsc._runtime.workflow_logging import workflow_logging
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            log_path = Path(tmpdir) / "workflow.log"
-            with self.assertRaisesRegex(RuntimeError, "boom"):
-                with workflow_logging("unit", log_path, log_level="INFO"):
-                    raise RuntimeError("boom")
+        tmpdir = self.tmp_path
+        log_path = tmpdir / "workflow.log"
+        with self.assertRaisesRegex(RuntimeError, "boom"):
+            with workflow_logging("unit", log_path, log_level="INFO"):
+                raise RuntimeError("boom")
 
-            text = log_path.read_text(encoding="utf-8")
+        text = log_path.read_text(encoding="utf-8")
 
         self.assertIn("Failed", text)
         self.assertIn("Elapsed time:", text)
@@ -240,11 +240,11 @@ class LoggingRefactorTest(unittest.TestCase):
 
         _logging.reset_workflow_log_path()
         self.assertIsNone(_logging.last_workflow_log_path())
-        with tempfile.TemporaryDirectory() as tmpdir:
-            log_path = Path(tmpdir) / "workflow.log"
-            with workflow_logging("unit", log_path, log_level="INFO"):
-                pass
-            self.assertEqual(_logging.last_workflow_log_path(), str(log_path))
+        tmpdir = self.tmp_path
+        log_path = tmpdir / "workflow.log"
+        with workflow_logging("unit", log_path, log_level="INFO"):
+            pass
+        self.assertEqual(_logging.last_workflow_log_path(), str(log_path))
 
     def test_package_exports_domain_error_hierarchy(self):
         import ldsc

@@ -33,15 +33,15 @@ def test_missing_group_input_has_actionable_error_and_original_cause(tmp_path, n
 
 class PathResolutionTest(unittest.TestCase):
     def test_requested_directory_creation_is_information(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            destination = Path(tmpdir) / "results"
-            with warnings.catch_warnings(record=True) as caught:
-                warnings.simplefilter("always")
-                with self.assertLogs("LDSC.path_resolution", level="INFO") as logged:
-                    self.assertEqual(ensure_output_directory(destination), destination)
-            self.assertTrue(destination.is_dir())
-            self.assertEqual(caught, [])
-            self.assertIn(str(destination), logged.output[0])
+        tmpdir = self.tmp_path
+        destination = tmpdir / "results"
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with self.assertLogs("LDSC.path_resolution", level="INFO") as logged:
+                self.assertEqual(ensure_output_directory(destination), destination)
+        self.assertTrue(destination.is_dir())
+        self.assertEqual(caught, [])
+        self.assertIn(str(destination), logged.output[0])
 
     def test_normalize_path_token_expands_user_and_env(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -62,168 +62,159 @@ class PathResolutionTest(unittest.TestCase):
         )
 
     def test_resolve_scalar_path_requires_exactly_one_match(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            match = tmpdir / "trait.raw.tsv"
-            match.write_text("x\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        match = tmpdir / "trait.raw.tsv"
+        match.write_text("x\n", encoding="utf-8")
 
-            resolved = resolve_scalar_path(str(tmpdir / "trait.*.tsv"), label="sumstats")
-            self.assertEqual(resolved, str(match))
+        resolved = resolve_scalar_path(str(tmpdir / "trait.*.tsv"), label="sumstats")
+        self.assertEqual(resolved, str(match))
 
-            second = tmpdir / "trait.extra.tsv"
-            second.write_text("x\n", encoding="utf-8")
-            with self.assertRaisesRegex(LDSCInputError, "matched 2 files"):
-                resolve_scalar_path(str(tmpdir / "trait.*.tsv"), label="sumstats")
+        second = tmpdir / "trait.extra.tsv"
+        second.write_text("x\n", encoding="utf-8")
+        with self.assertRaisesRegex(LDSCInputError, "matched 2 files"):
+            resolve_scalar_path(str(tmpdir / "trait.*.tsv"), label="sumstats")
 
     def test_resolve_scalar_path_reports_cause_fix_and_reference(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            (tmpdir / "trait.raw.tsv").write_text("x\n", encoding="utf-8")
-            (tmpdir / "trait.extra.tsv").write_text("x\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        (tmpdir / "trait.raw.tsv").write_text("x\n", encoding="utf-8")
+        (tmpdir / "trait.extra.tsv").write_text("x\n", encoding="utf-8")
 
-            with self.assertRaisesRegex(
-                LDSCInputError,
-                "Could not resolve sumstats path.*matched 2 files.*"
-                "Most likely the glob is too broad.*"
-                "docs/user-guide/troubleshooting.md#common-input-path-did-not-resolve-to-one-file",
-            ):
-                resolve_scalar_path(str(tmpdir / "trait.*.tsv"), label="sumstats")
+        with self.assertRaisesRegex(
+            LDSCInputError,
+            "Could not resolve sumstats path.*matched 2 files.*"
+            "Most likely the glob is too broad.*"
+            "docs/user-guide/troubleshooting.md#common-input-path-did-not-resolve-to-one-file",
+        ):
+            resolve_scalar_path(str(tmpdir / "trait.*.tsv"), label="sumstats")
 
     def test_resolve_file_group_handles_globs_prefixes_and_deduplicates(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            base1 = tmpdir / "baseline.1.annot.gz"
-            base2 = tmpdir / "baseline.2.annot.gz"
-            base1.write_text("x\n", encoding="utf-8")
-            base2.write_text("x\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        base1 = tmpdir / "baseline.1.annot.gz"
+        base2 = tmpdir / "baseline.2.annot.gz"
+        base1.write_text("x\n", encoding="utf-8")
+        base2.write_text("x\n", encoding="utf-8")
 
-            resolved = resolve_file_group(
-                [str(tmpdir / "baseline.*.annot.gz"), str(base1)],
-                label="annotation",
-            )
+        resolved = resolve_file_group(
+            [str(tmpdir / "baseline.*.annot.gz"), str(base1)],
+            label="annotation",
+        )
 
-            self.assertEqual(resolved, [str(base1), str(base2)])
+        self.assertEqual(resolved, [str(base1), str(base2)])
 
     def test_resolve_file_group_discovers_chromosome_suite(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            base1 = tmpdir / "baseline.1.annot.gz"
-            base2 = tmpdir / "baseline.2.annot.gz"
-            base1.write_text("x\n", encoding="utf-8")
-            base2.write_text("x\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        base1 = tmpdir / "baseline.1.annot.gz"
+        base2 = tmpdir / "baseline.2.annot.gz"
+        base1.write_text("x\n", encoding="utf-8")
+        base2.write_text("x\n", encoding="utf-8")
 
-            resolved = resolve_file_group(
-                str(tmpdir / "baseline.@.annot.gz"),
+        resolved = resolve_file_group(
+            str(tmpdir / "baseline.@.annot.gz"),
+            label="annotation",
+            allow_chromosome_suite=True,
+        )
+
+        self.assertEqual(resolved, [str(base1), str(base2)])
+
+    def test_resolve_plink_prefix_group_accepts_glob_and_returns_prefixes(self):
+        tmpdir = self.tmp_path
+        for chrom in ("1", "2"):
+            for suffix in (".bed", ".bim", ".fam"):
+                (tmpdir / f"panel.{chrom}{suffix}").write_text("", encoding="utf-8")
+
+        resolved = resolve_plink_prefix_group(str(tmpdir / "panel.*"))
+
+        self.assertEqual(resolved, [str(tmpdir / "panel.1"), str(tmpdir / "panel.2")])
+
+    def test_resolve_plink_prefix_group_discovers_chromosome_suite_from_plain_stem(self):
+        tmpdir = self.tmp_path
+        for chrom in ("1", "2"):
+            for suffix in (".bed", ".bim", ".fam"):
+                (tmpdir / f"panel_chr{chrom}{suffix}").write_bytes({
+                    ".bed": b"\x6c\x1b\x01\x00",
+                    ".bim": f"{chrom} rs{chrom} 0 10 A G\n".encode(),
+                    ".fam": b"F I 0 0 1 -9\n",
+                }[suffix])
+
+        stem = str(tmpdir / "panel_chr")
+
+        self.assertEqual(
+            resolve_plink_prefix_group(stem, allow_chromosome_suite=True),
+            [str(tmpdir / "panel_chr1"), str(tmpdir / "panel_chr2")],
+        )
+        self.assertEqual(inspect_plink_inputs(stem).chromosome_prefixes["2"], str(tmpdir / "panel_chr2"))
+
+    def test_resolve_plink_prefix_rejects_incomplete_file_trio(self):
+        tmpdir = self.tmp_path
+        prefix = tmpdir / "panel"
+        prefix.with_suffix(".bed").write_text("", encoding="utf-8")
+        prefix.with_suffix(".bim").write_text("", encoding="utf-8")
+
+        with self.assertRaisesRegex(LDSCInputError, "complete .bed/.bim/.fam trio"):
+            resolve_plink_prefix_group(str(prefix))
+
+    def test_resolve_scalar_path_rejects_suffix_inference(self):
+        tmpdir = self.tmp_path
+        path = tmpdir / "reference.1.parquet"
+        path.write_text("x\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(LDSCInputError, str(tmpdir / "reference.1")):
+            resolve_scalar_path(
+                str(tmpdir / "reference.1"),
+                label="parquet",
+            )
+
+    def test_resolve_scalar_path_missing_reports_cause_fix_and_reference(self):
+        tmpdir = self.tmp_path
+
+        with self.assertRaisesRegex(
+            LDSCInputError,
+            "Could not resolve parquet path.*matched 0 files.*"
+            "Most likely the path is misspelled.*"
+            "docs/user-guide/troubleshooting.md#common-input-path-did-not-resolve-to-one-file",
+        ):
+            resolve_scalar_path(str(tmpdir / "reference.1"), label="parquet")
+
+    def test_resolve_file_group_requires_full_explicit_suite_pattern(self):
+        tmpdir = self.tmp_path
+        gz = tmpdir / "baseline.1.annot.gz"
+        gz.write_text("gz\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(LDSCInputError, "annotation path"):
+            resolve_file_group(
+                str(tmpdir / "baseline.@"),
                 label="annotation",
                 allow_chromosome_suite=True,
             )
 
-            self.assertEqual(resolved, [str(base1), str(base2)])
-
-    def test_resolve_plink_prefix_group_accepts_glob_and_returns_prefixes(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            for chrom in ("1", "2"):
-                for suffix in (".bed", ".bim", ".fam"):
-                    (tmpdir / f"panel.{chrom}{suffix}").write_text("", encoding="utf-8")
-
-            resolved = resolve_plink_prefix_group(str(tmpdir / "panel.*"))
-
-            self.assertEqual(resolved, [str(tmpdir / "panel.1"), str(tmpdir / "panel.2")])
-
-    def test_resolve_plink_prefix_group_discovers_chromosome_suite_from_plain_stem(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            for chrom in ("1", "2"):
-                for suffix in (".bed", ".bim", ".fam"):
-                    (tmpdir / f"panel_chr{chrom}{suffix}").write_bytes({
-                        ".bed": b"\x6c\x1b\x01\x00",
-                        ".bim": f"{chrom} rs{chrom} 0 10 A G\n".encode(),
-                        ".fam": b"F I 0 0 1 -9\n",
-                    }[suffix])
-
-            stem = str(tmpdir / "panel_chr")
-
-            self.assertEqual(
-                resolve_plink_prefix_group(stem, allow_chromosome_suite=True),
-                [str(tmpdir / "panel_chr1"), str(tmpdir / "panel_chr2")],
-            )
-            self.assertEqual(inspect_plink_inputs(stem).chromosome_prefixes["2"], str(tmpdir / "panel_chr2"))
-
-    def test_resolve_plink_prefix_rejects_incomplete_file_trio(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            prefix = Path(tmpdir) / "panel"
-            prefix.with_suffix(".bed").write_text("", encoding="utf-8")
-            prefix.with_suffix(".bim").write_text("", encoding="utf-8")
-
-            with self.assertRaisesRegex(LDSCInputError, "complete .bed/.bim/.fam trio"):
-                resolve_plink_prefix_group(str(prefix))
-
-    def test_resolve_scalar_path_rejects_suffix_inference(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            path = tmpdir / "reference.1.parquet"
-            path.write_text("x\n", encoding="utf-8")
-
-            with self.assertRaisesRegex(LDSCInputError, str(tmpdir / "reference.1")):
-                resolve_scalar_path(
-                    str(tmpdir / "reference.1"),
-                    label="parquet",
-                )
-
-    def test_resolve_scalar_path_missing_reports_cause_fix_and_reference(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-
-            with self.assertRaisesRegex(
-                LDSCInputError,
-                "Could not resolve parquet path.*matched 0 files.*"
-                "Most likely the path is misspelled.*"
-                "docs/user-guide/troubleshooting.md#common-input-path-did-not-resolve-to-one-file",
-            ):
-                resolve_scalar_path(str(tmpdir / "reference.1"), label="parquet")
-
-    def test_resolve_file_group_requires_full_explicit_suite_pattern(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            gz = tmpdir / "baseline.1.annot.gz"
-            gz.write_text("gz\n", encoding="utf-8")
-
-            with self.assertRaisesRegex(LDSCInputError, "annotation path"):
-                resolve_file_group(
-                    str(tmpdir / "baseline.@"),
-                    label="annotation",
-                    allow_chromosome_suite=True,
-                )
-
     def test_output_collision_message_reports_cause_fix_and_reference(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "results.tsv"
-            path.write_text("existing\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        path = tmpdir / "results.tsv"
+        path.write_text("existing\n", encoding="utf-8")
 
-            with self.assertRaisesRegex(
-                FileExistsError,
-                "Cannot write output artifact.*already exists.*"
-                "Most likely this output directory contains results from an earlier run.*"
-                "docs/user-guide/troubleshooting.md#common-output-artifact-already-exists",
-            ):
-                preflight_output_artifact_family([path], [path], overwrite=False)
+        with self.assertRaisesRegex(
+            FileExistsError,
+            "Cannot write output artifact.*already exists.*"
+            "Most likely this output directory contains results from an earlier run.*"
+            "docs/user-guide/troubleshooting.md#common-output-artifact-already-exists",
+        ):
+            preflight_output_artifact_family([path], [path], overwrite=False)
 
     def test_output_collision_message_lists_existing_artifacts(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            first = Path(tmpdir) / "a.tsv"
-            second = Path(tmpdir) / "b.tsv"
-            first.write_text("a\n", encoding="utf-8")
-            second.write_text("b\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        first = tmpdir / "a.tsv"
+        second = tmpdir / "b.tsv"
+        first.write_text("a\n", encoding="utf-8")
+        second.write_text("b\n", encoding="utf-8")
 
-            with self.assertRaises(FileExistsError) as caught:
-                preflight_output_artifact_family([], [first, second], overwrite=False, label="summary table")
+        with self.assertRaises(FileExistsError) as caught:
+            preflight_output_artifact_family([], [first, second], overwrite=False, label="summary table")
 
-            message = str(caught.exception)
-            self.assertIn(str(first), message)
-            self.assertIn(str(second), message)
-            self.assertIn("--overwrite", message)
-            self.assertIn("overwrite=True", message)
+        message = str(caught.exception)
+        self.assertIn(str(first), message)
+        self.assertIn(str(second), message)
+        self.assertIn("--overwrite", message)
+        self.assertIn("overwrite=True", message)
 
 
 def test_plain_plink_prefix_uses_bim_chromosomes(tmp_path):

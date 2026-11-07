@@ -1,6 +1,6 @@
 # User Guide
 
-Last updated on: 2026-11-02
+Last updated on: 2026-11-07
 
 This guide is for scientists running analyses with LDSC3.
 It explains what each analysis does, which inputs it needs, how to run it from the command line, and how to read the results.
@@ -44,3 +44,45 @@ All Python API usage is collected in [Python usage](python-usage.md); the workfl
 ## When something goes wrong
 
 Error messages point to the matching section of [troubleshooting](troubleshooting.md), which lists likely causes, how to check each, and remedies.
+
+```{toctree}
+:hidden:
+:caption: Start here
+
+installation
+guided-tutorial
+reference-data
+```
+
+```{toctree}
+:hidden:
+:caption: Workflows
+
+workflows/munge-sumstats
+workflows/r2-matrices
+workflows/ld-scores
+workflows/gene-list-ld-scores
+workflows/annotations
+workflows/heritability
+workflows/genetic-correlation
+workflows/partitioned-heritability
+workflows/cell-type-enrichment
+workflows/continuous-annotations
+workflows/liability-scale
+workflows/plotting
+workflows/inspect-artifacts
+workflows/migrating-from-legacy-ldsc
+```
+
+```{toctree}
+:hidden:
+:caption: Python and concepts
+
+python-usage
+concepts/snp-identity-and-genome-build
+concepts/inputs-and-outputs
+concepts/allele-orientation
+concepts/ldsc-vs-partitioned-h2
+concepts/partitioned-h2-math
+troubleshooting
+```

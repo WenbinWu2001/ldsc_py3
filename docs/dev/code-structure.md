@@ -1,6 +1,6 @@
 # Code Structure
 
-Last updated on: 2026-11-06
+Last updated on: 2026-11-07
 
 This is the authoritative contributor entry for LDSC3.
 Start here to locate a change.
@@ -258,6 +258,7 @@ Each test folder has an `__init__.py`, which makes those full module paths impor
 | workflow logs | `tests/runtime/test_logging_refactor.py` |
 | genome-build inspection | `tests/genome/test_genome_build_inspection.py` (read-only CLI reports) |
 | package layout and import tiers | `tests/package/test_layering.py`, `tests/package/test_package_layout.py` |
+| Python API reference coverage | `tests/package/test_docs_api_reference.py` (every name in `ldsc.__all__` listed once in `docs/reference/python-api.md`) |
 | region exclusion | `tests/core/test_regions.py` |
 
 `AnnotationBundle.validate()` validates row alignment and annotation names; identity cleanup occurs during builder construction. It no longer accepts an ignored identifier argument. Column-name inference uses `infer_chr_pos_columns`; numerical window construction uses `get_block_lefts`. Their former forwarding spellings are removed without changing accepted input column aliases or legacy formats.

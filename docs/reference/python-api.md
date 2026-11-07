@@ -1,149 +1,166 @@
 # Python API reference
 
-Last updated on: 2026-11-06
+Last updated on: 2026-11-07
 
-The supported Python interface is the set of names exported by the `ldsc` package (`ldsc.__all__`, 81 names on 2026-11-06).
+The supported Python interface is the set of names exported by the `ldsc` package (`ldsc.__all__`).
 Modules whose names start with an underscore, including the domain packages such as `ldsc._ldscore`, are private even when a name defined there is re-exported.
-This page lists every exported name with the first paragraph of its docstring, taken from the installed package; `help(ldsc.<name>)` shows the full docstring, and a future documentation build will generate this page.
+The documentation build generates one page per exported name from its docstring, and `help(ldsc.<name>)` shows the same docstring for the installed version.
+`tests/package/test_docs_api_reference.py` checks that the lists below name every exported name exactly once.
 Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and the command-line equivalents in the [command-line reference](cli.md).
+
+```{eval-rst}
+.. currentmodule:: ldsc
+```
 
 ## Workflow classes
 
-| Name | Summary |
-| --- | --- |
-| `AnnotationBuilder` | Prepare chromosome-backed annotations under explicit resource ownership. |
-| `LDScoreCalculator` | Orchestrate chromosome-wise LD-score calculation. |
-| `R2MatrixBuilder` | Build R2 matrices from PLINK input. |
-| `RegressionRunner` | Assemble regression datasets and fit in workers with 1 BLAS thread each. |
-| `SumstatsMunger` | Run legacy-compatible munging through a typed workflow interface. |
+```{eval-rst}
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+
+   AnnotationBuilder
+   LDScoreCalculator
+   R2MatrixBuilder
+   RegressionRunner
+   SumstatsMunger
+```
 
 ## Functions
 
-| Name | Summary |
-| --- | --- |
-| `build_gene_ldscore_index` | Build and transactionally publish one complete gene LD-score index. |
-| `compute_quantile_h2` | Project one fitted joint model onto target-defined quantiles. |
-| `compute_standardized_coefficients` | Compute paper-compatible fixed-scale standardized coefficients. |
-| `convert_h2_scale` | Convert a saved observed-scale SNP heritability estimate. |
-| `convert_legacy_ldscores` | Convert one selected legacy LD-score suite to an LDSC3 LD-score directory. |
-| `infer_chr_pos_build` | Infer the genome build and coordinate basis of a ``CHR``/``POS`` table. |
-| `infer_raw_sumstats` | Preview a munging run: detected format, parser hints and every problem that would stop it. |
-| `load_fitted_partitioned_model` | Load one baseline-only or per-query LDSC3 partitioned-h2 fitted model. |
-| `load_gene_ldscore_index` | Load one complete public autosomes 1--22 gene LD-score index. |
-| `load_hm3_curated_map` | Load the packaged curated dual-build HM3 map. |
-| `load_ldscore_from_dir` | Open an LD-score directory with query values read on demand. |
-| `load_sumstats` | Load one munged summary-statistics artifact into a ``SumstatsTable``. |
-| `plot_result` | Create the approved plot for a canonical LDSC3 result. |
-| `query_r2_matrix` | Open an R2 matrix, query ``pairs`` once, and return the annotated DataFrame. |
-| `resolve_chr_pos_table` | Infer and normalize the genome build for a ``CHR``/``POS`` table. |
-| `resolve_genome_build` | Resolve a genome-build hint to a concrete build or ``None``. |
-| `run_annotate` | Write BED or gene-list query annotations and return a record of the written files. |
-| `run_build_r2_matrix` | Run the reference-panel builder with CLI-equivalent keyword arguments. |
-| `run_h2` | Estimate SNP heritability and save the ``h2`` result directory. |
-| `run_ldscore` | Run LD-score calculation from Python using public CLI-style names. |
-| `run_partitioned_h2` | Estimate partitioned heritability and save the ``partitioned-h2`` result directory. |
-| `run_quantile_h2` | Project a saved partitioned-h2 model onto quantiles and save the result directory. |
-| `run_rg` | Estimate genetic correlation and save the ``rg`` result directory. |
-| `unbiased_r2_to_pearson_r` | Convert unbiased R2 to a signed Pearson correlation r. |
+```{eval-rst}
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+
+   build_gene_ldscore_index
+   compute_quantile_h2
+   compute_standardized_coefficients
+   convert_h2_scale
+   convert_legacy_ldscores
+   infer_chr_pos_build
+   infer_raw_sumstats
+   load_fitted_partitioned_model
+   load_gene_ldscore_index
+   load_hm3_curated_map
+   load_ldscore_from_dir
+   load_sumstats
+   plot_result
+   query_r2_matrix
+   resolve_chr_pos_table
+   resolve_genome_build
+   run_annotate
+   run_build_r2_matrix
+   run_h2
+   run_ldscore
+   run_partitioned_h2
+   run_quantile_h2
+   run_rg
+   unbiased_r2_to_pearson_r
+```
 
 ## Configuration
 
-| Name | Summary |
-| --- | --- |
-| `AnnotationBuildConfig` | Source and projection configuration for chromosome-backed annotations. |
-| `GeneLDScoreIndexBuildConfig` | Scientific and resource settings for exact gene-index construction. |
-| `GlobalConfig` | Shared configuration used across LDSC3 workflows. |
-| `H2OutputConfig` | Directory-oriented output config for unpartitioned h2 summaries. |
-| `LDScoreConfig` | Configuration for chromosome-wise LD-score calculation. |
-| `LDScoreOutputConfig` | Directory-oriented output config for LD-score directories. |
-| `MungeConfig` | Configuration for legacy-compatible summary-statistics munging. |
-| `PartitionedH2OutputConfig` | Directory-oriented output config for partitioned-h2 regression summaries. |
-| `QuantileH2OutputConfig` | Output directory and replacement policy for ``quantile-h2`` results. |
-| `RefPanelConfig` | Configuration for choosing and parameterizing a reference-panel backend. |
-| `R2MatrixBuildConfig` | Configuration for building standard parquet reference panels from PLINK. |
-| `RegressionConfig` | Configuration for heritability and genetic-correlation regressions. |
-| `RgOutputConfig` | Directory-oriented output config for genetic-correlation summaries. |
+```{eval-rst}
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+
+   AnnotationBuildConfig
+   GeneLDScoreIndexBuildConfig
+   GlobalConfig
+   H2OutputConfig
+   LDScoreConfig
+   LDScoreOutputConfig
+   MungeConfig
+   PartitionedH2OutputConfig
+   QuantileH2OutputConfig
+   RefPanelConfig
+   R2MatrixBuildConfig
+   RegressionConfig
+   RgOutputConfig
+```
 
 ## Global configuration
 
-| Name | Summary |
-| --- | --- |
-| `get_global_config` | Return the process-wide default configuration used by Python workflows. |
-| `reset_global_config` | Restore the process-wide default configuration and return it. |
-| `set_global_config` | Replace the process-wide default configuration used by Python workflows. |
+```{eval-rst}
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+
+   get_global_config
+   reset_global_config
+   set_global_config
+```
 
 ## Results and data objects
 
-| Name | Summary |
-| --- | --- |
-| `AnnotationBundle` | Complete annotation dataset represented by on-demand chromosome shards. |
-| `AnnotationResult` | Files a completed ``run_annotate`` wrote; values are read after explicit preparation. |
-| `ChrPosBuildInference` | Resolved build and coordinate-basis decision for one ``chr_pos`` table. |
-| `H2Result` | Result of one `h2` run: its summary and the files it wrote. |
-| `H2ScaleConversionArtifact` | Files written by one liability-scale conversion. |
-| `LDScoreResult` | Materialized LD scores for one cross-chromosome calculation batch. |
-| `LDScoreSource` | Saved LD scores with resident baseline values and selective query reads. |
-| `LegacyLDScoreConversionResult` | Summary of one successful legacy LDSC LD-score conversion. |
-| `MungeRunSummary` | Compact summary of one munging run. |
-| `PartitionedH2BatchResult` | Compact batch summary and valid persistent artifacts for every fitted model. |
-| `PlotArtifact` | One saved LDSC3 figure and its live Matplotlib objects. |
-| `QuantileH2Result` | Compact result family returned by `run_quantile_h2()`. |
-| `RawSumstatsInference` | Preview report for one raw summary-statistics file. |
-| `RefPanelLoader` | Instantiate the backend requested by a `RefPanelConfig`. |
-| `R2MatrixBuildResult` | Summary of files produced by one reference-panel build run. |
-| `RegressionDataset` | Merged regression-ready dataset built from summary statistics and LD-score tables. |
-| `RegressionFit` | One fitted regression: the estimator and the SNP rows of its final fit. |
-| `RgResultFamily` | Result family returned by multi-trait genetic-correlation workflows. |
-| `SumstatsTable` | In-memory LDSC-ready summary-statistics table. |
+```{eval-rst}
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+
+   AnnotationBundle
+   AnnotationResult
+   ChrPosBuildInference
+   H2Result
+   H2ScaleConversionArtifact
+   LDScoreResult
+   LDScoreSource
+   LegacyLDScoreConversionResult
+   MungeRunSummary
+   PartitionedH2BatchResult
+   PlotArtifact
+   QuantileH2Result
+   RawSumstatsInference
+   RefPanelLoader
+   R2MatrixBuildResult
+   RegressionDataset
+   RegressionFit
+   RgResultFamily
+   SumstatsTable
+```
 
 ## Reference panels
 
-| Name | Summary |
-| --- | --- |
-| `R2MatrixRefPanel` | Reference-panel adapter for R2 matrices. |
-| `PlinkRefPanel` | PLINK-backed reference-panel adapter. |
-| `R2Matrix` | Handle over an R2 matrix written by ``build-r2-matrix``, for pair queries. |
-| `RefPanel` | Abstract chromosome-scoped reference-panel interface. |
+```{eval-rst}
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+
+   R2MatrixRefPanel
+   PlinkRefPanel
+   R2Matrix
+   RefPanel
+```
 
 ## Output writers
 
-| Name | Summary |
-| --- | --- |
-| `H2DirectoryWriter` | Write the unpartitioned h2 summary, exact fitted-bin diagnostic, and metadata. |
-| `LDScoreDirectoryWriter` | Write LD-score directories. |
-| `PartitionedH2DirectoryWriter` | Write aggregate and optional per-query partitioned-h2 outputs. |
-| `QuantileH2DirectoryWriter` | Write post-fit quantile summaries, coefficients, and SNP diagnostics. |
-| `RgDirectoryWriter` | Write concise, full, per-trait, and optional per-pair rg outputs. |
+```{eval-rst}
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+
+   H2DirectoryWriter
+   LDScoreDirectoryWriter
+   PartitionedH2DirectoryWriter
+   QuantileH2DirectoryWriter
+   RgDirectoryWriter
+```
 
 ## Errors
 
-| Name | Summary |
-| --- | --- |
-| `ConfigMismatchError` | Raised when two result objects carry incompatible config snapshots. |
-| `LDSCConfigError` | Raised when configuration values or provenance are incompatible. |
-| `LDSCDependencyError` | Raised when an optional dependency is required for the requested workflow. |
-| `LDSCError` | Base class for package-specific failures. |
-| `LDSCInputError` | Raised when input paths, file schemas, or file contents are invalid. |
-| `LDSCInternalError` | Raised when the package reaches an unexpected internal state. |
-| `LDSCUsageError` | Raised when a public command or API call uses an unsupported option mix. |
-| `LDSCUserError` | Raised when user input, CLI arguments, or configuration are invalid. |
+```{eval-rst}
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
 
-## Configuration fields
-
-Field names of each configuration dataclass; types and defaults are in each class docstring.
-
-| Class | Fields |
-| --- | --- |
-| `AnnotationBuildConfig` | `baseline_annot_sources`, `query_annot_sources`, `query_annot_bed_sources`, `query_annot_gene_list_sources`, `gene_coordinate_file`, `control_gene_list_file`, `gene_list_resolution_policy`, `gene_exclude_regions`, `padding_bp` |
-| `GeneLDScoreIndexBuildConfig` | `baseline_annot_sources`, `plink_prefix`, `output_dir`, `gene_coordinate_file`, `genome_build`, `snp_identifier`, `padding_bp`, `gene_exclude_regions`, `ld_wind_cm`, `ld_wind_kb`, `ld_wind_snps`, `maf_min`, `common_maf_min`, `keep_indivs_file`, `regr_snps_file`, `regr_snps_exclude_regions`, `snp_batch_size`, `atom_batch_size`, `workers` |
-| `GlobalConfig` | `snp_identifier`, `genome_build`, `log_level` |
-| `H2OutputConfig` | `output_dir`, `overwrite` |
-| `LDScoreConfig` | `ld_wind_snps`, `ld_wind_kb`, `ld_wind_cm`, `regr_snps_file`, `snp_batch_size`, `query_batch_size`, `common_maf_min`, `whole_chromosome_ok`, `export_ref_metadata`, `workers` |
-| `LDScoreOutputConfig` | `output_dir`, `overwrite`, `parquet_compression` |
-| `MungeConfig` | `output_dir`, `raw_sumstats_file`, `output_format`, `trait_name`, `column_hints`, `N`, `N_cas`, `N_con`, `info_min`, `maf_min`, `N_min`, `nstudy_min`, `chunk_size`, `sumstats_snps_file`, `no_snp_restriction`, `source_genome_build`, `output_genome_build`, `liftover_chain_file`, `signed_sumstats_spec`, `ignore_columns`, `info_list_columns`, `sumstats_format`, `a1_inc`, `overwrite` |
-| `PartitionedH2OutputConfig` | `output_dir`, `overwrite`, `write_per_query_results` |
-| `QuantileH2OutputConfig` | `output_dir`, `overwrite` |
-| `RefPanelConfig` | `backend`, `plink_prefix`, `r2_matrix_dir`, `maf_min`, `keep_indivs_file`, `ref_panel_snps_file`, `genetic_map_hg19_sources`, `genetic_map_hg38_sources` |
-| `R2MatrixBuildConfig` | `plink_prefix`, `output_dir`, `source_genome_build`, `genetic_map_hg19_sources`, `genetic_map_hg38_sources`, `liftover_chain_hg19_to_hg38_file`, `liftover_chain_hg38_to_hg19_file`, `ld_wind_snps`, `ld_wind_kb`, `ld_wind_cm`, `maf_min`, `ref_panel_snps_file`, `keep_indivs_file`, `snp_batch_size`, `r2_min`, `overwrite` |
-| `RegressionConfig` | `num_blocks`, `use_common_counts`, `use_intercept`, `intercept_h2`, `intercept_gencov`, `two_step_cutoff`, `chisq_max`, `samp_prev`, `pop_prev`, `allow_identity_downgrade` |
-| `RgOutputConfig` | `output_dir`, `overwrite`, `write_per_pair_detail` |
+   ConfigMismatchError
+   LDSCConfigError
+   LDSCDependencyError
+   LDSCError
+   LDSCInputError
+   LDSCInternalError
+   LDSCUsageError
+   LDSCUserError
+```

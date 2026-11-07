@@ -1,6 +1,6 @@
 # Installation
 
-Last updated on: 2026-10-28
+Last updated on: 2026-11-07
 
 LDSC3 is installed from its Git repository into a conda environment, as an editable package so that source updates take effect immediately.
 Choose the stable `main` branch for routine use, or the `restructure` branch for the current development version.
@@ -80,6 +80,7 @@ BED and gene-list interval projection uses NumPy from the base installation; no 
 | `.[plink]` | `bitarray` | LD-score computation from PLINK files |
 | `.[liftover]` | `pyliftover` | Chain-file liftover in `munge-sumstats` and `build-r2-matrix` |
 | `.[dev]` | the PLINK and liftover extras plus pytest | Development and the test suite |
+| `.[docs]` | Sphinx, the PyData theme, MyST-Parser, numpydoc and Sphinx extensions | Building the documentation site |
 
 ## Check the installation
 

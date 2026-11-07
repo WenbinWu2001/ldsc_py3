@@ -6,3 +6,7 @@ __pycache__/
 .Rhistory
 .Rproj.user
 .worktrees/
+
+# Sphinx documentation build
+docs/_build/
+docs/reference/generated/

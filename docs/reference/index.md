@@ -1,6 +1,6 @@
 # Reference
 
-Last updated on: 2026-11-06
+Last updated on: 2026-11-07
 
 This section is the exact reference for LDSC3: commands, the Python API, file formats, result columns and methods.
 Task guides are in the [user guide](../user-guide/index.md), and the package internals are in the [developer guide](../dev/index.md).
@@ -38,6 +38,55 @@ Task guides are in the [user guide](../user-guide/index.md), and the package int
 | [Parallel execution](parallel-execution.md) | Workers and CPU budgets. |
 | [Logs and outputs](logs-and-outputs.md) | Logs, console notices, output preflight and failure markers. |
 | [legacy LDSC flag map](legacy-flag-map.md) | Legacy LDSC options and their LDSC3 equivalents. |
-| [Formats](formats/) | Column schema, artifact metadata, R² matrices, BED and gene-list inputs, region presets, legacy files. |
-| [Results](results/) | `partitioned-h2`, `quantile-h2` and gene-list diagnostic columns. |
-| [Methods](methods/) | LD-score computation and the gene LD-score index mathematics. |
+| Formats | [Column schema](formats/column-schema.md), [artifact metadata](formats/artifact-metadata.md), [R² matrices](formats/r2-matrices.md), [BED intervals](formats/bed-intervals.md), [gene lists](formats/gene-lists.md), [region-exclusion presets](formats/region-exclusion-presets.md), [legacy summary statistics](formats/legacy-sumstats.md), [legacy LD scores](formats/legacy-ldscores.md). |
+| Results | Result columns of [`partitioned-h2`](results/partitioned-h2.md) and [`quantile-h2`](results/quantile-h2.md), and [gene-list diagnostics](results/gene-list-diagnostics.md). |
+| Methods | [LD-score computation](methods/ld-score-computation.md) and [gene LD-score index mathematics](methods/gene-ldscore-index-math.md). |
+
+```{toctree}
+:hidden:
+:caption: Commands and API
+
+cli
+python-api
+```
+
+```{toctree}
+:hidden:
+:caption: Contracts
+
+input-paths
+snp-identity-and-genome-build
+ldscore-snp-universes
+annotate
+munge-sumstats
+gene-ldscore-index
+query-r2-matrix
+regression-options
+parallel-execution
+logs-and-outputs
+legacy-flag-map
+```
+
+```{toctree}
+:hidden:
+:caption: Formats
+:glob:
+
+formats/*
+```
+
+```{toctree}
+:hidden:
+:caption: Results
+:glob:
+
+results/*
+```
+
+```{toctree}
+:hidden:
+:caption: Methods
+:glob:
+
+methods/*
+```

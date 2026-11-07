@@ -1,6 +1,6 @@
 # Validation
 
-Last updated on: 2026-10-29
+Last updated on: 2026-11-07
 
 This page records what has been validated in LDSC3, with which evidence, and what has not.
 Each evidence page states its date, revision and limits; raw logs and probe scripts are kept outside the repository.
@@ -21,3 +21,10 @@ Each evidence page states its date, revision and limits; raw logs and probe scri
 - **Production-scale resources.** Genome-wide memory needs, LD-score scaling across chromosomes and input and output performance on HPC storage have not been measured ([performance](performance.md#limits)).
 
 Add new evidence here as a page with its date, revision and limits, and summarize its result in the table above.
+
+```{toctree}
+:hidden:
+
+hm3-map-coordinates
+performance
+```

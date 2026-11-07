@@ -26,6 +26,16 @@ TEST_REQUIRES = [
     "pytest>=8,<10",
 ]
 
+DOCS_REQUIRES = [
+    "sphinx>=9.1,<10",
+    "pydata-sphinx-theme>=0.24,<0.25",
+    "myst-parser>=5.0,<6",
+    "numpydoc>=1.11,<2",
+    "sphinx-argparse>=0.6,<0.7",
+    "sphinxcontrib-mermaid>=2.0,<3",
+    "sphinx-copybutton>=0.5.2,<0.6",
+]
+
 ALL_REQUIRES = PLINK_REQUIRES + LIFTOVER_REQUIRES
 
 
@@ -62,6 +72,7 @@ setup(
     extras_require={
         "all": ALL_REQUIRES,
         "dev": ALL_REQUIRES + TEST_REQUIRES,
+        "docs": DOCS_REQUIRES,
         "liftover": LIFTOVER_REQUIRES,
         "plink": PLINK_REQUIRES,
         "test": TEST_REQUIRES,

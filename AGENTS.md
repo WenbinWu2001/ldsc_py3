@@ -4,7 +4,7 @@
 
 # LDSC Package Guidance
 
-Last updated on: 2026-11-06
+Last updated on: 2026-11-07
 
 This repository, `ldsc_py3_restructured`, develops the distributable scientific Python package `ldsc` (distribution version `2.0b0`), with source under `src/ldsc/`.
 
@@ -32,12 +32,13 @@ pytest
 
 - Python support is `>=3.11,<3.14`; dependency bounds live in `setup.py`, `requirements.txt`, and `environment.yml`.
   Required dependencies are NumPy, pandas, SciPy, PyArrow, Matplotlib, threadpoolctl, and joblib.
-  Extras: `plink` (bitarray), `liftover` (pyliftover), `test` (pytest), `all` (workflow extras), and `dev` (all plus tests).
+  Extras: `plink` (bitarray), `liftover` (pyliftover), `test` (pytest), `all` (workflow extras), `dev` (all plus tests), and `docs` (Sphinx site tools).
 - `pytest` is the only test runner; `pyproject.toml` sets `testpaths = ["tests"]`, `-ra`, and markers `slow`, `statistical`, `io`, `file_format_compat`.
   Tests require the editable installation and do not inject `src`.
   BED/gene interval projection uses NumPy from the base install, without an optional BED backend.
   Golden NPZs are immutable expectations: restore missing files from version control, never regenerate them as a test prerequisite.
-- Packaging uses setuptools in `setup.py` and `MANIFEST.in`; no dedicated build command, CI workflow, linter, formatter, type checker, or documentation builder is configured.
+- Packaging uses setuptools in `setup.py` and `MANIFEST.in`; no dedicated build command, linter, formatter, or type checker is configured.
+  The one CI workflow, `.github/workflows/docs.yml`, builds the Sphinx site (`docs/conf.py`, `docs/_ext/ldsc_docs.py`) with `sphinx-build -W --keep-going -b html docs docs/_build/html` and publishes it to GitHub Pages from `restructure`.
   Do not invent mandatory commands or imply unrun checks passed.
   Before claiming completion, run relevant focused tests, broader tests when warranted, CLI/artifact/notebook checks, or documentation validation and report actual results and omissions.
   When work lands as a series of commits, run focused tests for each commit and the full test suite only on the last commit of each logical group, not after every commit.

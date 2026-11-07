@@ -193,7 +193,7 @@ Its fitted-model reader and the `partitioned-h2` writer share the file names and
 ### Workers
 
 Direct scoring, indexed scoring and gene LD-score index construction share `_runtime.parallelism.chromosome_pool()`, which turns a crashed worker into `LDSCInternalError`.
-`partitioned-h2` query workers live in `_regression.partitioned_parallel` and share its worker-count validation, and standalone numerical entry points run in one controlled child through `_runtime.serial_calculation`.
+`partitioned-h2` query workers live in `_regression.partitioned_parallel` and share the worker-count validation of `_runtime.parallelism`, and standalone numerical entry points run in one controlled child through `_runtime.serial_calculation`.
 Worker budgets, the one-BLAS-thread policy and failure handling are in [parallel execution](../reference/parallel-execution.md), and the memory and lifetime designs in [memory and CPU](design/memory-and-cpu.md).
 
 ## Cross-Cutting Concerns

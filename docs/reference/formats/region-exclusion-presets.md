@@ -1,6 +1,6 @@
 # Region-Exclusion Presets (bundled reference data)
 
-Last updated on: 2026-10-28
+Last updated on: 2026-11-06
 
 **These coordinates have not yet been independently checked against their sources; they will be reviewed once the exclusion strategy is final.**
 
@@ -40,7 +40,9 @@ The regression commands (`h2`/`rg`/`partitioned-h2`) have no region option: they
 `munge-sumstats` never excludes regions.
 
 `build-r2-matrix` deliberately has no region-exclusion control: intentional pruning of reference SNPs must be represented by an explicit `--ref-panel-snps-file`, making the changed reference estimand visible.
-Prefilter a custom regression-SNP file for arbitrary intervals, and use `--genome-build` to select named preset coordinates.
+There is no option for arbitrary region BED files: prefilter a custom regression-SNP file for arbitrary intervals.
+`--genome-build` is the sole build declaration for the named preset coordinates; it must be concrete when artifact metadata cannot supply a build (`build-gene-ldscore-index` always asserts one).
+LD-score `metadata.json` records the reference-SNP policy separately from the regression-SNP policy and its region-removal count.
 
 ## Source of the coordinates
 

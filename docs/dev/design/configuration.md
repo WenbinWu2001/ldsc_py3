@@ -257,15 +257,8 @@ Readers accept only already-unbiased R² matrices written by the current `build-
 
 ### Regression-region exclusion
 
-`ldscore` and `build-gene-ldscore-index` expose `--regr-snps-exclude-regions`, defaulting
-to `mhc-and-centromeres`. They subtract named regions from the selected
-regression set (bundled HM3 by default) and leave the reference panel, annotation
-LD scores, and count vectors untouched. `ldscore --genome-build` selects the
-named interval build; the closed gene LD-score index builder uses its required explicit
-hg19 build. Custom intervals require a prefiltered `--regr-snps-file`;
-intentional reference pruning requires `--ref-panel-snps-file` in live
-`ldscore` or at reference-panel build time. `build-r2-matrix` has neither
-region-exclusion nor HM3 convenience flags.
+`--regr-snps-exclude-regions` belongs to the regression SNP controls: it subtracts named regions from the regression SNPs after `regr_snps_file` or HM3 selection and leaves the reference SNPs, annotation LD scores and counts untouched.
+Its presets, command scope and build rule are in [region-exclusion presets](../../reference/formats/region-exclusion-presets.md).
 
 ### Artifact contract
 

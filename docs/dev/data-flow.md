@@ -398,29 +398,8 @@ Its files are staged inside the output directory, `metadata.json` is written las
 
 ## Region Exclusion
 
-`ldscore --regr-snps-exclude-regions {none,mhc,centromeres,mhc-and-centromeres}` selects
-named intervals that are subtracted from the regression SNP set only. The
-default is `mhc-and-centromeres`; `none` opts out. Bundled HM3 is the default
-regression set, and `--regr-snps-file` replaces it before the selected
-intervals are subtracted. The reference SNPs (the full retained reference panel)
-still contribute to the baseline/query LD scores and to the `M`,
-`M_5_50`, and annotation-overlap counts.
-
-Preset intervals are packaged BED3 files under `src/ldsc/data/regions/`. The
-`mhc` preset is chr6:25–35 Mb and `centromeres` is the pericentromeric ±3 cM
-mask. A one-based position `p` is excluded when `start < p <= end` for BED
-interval `[start, end)`. `--genome-build` is the sole build declaration for
-these named intervals; it must be concrete when artifact metadata cannot
-reliably supply a build.
-
-There is no public arbitrary-region BED option. To use custom intervals,
-prefilter a custom regression list and pass it with `--regr-snps-file`.
-`build-r2-matrix` has no region-exclusion option: deliberate LD-reference
-pruning is expressed only through `--ref-panel-snps-file`. Artifact
-`metadata.json` records the reference-SNP policy separately from the
-regression-SNP policy and its region-removal counts. See
-[`region-exclusion-presets.md`](../reference/formats/region-exclusion-presets.md) for coordinates
-and migration guidance.
+`ldscore` and `build-gene-ldscore-index` subtract the selected region-exclusion preset (default `mhc-and-centromeres`) from the regression SNPs only, after the reference SNPs have contributed to LD scores and counts; `build-r2-matrix` has no region option.
+Presets, the interval rule, command scope and coordinates are in [region-exclusion presets](../reference/formats/region-exclusion-presets.md), and the scientific rationale is in [consequence for region exclusions](../reference/ldscore-snp-universes.md#consequence-for-region-exclusions).
 
 ## 5. `munge-sumstats`: Raw Summary Statistics To Munged Summary Statistics
 

@@ -19,13 +19,18 @@ An audit came first; the user approved its items and the work ran in three phase
 - Net lines removed from `9885d508`: `src/` 1,747, `tests/` 1,642, `docs/` 1,025.
 - Evidence: the harness at `b49fbcee` is identical to `9885d508` in all 207 cases (routes that called removed names were updated first); phase 3 changes no `src/` file; the full suite at the final commit passed (3071 passed, 5 skipped for the absent `resources/` directory, 0 failed; 3076 tests collected, against 3072 before phase 3, because merged tests became one case per table row); the link checker finds no broken link outside the 10 that already existed in `docs/dev/validation/legacy-issues-audit/`.
 
+### Follow-ups (2026-11-06)
+
+- The `architecture.md` ownership matrix is now a short paragraph of links, and each Test Map note is one phrase (`164ac32e`, `7cd32ffb`).
+- The wording of `regression-options.md` section 1.7 is confirmed; it now says that legacy LDSC applies the condition-number stop only to `rg` pairs and names every skip condition (`d22e702c`).
+- The 10 broken links in the legacy-issues audit pages point at the current files (`bb41ec55`).
+- Kept by decision: the 40 remaining `TemporaryDirectory` blocks in tests.
+
 ### Open items
 
-- Should the "Ownership by layer and workflow" matrix in `architecture.md` be trimmed like the Code Map, and should the Test Map keep coverage notes or list file names only?
-- Please confirm the wording of `regression-options.md` section 1.7, whose contract was stated only in `architecture.md` before.
-- The collinearity check is also skipped without notice when the stored overlap cannot be assembled for the model's columns (`_regression/fitting.py`, the `ValueError`/`KeyError` branch); section 1.7 names only the other two skip conditions.
-- Forty `TemporaryDirectory` blocks remain in tests (subtest loops, helpers, `setUp`, several directories per test).
-- The legacy-issues audit pages hold 10 links to files that were removed or renamed.
+- The collinearity check computes the condition number from the design matrix alone and uses the overlap matrix only to name the overlapping pair, yet it is skipped whenever the overlap is missing or lacks a needed block or column (`_raise_on_model_collinearity` in `_regression/fitting.py`).
+  `ldscore` and partitioned legacy conversions always store the overlap for two or more columns, so only Python LD-score objects built without one reach the skip today; whether the check should run without the overlap is the user's decision.
+- `MungeConfig.column_hints` ignores keys it does not know without notice, so a misspelled key leaves the column to inference; whether to reject unknown keys is the user's decision (the accepted keys are documented in `6a79ad9c`).
 
 ## Completed: gene LD-score index format numbering reset (2026-11-06)
 
@@ -50,7 +55,7 @@ The user decided on 2026-11-06 that every input matches a column only by its can
 
 ## Completed: audit-fix program (2026-11-04 to 2026-11-06)
 
-The program fixed the findings of a package-wide audit in 294 commits, `e1f22c2..6adf7d3e` on `restructure`; the first 248, through `7612eed8`, are on `origin/restructure`, and the last 46 are not pushed.
+The program fixed the findings of a package-wide audit in 294 commits, `e1f22c2..6adf7d3e` on `restructure`; all of them are on `origin/restructure`.
 Work ran in lanes on separate git worktrees, each implemented test-first, reviewed adversarially and fixed, then cherry-picked onto `restructure` with a full suite and an output-comparison harness of 207 cases at every merge.
 The decision record (47 numbered coordinator entries plus lane decisions) and the harness are kept outside the repository in the coordinator's scratch folder; the user-visible consequences are recorded in the reference pages and below.
 
@@ -79,14 +84,18 @@ The decision record (47 numbered coordinator entries plus lane decisions) and th
 - Security review of the fix commits `7612eed8..c4deec18`: one regression scored 5-6 of 10, the symlink-following `.build/` cleanup from `f4aac520`, fixed test-first in `6adf7d3e`; a probe that swaps `.build/` for a symlink mid-removal leaves the link target untouched.
 - Not run: tests that need the external `resources/` directory (5 skipped) and any HPC or full-genome check.
 
-### Waiting for the user
+### Resolved on 2026-11-06
 
-- Confirm or reverse: `run_ldscore()` and `run_quantile_h2()` also write `diagnostics/gene_catalog_issues.tsv`, as their CLI runs do.
-- Confirm or reverse six Python-API changes from batch 6: Python `run_ldscore()` and `run_annotate()` log query notices; an invalid `log_level` raises `LDSCConfigError` instead of `LDSCUsageError`; `LDScoreDirectoryWriter.write_batches` no longer applies the gene-list viability gate; `PartitionedH2DirectoryWriter` writes the declared `coefficient_delete_values.parquet` with per-query output; the legacy converter may report several defects in a different order; `declared_result_file` rejects `..` names.
-- Confirm or revert a mechanical line-number refresh inside the proposed "dropped-SNP table" vocabulary row.
+- Confirmed by the user: `run_ldscore()` and `run_quantile_h2()` write `diagnostics/gene_catalog_issues.tsv`, and the six batch-6 Python-API changes stay.
+- The "dropped-SNP table" and "gene-index construction" vocabulary citations were refreshed again (`b0df7cb8`, `96813037`), and the "LD-score producer" entry now places `_DirectProducer` in `src/ldsc/_ldscore/direct_batches.py` (`b0df7cb8`).
 - Decided on 2026-11-06, no action: the history items stay as they are (186 commits before 2026-11-06 without the co-author trailer, 48 subjects over 50 characters, some breaking commits without `!`, the non-bisectable `97e492a3` to `acc08452`), and real annotation metadata under a non-alias name stays an annotation without a message.
-- Approved vocabulary entry "LD-score producer" names `_DirectProducer` in `calculator.py`; it now lives in `src/ldsc/_ldscore/direct_batches.py`.
-- Open defects reported but not fixed: rsID `ldscore` examples in `docs/user-guide/workflows/ld-scores.md` omit `--genome-build`; `run_ldscore()` in rsID-family modes cannot use default region exclusions; `InputGate.check` may replace other chained error messages; a `.build` symlink planted between preflight and lock is still followed; `MungeConfig.column_hints` alias keys are undocumented; `test_completed_chromosome_is_durably_staged_before_other_workers_finish` can fail under heavy load.
+- Defects reported here:
+  - The rsID `ldscore` examples in the annotations and LD-score workflow pages pass `--genome-build hg19` (`2e86f654`).
+  - `run_ldscore()` in rsID-family modes already uses the given build for the region presets (`_regression_region_build`; `test_rsid_run_selects_region_presets_with_its_genome_build`).
+  - `InputGate.check` keeps a wrapping error's message next to the OS error (`863efa8b`).
+  - A `.build` symlink planted between preflight and the lock: not pursued, by the user's decision.
+  - The `MungeConfig.column_hints` keys are documented (`6a79ad9c`).
+  - The intermittent staged-shard gene-index test now waits on the coordinator's collection instead of polling (`802193fd`; `lessons.md`).
 
 ## Completed: A/T and C/G SNPs are valid identities (2026-11-04)
 
@@ -127,9 +136,7 @@ The evidence and question record are in the shared side-session note `strand-amb
 
 ### Open items
 
-- The commits are local and not pushed; the HPC package copy does not have them.
-- `ldscore --snp-identifier rsid_allele_aware --genome-build hg19` with the default region exclusion stops with "Pass `--genome-build hg19`", because rsID-family modes discard the build; the message asks for the option already given.
-- Duplicate and multi-allelic reference-panel drops are documented policy but not listed among the recorded exceptions in `AGENTS.md`; ask whether they should be.
+- Closed on 2026-11-06: the commits are pushed; rsID-family runs use the given `--genome-build` for the region presets, so the repeated-option message no longer occurs; duplicate and multi-allelic drops are a recorded exception in `AGENTS.md` (`1c71ed15`).
 
 ### Follow-ups closed (2026-11-04)
 
@@ -185,7 +192,7 @@ The user accepted three rounds of recommendations (seven, six and four) and auth
 
 ### Open items
 
-- The commits are local and not pushed; the HPC package copy does not have them.
+- The commits are pushed to `origin/restructure`.
 
 ## Completed: annotation query checks and saved results (2026-11-03)
 
@@ -234,7 +241,7 @@ The user accepted fourteen recommendations in two rounds of questions and author
 
 ### Open items
 
-- The commits are local and not pushed; the HPC package copy does not have them.
+- The commits are pushed to `origin/restructure`.
 
 ## Completed: allele orientation outside summary statistics (2026-11-02)
 
@@ -258,8 +265,8 @@ The policy is documented in `docs/user-guide/concepts/allele-orientation.md`.
 
 ### Open items
 
-- Gene LD-score indexes built before `8717cee` (format version 4) are rejected and must be rebuilt, including any on the HPC.
-- The commits are local and not pushed; the HPC package copy does not have them.
+- Superseded on 2026-11-06: the index format numbering restarted at 1, so every index built earlier, including any on the HPC, must be rebuilt.
+- The commits are pushed to `origin/restructure`.
 
 ## Completed: munging raw schema, footer codec and allele policy (2026-11-02)
 
@@ -353,7 +360,7 @@ The user accepted three rounds of recommendations on 2026-11-01, changed one ans
 
 ### Left open from candidate 7
 
-- The per-trait `h2` fits inside `rg` record no two-step cutoff, since `h2_per_trait.tsv` has no metadata of its own.
+- The per-trait `h2` fits inside `rg` record no two-step cutoff, since `h2_per_trait.tsv` has no metadata of its own; kept as is by the user's decision on 2026-11-06.
 - `estimate_partitioned_h2_batch()` still publishes from the runner, by design; `h2` and `rg` publish from their `*_from_args()` functions.
 
 ## Completed: typed LD-score writer inputs and published reference metadata (2026-10-31)
@@ -557,6 +564,7 @@ The user answered two rounds of design questions on 2026-10-30, confirmed the de
   Full pytest at `23521eb`: 2526 passed, 0 failed, 0 skipped.
 - `tests/regression/test_regression_streaming.py::test_public_directory_reader_does_not_import_regression` hung twice at interpreter exit inside Arrow's thread-pool shutdown, once blocking a full run for about 30 minutes.
   Its child now has a 120-second timeout, so a hang fails the test; the Arrow shutdown deadlock itself is not investigated.
+  Kept as is by the user's decision on 2026-11-06.
 
 ## Completed: one R² matrix chromosome handle (2026-10-30)
 
@@ -609,7 +617,7 @@ The user confirmed the cleanup inventory from the architecture review and the pu
 ### Kept or left open
 
 - `RefPanel.prepare_chromosome(genetic_map=)` stays, contrary to the inventory: `build-gene-ldscore-index` passes its preloaded map (`_ldscore/gene_index/build.py:1677`).
-- Not done: importing the six `munge_input` aliases directly in `_sumstats/munger.py` (cosmetic). The R² sidecar reader rewrite landed with architecture candidate 2 (above).
+- Dropped on 2026-11-06: importing the six `munge_input` aliases directly in `_sumstats/munger.py` (cosmetic). The R² sidecar reader rewrite landed with architecture candidate 2 (above).
 - Tracked elsewhere: `_allow_partial_for_tests` and `publish_gene_ldscore_index`, one LD-score publication path, and index construction through `compute_chromosome()` (below).
 - Kept by decision: one rejection test per legacy LDSC flag; the `plot` rejection of an h2 result without regression bins; the converter's lack of `--common-maf-min`; the BED `empty_input` test; unused parameters that mirror legacy LDSC signatures in `_regression/estimators.py`, `_refpanel/plink.py` and `p_to_z`.
 - `AGENTS.md` names pytest as the only test runner (`4f71e9f`); this work also ran unittest discovery because its brief asked for it.
@@ -654,9 +662,9 @@ The user asked for each to be diagnosed and given a failing test first; each was
   The legacy quantile-boundary tests now run through `run_quantile_h2_from_args`.
   Public names that user-facing docs use were kept, among them `RegressionRunner.estimate_partitioned_h2`, which `docs/reference/index.md` lists.
 
-## Proposed: index construction through the shared LD-score kernel
+## Not pursued: index construction through the shared LD-score kernel
 
-Split out of architecture review candidate 1 on 2026-10-29; awaiting the user's go-ahead.
+Split out of architecture review candidate 1 on 2026-10-29; on 2026-11-06 the user decided not to pursue it for now.
 
 - `build-gene-ldscore-index` assembles each chromosome's LD scores and counts in `build_plink_index_chromosome()` (`src/ldsc/_ldscore/gene_index/build.py`) by calling the kernel primitives `ld_scores_from_genotypes()` and `compute_counts()` itself, instead of going through `compute_chromosome()` in `src/ldsc/_ldscore/compute.py`.
 - Unifying them changes numerical code: it needs exact golden comparison of index payloads and indexed LD scores, preferably on a full reference panel, and must keep the shared PLINK projection pass for regression-weight LD scores (see `lessons.md`).

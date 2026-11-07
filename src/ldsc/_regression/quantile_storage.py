@@ -165,11 +165,10 @@ def reference_chunks(paths):
 
 
 class AlignmentDiagnostics:
-    """Append complete stage-ordered issue records, retaining only counts."""
+    """Append complete stage-ordered issue records to one gzip table."""
 
     def __init__(self, path):
         self.path = path
-        self.counts = {}
         self.stream = gzip.open(path, "wt")
         pd.DataFrame(columns=SNP_ALIGNMENT_ISSUE_COLUMNS).to_csv(self.stream, sep="\t", index=False)
 
@@ -180,7 +179,6 @@ class AlignmentDiagnostics:
         rows["source_role"], rows["source"] = role, source
         rows["issue"], rows["action"], rows["details"] = issue, action, details
         rows.to_csv(self.stream, sep="\t", index=False, header=False, na_rep="")
-        self.counts[issue] = self.counts.get(issue, 0) + len(rows)
 
     def __enter__(self):
         return self

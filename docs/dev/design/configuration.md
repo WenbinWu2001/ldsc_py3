@@ -4,59 +4,16 @@ Last updated on: 2026-11-06
 
 `--workers` sets the number of managed workers (default one, each with one BLAS thread); CPU budgets, limits and failure handling are in [parallel execution](../../reference/parallel-execution.md).
 
-`partitioned-h2` uses the same `parse_workers`, `validate_workers`, and `resolve_worker_count` helpers.
-Its work limit is query count capped by loading-batch width.
-This concurrency option belongs to the batch workflow, not `RegressionConfig`.
+For `partitioned-h2`, `--workers` belongs to the batch workflow, not to `RegressionConfig`.
 
 Examples below use the munged file names written without a trait label (`sumstats.parquet`, `sumstats.gz`); naming rules are in [artifact metadata](../../reference/formats/artifact-metadata.md).
-
-## Implementation Status
-
-This design is now implemented in the package. The shipped behavior matches the
-core design: `GlobalConfig` remains immutable, workflow result objects carry
-`config_snapshot`, and critical compatibility checks are enforced at combination
-points.
-
-Implementation details:
-
-- Compatibility checks run against the current provenance recorded on
-  package-written artifacts. Old package-written munged summary statistics and LD-score directories
-  without the current schema/provenance contract are rejected and must be
-  regenerated with the current LDSC3.
-- Current `ldsc munge-sumstats` embeds identity metadata in the
-  `sumstats.parquet` footer (no `metadata.json` sidecar); legacy
-  `sumstats.gz` carries no embedded metadata. `load_sumstats()` recovers the original
-  downstream compatibility `GlobalConfig` from that footer, or returns `None` for supported legacy text. Footerless Parquet is rejected. In
-  coordinate-family modes, that snapshot stores the final output genome build;
-  in rsID-family modes, it stores `genome_build=None`. Row-level liftover drops are
-  audited separately in the always-written
-  `diagnostics/dropped_snps/dropped.tsv.gz` file.
-  Package-written munged summary statistics without current identity provenance are not
-  migrated.
-- `load_ldscore_from_dir()` keeps strict metadata checks and rejects missing or
-  invalid package-written root metadata identity provenance with a regeneration
-  message.
-- `AnnotationBuildConfig` normalizes three mutually exclusive LD-score query
-  source groups: prebuilt annotations, BED files, and gene lists. BED/gene runs
-  carry query statuses through `AnnotationBundle` and `LDScoreResult`; the
-  gene-coordinate-catalog projection build stays separate from `GlobalConfig.genome_build` in
-  rsID-family modes.
-
-Memory controls are separate from statistical settings.
-`LDScoreConfig.query_batch_size` and the batch regression API/CLI setting default to 100 and require a positive integer.
-Generation uses this width for sequential execution and output query files; direct mode repeats reference traversal.
-`LDScoreConfig.workers` and indexed `workers` control bounded chromosome workers, capped at chromosome count; it does not change the number of pathways in a regression model.
-`AnnotationBuildConfig` describes source/projection settings, while the workflow's required output directory determines private storage ownership.
-The obsolete annotation-config output/compression/missing-query fields are removed.
-See the [memory design](memory-and-cpu.md) for lifetimes and output contracts.
+Memory controls such as `query_batch_size` are separate from these statistical settings; see the [memory design](memory-and-cpu.md).
 
 ## The Problem This Design Solves
 
 Genome build (`hg19`/`hg38`) and SNP identifier mode are global analysis
-assumptions that every step of the pipeline depends on. LDSC3 supports exactly
-four SNP identifier modes: `rsid`, `rsid_allele_aware`, `chr_pos`, and
-`chr_pos_allele_aware`; the default is `chr_pos_allele_aware`. Mode names are
-exact. Column aliases apply to input headers only. If these settings differ
+assumptions that every step of the pipeline depends on (the modes are defined in
+[column schema](../../reference/formats/column-schema.md#snp-identifier-modes)). If these settings differ
 between the annotation, reference-panel, and regression steps — even
 temporarily, because of a notebook cell re-run — the mismatch will silently
 corrupt results rather than raise an error.
@@ -128,18 +85,7 @@ LDScoreResult: 'hg38' vs 'hg19'. These objects were computed under different
 assumptions and cannot be safely merged.
 ```
 
-For regression merges, the active SNP identifier mode is resolved in this order:
-`LDScoreResult.config_snapshot.snp_identifier`, then
-`SumstatsTable.config_snapshot.snp_identifier`, then the runner's active
-`GlobalConfig.snp_identifier`, then the package default
-`chr_pos_allele_aware`. Disk-loaded LD-score directories therefore use their
-metadata provenance when present; old package-written artifacts without the
-current schema/provenance contract must be regenerated.
-
-`--allow-identity-downgrade` is regression-only. It allows same-family
-allele-aware/base mixes to run under the base mode and logs the original modes
-plus dropped duplicate effective-key rows. rsID-family modes and
-coordinate-family modes never mix.
+Regression resolves the effective SNP identifier mode from saved provenance first, and `--allow-identity-downgrade` permits only same-family allele-aware/base mixes; see [regression provenance hierarchy and downgrade](../../reference/snp-identity-and-genome-build.md#regression-provenance-hierarchy-and-downgrade).
 
 ### 4. The global registry is a convenience default only
 
@@ -205,7 +151,7 @@ regression = runner.build_dataset(sumstats_hg19, ldscore_hg38)  # ← hard error
 
 ---
 
-## New Public API Surface
+## Public API Surface
 
 | Name | Location | Purpose |
 | --- | --- | --- |
@@ -279,61 +225,7 @@ When `None`, the workflow uses the full reference panel `A`.
 When `None` on the public CLI, the normalized/public row table uses the bundled
 HM3 map. Direct calculator calls may still provide no set explicitly.
 
-#### Regression SNP file format
-
-`--regr-snps-file` must be a **headered text table containing SNP
-identities**. Its required columns depend on `--snp-identifier`.
-
-| `--snp-identifier` | Required columns | Optional columns |
-|---|---|---|
-| `rsid` | `SNP` | anything else |
-| `rsid_allele_aware` | `SNP` | both `A1` and `A2` |
-| `chr_pos` | `CHR`, `POS` | anything else |
-| `chr_pos_allele_aware` (default) | `CHR`, `POS` | both `A1` and `A2` |
-
-In either allele-aware mode, `A1` and `A2` must be supplied together or both
-omitted. Omitting both makes the restriction match by base SNP identity only.
-The reader accepts whitespace-, tab-, or comma-delimited plain text and `.gz`
-files. Duplicate effective identities collapse to one key; columns outside the
-active identity schema are ignored. For coordinate-family modes, `CHR` and `POS` must
-use the genome build selected by `--genome-build`.
-
-For example, each of the following tab-delimited files is valid for the named
-mode:
-
-`--snp-identifier rsid`
-
-```tsv
-SNP
-rs123
-rs456
-```
-
-`--snp-identifier rsid_allele_aware`
-
-```tsv
-SNP	A1	A2
-rs123	A	G
-rs456	C	T
-```
-
-`--snp-identifier chr_pos`
-
-```tsv
-CHR	POS
-1	10583
-1	13302
-```
-
-`--snp-identifier chr_pos_allele_aware` (the default)
-
-```tsv
-CHR	POS	A1	A2
-1	10583	G	A
-1	13302	C	T
-```
-
-Any consistent supported delimiter may be used instead of tabs.
+The file format of `--regr-snps-file` and `--ref-panel-snps-file`, with an example per SNP identifier mode, is in [column schema](../../reference/formats/column-schema.md#snp-restriction-files).
 
 ### Typical configuration
 
@@ -387,36 +279,6 @@ region-exclusion nor HM3 convenience flags.
 - LD-score `metadata.json` records `snp_universe_policy`, including independent reference and regression policies plus the regression-region removal count.
 - LD-score `metadata.json` records `ld_window`: the run's window unit and value, and whether windows spanning a whole chromosome were allowed.
 
-### Migration Notes
-
-Stop passing these controls to `GlobalConfig()`:
-
-- move reference-panel restriction to `RefPanelConfig(ref_panel_snps_file=...)`
-- move regression SNP restriction to `LDScoreConfig(regr_snps_file=...)` or `run_ldscore(...)`
-- bundled HM3 is the default regression set; use a custom regression list only
-  when that default must be replaced.
-- prefilter a custom regression list for arbitrary intervals; `genome_build` is
-  the sole build declaration for named regression-region presets.
-
-The old `--regression-snps` and `--print-snps` behavior is unified under
-`--regr-snps-file`. LD-score outputs are fixed files under `output_dir`;
-legacy `.l2.*` and `.w.l2.*` filenames are not emitted by the public writer.
-Existing owned LD-score family artifacts are refused by default and require
-`--overwrite` or `overwrite=True`, so reruns cannot silently replace artifacts
-produced under a different configuration snapshot. With overwrite enabled, a
-successful run removes stale owned siblings that the current run did not
-produce, such as `ldscore.query.parquet` after switching from query LD scores
-to baseline-only LD scores.
-
-The same coherent-family rule applies to `munge-sumstats`, `build-r2-matrix`,
-`partitioned-h2`, `rg`, and `annotate`: no-overwrite mode rejects any owned
-sibling in the current public layout, while successful overwrites delete stale
-current-contract owned siblings and preserve unrelated files. Removed legacy
-root diagnostic names are ignored by preflight and cleanup. Sharded workflows
-may narrow the owned package to the current shard; for `build-r2-matrix`,
-concrete chromosome PLINK prefixes own only that chromosome's package, while
-`@` chromosome-suite prefixes own the full all-chromosome R² matrix package.
-
 ---
 
 ## Caveats and Known Limitations
@@ -441,17 +303,8 @@ callers who need to preserve that provenance should persist the
 `RefPanelConfig` / `LDScoreConfig` they used alongside the written artifacts.
 
 **`load_sumstats()` recovers provenance for current disk artifacts.**
-Munged `sumstats.parquet` files written by the current munger embed a thin
-identity payload in their footer: `ldsc:artifact_type`, `ldsc:snp_identifier`,
-`ldsc:genome_build`, and optional `ldsc:trait_name`. `.sumstats.gz` carries no
-embedded metadata. Detailed coordinate provenance, liftover
-reports, HM3 provenance, output bookkeeping, and row counts are written to
-`diagnostics/sumstats.log`; row-level liftover drops are written to
-`diagnostics/dropped_snps/dropped.tsv.gz`.
-There is no summary-statistics metadata sidecar.
-The loader reconstructs `config_snapshot` from the Parquet footer identity fields and rejects missing or invalid footer provenance.
-Supported legacy text remains a separate, explicit input format.
-
+It rebuilds `config_snapshot` from the identity footer of munged `sumstats.parquet` and rejects missing or invalid footer provenance; `.sumstats.gz` carries none.
+The footer keys and what the munger writes elsewhere are in [embedded identity metadata](../../reference/munge-sumstats.md#embedded-identity-metadata).
 
 **LD-score directories must carry current identity provenance.**
 LD-score directories written by the current workflow include root
@@ -472,10 +325,9 @@ re-runs an earlier cell that did not capture a config explicitly, and then combi
 results, they will get a `ConfigMismatchError`. This is the intended behavior — the
 error message explains the mismatch clearly. It is not a silent corruption.
 
+**Stored snapshots are read by named field.**
+Loaders recover the required identity fields from a stored snapshot explicitly and ignore any other keys, rather than constructing a config from arbitrary snapshot keys.
+
 **The `run_ldscore()` and `run_build_r2_matrix()` convenience wrappers read the global registry at call time.**
 They take no `global_config=` argument.
 `_runtime.workflow_kwargs.namespace_from_kwargs()` is the one place they read the registered SNP identifier mode, genome build and log level, so a parser default never stands in for them; `build-r2-matrix` records `genome_build="auto"` (`None` in rsID-family modes) and reads the PLINK build from `source_genome_build`.
-
-## Retired inert configuration
-
-`GlobalConfig` no longer accepts or serializes `fail_on_missing_metadata`: it had no effect. Required identity/footer/sidecar provenance continues to fail unconditionally at artifact loaders. Older snapshots may contain that extra descriptive key; loaders recover the required identity fields explicitly rather than constructing configs from arbitrary snapshot keys.

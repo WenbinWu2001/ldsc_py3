@@ -169,11 +169,15 @@ Missing or infinite LD scores and regression weights are not dropped: they mean 
 ### 1.7 Zero-variance and collinear LD-score columns
 
 After the merge, each model drops the LD-score columns that do not vary on its regression SNPs and logs a WARNING that names them.
-Before an estimator runs, every `h2` fit, including each `partitioned-h2` model and each trait's own fit in `rg`, and every `rg` pair checks the condition number of its LD-score design matrix, as legacy LDSC did.
+Before an estimator runs, every `h2` fit, including each `partitioned-h2` model and each trait's own fit in `rg`, and every `rg` pair checks the condition number of its LD-score design matrix.
+The threshold of $10^5$ is legacy LDSC's `_check_ld_condnum` (`ldscore/sumstats.py:175`).
+Legacy LDSC applies it to each `rg` pair's merged LD scores (`:443`), but its `h2` and `--h2-cts` calls pass only the column names (`:328`, `:265`), so the check never runs there; for `h2` and `partitioned-h2` this stop is new.
 Above $10^5$ the annotations cannot be separated, and the fit stops with `LDSCInputError`, naming the two annotations that overlap most.
 In `h2` and in a baseline-only `partitioned-h2` run the error stops the run, and a `partitioned-h2` query model fails like any other query error ([query failures](results/partitioned-h2.md#query-failures-and-continuation)).
 In `rg` a collinear pair is recorded as a failed pair, and a trait whose own fit fails keeps its row in `h2_per_trait.tsv` with status `failed`; the run continues and the trait's pairs are still fitted.
-The check is skipped when the LD-score directory stores no overlap matrix or the model has fewer than two LD-score columns.
+The check needs the stored annotation overlap matrix, which also names the overlapping pair.
+It is skipped when the model has fewer than two LD-score columns, when the LD-score directory (or a Python LD-score object) carries no overlap matrix, and when that matrix lacks the common-SNP block a common-count model needs or one of the model's columns.
+`ldscore` stores the overlap matrix whenever it writes two or more LD-score columns, and `convert-legacy-ldscores` stores it for partitioned suites.
 
 *Mechanism:* `_select_model_columns` in `_regression/alignment.py`; `_raise_on_model_collinearity` in `_regression/fitting.py` and `model_collinearity_error` in `_regression/overlap_model.py`.
 

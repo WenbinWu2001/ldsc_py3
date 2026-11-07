@@ -891,12 +891,14 @@ def _add_jackknife_model_context(error, merged, columns):
 def _raise_on_model_collinearity(dataset: RegressionDataset, x: np.ndarray) -> None:
     """Abort the fit when the LD-score design matrix is near-collinear.
 
-    Matches legacy LDSC's hard stop on an ill-conditioned design matrix: rather
-    than warn and emit a partition the user must second-guess, collinear
-    annotations raise ``LDSCInputError`` so the only results produced are
-    trustworthy ones. h2 fits and each rg trait pair apply it on their own
-    regression rows; it is skipped when the LD-score directory stores no
-    overlap or the model has fewer than two LD-score columns.
+    Uses the threshold of legacy LDSC's ``_check_ld_condnum``, which legacy
+    LDSC applies to rg pairs but, in h2 and --h2-cts runs, calls on the
+    column names, so it never runs there. Rather than warn and emit a partition the user must second-guess,
+    collinear annotations raise ``LDSCInputError`` so the only results
+    produced are trustworthy ones. h2 fits and each rg trait pair apply it on
+    their own regression rows. It is skipped when the model has fewer than two
+    LD-score columns, when the dataset carries no overlap, and when the
+    overlap lacks the needed common-SNP block or a model column.
     """
     overlap = getattr(dataset, "ldscore_overlap", None)
     if overlap is None or len(dataset.retained_ld_columns) < 2:

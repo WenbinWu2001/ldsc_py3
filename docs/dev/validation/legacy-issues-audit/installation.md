@@ -1,6 +1,6 @@
 # Installation and dependencies
 
-Last updated on: 2026-10-29
+Last updated on: 2026-11-06
 
 [Audit overview](README.md) · [Workflow counts and membership](workflow-index.md) · [Verification](verification.md)
 
@@ -863,7 +863,7 @@ Current dependency bounds plus tests are stronger evidence than suggesting arbit
 **Recommended prevention.** Keep stable genomic-order tests and validate supported pandas releases before publication; no compatibility shim for removed ancient APIs is needed.
 
 **Evidence and verification.** source-inspected
-[src/ldsc/_core/row_alignment.py](<../../../../src/ldsc/_core/row_alignment.py>); [tests/regression/test_regression_workflow.py:test_build_dataset_orders_merged_rows_by_ld_score_genomic_order](<../../../../tests/regression/test_regression_workflow.py>); [setup.py](<../../../../setup.py>).
+[src/ldsc/_core/row_alignment.py](<../../../../src/ldsc/_core/row_alignment.py>); [tests/regression/test_alignment.py:test_build_dataset_orders_merged_rows_by_ld_score_genomic_order](<../../../../tests/regression/test_alignment.py>); [setup.py](<../../../../setup.py>).
 
 Legacy implementation context: [`environment.yml`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/environment.yml), [`requirements.txt`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/requirements.txt).
 

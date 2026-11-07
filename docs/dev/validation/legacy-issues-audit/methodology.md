@@ -2456,7 +2456,7 @@ This is required for the ratio and is not solved by substituting the larger stan
 **Recommended prevention.** Label pairwise SNP counts and h2 prominently and explain which estimate answers the standalone versus correlation question.
 
 **Evidence and verification.** source-inspected
-[src/ldsc/_regression/runner.py:build_rg_dataset](<../../../../src/ldsc/_regression/runner.py>); [src/ldsc/_regression/runner.py:estimate_rg_pairs](<../../../../src/ldsc/_regression/runner.py>); [tests/regression/test_regression_workflow.py:test_build_rg_dataset_uses_final_three_way_snp_intersection](<../../../../tests/regression/test_regression_workflow.py>).
+[src/ldsc/_regression/runner.py:build_rg_dataset](<../../../../src/ldsc/_regression/runner.py>); [src/ldsc/_regression/runner.py:estimate_rg_pairs](<../../../../src/ldsc/_regression/runner.py>); [tests/regression/test_alignment.py:test_build_rg_dataset_uses_final_three_way_snp_intersection](<../../../../tests/regression/test_alignment.py>).
 
 <a id="issue-130"></a>
 

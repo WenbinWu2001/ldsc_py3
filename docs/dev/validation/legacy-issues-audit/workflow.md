@@ -1,6 +1,6 @@
 # Inputs, workflows, and diagnostics
 
-Last updated on: 2026-10-30
+Last updated on: 2026-11-06
 
 [Audit overview](README.md) · [Workflow counts and membership](workflow-index.md) · [Verification](verification.md)
 
@@ -2077,7 +2077,7 @@ File contents therefore avoid pandas display truncation, although users still ne
 **Recommended prevention.** Keep full names in saved tables and demonstrate naming two similarly named GWAS inputs.
 
 **Evidence and verification.** source-inspected
-[src/ldsc/_regression/runner.py:_disambiguate_trait_names](<../../../../src/ldsc/_regression/runner.py>); [src/ldsc/_regression/outputs.py:RgDirectoryWriter](<../../../../src/ldsc/_regression/outputs.py>); [tests/regression/test_regression_workflow.py:test_cli_does_not_print_rg_table_when_output_dir_is_supplied](<../../../../tests/regression/test_regression_workflow.py>).
+[src/ldsc/_regression/runner.py:_disambiguate_trait_names](<../../../../src/ldsc/_regression/runner.py>); [src/ldsc/_regression/outputs.py:RgDirectoryWriter](<../../../../src/ldsc/_regression/outputs.py>); [tests/regression/test_regression_commands.py:test_cli_does_not_print_rg_table_when_output_dir_is_supplied](<../../../../tests/regression/test_regression_commands.py>).
 
 Legacy implementation context: [`ldscore/regressions.py`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/ldscore/regressions.py), [`ldscore/sumstats.py`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/ldscore/sumstats.py).
 

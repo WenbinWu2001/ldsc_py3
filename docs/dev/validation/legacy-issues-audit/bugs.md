@@ -1,6 +1,6 @@
 # Correctness and numerical bugs
 
-Last updated on: 2026-10-30
+Last updated on: 2026-11-06
 
 [Audit overview](README.md) · [Workflow counts and membership](workflow-index.md) · [Verification](verification.md)
 
@@ -392,7 +392,7 @@ This remains a related reproduction, not the unavailable original pair.
 **Recommended prevention.** Require finite Z,N,LD scores and weights before fitting, with offending rows/columns; retain distinct low-overlap guidance.
 
 **Evidence and verification.** actual boundary/workflow probe: load_sumstats text file -> build_dataset -> estimate_h2; synthetic LDScoreResult fixture, probe-nonfinite-b.py
-[src/ldsc/_annotation/tables.py:_validate_annotation_values](<../../../../src/ldsc/_annotation/tables.py>); [src/ldsc/_regression/runner.py:RegressionRunner.build_rg_dataset](<../../../../src/ldsc/_regression/runner.py>).
+[src/ldsc/_annotation/parsing.py:validate_annotation_values](<../../../../src/ldsc/_annotation/parsing.py>); [src/ldsc/_regression/runner.py:RegressionRunner.build_rg_dataset](<../../../../src/ldsc/_regression/runner.py>).
 
 Legacy implementation context: [`ldscore/regressions.py`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/ldscore/regressions.py), [`ldscore/sumstats.py`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/ldscore/sumstats.py).
 
@@ -856,7 +856,7 @@ An emptied intersection still must yield an actionable failure with the selected
 **Recommended prevention.** Preserve explicit allele-drop reasons and include both incompatible and strand-complement cases in the issue-to-test map.
 
 **Evidence and verification.** source-inspected
-[src/ldsc/_regression/runner.py:build_rg_dataset](<../../../../src/ldsc/_regression/runner.py>); [src/ldsc/_regression/runner.py:_allele_pair_flags](<../../../../src/ldsc/_regression/runner.py>); [tests/regression/test_regression_workflow.py:test_build_rg_dataset_harmonizes_alleles_and_flips_second_trait_z](<../../../../tests/regression/test_regression_workflow.py>).
+[src/ldsc/_regression/runner.py:build_rg_dataset](<../../../../src/ldsc/_regression/runner.py>); [src/ldsc/_regression/runner.py:_allele_pair_flags](<../../../../src/ldsc/_regression/runner.py>); [tests/regression/test_alignment.py:test_build_rg_dataset_harmonizes_alleles_and_flips_second_trait_z](<../../../../tests/regression/test_alignment.py>).
 
 Legacy implementation context: [`ldscore/regressions.py`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/ldscore/regressions.py), [`ldscore/sumstats.py`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/ldscore/sumstats.py).
 
@@ -904,7 +904,7 @@ It must still distinguish positional row equality from identity equality; merely
 **Recommended prevention.** Retain a differently indexed/permuted-input test and validate one-to-one keys before any positional fast path.
 
 **Evidence and verification.** source-inspected
-[src/ldsc/_regression/runner.py:build_dataset](<../../../../src/ldsc/_regression/runner.py>); [src/ldsc/_core/row_alignment.py](<../../../../src/ldsc/_core/row_alignment.py>); [tests/regression/test_regression_workflow.py:test_build_dataset_orders_merged_rows_by_ld_score_genomic_order](<../../../../tests/regression/test_regression_workflow.py>); [Source](<https://github.com/bulik/ldsc/commit/94b3957e77b4d723b146024eb1abb77dfec914b5>).
+[src/ldsc/_regression/runner.py:build_dataset](<../../../../src/ldsc/_regression/runner.py>); [src/ldsc/_core/row_alignment.py](<../../../../src/ldsc/_core/row_alignment.py>); [tests/regression/test_alignment.py:test_build_dataset_orders_merged_rows_by_ld_score_genomic_order](<../../../../tests/regression/test_alignment.py>); [Source](<https://github.com/bulik/ldsc/commit/94b3957e77b4d723b146024eb1abb77dfec914b5>).
 
 Legacy implementation context: [`ldscore/regressions.py`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/ldscore/regressions.py), [`ldscore/sumstats.py`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/ldscore/sumstats.py).
 
@@ -1119,7 +1119,7 @@ Standard standalone h2 success is not a test of this cross-trait operation, so p
 **Recommended prevention.** Keep mixed valid/incompatible pair tests with nonconsecutive indices and verify count, retained identities and sign after filtering.
 
 **Evidence and verification.** source-inspected
-[src/ldsc/_regression/runner.py:build_rg_dataset](<../../../../src/ldsc/_regression/runner.py>); [tests/regression/test_regression_workflow.py:test_build_rg_dataset_harmonizes_alleles_and_flips_second_trait_z](<../../../../tests/regression/test_regression_workflow.py>).
+[src/ldsc/_regression/runner.py:build_rg_dataset](<../../../../src/ldsc/_regression/runner.py>); [tests/regression/test_alignment.py:test_build_rg_dataset_harmonizes_alleles_and_flips_second_trait_z](<../../../../tests/regression/test_alignment.py>).
 
 Legacy implementation context: [`ldscore/regressions.py`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/ldscore/regressions.py), [`ldscore/sumstats.py`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/ldscore/sumstats.py).
 
@@ -1143,7 +1143,7 @@ High INFO does not make two allele representations compatible, and omitting HM3 
 **Recommended prevention.** Cross-link #137/#140 as one mechanism while counting each issue once; preserve explicit incompatibility diagnostics rather than advise hand-deleting allele classes.
 
 **Evidence and verification.** source-inspected
-[src/ldsc/_regression/runner.py:build_rg_dataset](<../../../../src/ldsc/_regression/runner.py>); [src/ldsc/_regression/runner.py:_allele_pair_flags](<../../../../src/ldsc/_regression/runner.py>); [tests/regression/test_regression_workflow.py](<../../../../tests/regression/test_regression_workflow.py>).
+[src/ldsc/_regression/runner.py:build_rg_dataset](<../../../../src/ldsc/_regression/runner.py>); [src/ldsc/_regression/runner.py:_allele_pair_flags](<../../../../src/ldsc/_regression/runner.py>); [tests/regression/test_alignment.py](<../../../../tests/regression/test_alignment.py>).
 
 Legacy implementation context: [`ldscore/regressions.py`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/ldscore/regressions.py), [`ldscore/sumstats.py`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/ldscore/sumstats.py).
 
@@ -1167,7 +1167,7 @@ Treat the suggested removal of A/T or G/C classes carefully: strand ambiguity is
 **Recommended prevention.** Retain one mixed-pair regression fixture demonstrating dropped incompatible SNPs and correct remaining Z signs; do not add legacy patch code to the new workflow.
 
 **Evidence and verification.** source-inspected
-[src/ldsc/_regression/runner.py:build_rg_dataset](<../../../../src/ldsc/_regression/runner.py>); [tests/regression/test_regression_workflow.py:test_build_rg_dataset_allele_aware_mode_harmonizes_after_identity_merge](<../../../../tests/regression/test_regression_workflow.py>); [Source](<https://github.com/bulik/ldsc/issues/140#issuecomment-1031683241>).
+[src/ldsc/_regression/runner.py:build_rg_dataset](<../../../../src/ldsc/_regression/runner.py>); [tests/regression/test_alignment.py:test_build_rg_dataset_allele_aware_mode_harmonizes_after_identity_merge](<../../../../tests/regression/test_alignment.py>); [Source](<https://github.com/bulik/ldsc/issues/140#issuecomment-1031683241>).
 
 Legacy implementation context: [`ldscore/regressions.py`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/ldscore/regressions.py), [`ldscore/sumstats.py`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/ldscore/sumstats.py).
 
@@ -1470,7 +1470,7 @@ Exact equivalence to the requested intersection-only policy is therefore unprove
 **Recommended prevention.** Retain deterministic drop-all behavior, document the stage and affected counts, and add an intersection-specific audit case before changing policy.
 
 **Evidence and verification.** source-inspected
-[src/ldsc/_regression/runner.py:_project_legacy_sumstats_to_panel](<../../../../src/ldsc/_regression/runner.py>); [src/ldsc/_regression/runner.py:1794](<../../../../src/ldsc/_regression/runner.py#L1794>); [tests/regression/test_regression_workflow.py:test_identity_downgrade_drops_duplicate_effective_keys_before_merge_and_logs](<../../../../tests/regression/test_regression_workflow.py>).
+[src/ldsc/_regression/runner.py:_project_legacy_sumstats_to_panel](<../../../../src/ldsc/_regression/runner.py>); [src/ldsc/_regression/runner.py:1794](<../../../../src/ldsc/_regression/runner.py#L1794>); [tests/regression/test_alignment.py:test_identity_downgrade_drops_duplicate_effective_keys_before_merge_and_logs](<../../../../tests/regression/test_alignment.py>).
 
 Legacy implementation context: [`ldscore/regressions.py`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/ldscore/regressions.py), [`ldscore/sumstats.py`](https://github.com/bulik/ldsc/blob/2fdeeb3b44379408794154993dbd6101b8946b7e/ldscore/sumstats.py).
 

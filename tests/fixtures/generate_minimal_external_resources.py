@@ -34,7 +34,6 @@ OUTPUT_ROOT = REPO_ROOT / "tests" / "fixtures" / "minimal_external_resources"
 OUTPUT_PREFIX = OUTPUT_ROOT / "plink" / "hm3_chr22_subset"
 OUTPUT_HG19_MAP = OUTPUT_ROOT / "genetic_maps" / "genetic_map_hg19_chr22_subset.txt"
 OUTPUT_HG38_MAP = OUTPUT_ROOT / "genetic_maps" / "genetic_map_hg38_chr22_subset.txt"
-OUTPUT_SELECTION = OUTPUT_ROOT / "hm3_chr22_subset_snps.tsv"
 
 CHROM = "22"
 N_SNPS = 32
@@ -45,7 +44,6 @@ def main() -> None:
     write_plink_subset(selected)
     write_map_slice(SOURCE_HG19_MAP, OUTPUT_HG19_MAP, [row["hg19_pos"] for row in selected])
     write_map_slice(SOURCE_HG38_MAP, OUTPUT_HG38_MAP, [row["hg38_pos"] for row in selected])
-    write_selection_table(selected)
     print(f"Wrote {len(selected)} SNPs to {OUTPUT_ROOT}")
 
 
@@ -169,18 +167,6 @@ def write_map_slice(source_path: Path, output_path: Path, positions: Iterable[in
         handle.write(header)
         for pos in sorted(rows):
             handle.write(rows[pos])
-
-
-def write_selection_table(selected: list[dict[str, object]]) -> None:
-    OUTPUT_SELECTION.parent.mkdir(parents=True, exist_ok=True)
-    with OUTPUT_SELECTION.open("wt", encoding="utf-8") as handle:
-        handle.write("CHR\tSNP\tsource_bim_index\thg19_POS\thg38_POS\tA1\tA2\n")
-        for row in selected:
-            handle.write(
-                "{chrom}\t{snp}\t{source_index}\t{hg19_pos}\t{hg38_pos}\t{a1}\t{a2}\n".format(
-                    **row
-                )
-            )
 
 
 if __name__ == "__main__":

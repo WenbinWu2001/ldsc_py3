@@ -88,7 +88,7 @@ The raw reader first cleans each header with the legacy LDSC munging rules (`cle
 `SIGNED_SUMSTAT` is recognized, but its null value is not inferred: pass `--signed-sumstats SIGNED_SUMSTAT,NULL`.
 Names such as `EFFECT_SIZE`, `LOGOR` and `BETA_HAT` produce suggestions rather than mappings; check their meaning and pass `--signed-sumstats COLUMN,NULL`.
 DANER inputs additionally carry case/control counts in format-specific headers ([raw format profiles](../munge-sumstats.md#raw-format-profiles)), which this table does not list.
-A frequency alias does not establish allele orientation: a source column named `MAF` is still a folded minor-allele frequency, not necessarily the frequency of `A1`.
+A frequency alias does not establish allele orientation: a source column named `MAF` is still a folded minor-allele frequency, not necessarily the frequency of `A1`, and it is written as `FRQ`.
 In raw summary statistics, `A1` is the effect allele, so only names that say which allele the signed statistic refers to are aliases; `REF`, `ALT`, `REFERENCE_ALLELE`, `ALLELE0`, `ALLELE1` and `ALLELE2` never map to `A1` or `A2` (see [What A1 means in each file type](#what-a1-means-in-each-file-type)).
 `NEFF` is not an alias for `N`.
 Sample-size selection, INFO-list columns and `--infer-only` are described in the [`munge-sumstats` reference](../munge-sumstats.md).
@@ -258,22 +258,8 @@ Orienting both SNPs of a pair consistently therefore fixes the sign of $r$, and 
 Orientation is applied in the builder between genotype reading and correlation, not inside `nextSNPs`, because it is a build policy rather than a read primitive.
 PLINK panel preparation for `ldscore`, `--export-ref-metadata` and `build-gene-ldscore-index` builds its SNP metadata with the same function (`build_plink_metadata_frame` in `src/ldsc/_refpanel/plink_source.py`); it negates no genotype column, because LD scores use only R².
 
-**Unifying rule:** the frequency column means **frequency of `A1`**.
-The two regimes differ only in what `A1` *is* and what that implies:
-
-- **Files derived from reference-panel genotypes** (R² matrix sidecars, LD-score directories written by `ldscore`, gene LD-score indexes and exported reference metadata): `A1 ≡ minor allele`, so `MAF = freq(A1)` and is **guaranteed ≤ 0.5**.
-- **In summary statistics**: `A1 ≡ effect allele`, so `FRQ = freq(A1)` is **unconstrained** (may exceed 0.5), and is **never folded or reoriented**.
-
-The PLINK association case (`A1` = minor = effect) is just the point where the two regimes coincide.
-
-#### Is the frequency always the MAF (≤ 0.5)?
-
-- **R² matrix sidecar `MAF`:** yes — `A1` is the minor allele, so `MAF = freq(A1) ≤ 0.5` by construction.
-  (Numerically this equals the folded `min(p, 1−p)`; the guarantee added by canonicalization is that the value belongs to `A1`.)
-- **PLINK reference panels:** yes — the package computes the folded `min(p, 1−p)` for its MAF filter and common-SNP counts (`src/ldsc/_refpanel/plink.py`) and gives the minor allele as `A1`, so the value belongs to `A1`.
-  The sidecar written by `ldscore --export-ref-metadata` therefore matches the R² matrix sidecar that `build-r2-matrix` writes for the same panel and individuals.
-- **Summary-statistics `FRQ`:** no — `FRQ = freq(A1=effect)`, not folded; `--maf-min` folds only a local mask for the threshold and never mutates the column or the alleles.
-  When a raw summary-statistics file provides a column named `MAF`, the munger renames it to `FRQ` on output.
+The PLINK MAF filter and common-SNP counts use the folded frequency $\min(p, 1-p)$ (`src/ldsc/_refpanel/plink.py`), which after orientation is the frequency of `A1`.
+A frequency column always means the frequency of `A1`: `MAF` in files derived from reference-panel genotypes is at most 0.5, while summary-statistics `FRQ` is the effect-allele frequency and is never folded; see [allele orientation](../../user-guide/concepts/allele-orientation.md#3-a-frequency-column-is-always-the-frequency-of-a1).
 
 ### What A1 means in each file type
 

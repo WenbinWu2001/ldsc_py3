@@ -289,6 +289,7 @@ Each test folder has an `__init__.py`, which makes those full module paths impor
 | regression estimators | `tests/regression/test_irwls.py`, `tests/regression/test_jackknife.py` |
 | path and config contracts | `tests/runtime/test_path_resolution.py`, `tests/core/test_config_identifiers.py`, `tests/package/test_global_config_registry.py`, `tests/core/test_column_inference.py`, `tests/core/test_chromosome_inference.py`, `tests/genome/test_genome_build_inference.py` |
 | workflow logs | `tests/runtime/test_logging_refactor.py` |
+| genome-build inspection | `tests/genome/test_genome_build_inspection.py`: artifact families, sampling, rsID reporting, exit codes and read-only behavior through the CLI |
 | package layout and import tiers | `tests/package/test_layering.py`, `tests/package/test_package_layout.py` |
 | region exclusion | `tests/core/test_regions.py` |
 

@@ -85,90 +85,35 @@ The [repository map](code-structure.md#repository-map) shows the source and test
 
 ## Code Map
 
-### `ldsc.cli`
+Each module's own responsibility is in the [module map](code-structure.md#module-map) and its module docstring, and its tests are in the [test map](code-structure.md#test-map).
+This map keeps how the modules hand work to one another.
 
-This is the only command-line entry point.
-It parses subcommands, preserves the user-facing CLI contract, and hands control to the public workflow modules.
-The `_COMMANDS` table lists each subcommand once, with its one-line help, its workflow module, and either the module's own `build_parser()` and `main(argv)` or the `add_*_arguments` and `run_*_from_args` functions for a parser the CLI builds.
-A workflow module is imported only when its command is parsed or run, so `ldsc --help` does not import the SciPy-heavy workflows.
-Successful-run stderr notices are decided one way: the command-line side prints them from the returned result once the run has returned, the module's `main(argv)` for a module that parses its own arguments and, for a `run_*_from_args` command, the module function the `_COMMANDS` row names in `notices` (`rg`); workflows only log them, so Python entry points print none.
-Architecture invariant: CLI code should dispatch only; it should not contain numerical logic.
+### Command line and shared contracts
 
-### `ldsc.config`, `ldsc._runtime.paths`, `ldsc._core.columns`, `ldsc._core.chromosomes`, `ldsc._genome.build_inference`
+`ldsc.cli` dispatches each subcommand through its `_COMMANDS` row and imports the workflow module only when that command is parsed or run; `_Command` in `src/ldsc/cli.py` describes the row, the read-only flag and who prints successful-run notices.
+Workflows resolve path tokens (`_runtime.paths`), header aliases (`_core.columns`), chromosome order and the genome build before they call a kernel, so numerical functions receive resolved inputs.
+`_runtime.paths.output_directory_path()` is the one check that rejects an empty or blank destination: `ensure_output_directory()`, the failure-marker scope, `_runtime.scratch.ScratchWorkspace` and the `plots/` and liability-scale roots call it, and `_runtime.cli_help.output_directory_argument()` rejects a blank option while parsing ([output confinement](../reference/logs-and-outputs.md#output-confinement)).
 
-These modules define the package-wide contracts that every workflow shares.
-They normalize path tokens, chromosome ordering, genome-build aliases, exact SNP identifier modes, input header aliases, and `chr_pos`-family genome-build inference before the kernel is called.
-`ldsc._core.columns` matches an input header to a field only by the field's canonical name or a listed alias, compared after lowercasing and removing punctuation; a missing required column's error names headers that only end in such a name (`lookalike_hint()`), which are never read.
-`ldsc._runtime.paths` also owns output-directory creation, fixed-artifact collision preflight, coherent artifact-family preflight, and stale owned-sibling cleanup helpers.
-Its `output_directory_path()` turns a destination into a path and rejects an empty or blank one, which would otherwise mean the working directory; `ensure_output_directory()`, the failure-marker scope, `_runtime.scratch.ScratchWorkspace`, and the `plots/` and liability-scale roots use it, and `cli_help.output_directory_argument` rejects a blank destination option while parsing.
-`ldsc._runtime.preflight.inspect_declared_inputs()` is the declared-input gate that `annotate`, `ldscore`, `build-gene-ldscore-index`, `build-r2-matrix`, `query-r2-matrix`, `munge-sumstats` and the regression commands, `quantile-h2` included, run before any large scan: it resolves each input role's path tokens, checks that every resolved file is readable and runs the header check its domain supplies (`_annotation.preflight.inspect_annotation_inputs()` adds the annotation headers), checks PLINK companion presence through `discover_plink_members()`, runs caller checks such as the saved-artifact check `inspect_artifact_paths()`, and returns a `DeclaredInputs`.
-It collects every failure on one `InputGate`, which writes the caller's input-issue table, usually `diagnostics/input_issues.tsv`, and raises one `LDSCInputError`; content gates later in a run use `InputGate` directly, and every gate builds its rows with `ldsc._runtime.input_issues.input_issue()`, whose repair text each caller supplies.
-`ldsc._genome.build_inference` is public for Python callers through the top-level `ldsc` exports, while the CLI exposes it through workflow build options and the read-only `infer-genome-build` helper.
-Architecture invariant: numerical functions consume resolved inputs.
-Shared normalization stays here or in the workflow layer; the runtime reference-panel adapters currently live at `ldsc._refpanel.adapters` and resolve panel-specific inputs before numerical projection.
+`_runtime.preflight.inspect_declared_inputs()` is the declared-input gate that `annotate`, `ldscore`, `build-gene-ldscore-index`, `build-r2-matrix`, `query-r2-matrix`, `munge-sumstats`, the regression commands and `quantile-h2` run before any large scan.
+Each domain plugs in its own checks: `_annotation.preflight.inspect_annotation_inputs()` adds annotation headers, `_runtime.paths.discover_plink_members()` checks PLINK companions, and callers add checks such as `inspect_artifact_paths()` for saved artifacts.
+Content gates later in a run use `InputGate` directly; every gate builds its rows with `_runtime.input_issues.input_issue()` and raises one `LDSCInputError` after writing the caller's input-issue table ([staged input validation](../reference/logs-and-outputs.md#staged-input-validation)).
 
-### `ldsc._genome.build_policy`
+### Genome builds
 
-`GenomeBuildCheck` collects declared, inferred, unresolved, and unchecked evidence before resolving a workflow coordinate build.
-It uses shared path expansion and column aliases, trusts concrete artifact declarations, and bounds coordinate inference per file/chromosome.
-All relevant declarations are compared after alias normalization, including labels produced by earlier inference.
-Concrete user builds bypass fresh inference while requiring declarations to agree; unlabeled inputs inherit the explicit assertion.
-Auto mode reconciles declarations and necessary per-input/per-chromosome inference, failing on conflicts or unresolved required builds.
-Build-specific coordinate columns and R² matrix build children represent selectable alternatives, and explicit liftover source/target stages are validated separately.
-Workflows and reference adapters call this helper before filtering or numerical work; numerical readers receive a concrete build and do not repeat the decision.
-It reads raw evidence through `ldsc._genome.build_evidence`, which it shares with build inspection: chunked table reads, text-table delimiter and `# ldsc:` comment sniffing, the bounded per-chromosome sampler (at most 5,000 usable rows per chromosome), and R² matrix file and build-child discovery (`r2_members()`).
-Restriction column selection in `_core/columns.py` prefers the matching named position column, then generic `POS`.
-`_genome/build_inference.py` retains the HM3 confidence and coordinate-basis calculations.
-See the [build policy](../reference/snp-identity-and-genome-build.md#genome-build-policy) for command scope, BED inheritance, source/output separation, and grouped diagnostics.
+Workflows and the reference-panel adapters call `_genome.build_policy.GenomeBuildCheck` once, before filtering or numerical work; numerical readers receive the concrete build and do not repeat the decision ([build policy](../reference/snp-identity-and-genome-build.md#genome-build-policy)).
+`_genome.build_inspection`, behind the read-only `infer-genome-build`, shares the raw-evidence readers of `_genome.build_evidence` and the HM3 inference of `_genome.build_inference` with the build check but never calls workflow build resolution, opens no failure-marker scope and writes no artifact ([read-only inspection](../reference/logs-and-outputs.md#read-only-inspection-exception)).
 
-### `ldsc._genome.build_inspection`
+### Workflow logs and failure markers
 
-The private [inspection module](../../src/ldsc/_genome/build_inspection.py) backs `ldsc infer-genome-build PATH` without adding a Python export.
-It reads owned artifact metadata and relevant members, reuses the `ldsc._genome.build_evidence` readers and sampler, shared column aliases and HM3 inference, and renders declared, inferred, unknown, or separately labeled alternative builds independently of the SNP identifier mode.
-It does not call workflow build resolution: unknown evidence is a successful inspection, while contradictory evidence and invalid inputs are errors.
-The module also supplies the command's `PATH` argument and writes the report to stdout (`add_inspection_arguments()`, `run_inspection_from_args()`); it opens no failure-marker scope, and the CLI marks the command read-only so its errors give no workflow-log advice.
-No artifact writers, workflow logs, or liftover participate.
-`tests/genome/test_genome_build_inspection.py` covers artifact families, sampling, rsID reporting, exit codes, and read-only behavior through the CLI.
-
-### `ldsc._runtime.workflow_logging`
-
-This module owns the small shared logging context used by workflow wrappers.
-It sets the `LDSC` logger threshold, attaches a per-run file handler to the
-`LDSC` ancestor logger, writes lifecycle audit lines, captures a run-aborting
-traceback into the log file on failure, restores logger state on exit, and
-exposes log-only formatting helpers. It also owns the CLI console-handler
-lifecycle: the per-run `.log` file is the authoritative sink, while the console
-(stderr) is CLI-only and silent except for errors (it falls back to full
-verbosity only for low-level calls without a workflow log). The Python API never
-emits console output. Architecture invariant: workflows preflight the
-log path with scientific outputs before entering the context, and result
-`output_paths` mappings do not include logs.
-
-The same module owns the small `RUN_FAILED` marker helper used at public
-materializing boundaries. The helper adds failure visibility for authorized
-overwrites but performs no rollback, restoration, quarantine, or action-order
-change. See [logs-and-outputs.md](../reference/logs-and-outputs.md).
+`_runtime.workflow_logging` owns the per-run log, the CLI console handler and the `RUN_FAILED` marker; their contract is in [logs and outputs](../reference/logs-and-outputs.md).
 Each run has one marker scope, opened by its workflow (`materializing_overwrite_guard()` or `overwrite_failure_marker()`) from parsed arguments, or, for `build-r2-matrix`, by the `_build()` body that both entry points call, after `R2MatrixBuilder._inspect_inputs()` has assigned chromosomes from BIM contents.
 A scope opened inside an open one neither writes nor removes, so the outermost public entry point decides the marker and its label.
 The CLI opens no scope; `run_cli()` wraps dispatch in `cli_command()`, and the marker records that command line.
-`serial_calculation()` returns a workflow log path opened in its worker, so a marker written in the calling process names that log.
+`serial_calculation()` returns the workflow log path opened in its worker, so a marker written in the calling process names that log.
 
-### `ldsc._plotting.dispatch`, `ldsc._regression.h2_scale`
+### Plotting and scale conversion
 
-`ldsc._plotting.dispatch.plot_result()` is the sole public plot dispatcher. It selects
-one approved plot from canonical `diagnostics/metadata.json`, follows declared
-source paths, and imports private Matplotlib builders only on a plot-producing
-path. `ldsc._regression.h2_scale.convert_h2_scale()` reads the observed estimate and SE
-from a canonical `h2` result and reuses the kernel liability conversion factor;
-only prevalence-range mode imports Matplotlib. Both default to package-owned
-nested result roots and allow an advanced Python-only destination override.
-Each declares its derived family as an `ArtifactFamily` (`_plot_artifact_family()`, `_conversion_artifact_family()`), preflights it with its log and writes metadata `files` from it, like the domain writers, and reads source tables through `_runtime.artifacts.declared_result_file()`.
-Their complete seams are documented in [plotting.md](design/plotting.md).
-
-For `rg`, the dispatcher loads the correlation table and optional metadata-declared single-trait heritability table.
-Private builders align observed SNP heritability and SE by trait name for the heatmap diagonal or anchor annotations.
-Missing heritability values display `failed`; the plotting layer neither reruns regression nor chooses among pair-specific heritability fits.
-See [the annotation contract](design/plotting.md#heritability-annotations-in-rg-plots).
+`_plotting.dispatch` and `_regression.h2_scale` read canonical result directories through `_runtime.artifacts.declared_result_file()` and declare their derived families as `ArtifactFamily` values, as the domain writers do; their seams, output families and the `rg` heritability annotations are in [plotting](design/plotting.md).
 
 ### `ldsc._annotation.builder`
 

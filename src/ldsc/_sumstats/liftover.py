@@ -171,7 +171,7 @@ def apply_sumstats_liftover(
         reason="missing_coordinate",
         source_pos_col="POS",
     )
-    work, missing_report = _normalized_coordinate_frame(frame, drop_missing=True, logger=logger)
+    work, missing_report = normalize_chr_pos_frame(frame, context="sumstats liftover", logger=logger)
     work = work.copy()
     work["_ldsc_source_POS"] = work["POS"].astype(np.int64)
     source_duplicate_result = duplicate_coordinate_drop_result(
@@ -300,22 +300,6 @@ def _require_resolved_request(request: SumstatsLiftoverRequest, source_build: st
         )
 
 
-def _normalized_coordinate_frame(
-    frame: pd.DataFrame,
-    *,
-    drop_missing: bool = False,
-    logger: logging.Logger | None = None,
-) -> tuple[pd.DataFrame, Any]:
-    """Return a copy with complete normalized CHR/POS columns for liftover.
-
-    Liftover runs only in coordinate-family modes, whose munged rows always
-    carry ``CHR`` and ``POS`` columns.
-    """
-    return normalize_chr_pos_frame(
-        frame,
-        context="sumstats liftover",
-        logger=logger,
-    )
 
 
 def _raise_sumstats_all_dropped(

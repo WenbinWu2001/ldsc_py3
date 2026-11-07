@@ -898,7 +898,10 @@ def _key_regression_rows(frame: pd.DataFrame, mode: str, *, cleaned: bool, conte
     if is_allele_aware_mode(mode):
         frame = _with_effective_identity_key(frame, mode, context=context)
     elif identity_mode_family(mode) != "rsid":
-        frame = _with_chr_pos_key(frame, context=context)
+        chr_col, pos_col = infer_chr_pos_columns(frame.columns, context=context)
+        frame, _report = build_chr_pos_key_frame(
+            frame, context=context, chr_col=chr_col, pos_col=pos_col, logger=LOGGER,
+        )
     return frame, dropped
 
 
@@ -921,19 +924,6 @@ def _with_effective_identity_key(frame: pd.DataFrame, mode: str, *, context: str
     if not present.all():
         keyed = keyed.take(np.flatnonzero(present))
     keyed.index = pd.RangeIndex(len(keyed))
-    return keyed
-
-
-def _with_chr_pos_key(frame: pd.DataFrame, *, context: str) -> pd.DataFrame:
-    """Return a copy with a private canonical ``CHR:POS`` merge key."""
-    chr_col, pos_col = infer_chr_pos_columns(frame.columns, context=context)
-    keyed, _report = build_chr_pos_key_frame(
-        frame,
-        context=context,
-        chr_col=chr_col,
-        pos_col=pos_col,
-        logger=LOGGER,
-    )
     return keyed
 
 

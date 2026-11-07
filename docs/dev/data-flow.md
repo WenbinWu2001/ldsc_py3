@@ -68,37 +68,8 @@ flowchart LR
 
 ## Shared SNP Identity Contract
 
-All workflows share one SNP identity contract. Public `snp_identifier` values
-are exactly `rsid`, `rsid_allele_aware`, `chr_pos`, and
-`chr_pos_allele_aware`; the default is `chr_pos_allele_aware`. Mode names are
-exact. Column aliases apply only to input headers, not to mode values.
-
-Base modes are allele-blind. `rsid` uses only `SNP`, and `chr_pos` uses only
-`CHR:POS`; any allele columns present in base-mode inputs are passive data and
-do not affect identity, duplicate filtering, retention, or drop reasons.
-Allele-aware modes use unordered, strand-aware `A1/A2` allele sets only to make
-merge keys safer. They require usable alleles on summary statistics, reference-panel
-artifacts, R² Parquet endpoints, and LD-score directories, and they drop missing,
-invalid/non-SNP, identical, multi-allelic base-key, and duplicate effective-key
-clusters.
-This identity cleanup runs on the rows that pass any SNP restriction, such as `--ref-panel-snps-file` in `ldscore --plink-prefix` and `build-r2-matrix` or the summary-statistics keep-list, so a position is multi-allelic only when more than one of its allele pairs passes the restriction.
-A/T and C/G pairs are valid identities; only signed comparisons between
-files treat their strand as unknown. Artifact duplicate filtering always computes
-the effective key for the active mode, then drops all rows in duplicate-key
-clusters.
-Allele-free summary-statistics munging is selected by using the base
-`--snp-identifier rsid` or `--snp-identifier chr_pos` mode, not by a separate
-allele-skip flag.
-
-Restriction files may omit alleles. Allele-free restrictions match by base key
-and can retain multiple candidate rows before later artifact cleanup.
-Allele-bearing restrictions, including the packaged HM3 map, match by the
-effective allele-aware key in allele-aware modes. Restriction files are
-identity-only filters: duplicate restriction keys collapse to one retained key,
-and non-identity columns such as `CM`, `MAF`, or other metadata are ignored.
-Annotation files may also omit alleles in allele-aware modes because they
-describe genomic membership; when annotation alleles are present, they
-participate in allele-aware matching.
+All workflows share one SNP identity contract: the four SNP identifier modes, allele-aware key construction, the drop-all duplicate policy and the identity-only semantics of restriction files are defined in [column schema](../reference/formats/column-schema.md#snp-identifier-modes) and its [duplicate SNP identity policy](../reference/formats/column-schema.md#duplicate-snp-identity-policy).
+Allele-aware identity cleanup runs on the rows that pass any SNP restriction; see [identity semantics](../reference/snp-identity-and-genome-build.md#identity-semantics).
 
 ## 1. `annotate`: BED or Gene Projection to SNP Annotations
 

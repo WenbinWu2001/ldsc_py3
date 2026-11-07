@@ -1,6 +1,6 @@
 # SNP Identifier / Genome Build: Default Design
 
-Last updated on: 2026-11-05
+Last updated on: 2026-11-06
 
 ## Standalone build inspection
 
@@ -257,23 +257,13 @@ For a synthetic `base` annotation it is the reference panel's `.bim` `SNP` value
 Annotation files may omit both `A1` and `A2`, even in allele-aware modes; annotation rows then match by base SNP identity, and LD-score calculation takes the alleles from the reference panel.
 An annotation file with only one of the two allele columns is rejected.
 
-Mode names are exact. Column aliases apply only to input headers, not to
-`snp_identifier` values.
-
-Base modes ignore alleles entirely:
-
-- `rsid` uses only `SNP`.
-- `chr_pos` uses only `CHR:POS`.
-
-Allele columns may be preserved in base modes, but they never affect identity,
-duplicate filtering, retention, or drop reasons.
+Mode names, base-mode identity and allele-aware key construction are defined in [SNP identifier modes](formats/column-schema.md#snp-identifier-modes).
 
 Allele-aware modes require usable `A1/A2` on package-written identity artifacts: munged summary statistics, reference-panel metadata, R² matrix sidecars, and LD-score directories.
-They drop missing, invalid/non-SNP and identical allele pairs, multi-allelic base-key clusters, and duplicate effective-key clusters.
+They drop missing, invalid/non-SNP and identical allele pairs, multi-allelic base-key clusters, and duplicate effective-key clusters ([duplicate SNP identity policy](formats/column-schema.md#duplicate-snp-identity-policy)).
 This identity cleanup runs on the rows a SNP restriction keeps: `--ref-panel-snps-file` in `ldscore --plink-prefix` and `build-r2-matrix`, and the summary-statistics SNP keep-list in `munge-sumstats`, apply first.
 A position is therefore multi-allelic only when more than one of its allele pairs passes the restriction, and an allele-bearing restriction that lists one allele pair of a multi-allelic position keeps that SNP in both reference-panel commands.
-A/T and C/G pairs are valid identities and are kept; only signed uses treat their strand as unknown (see [allele-aware identity keys](formats/column-schema.md#snp-identifier-modes)).
-Artifact duplicates are handled by computing the effective merge key for the active mode and dropping all rows in duplicate-key clusters.
+A/T and C/G pairs are valid identities and are kept; only signed uses treat their strand as unknown.
 
 Multi-allelic base-key clusters are dropped because allele-aware modes exist for safer merging, not for retaining multi-allelic sites.
 Computing LD scores over retained same-position clusters would need its own design for same-position pair semantics, LD-window traversal, and R² endpoint indexing.

@@ -369,6 +369,8 @@ sumstats = munger.run(
 ```
 
 `output_genome_build` must be chosen explicitly in coordinate-family modes, and rsID-family modes reject the build and liftover fields.
+`column_hints` takes the column options as keys, without the leading `--` and with underscores: `snp`, `chr`, `pos`, `a1`, `a2`, `p`, `frq`, `info`, `nstudy`, `N_col`, `N_cas_col`, `N_con_col`, `signed_sumstats` and `info_list`.
+`N`, `N_cas` and `N_con` are accepted as the same keys as `N_col`, `N_cas_col` and `N_con_col`; each value is the raw header to read, as in `column_hints={"N_col": "NEFF"}`.
 `output_format` takes `"parquet"` (default), `"tsv.gz"` or `"both"`.
 The liftover options follow the same rules as the CLI; see the [liftover rules](../reference/munge-sumstats.md#liftover-rules).
 

@@ -968,6 +968,15 @@ class MungeConfig:
         Raw summary-statistics file to munge. Exact-one glob patterns are
         resolved by the workflow before entering the legacy kernel. Default is
         ``None``.
+    column_hints : dict of str to str, optional
+        Raw header to read for a field, keyed like the ``munge-sumstats``
+        column options: ``snp``, ``chr``, ``pos``, ``a1``, ``a2``, ``p``,
+        ``frq``, ``info``, ``nstudy``, ``N_col``, ``N_cas_col`` and
+        ``N_con_col``, where ``N``, ``N_cas`` and ``N_con`` are accepted as
+        the same three sample-size keys. ``signed_sumstats`` takes
+        ``"<column>,<null value>"`` and ``info_list`` a comma-separated list of
+        column names. A hint replaces the column the reader would infer for
+        that field. Default is ``{}``.
     N, N_cas, N_con : float or None, optional
         Constant sample-size fallbacks. Per-variant N or paired case/control
         columns take precedence. Otherwise ``N`` is used when supplied, or

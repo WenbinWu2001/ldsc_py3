@@ -46,6 +46,15 @@ _GENOME_BUILD_UNSET = object()
 # build-r2-matrix. LD windows are exact for any value, so it sets speed and
 # memory only; see docs/dev/design/memory-and-cpu.md for the benchmark.
 DEFAULT_SNP_BATCH_SIZE = 512
+# MungeConfig.column_hints keys that name a raw column, and the field each
+# selects; signed_sumstats and info_list are the two other accepted keys.
+COLUMN_HINT_TARGETS = {
+    'snp': 'SNP', 'chr': 'CHR', 'pos': 'POS',
+    'N': 'N', 'N_col': 'N', 'N_cas': 'N_CAS', 'N_cas_col': 'N_CAS',
+    'N_con': 'N_CON', 'N_con_col': 'N_CON', 'a1': 'A1', 'a2': 'A2',
+    'p': 'P', 'frq': 'FRQ', 'info': 'INFO', 'nstudy': 'NSTUDY',
+}
+_COLUMN_HINT_KEYS = (*COLUMN_HINT_TARGETS, 'signed_sumstats', 'info_list')
 
 
 SNPIdentifierMode = Literal["rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"]
@@ -976,7 +985,8 @@ class MungeConfig:
         the same three sample-size keys. ``signed_sumstats`` takes
         ``"<column>,<null value>"`` and ``info_list`` a comma-separated list of
         column names. A hint replaces the column the reader would infer for
-        that field. Default is ``{}``.
+        that field; any other key raises ``LDSCConfigError``. Default is
+        ``{}``.
     N, N_cas, N_con : float or None, optional
         Constant sample-size fallbacks. Per-variant N or paired case/control
         columns take precedence. Otherwise ``N`` is used when supplied, or
@@ -1135,6 +1145,13 @@ class MungeConfig:
         object.__setattr__(self, "trait_name", normalize_trait_name(self.trait_name))
         object.__setattr__(self, "ignore_columns", tuple(self.ignore_columns))
         object.__setattr__(self, "info_list_columns", tuple(self.info_list_columns))
+        unknown = [key for key in self.column_hints if key not in _COLUMN_HINT_KEYS]
+        if unknown:
+            raise LDSCConfigError(
+                f"Could not construct MungeConfig: column_hints has unknown key(s) {', '.join(map(repr, unknown))}. "
+                "Most likely a key is misspelled; an unknown key would leave that column to inference. "
+                f"Accepted keys: {', '.join(_COLUMN_HINT_KEYS)}."
+            )
         object.__setattr__(self, "column_hints", dict(self.column_hints))
         if self.sumstats_snps_file is not None and self.no_snp_restriction:
             raise LDSCConfigError(

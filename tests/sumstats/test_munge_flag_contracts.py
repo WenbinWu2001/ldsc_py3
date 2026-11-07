@@ -129,3 +129,22 @@ def test_build_options_are_checked_once_with_flag_and_field_names(tmp_path, case
     messages.append(str(caught.value))
     assert names in messages[0]
     assert messages[0] == messages[1] == messages[2]
+
+
+def test_munge_config_rejects_an_unknown_column_hint_key():
+    from ldsc.config import MungeConfig
+    from ldsc.errors import LDSCConfigError
+
+    with pytest.raises(LDSCConfigError) as failure:
+        MungeConfig(column_hints={"N_column": "NEFF", "snp": "rsid"})
+    message = str(failure.value)
+    assert "'N_column'" in message and "'snp'" not in message.split("Accepted keys")[0]
+    assert "N_col" in message and "signed_sumstats" in message and "info_list" in message
+
+
+def test_munge_config_accepts_every_documented_column_hint_key():
+    from ldsc.config import MungeConfig
+
+    keys = ["snp", "chr", "pos", "a1", "a2", "p", "frq", "info", "nstudy", "N_col", "N_cas_col", "N_con_col",
+            "N", "N_cas", "N_con", "signed_sumstats", "info_list"]
+    assert set(MungeConfig(column_hints={key: "X" for key in keys}).column_hints) == set(keys)

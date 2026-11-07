@@ -33,7 +33,7 @@ from .._core.columns import (
     clean_header,
     resolve_optional_column,
 )
-from ..config import GlobalConfig, MungeConfig
+from ..config import COLUMN_HINT_TARGETS, GlobalConfig, MungeConfig
 from ..errors import LDSCInputError, LDSCUsageError, LDSCUserError
 from .._core.identifiers import restriction_file_has_allele_columns
 from .liftover import SumstatsLiftoverRequest
@@ -55,14 +55,6 @@ from .._genome.hm3 import _load_hm3_curated_map_from_path, packaged_hm3_curated_
 from .._runtime.paths import resolve_scalar_path
 
 LOGGER = logging.getLogger('LDSC.sumstats_munger')
-
-
-COLUMN_HINT_TARGETS = {
-    'snp': 'SNP', 'chr': 'CHR', 'pos': 'POS',
-    'N': 'N', 'N_col': 'N', 'N_cas': 'N_CAS', 'N_cas_col': 'N_CAS',
-    'N_con': 'N_CON', 'N_con_col': 'N_CON', 'a1': 'A1', 'a2': 'A2',
-    'p': 'P', 'frq': 'FRQ', 'info': 'INFO', 'nstudy': 'NSTUDY',
-}
 
 
 null_values = {

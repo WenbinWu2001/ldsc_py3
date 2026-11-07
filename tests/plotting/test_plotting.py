@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from tests.cli_parsing import parse_command
+from tests.ldscore_helpers import edit_json
 
 def _write_result(tmp_path, *, name, metadata, filename, rows):
     result_dir = tmp_path / name
@@ -249,10 +250,7 @@ def test_rg_missing_heritabilities_are_failed(tmp_path, pair_kind, missing):
     result_dir = _write_rg_with_h2(tmp_path, pair_kind=pair_kind)
     h2_path = result_dir / "heritabilities.tsv"
     if missing == "declaration":
-        path = result_dir / "diagnostics/metadata.json"
-        metadata = json.loads(path.read_text())
-        del metadata["files"]["h2_per_trait"]
-        path.write_text(json.dumps(metadata))
+        edit_json(result_dir / "diagnostics/metadata.json", lambda metadata: metadata["files"].pop("h2_per_trait"))
     elif missing == "file":
         h2_path.unlink()
     else:
@@ -301,10 +299,7 @@ def test_rg_unusable_h2_pairs_are_failed_without_losing_valid_traits(tmp_path, p
     invalid = [(None, 0.1), (float("inf"), 0.1), ("bad", 0.1), (0.2, None),
                (0.2, float("inf")), (0.2, "bad"), (0.2, -0.1)]
     names = ["Anchor", "Trait B", "Trait C"] + [f"Invalid {i}" for i in range(len(invalid))]
-    path = result_dir / "diagnostics/metadata.json"
-    metadata = json.loads(path.read_text())
-    metadata["trait_names"] = names
-    path.write_text(json.dumps(metadata))
+    edit_json(result_dir / "diagnostics/metadata.json", lambda metadata: metadata.update(trait_names=names))
     rows = [{"trait_name": "Anchor", "total_h2_obs": 0.25, "total_h2_obs_se": 0.03}]
     rows.extend({"trait_name": name, "total_h2_obs": estimate, "total_h2_obs_se": se}
                 for name, (estimate, se) in zip(names[3:], invalid))
@@ -372,10 +367,7 @@ def test_rg_rejects_unsafe_h2_declarations_even_if_target_is_missing(tmp_path, p
         declared = "linked.tsv"
     else:
         declared = 42
-    path = result_dir / "diagnostics/metadata.json"
-    metadata = json.loads(path.read_text())
-    metadata["files"]["h2_per_trait"] = declared
-    path.write_text(json.dumps(metadata))
+    edit_json(result_dir / "diagnostics/metadata.json", lambda metadata: metadata["files"].update(h2_per_trait=declared))
     with pytest.raises(LDSCInputError, match="files.h2_per_trait"):
         plot_result(result_dir)
     assert not (result_dir / "plots").exists()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -11,6 +12,14 @@ from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig, c
 from ldsc._ldscore.overlap_table import LDScoreOverlap
 from ldsc._ldscore.results import LDScoreResult
 from ldsc._ldscore.source import count_record
+
+
+def edit_json(path, edit) -> None:
+    """Apply ``edit`` to the parsed JSON document at ``path`` (an artifact's metadata) and save it."""
+    path = Path(path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    edit(payload)
+    path.write_text(json.dumps(payload), encoding="utf-8")
 
 
 def write_ldscore_dir(

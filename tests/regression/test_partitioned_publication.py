@@ -16,6 +16,7 @@ from ldsc._regression.outputs import (
 )
 from ldsc._regression.results import PartitionedH2FitArtifacts
 from ldsc._regression.quantile_h2 import load_fitted_partitioned_model
+from tests.ldscore_helpers import edit_json
 
 
 @pytest.fixture
@@ -103,10 +104,7 @@ def test_shared_metadata_cannot_be_silently_lost(tmp_path, fitted_query, damage)
     if damage == "missing_parent":
         (tmp_path / "result/diagnostics/metadata.json").unlink()
     else:
-        path = query / "metadata.json"
-        payload = json.loads(path.read_text())
-        payload["global_metadata"] = "../../../unrelated.json"
-        path.write_text(json.dumps(payload))
+        edit_json(query / "metadata.json", lambda payload: payload.update(global_metadata="../../../unrelated.json"))
     with pytest.raises(LDSCInputError, match="metadata"):
         load_fitted_partitioned_model(query)
 

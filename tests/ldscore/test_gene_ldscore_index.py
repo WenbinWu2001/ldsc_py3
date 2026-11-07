@@ -45,6 +45,7 @@ from ldsc._core.chromosomes import AUTOSOMES
 from ldsc._ldscore.gene_index.artifact import load_gene_ldscore_index
 from ldsc._ldscore.gene_index.scoring import run_indexed_ldscore
 from tests.gene_index_helpers import narrow_index_chromosomes, write_gene_ldscore_index
+from tests.ldscore_helpers import edit_json
 
 
 @pytest.fixture(autouse=True)
@@ -1538,9 +1539,7 @@ def test_index_loader_requires_root_annotation_types_and_snp_universe_policy(tmp
     loaded = load_gene_ldscore_index(index_dir)
     assert loaded.annotation_types == {"base": "binary"}
     assert loaded.snp_universe_policy["regression_rows_and_weights"]["written_snp_count"] == 2
-    root = json.loads((index_dir / "metadata.json").read_text(encoding="utf-8"))
-    root[field] = value
-    (index_dir / "metadata.json").write_text(json.dumps(root), encoding="utf-8")
+    edit_json(index_dir / "metadata.json", lambda root: root.update({field: value}))
     with pytest.raises(LDSCInputError, match="annotation_types or snp_universe_policy"):
         load_gene_ldscore_index(index_dir)
 
@@ -1580,9 +1579,7 @@ def test_indexed_ldscore_asks_to_rebuild_an_index_of_another_format(tmp_path):
     )
     # An index of another format records that format in its root and every component.
     for path in (index_dir / "metadata.json", index_dir / "chromosomes" / "chr22" / "metadata.json"):
-        metadata = json.loads(path.read_text(encoding="utf-8"))
-        metadata["format_version"] = 2
-        path.write_text(json.dumps(metadata), encoding="utf-8")
+        edit_json(path, lambda metadata: metadata.update(format_version=2))
     genes = tmp_path / "focal.txt"
     genes.write_text("G1\n", encoding="utf-8")
 
@@ -1684,10 +1681,7 @@ def test_index_loader_rejects_chromosome_coverage_corruption(tmp_path):
         tmp_path / "index", index_identity=index_identity, gene_catalog=catalog,
         chromosomes={"22": chromosome},
     )
-    metadata_path = index_dir / "metadata.json"
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    metadata["chromosomes"] = []
-    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    edit_json(index_dir / "metadata.json", lambda metadata: metadata.update(chromosomes=[]))
 
     with pytest.raises(LDSCInputError, match="chromosome coverage"):
         load_gene_ldscore_index(index_dir)

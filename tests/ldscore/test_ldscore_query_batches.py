@@ -14,6 +14,7 @@ from ldsc._annotation.overlap import annotation_statistics
 from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from ldsc import load_ldscore_from_dir
 from tests.runtime.test_output import make_split_ldscore_result
+from tests.ldscore_helpers import edit_json
 
 
 def prepared_case(tmp_path):
@@ -242,10 +243,7 @@ def test_batch_publication_is_private_and_overwrite_removes_owned_siblings(tmp_p
 
 def test_missing_current_query_manifest_is_rejected(tmp_path):
     LDScoreDirectoryWriter().write_batches([make_split_ldscore_result()], LDScoreOutputConfig(output_dir=tmp_path))
-    path = tmp_path / "metadata.json"
-    payload = json.loads(path.read_text())
-    payload.pop("query_batches")
-    path.write_text(json.dumps(payload))
+    edit_json(tmp_path / "metadata.json", lambda payload: payload.pop("query_batches"))
     from ldsc.errors import LDSCInputError
     with pytest.raises(LDSCInputError, match="query_batches"):
         load_ldscore_from_dir(str(tmp_path))

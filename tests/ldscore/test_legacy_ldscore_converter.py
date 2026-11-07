@@ -16,6 +16,7 @@ from ldsc.config import GlobalConfig, RegressionConfig
 from ldsc._regression.runner import RegressionRunner
 from ldsc._sumstats.table import SumstatsTable
 from tests.cli_parsing import parse_command
+from tests.ldscore_helpers import edit_json
 
 
 def _write_text(path: Path, text: str) -> None:
@@ -492,10 +493,7 @@ def test_loader_rejects_imported_count_and_overlap_threshold_drift(tmp_path: Pat
         legacy_frequency_dir=frequencies,
         output_dir=output,
     )
-    metadata_path = output / "metadata.json"
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    metadata["overlap_config"]["common_maf_operator"] = ">="
-    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    edit_json(output / "metadata.json", lambda metadata: metadata["overlap_config"].update(common_maf_operator=">="))
 
     with pytest.raises(LDSCInputError, match="count_config and overlap_config disagree"):
         ldsc.load_ldscore_from_dir(str(output))

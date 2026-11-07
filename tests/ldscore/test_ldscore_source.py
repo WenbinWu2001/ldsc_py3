@@ -1,6 +1,5 @@
 """Opening and validating LD-score directories with ``load_ldscore_from_dir``."""
 
-import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -10,7 +9,7 @@ import pytest
 
 from ldsc.config import ConfigMismatchError, GlobalConfig
 from ldsc.errors import LDSCInputError, LDSCInternalError
-from tests.ldscore_helpers import write_ldscore_dir, write_one_snp_ldscore_dir
+from tests.ldscore_helpers import edit_json, write_ldscore_dir, write_one_snp_ldscore_dir
 
 
 class LoadLDScoreFromDirTest(unittest.TestCase):
@@ -52,10 +51,7 @@ class LoadLDScoreFromDirTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             write_one_snp_ldscore_dir(tmpdir, include_query=False)
-            metadata_path = tmpdir / "metadata.json"
-            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-            del metadata["snp_identifier"]
-            metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+            edit_json(tmpdir / "metadata.json", lambda metadata: metadata.pop("snp_identifier"))
 
             with self.assertRaisesRegex(LDSCInputError, "snp_identifier=.*invalid"):
                 load_ldscore_from_dir(str(tmpdir))
@@ -66,10 +62,7 @@ class LoadLDScoreFromDirTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             write_one_snp_ldscore_dir(tmpdir, include_query=False)
-            metadata_path = tmpdir / "metadata.json"
-            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-            metadata["snp_identifier"] = "bad"
-            metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+            edit_json(tmpdir / "metadata.json", lambda metadata: metadata.update(snp_identifier="bad"))
 
             with self.assertRaisesRegex(LDSCInputError, "snp_identifier=.*invalid"):
                 load_ldscore_from_dir(str(tmpdir))
@@ -84,10 +77,7 @@ class LoadLDScoreFromDirTest(unittest.TestCase):
                 tmpdir / "ldscore.baseline.parquet",
                 index=False,
             )
-            metadata_path = tmpdir / "metadata.json"
-            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-            metadata["snp_identifier"] = "rsid_allele_aware"
-            metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+            edit_json(tmpdir / "metadata.json", lambda metadata: metadata.update(snp_identifier="rsid_allele_aware"))
 
             with self.assertRaisesRegex(LDSCInputError, "baseline_table.*allele columns are missing"):
                 load_ldscore_from_dir(str(tmpdir))
@@ -102,10 +92,7 @@ class LoadLDScoreFromDirTest(unittest.TestCase):
                 tmpdir / "ldscore.query.parquet",
                 index=False,
             )
-            metadata_path = tmpdir / "metadata.json"
-            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-            metadata["snp_identifier"] = "rsid_allele_aware"
-            metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+            edit_json(tmpdir / "metadata.json", lambda metadata: metadata.update(snp_identifier="rsid_allele_aware"))
 
             with self.assertRaisesRegex(LDSCInputError, "query_table.*allele columns are missing"):
                 load_ldscore_from_dir(str(tmpdir))
@@ -119,14 +106,6 @@ class LoadLDScoreFromDirTest(unittest.TestCase):
 
             with self.assertRaisesRegex(ConfigMismatchError, "snp_identifier mismatch"):
                 load_ldscore_from_dir(str(tmpdir), snp_identifier="chr_pos")
-
-
-def _edit_metadata(root, edit):
-    """Apply ``edit`` to the parsed ``metadata.json`` of the LD-score directory ``root`` and save it."""
-    path = root / "metadata.json"
-    metadata = json.loads(path.read_text(encoding="utf-8"))
-    edit(metadata)
-    path.write_text(json.dumps(metadata), encoding="utf-8")
 
 
 def _quantile_ldscores(tmp_path):
@@ -184,7 +163,7 @@ def test_a_declared_table_outside_the_directory_is_rejected(tmp_path, token):
     root = _quantile_ldscores(tmp_path)
     (root / "ldscore.overlap.parquet").rename(tmp_path / "ldscore.overlap.parquet")
     token = str(tmp_path / "ldscore.overlap.parquet") if token == "absolute" else token
-    _edit_metadata(root, lambda metadata: metadata["files"].update(overlap=token))
+    edit_json(root / "metadata.json", lambda metadata: metadata["files"].update(overlap=token))
 
     with pytest.raises(LDSCInputError, match="^Could not load LD-score directory .*files.overlap`=.* points outside the directory.*troubleshooting"):
         load_ldscore_from_dir(str(root))
@@ -203,7 +182,7 @@ def test_declared_files_may_be_symbolic_links_to_shared_storage(tmp_path):
         (root / name).symlink_to(shared / name)
     (shared / "diagnostics" / "notes.tsv").write_text("x\n", encoding="utf-8")
     (root / "diagnostics").symlink_to(shared / "diagnostics", target_is_directory=True)
-    _edit_metadata(root, lambda metadata: metadata["files"].update(notes="diagnostics/notes.tsv"))
+    edit_json(root / "metadata.json", lambda metadata: metadata["files"].update(notes="diagnostics/notes.tsv"))
 
     loaded = load_ldscore_from_dir(str(root))
 
@@ -253,7 +232,7 @@ def test_a_declared_overlap_needs_a_usable_overlap_config(tmp_path, overlap_conf
     from ldsc import load_ldscore_from_dir
 
     root = _quantile_ldscores(tmp_path)
-    _edit_metadata(root, lambda metadata: metadata.update(overlap_config=overlap_config))
+    edit_json(root / "metadata.json", lambda metadata: metadata.update(overlap_config=overlap_config))
 
     with pytest.raises(LDSCInputError,
                        match="^Could not load LD-score directory .*overlap_config.*total_all_reference_snps.*troubleshooting"):
@@ -265,7 +244,7 @@ def test_overlap_config_without_an_overlap_file_must_be_an_object_or_null(tmp_pa
     from ldsc import load_ldscore_from_dir
 
     root = write_one_snp_ldscore_dir(tmp_path / "ldscores", include_query=False)
-    _edit_metadata(root, lambda metadata: metadata.update(overlap_config=overlap_config))
+    edit_json(root / "metadata.json", lambda metadata: metadata.update(overlap_config=overlap_config))
 
     with pytest.raises(LDSCInputError,
                        match="^Could not load LD-score directory .*`overlap_config`.*JSON object or null.*troubleshooting"):
@@ -291,7 +270,7 @@ def test_a_missing_or_unusable_count_config_is_rejected(tmp_path, count_config):
     from ldsc import load_ldscore_from_dir
 
     root = write_one_snp_ldscore_dir(tmp_path / "ldscores", include_query=False)
-    _edit_metadata(root, lambda metadata: metadata.update(count_config=count_config))
+    edit_json(root / "metadata.json", lambda metadata: metadata.update(count_config=count_config))
 
     with pytest.raises(LDSCInputError, match="count_config"):
         load_ldscore_from_dir(str(root))
@@ -310,7 +289,7 @@ def test_an_index_id_needs_the_rest_of_the_index_provenance(tmp_path, missing, n
         provenance[missing] = None
     else:
         provenance.pop(missing, None)
-    _edit_metadata(root, lambda metadata: metadata.update(provenance))
+    edit_json(root / "metadata.json", lambda metadata: metadata.update(provenance))
 
     if missing is None:
         assert load_ldscore_from_dir(str(root)).index_provenance == provenance

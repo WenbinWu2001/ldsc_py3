@@ -227,13 +227,10 @@ def test_r2_builder_aggregates_late_trio_and_keep_defects(tmp_path, monkeypatch)
 
 
 def test_index_late_metadata_and_early_header_errors_precede_operator_loading(tmp_path, monkeypatch):
-    import json
     from tests.ldscore.test_gene_index_streaming import two_chromosome_index
+    from tests.ldscore_helpers import edit_json
     path = two_chromosome_index(tmp_path, monkeypatch)
-    component = path/'chromosomes/chr22/metadata.json'
-    metadata = json.loads(component.read_text())
-    metadata['chromosome'] = '21'
-    component.write_text(json.dumps(metadata))
+    edit_json(path/'chromosomes/chr22/metadata.json', lambda metadata: metadata.update(chromosome='21'))
     (path/'chromosomes/chr21/atoms.parquet').write_bytes(b'not parquet')
     monkeypatch.setattr(index_artifact, '_load_index_chromosome', forbid_work)
     with pytest.raises(LDSCInputError) as failure:

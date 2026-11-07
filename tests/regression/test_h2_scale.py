@@ -10,6 +10,7 @@ import pytest
 from ldsc._regression.estimators import liability_conversion_factor
 from ldsc.errors import LDSCInputError
 from tests.cli_parsing import parse_command
+from tests.ldscore_helpers import edit_json
 
 def _write_h2_result(tmp_path):
     result_dir = tmp_path / "h2-result"
@@ -116,10 +117,7 @@ def test_conversion_requires_declared_summary_file(tmp_path):
     from ldsc._regression.h2_scale import convert_h2_scale
 
     result_dir = _write_h2_result(tmp_path)
-    metadata_path = result_dir / "diagnostics" / "metadata.json"
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    metadata["files"] = {}
-    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    edit_json(result_dir / "diagnostics" / "metadata.json", lambda metadata: metadata.update(files={}))
 
     with pytest.raises(LDSCInputError, match="files.summary"):
         convert_h2_scale(result_dir, samp_prev=0.5, pop_prev=0.01)

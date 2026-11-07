@@ -18,7 +18,7 @@ from ldsc._regression.quantile_h2 import (
     load_fitted_partitioned_model,
     run_quantile_h2_from_args,
 )
-from tests.ldscore_helpers import write_ldscore_dir
+from tests.ldscore_helpers import edit_json, write_ldscore_dir
 from tests.quantile_fixtures import write_quantile_inputs, write_quantile_ldscores
 
 
@@ -264,9 +264,7 @@ class QuantileH2WorkflowTest(unittest.TestCase):
         self.args.query_annot_gene_list_sources = [str(genes)]
         self.args.gene_coordinate_file = str(catalog)
         # The fit's saved build is the projection build of the resupplied gene lists.
-        metadata_path = self.root / "ldscores" / "metadata.json"
-        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-        metadata_path.write_text(json.dumps(dict(metadata, genome_build="hg38")), encoding="utf-8")
+        edit_json(self.root / "ldscores" / "metadata.json", lambda metadata: metadata.update(genome_build="hg38"))
 
         with self.assertRaisesRegex(LDSCInputError, "Gene-list catalog preflight rejected"):
             run_quantile_h2_from_args(self.args)
@@ -488,13 +486,6 @@ def test_loader_requires_retained_ld_columns(tmp_path):
         load_fitted_partitioned_model(model_dir)
 
 
-def _edit_ldscore_metadata(root, edit):
-    path = root / "ldscores" / "metadata.json"
-    metadata = json.loads(path.read_text(encoding="utf-8"))
-    edit(metadata)
-    path.write_text(json.dumps(metadata), encoding="utf-8")
-
-
 @pytest.mark.parametrize("edit, message", [
     (lambda metadata: metadata.update(artifact_type="annotation"), "expected artifact_type='ldscore'"),
     (lambda metadata: metadata.pop("artifact_type"), "lacks `artifact_type`"),
@@ -505,7 +496,7 @@ def _edit_ldscore_metadata(root, edit):
 def test_ldscore_directories_the_loader_rejects_stop_before_computation(tmp_path, edit, message):
     # Each edit makes load_ldscore_from_dir reject the directory; quantile-h2 used to accept all four.
     args = write_quantile_inputs(tmp_path)
-    _edit_ldscore_metadata(tmp_path, edit)
+    edit_json(tmp_path / "ldscores" / "metadata.json", edit)
     # Annotation staging would fail on this value, so the LD-score error shows the check ran before it.
     annotations = Path(args.baseline_annot_sources[0])
     annotations.write_text(annotations.read_text(encoding="utf-8").replace("\t1\t3\n", "\t1\tnot-a-number\n"),
@@ -558,8 +549,8 @@ def test_the_ldscore_preflight_reports_manifest_and_file_defects_in_one_run(tmp_
     ldscore_dir = tmp_path / "ldscores"
     (ldscore_dir / "diagnostics").mkdir(exist_ok=True)
     (ldscore_dir / "diagnostics" / "notes.tsv").write_text("x\n", encoding="utf-8")
-    _edit_ldscore_metadata(tmp_path, lambda metadata: (metadata.pop("count_config"),
-                                                       metadata["files"].update(notes="diagnostics/notes.tsv")))
+    edit_json(ldscore_dir / "metadata.json", lambda metadata: (metadata.pop("count_config"),
+                                                              metadata["files"].update(notes="diagnostics/notes.tsv")))
     (ldscore_dir / "diagnostics" / "notes.tsv").unlink()
 
     with pytest.raises(LDSCInputError, match="2 input issues"):

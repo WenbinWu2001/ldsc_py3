@@ -44,7 +44,7 @@ LOGGER = logging.getLogger("LDSC.sumstats_liftover")
 
 SUPPORTED_LIFTOVER_BUILDS = {"hg19", "hg38"}
 _SUMSTATS_LIFTOVER_TROUBLESHOOTING = (
-    "docs/user-guide/troubleshooting.md#munge-sumstats-liftover-dropped-all-rows"
+    "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#munge-sumstats-liftover-dropped-all-rows"
 )
 _WORKFLOW_LABEL = "Summary-statistics liftover"
 

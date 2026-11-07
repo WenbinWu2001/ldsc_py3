@@ -34,7 +34,7 @@ DOMINANCE_THRESHOLD = 0.99
 MIN_INSPECTED_REFERENCE_SNPS = 200
 REFERENCE_RESOURCE_PATH = "data/hm3_chr_pos_reference.tsv.gz"
 _GENOME_BUILD_TROUBLESHOOTING = (
-    "docs/user-guide/troubleshooting.md#common-genome-build-could-not-be-inferred"
+    "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#common-genome-build-could-not-be-inferred"
 )
 
 _HYPOTHESIS_ORDER = (

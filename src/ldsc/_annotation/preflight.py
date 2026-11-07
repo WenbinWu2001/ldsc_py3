@@ -158,7 +158,7 @@ def require_usable_bed_query_names(paths, existing_columns, issues_path=None):
         issues.append(input_issue('query BED', path, '', 'annotation_name_collision', f'its query name {name!r} {problem}',
                                   repair='Rename the BED file; its name without the last suffix becomes the query annotation name'))
     InputGate('BED query name validation', issues_path, issues,
-              troubleshooting='docs/user-guide/troubleshooting.md#common-a-bed-query-name-is-not-usable').finish()
+              troubleshooting='https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#common-a-bed-query-name-is-not-usable').finish()
 
 
 def validate_gene_query_names(batch, existing_columns):
@@ -188,7 +188,7 @@ def gene_list_gate_a_error(batch):
     diagnostics after the failure can write the gene-list audit and summary.
     """
     error = LDSCInputError(gene_list_gate_a_message(batch) +
-                           ' Other causes & fixes: docs/user-guide/troubleshooting.md#annotate-gene-list-preflight')
+                           ' Other causes & fixes: https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#annotate-gene-list-preflight')
     error.gene_list_batch = batch
     return error
 

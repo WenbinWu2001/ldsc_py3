@@ -80,7 +80,7 @@ def test_missing_required_column_links_its_troubleshooting_section():
     with pytest.raises(LDSCInputError) as caught:
         resolve_required_column(["CHR", "POS"], MAF_COLUMN_SPEC)
     assert str(caught.value).endswith(
-        "Other causes & fixes: docs/user-guide/troubleshooting.md#common-a-required-column-is-not-recognized"
+        "Other causes & fixes: https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#common-a-required-column-is-not-recognized"
     )
 
 

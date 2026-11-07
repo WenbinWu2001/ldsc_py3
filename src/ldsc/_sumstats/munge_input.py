@@ -98,7 +98,7 @@ ORIENTATION_AMBIGUOUS_ALLELE_COLUMNS = (
 )
 # Allele column names that say A1 increases the trait, checked against the signed statistic.
 _INCREASING_ALLELE_COLUMNS = {'A1': 'INC_ALLELE', 'A2': 'DEC_ALLELE'}
-_ALLELE_TROUBLESHOOTING = "docs/user-guide/troubleshooting.md#munge-sumstats-a1-cannot-be-identified"
+_ALLELE_TROUBLESHOOTING = "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#munge-sumstats-a1-cannot-be-identified"
 
 
 @dataclass(frozen=True)
@@ -577,7 +577,7 @@ def resolve_raw_schema(source_path: str, config: MungeConfig, global_config: Glo
             f"munge-sumstats could not map the required column '{c}' from the header of '{source_path}'. "
             f"Available columns: {available}. Most likely the file uses an unrecognized name for it. "
             "Pass the matching column flag or rename the column. Other causes & fixes: "
-            "docs/user-guide/troubleshooting.md#munge-sumstats-could-not-map-a-required-column"
+            "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#munge-sumstats-could-not-map-a-required-column"
         )
         problem('signed statistic' if c == 'SIGNED_SUMSTAT' else c, message)
 

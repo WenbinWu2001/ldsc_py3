@@ -295,7 +295,7 @@ class QuantileH2WorkflowTest(unittest.TestCase):
         message = str(caught.exception)
         self.assertIn("is not structurally valid: found 1 defect(s): line 2, genome_build: "
                       "unsupported_genome_build, value 'GRCh-38'", message)
-        self.assertIn("troubleshooting.md#common-gene-coordinate-catalog-is-not-valid", message)
+        self.assertIn("troubleshooting.html#common-gene-coordinate-catalog-is-not-valid", message)
         diagnostics = Path(self.args.output_dir) / "diagnostics"
         issues = pd.read_csv(diagnostics / "gene_catalog_issues.tsv", sep="\t", keep_default_na=False)
         self.assertEqual(issues["reason"].tolist(), ["unsupported_genome_build"])

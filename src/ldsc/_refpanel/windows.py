@@ -77,7 +77,7 @@ def assert_cm_usable(cm: pd.Series, chrom: str) -> None:
             "genetic-map positions: pass a PLINK `.bim` with informative CM, add "
             "`--genetic-map-hg38-sources` / `--genetic-map-hg19-sources` for the panel's "
             "build, or use `--ld-wind-kb` / `--ld-wind-snps`. "
-            "See docs/user-guide/troubleshooting.md#ldscore-unusable-cm-for-ld-wind-cm."
+            "See https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#ldscore-unusable-cm-for-ld-wind-cm."
         )
 
 

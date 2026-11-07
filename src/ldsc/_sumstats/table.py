@@ -47,10 +47,10 @@ from ..errors import LDSCConfigError, LDSCInputError, LDSCUserError
 LOGGER = logging.getLogger("LDSC.sumstats_table")
 
 _REQUIRED_COLUMN_TROUBLESHOOTING = (
-    "docs/user-guide/troubleshooting.md#munge-sumstats-could-not-map-a-required-column"
+    "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#munge-sumstats-could-not-map-a-required-column"
 )
 _CURATED_ARTIFACT_TROUBLESHOOTING = (
-    "docs/user-guide/troubleshooting.md#munge-sumstats-munged-summary-statistics-are-malformed-or-outdated"
+    "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#munge-sumstats-munged-summary-statistics-are-malformed-or-outdated"
 )
 
 

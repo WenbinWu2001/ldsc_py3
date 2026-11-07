@@ -597,7 +597,7 @@ def _raise_sumstats_restriction_empty(restriction, *, input_rows=None, usable_ro
         f"Keep-list file: {restriction.path}. snp_identifier={restriction.mode}; genome_build={build_label}; "
         f"input rows before filtering={input_rows}; usable row identifiers={usable_rows}; "
         f"keep-list identifiers={len(restriction.identifiers)}.{drop_details} "
-        "Other causes & fixes: docs/user-guide/troubleshooting.md#munge-sumstats-no-snps-remain-after-filtering"
+        "Other causes & fixes: https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#munge-sumstats-no-snps-remain-after-filtering"
     )
 
 
@@ -791,7 +791,7 @@ def _require_retained_rows(dat, parsed, stage, advice):
     raise LDSCInputError(
         f"munge-sumstats retained 0 of {parsed.n_input_rows} input rows after {stage}. "
         f"Recorded removal counts: {removed}. {advice} "
-        "Other causes & fixes: docs/user-guide/troubleshooting.md#munge-sumstats-no-snps-remain-after-filtering"
+        "Other causes & fixes: https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#munge-sumstats-no-snps-remain-after-filtering"
     )
 
 

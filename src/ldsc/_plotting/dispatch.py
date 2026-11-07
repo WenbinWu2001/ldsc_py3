@@ -44,7 +44,7 @@ _RESULT_TYPE_REPAIR = (" Select a supported h2, rg, partitioned-h2, or quantile-
                        "current LDSC3 package; do not edit metadata to invent a different result type.")
 _TABLE_READ_REPAIR = (" Check the named file and its readability; restore the original table and matching metadata "
                       "from the same run. See "
-                      "docs/user-guide/troubleshooting.md#plot-result-directory-is-unsupported-or-incomplete.")
+                      "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#plot-result-directory-is-unsupported-or-incomplete.")
 
 
 @dataclass(frozen=True)

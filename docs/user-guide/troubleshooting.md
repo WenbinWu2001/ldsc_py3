@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-11-06
+Last updated on: 2026-11-07
 
 This reference expands run-aborting `ldsc` errors with at least three distinct plausible causes, following the [current logging and error-message guide](../dev/design/logging.md#diagnostics-and-troubleshooting).
 It also retains guidance for failed-run artifacts, documented query omissions, and cleanup warnings that users need to interpret.
@@ -21,7 +21,7 @@ Use a fresh output directory for an independent retry.
 Use `--overwrite` only when replacing existing owned outputs is intended.
 Changing SNP restrictions, filters, model inputs, or query-continuation settings can change the analysis or the set of published results; review that consequence before treating such a change as a repair.
 
-When a message includes `docs/user-guide/troubleshooting.md#<section>`, its fragment identifies a heading below.
+When a message includes `https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#<section>`, the link opens the matching heading below on the documentation site.
 
 ## `infer-genome-build`: input cannot be inspected
 

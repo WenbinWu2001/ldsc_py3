@@ -220,7 +220,7 @@ def _best_matches(columns: Iterable[str], spec: ColumnSpec) -> list[str]:
     return [column for column in columns if normalize_column_token(column) in alias_norms]
 
 
-_MISSING_COLUMN_TROUBLESHOOTING = "docs/user-guide/troubleshooting.md#common-a-required-column-is-not-recognized"
+_MISSING_COLUMN_TROUBLESHOOTING = "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#common-a-required-column-is-not-recognized"
 
 
 def lookalike_hint(columns: Iterable[str], spec: ColumnSpec) -> str:

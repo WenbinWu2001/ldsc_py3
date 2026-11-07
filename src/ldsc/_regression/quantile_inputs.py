@@ -158,7 +158,7 @@ def _alignment(target, bundle, ldscores, store, diagnostics, reference_paths, ta
             " This workflow requires the native inclusive MAF threshold (>=). Use a fitted result "
             "with that count policy; changing the SNP population requires regenerating LD scores "
             "and refitting partitioned-h2, not editing the saved operator. See "
-            "docs/user-guide/troubleshooting.md#quantile-h2-fitted-model-or-resupplied-sources-do-not-verify."
+            "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#quantile-h2-fitted-model-or-resupplied-sources-do-not-verify."
         )
     intersection = "EXISTS (SELECT 1 FROM fitted f WHERE f.effective_snp_id=r.effective_snp_id)"
     n_all = store.scalar(f"SELECT count(*) FROM reference r WHERE {intersection}")
@@ -193,7 +193,7 @@ def _alignment(target, bundle, ldscores, store, diagnostics, reference_paths, ta
             "identifiers and alleles; do not fill absent SNP values with zero. "
             f"See {diagnostics.path} for the missing SNP identities. "
             "Other causes & fixes: "
-            "docs/user-guide/troubleshooting.md#quantile-h2-fitted-model-or-resupplied-sources-do-not-verify."
+            "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#quantile-h2-fitted-model-or-resupplied-sources-do-not-verify."
         )
     n_common = store.scalar(f"SELECT count(*) FROM reference r WHERE MAF>=? AND {intersection}", (threshold,))
     _validate_universe(ldscores, "common", n_common)

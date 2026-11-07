@@ -321,7 +321,7 @@ class GenomeBuildCheck:
                         f"{self.option} hg38; this cannot override conflicting declarations. ")
         else:
             message += "Regenerate or supply matching upstream artifacts. "
-        message += "See docs/user-guide/troubleshooting.md#common-genome-build-consistency-check-failed."
+        message += "See https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#common-genome-build-consistency-check-failed."
         if self.logger:
             self.logger.error(message)
         error = LDSCInputError(message)

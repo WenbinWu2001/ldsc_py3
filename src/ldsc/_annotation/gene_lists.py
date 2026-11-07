@@ -94,7 +94,7 @@ RESOLVED_ONLY_REASONS = frozenset(
         "outside_supported_chromosome",
     }
 )
-_CATALOG_TROUBLESHOOTING = "docs/user-guide/troubleshooting.md#common-gene-coordinate-catalog-is-not-valid"
+_CATALOG_TROUBLESHOOTING = "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#common-gene-coordinate-catalog-is-not-valid"
 _SHOWN_CATALOG_DEFECTS = 5
 _BUILD_ALIASES = {
     "hg19": "hg19",

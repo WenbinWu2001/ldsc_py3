@@ -64,7 +64,7 @@ class JackknifeIdentifiabilityError(np.linalg.LinAlgError):
             + "; ".join(shown) + (f"; and {hidden} more failed blocks" if hidden else "")
             + ". Inspect annotation support and dependence outside these blocks. "
             "A pseudoinverse does not recover valid jackknife uncertainty. "
-            "Other causes & fixes: docs/user-guide/troubleshooting.md#regression-a-block-jackknife-deletion-is-unestimable"
+            "Other causes & fixes: https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#regression-a-block-jackknife-deletion-is-unestimable"
         )
 
     def __reduce__(self):

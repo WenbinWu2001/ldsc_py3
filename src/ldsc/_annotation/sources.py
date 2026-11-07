@@ -150,7 +150,7 @@ _SHARED_GRID_GUIDANCE = (
     "annotation SNP grid. A query built by `ldsc annotate --ref-snp-bim-sources` needs baseline annotations on that "
     "same BIM grid; otherwise build the query on the baseline's grid with `ldsc annotate --ref-snp-annot-sources` "
     "and pass the exported baseline files with it. Other causes & fixes: "
-    "docs/user-guide/troubleshooting.md#ldscore-annotation-snp-rows-do-not-match-across-files"
+    "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#ldscore-annotation-snp-rows-do-not-match-across-files"
 )
 
 
@@ -362,7 +362,7 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
                                           'invalid_required_input', exc, repair=ANNOTATION_INPUT_REPAIR))
             source_progress.advance()
     if issues:
-        error = LDSCInputError('Annotation input preflight failed: ' + '; '.join(f"{row['source']}: {row['details']}" for row in issues[:10]) + '. Complete diagnostics: diagnostics/input_issues.tsv. Other causes & fixes: docs/user-guide/troubleshooting.md#annotate-input-preflight')
+        error = LDSCInputError('Annotation input preflight failed: ' + '; '.join(f"{row['source']}: {row['details']}" for row in issues[:10]) + '. Complete diagnostics: diagnostics/input_issues.tsv. Other causes & fixes: https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#annotate-input-preflight')
         error.input_issues = pd.DataFrame(issues, columns=INPUT_ISSUE_COLUMNS)
         raise error
     baselines, queries = sources[:len(baseline_files)], sources[len(baseline_files):]
@@ -401,7 +401,7 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
     counts = retained.counts
     shards = _write_values(groups, retained.selections, group_rows, counts, workspace, columns)
     if not shards:
-        error = LDSCInputError("annotate retained no annotation rows after SNP identity cleanup. Supply valid, unique SNP identities. Other causes & fixes: docs/user-guide/troubleshooting.md#annotate-no-annotation-snp-rows-remain")
+        error = LDSCInputError("annotate retained no annotation rows after SNP identity cleanup. Supply valid, unique SNP identities. Other causes & fixes: https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#annotate-no-annotation-snp-rows-remain")
         error.annotation_drops = retained.drops
         raise error
     scope = tuple(sorted(set().union(*(s.chromosomes for s in baselines)), key=chrom_sort_key))

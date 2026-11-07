@@ -42,10 +42,10 @@ InputPathToken = Union[str, PathLike[str]]
 InputPathCollection = Union[InputPathToken, Sequence[InputPathToken]]
 
 _INPUT_PATH_TROUBLESHOOTING = (
-    "docs/user-guide/troubleshooting.md#common-input-path-did-not-resolve-to-one-file"
+    "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#common-input-path-did-not-resolve-to-one-file"
 )
 _OUTPUT_COLLISION_TROUBLESHOOTING = (
-    "docs/user-guide/troubleshooting.md#common-output-artifact-already-exists"
+    "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#common-output-artifact-already-exists"
 )
 # The input-issue repair of every PLINK discovery and content issue.
 PLINK_INPUT_REPAIR = ("Supply valid, complete PLINK trios with one source per chromosome. "

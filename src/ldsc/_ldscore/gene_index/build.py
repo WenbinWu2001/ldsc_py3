@@ -1148,7 +1148,7 @@ def _refuse_unusable_build_dir(index_path: Path) -> None:
             "The builder keeps its lock, logs and staged index in the hidden .build/ directory of the "
             "output directory and never follows a link out of it. Remove or rename what is listed, "
             "or choose another output directory. "
-            "See docs/user-guide/troubleshooting.md#build-gene-ldscore-index-the-build-directory-cannot-be-used."
+            "See https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#build-gene-ldscore-index-the-build-directory-cannot-be-used."
         )
 
 
@@ -1924,7 +1924,7 @@ def _validate_baseline_plink_inputs(sources, prefixes, config, chromosomes, buil
                                f"SNP records listed in {path}, using matching coordinates and alleles. "
                                + " ".join(str(cause) for cause in causes[:5]) + " " +
                                "Correct metadata only after verification; no input records were changed. "
-                               "See docs/user-guide/troubleshooting.md#build-gene-ldscore-index-input-conflicts.")
+                               "See https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#build-gene-ldscore-index-input-conflicts.")
         error.input_issues = frame
         LOGGER.error("%s", error)
         raise error from ExceptionGroup("Baseline/PLINK input conflicts", causes)

@@ -28,7 +28,7 @@ from .._runtime.cli_help import CLIHelpFormatter
 
 _RSID_NOTICE = "This artifact's workflow uses rsIDs for SNP matching."
 _NO_EVIDENCE = "no build metadata or usable SNP coordinates"
-_TROUBLESHOOTING = "docs/user-guide/troubleshooting.md#infer-genome-build-input-cannot-be-inspected"
+_TROUBLESHOOTING = "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#infer-genome-build-input-cannot-be-inspected"
 _JSON_TYPES = {
     "annotation_projection", "ldscore", "r2_matrix_build", "gene_ldscore_index",
     "h2_result", "partitioned_h2_result", "partitioned_h2_query_result", "rg_result",

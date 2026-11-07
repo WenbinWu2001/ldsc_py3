@@ -136,7 +136,7 @@ pytest
 - Use exhaustive, stage-specific validation gates that collect every safely discoverable issue across focal/control inputs before aborting.
   An unreadable structural contract may fail immediately, a referenced analysis-changing defect must fail, and an unreferenced latent defect may be diagnosed without failing a correct run.
   Design diagnostics for concrete identification and repair; preserve explicit query-continuation policies and their attempted-query records, without introducing silent recovery.
-- Keep run-aborting messages self-contained; errors with three or more distinct causes also require the corresponding command section in `docs/user-guide/troubleshooting.md` and synchronized in-code anchors.
+- Keep run-aborting messages self-contained; errors with three or more distinct causes also require the corresponding command section in `docs/user-guide/troubleshooting.md`, linked from the message by its documentation-site URL (checked by `tests/package/test_docs_site_links.py`).
   Guide users toward their objective without requiring knowledge of internal implementation.
 
 ## Requested code reviews

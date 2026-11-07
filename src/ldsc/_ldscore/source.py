@@ -71,7 +71,7 @@ def is_numbered_query_batch_file(name: str) -> bool:
 
 
 LOGGER = logging.getLogger("LDSC.ldscore_source")
-_LDSCORE_SCHEMA_DOC = "docs/user-guide/troubleshooting.md#common-ldsc3-artifact-schema-or-provenance-is-incompatible"
+_LDSCORE_SCHEMA_DOC = "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#common-ldsc3-artifact-schema-or-provenance-is-incompatible"
 # Repair advice closing the reader's errors about a damaged or mixed LD-score directory.
 _RESTORE_LDSCORE_DIR = (
     "Restore the complete LD-score directory from the same run, or regenerate it with `ldsc ldscore`. "

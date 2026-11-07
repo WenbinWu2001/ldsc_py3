@@ -1,6 +1,6 @@
 # Logging Design
 
-Last updated on: 2026-11-05
+Last updated on: 2026-11-07
 
 This page holds the rules for writing log, warning and error messages, and the logging API boundary.
 The runtime behavior users see (log files, console routing, output preflight and failure markers) is in [logs and outputs](../../reference/logs-and-outputs.md).
@@ -119,7 +119,8 @@ Use the existing [troubleshooting reference](../../user-guide/troubleshooting.md
 Organize entries by the command the user runs, using `Common` for failures shared across commands and plain-language headings.
 Rank causes by available evidence and pair each with a concrete check and remedy.
 Simple one- or two-cause errors should be explained in the message without creating a separate reference entry.
-Keep every in-code heading link synchronized with its target.
+Link a section from code with its documentation-site URL, `https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#<section>`, because an installed package has no `docs/` folder.
+The fragment is the site's anchor for the heading, which differs from GitHub's when the heading contains `/` or R²; `tests/package/test_docs_site_links.py` checks that every such link names an existing page and heading.
 Human-readable messages do not require a new error-ID scheme; existing machine-readable reason codes remain in their diagnostics.
 
 ### Developer evidence and error boundaries

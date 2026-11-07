@@ -216,7 +216,7 @@ def validate_direct_scope(annotation_config, batch, output_config, **prepared_in
         raise LDSCInputError("LD-score input/coverage preflight failed: " + "; ".join(errors[:10]) +
                              ". Complete diagnostics: diagnostics/input_issues.tsv, diagnostics/chromosome_scope.json, and gene-list audit/summary when applicable. "
                              + SCOPE_REPAIR + " No pathways were truncated. "
-                             "Other causes & fixes: docs/user-guide/troubleshooting.md#ldscore-chromosome-coverage-preflight")
+                             "Other causes & fixes: https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#ldscore-chromosome-coverage-preflight")
     scope = {**evidence.scope, "analysis_chromosomes": evidence.chromosomes}
     logger.info("Chromosomes entering the analysis: %s.", ", ".join(evidence.chromosomes))
     return batch, scope

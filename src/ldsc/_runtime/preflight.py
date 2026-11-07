@@ -34,7 +34,7 @@ class InputGate:
     issues_path: Path | None = None
     issues: list = field(default_factory=list)
     causes: list[Exception] = field(default_factory=list, repr=False)
-    troubleshooting: str = 'docs/user-guide/troubleshooting.md#staged-input-validation'
+    troubleshooting: str = 'https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#staged-input-validation'
     remove_on_pass: bool = True
 
     def check(self, role, source, operation, *, chrom=''):

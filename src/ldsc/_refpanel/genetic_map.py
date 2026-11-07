@@ -23,10 +23,10 @@ from ..errors import LDSCInputError
 # Troubleshooting section for genetic-map errors, by the command that reads the map.
 GENETIC_MAP_TROUBLESHOOTING = {
     "build-r2-matrix":
-        "docs/user-guide/troubleshooting.md#build-r2-matrix-liftover-or-genetic-map-configuration-is-incomplete",
-    "ldscore": "docs/user-guide/troubleshooting.md#ldscore-a-genetic-map-cannot-be-used",
+        "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#build-r2-matrix-liftover-or-genetic-map-configuration-is-incomplete",
+    "ldscore": "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#ldscore-a-genetic-map-cannot-be-used",
     "build-gene-ldscore-index":
-        "docs/user-guide/troubleshooting.md#build-gene-ldscore-index-a-genetic-map-cannot-be-used",
+        "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#build-gene-ldscore-index-a-genetic-map-cannot-be-used",
 }
 
 

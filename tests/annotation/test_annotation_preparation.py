@@ -294,4 +294,4 @@ def test_baseline_query_grid_mismatch_explains_the_shared_snp_grid(tmp_path, que
     message = str(caught.value)
     assert "must list the same SNP rows in the same order" in message
     assert "--ref-snp-bim-sources" in message and "--ref-snp-annot-sources" in message
-    assert "troubleshooting.md#ldscore-annotation-snp-rows-do-not-match-across-files" in message
+    assert "troubleshooting.html#ldscore-annotation-snp-rows-do-not-match-across-files" in message

@@ -95,7 +95,7 @@ def normalize_annotation_chunk(df, path, snp_identifier, *, log_ignored_metadata
     return metadata, annotations
 
 
-_ANNOTATION_VALUES_DOC = "docs/user-guide/troubleshooting.md#ldscore-annotation-values-are-malformed"
+_ANNOTATION_VALUES_DOC = "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#ldscore-annotation-values-are-malformed"
 
 
 def validate_annotation_values(

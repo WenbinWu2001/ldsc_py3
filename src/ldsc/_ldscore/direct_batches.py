@@ -56,7 +56,7 @@ from .results import ChromLDScoreResult, DirectChromosomeFragment, LDScoreResult
 LOGGER = logging.getLogger("LDSC.ldscore_calculator")
 
 _LDSCORE_INTERSECTION_DOC = (
-    "docs/user-guide/troubleshooting.md#ldscore-no-reference-snps-remain-on-the-annotation-snp-grid"
+    "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#ldscore-no-reference-snps-remain-on-the-annotation-snp-grid"
 )
 
 

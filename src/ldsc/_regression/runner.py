@@ -150,7 +150,8 @@ class RegressionRunner:
         workers : int, optional
             Maximum concurrent workers, default 1. A negative ``-k`` uses
             ``max(1, budget + 1 - k)``, where the budget is
-            ``joblib.cpu_count()``. See docs/reference/parallel-execution.md
+            ``joblib.cpu_count()``. See
+            https://wenbinwu2001.github.io/ldsc_py3/reference/parallel-execution.html
             for the full worker policy.
         overwrite : bool, optional
             Replace workflow-owned outputs, default False.

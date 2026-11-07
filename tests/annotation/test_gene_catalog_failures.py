@@ -20,7 +20,7 @@ from ldsc._annotation.gene_lists import CATALOG_ISSUE_COLUMNS, GeneCatalog, Gene
 from ldsc.config import AnnotationBuildConfig, GlobalConfig, reset_global_config, set_global_config
 from tests.ldscore.test_gene_query_integration import inputs  # noqa: F401  (pytest fixture)
 
-ANCHOR = "docs/user-guide/troubleshooting.md#common-gene-coordinate-catalog-is-not-valid"
+ANCHOR = "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#common-gene-coordinate-catalog-is-not-valid"
 HEADER = "gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
 
 

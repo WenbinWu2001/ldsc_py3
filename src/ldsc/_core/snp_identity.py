@@ -45,7 +45,7 @@ RSID_FAMILY_MODES = ("rsid", "rsid_allele_aware")
 ALLELE_AWARE_MODES = ("rsid_allele_aware", "chr_pos_allele_aware")
 ARTIFACT_TYPES = frozenset({"sumstats", "r2_matrix", "ref_panel_metadata", "ldscore"})
 _ARTIFACT_METADATA_TROUBLESHOOTING = (
-    "docs/user-guide/troubleshooting.md#common-ldsc3-artifact-schema-or-provenance-is-incompatible"
+    "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#common-ldsc3-artifact-schema-or-provenance-is-incompatible"
 )
 
 IDENTITY_DROP_COLUMNS = [

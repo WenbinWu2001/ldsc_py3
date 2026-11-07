@@ -87,7 +87,7 @@ def test_strict_rejection_message_counts_sources_and_guides_repair(tmp_path):
     assert message.index("3 more rejected row(s)") < message.index("has zero usable genes")
     assert "Suggested audit filter: source == 'many.txt' & disposition == 'rejected'" in message
     assert "--overwrite" in message
-    assert "docs/user-guide/troubleshooting.md#annotate-gene-list-preflight" in message
+    assert "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#annotate-gene-list-preflight" in message
 
 
 def test_strict_rejection_examples_name_their_source(tmp_path):

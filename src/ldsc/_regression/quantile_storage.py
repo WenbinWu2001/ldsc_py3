@@ -95,11 +95,11 @@ def target_chunks(paths, target_annotation, missing):
                 f"quantile-h2 could not parse target annotation '{path}': {exc}. "
                 "Check its text encoding, table columns, CHR labels, and numeric POS coordinates; "
                 "supply the intended table with --target-annot-sources. "
-                "See docs/user-guide/troubleshooting.md#quantile-h2-target-values-are-invalid-or-quantiles-are-empty."
+                "See https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#quantile-h2-target-values-are-invalid-or-quantiles-are-empty."
             ) from exc
 
 
-_REFERENCE_TROUBLESHOOTING = "docs/user-guide/troubleshooting.md#quantile-h2-reference-metadata-cannot-be-read"
+_REFERENCE_TROUBLESHOOTING = "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#quantile-h2-reference-metadata-cannot-be-read"
 
 
 def _reference_columns(header, path):

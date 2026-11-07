@@ -57,7 +57,7 @@ def test_annotate_rejects_every_unusable_bed_name_before_the_grid(tmp_path, grid
     rejected = [path for path in beds if path.name != "ok.bed"]
     for path in rejected:
         assert str(path) in message
-    assert "troubleshooting.md#common-a-bed-query-name-is-not-usable" in message
+    assert "troubleshooting.html#common-a-bed-query-name-is-not-usable" in message
     assert sorted(collision_issues(output).source) == sorted(map(str, rejected))
     assert not list(output.glob("*.annot.gz"))
 

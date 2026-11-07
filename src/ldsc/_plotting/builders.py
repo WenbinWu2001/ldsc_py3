@@ -40,7 +40,7 @@ _H2_BINS_REPAIR = (" Restore the saved h2 result tables from the same run, or re
                    "not invent missing values.")
 _RG_METADATA_REPAIR = " Restore matching rg metadata and tables from one run, or regenerate the result with ldsc rg."
 _H2_PER_TRAIT_REPAIR = (" Restore the original single-trait SNP heritability table from this rg run. "
-                        "See docs/user-guide/troubleshooting.md#plot-rg-heritability-source-is-invalid.")
+                        "See https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#plot-rg-heritability-source-is-invalid.")
 _RG_TABLE_REPAIR = " Restore the saved rg table and metadata from the same run, or regenerate the result with ldsc rg."
 _ANCHOR_REPAIR = (" Restore the saved anchor-rg table and matching metadata from one run, or regenerate that anchor "
                   "analysis with ldsc rg.")

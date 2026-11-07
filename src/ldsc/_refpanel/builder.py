@@ -95,9 +95,9 @@ from .._genome.build_policy import GenomeBuildCheck
 
 
 LOGGER = logging.getLogger("LDSC.r2_matrix_builder")
-_BUILD_REF_PANEL_EMPTY_DOC = "docs/user-guide/troubleshooting.md#build-r2-matrix-no-reference-panel-artifacts-were-produced"
+_BUILD_REF_PANEL_EMPTY_DOC = "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#build-r2-matrix-no-reference-panel-artifacts-were-produced"
 _BUILD_REF_PANEL_LIFTOVER_DOC = (
-    "docs/user-guide/troubleshooting.md#build-r2-matrix-liftover-or-genetic-map-configuration-is-incomplete"
+    "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#build-r2-matrix-liftover-or-genetic-map-configuration-is-incomplete"
 )
 
 

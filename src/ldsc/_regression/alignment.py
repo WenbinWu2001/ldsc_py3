@@ -56,12 +56,12 @@ from .results import RegressionDataset
 
 COMMON_COUNT_KEY = "common_reference_snp_counts"
 ALL_COUNT_KEY = "all_reference_snp_counts"
-_NONFINITE_LD_DOC = "docs/user-guide/troubleshooting.md#regression-ld-scores-or-regression-weights-are-missing-or-infinite"
+_NONFINITE_LD_DOC = "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#regression-ld-scores-or-regression-weights-are-missing-or-infinite"
 REGRESSION_IDENTITY_KEY_COLUMN = "_ldsc_regression_identity_key"
 _REGRESSION_NO_OVERLAP_DOC = (
-    "docs/user-guide/troubleshooting.md#regression-no-snps-remain-after-merging-regression-inputs"
+    "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#regression-no-snps-remain-after-merging-regression-inputs"
 )
-_RG_ALLELES_DOC = "docs/user-guide/troubleshooting.md#rg-a-trait-has-no-a1a2-columns"
+_RG_ALLELES_DOC = "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#rg-a-trait-has-no-a1-a2-columns"
 LOGGER = logging.getLogger("LDSC.regression_runner")
 
 

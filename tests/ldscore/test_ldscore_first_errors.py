@@ -89,7 +89,7 @@ REGION_BUILD = (
     "Pass `--genome-build hg19` or `--genome-build hg38`, or use `--regr-snps-exclude-regions none`. "
     "Repair: Correct the listed path, required companions, or schema; preserve the requested scope. "
     "Complete diagnostics: <tmp>/out/diagnostics/input_issues.tsv. "
-    "Other causes & fixes: docs/user-guide/troubleshooting.md#staged-input-validation"
+    "Other causes & fixes: https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#staged-input-validation"
 )
 LIVE_OVERRIDES = (
     "ldscore indexed mode inherits immutable scientific inputs, SNP identity, and genome build from the index "

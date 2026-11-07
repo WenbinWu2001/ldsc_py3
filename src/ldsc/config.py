@@ -636,7 +636,8 @@ class LDScoreConfig(_LDWindowFields):
         Maximum number of concurrent workers, default 1, including on HPC.
         A negative value -k uses max(1, joblib.cpu_count() + 1 - k). The
         CPU budget, worker validation and the one BLAS thread per worker are
-        described in docs/reference/parallel-execution.md.
+        described in
+        https://wenbinwu2001.github.io/ldsc_py3/reference/parallel-execution.html.
     """
     ld_wind_snps: int | None = None
     ld_wind_kb: float | None = None
@@ -734,7 +735,8 @@ class GeneLDScoreIndexBuildConfig(_LDWindowFields):
         Maximum number of concurrent workers, default 1, including on HPC.
         A negative value -k uses max(1, joblib.cpu_count() + 1 - k). The
         CPU budget, worker validation and the one BLAS thread per worker are
-        described in docs/reference/parallel-execution.md.
+        described in
+        https://wenbinwu2001.github.io/ldsc_py3/reference/parallel-execution.html.
 
     Raises
     ------

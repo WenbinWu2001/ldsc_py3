@@ -397,7 +397,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
         self.assertIn("Most likely", missing_message)
         self.assertIn("Fix the source CHR/POS coordinates", missing_message)
         self.assertIn(
-            "docs/user-guide/troubleshooting.md#munge-sumstats-liftover-dropped-all-rows",
+            "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#munge-sumstats-liftover-dropped-all-rows",
             missing_message,
         )
 

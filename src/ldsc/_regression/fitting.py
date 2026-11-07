@@ -57,9 +57,9 @@ PARTITIONED_H2_REQUIRES_OVERLAP_MESSAGE = (
     "annotation such as the synthetic `base`), which has no overlap matrix and cannot be "
     "partitioned -- regenerate it with two or more annotation columns. It may also predate the "
     "overlap sidecar; if so, regenerate with the current `ldsc ldscore`. "
-    "Other causes & fixes: docs/user-guide/troubleshooting.md#partitioned-h2-missing-overlap-matrix"
+    "Other causes & fixes: https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#partitioned-h2-missing-overlap-matrix"
 )
-_RG_H2_OUT_OF_BOUNDS_DOC = "docs/user-guide/troubleshooting.md#rg-a-snp-heritability-estimate-is-not-positive"
+_RG_H2_OUT_OF_BOUNDS_DOC = "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#rg-a-snp-heritability-estimate-is-not-positive"
 
 
 @contextmanager

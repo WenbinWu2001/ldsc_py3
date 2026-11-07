@@ -15,7 +15,7 @@ from tests.regression.test_regression_streaming import batch_inputs
 from tests.regression.test_trait_preparation import N_SNPS, munged, panel, signed_statistics
 from tests.worker_fixtures import calculation_body
 
-ANCHOR = "troubleshooting.md#regression-ld-scores-or-regression-weights-are-missing-or-infinite"
+ANCHOR = "troubleshooting.html#regression-ld-scores-or-regression-weights-are-missing-or-infinite"
 
 
 def damaged_panel(**values):

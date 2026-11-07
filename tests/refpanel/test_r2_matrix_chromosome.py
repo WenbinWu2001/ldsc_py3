@@ -21,8 +21,8 @@ pytest.importorskip("bitarray")
 
 PLINK = HM3_CHR22_PLINK
 ANCHORS = {
-    "ldscore": "docs/user-guide/troubleshooting.md#ldscore-r2-matrix-is-incompatible",
-    "query-r2-matrix": "docs/user-guide/troubleshooting.md#query-r2-matrix-r2-matrix-is-incompatible",
+    "ldscore": "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#ldscore-an-r2-matrix-is-incompatible",
+    "query-r2-matrix": "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#query-r2-matrix-an-r2-matrix-is-incompatible",
 }
 
 

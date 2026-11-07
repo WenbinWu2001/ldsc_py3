@@ -43,7 +43,7 @@ _LDSCORE_FILENAME_GUIDANCE = (
     "with one constant prefix (possibly empty) and unpadded chromosomes 1-22. "
     "Organize one complete family directly in the supplied directory; put different releases in separate directories. "
     "Restore missing shards or rename misnamed copies to the standard filenames. "
-    "See docs/user-guide/troubleshooting.md#convert-legacy-ldscores."
+    "See https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#convert-legacy-ldscores."
 )
 _WEIGHT_FILENAME_GUIDANCE = (
     "Found unsupported '.w.l2.ldscore(.gz)' filenames. Rename copies in a separate input directory, "
@@ -817,7 +817,7 @@ def _discover_frequency_family(
             "with one constant prefix (possibly empty) and unpadded chromosomes 1-22. "
             "Restore missing shards or rename misnamed copies; place one complete family directly in this "
             "directory and keep different releases in separate directories. "
-            "See docs/user-guide/troubleshooting.md#convert-legacy-ldscores."
+            "See https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#convert-legacy-ldscores."
         ),
     )
     selected = {
@@ -842,7 +842,7 @@ def _read_legacy_table(path: Path, label: str, chrom: int) -> pd.DataFrame:
             f"Could not parse legacy {label} table '{path}' for chromosome {chrom}: {exc}. "
             "Check the named file's readability, compression integrity, and whitespace-delimited header; "
             "restore the original table from the selected legacy suite. "
-            "See docs/user-guide/troubleshooting.md#conversion-rejected-the-legacy-suite."
+            "See https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#conversion-rejected-the-legacy-suite."
         ) from exc
 
 

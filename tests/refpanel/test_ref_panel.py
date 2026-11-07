@@ -204,7 +204,7 @@ class PlinkRefPanelTest(unittest.TestCase):
         self.assertNotIn("dropped_snps", str(caught.exception))
         # The causes are several, so the message links its troubleshooting section.
         anchor = "ldscore-a-plink-chromosome-has-no-usable-snp-identity"
-        self.assertIn(f"docs/user-guide/troubleshooting.md#{anchor}", str(caught.exception))
+        self.assertIn(f"https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#{anchor}", str(caught.exception))
         guide = (Path(__file__).resolve().parents[2] / "docs/user-guide/troubleshooting.md").read_text()
         self.assertIn("### `ldscore`: a PLINK chromosome has no usable SNP identity\n", guide)
 

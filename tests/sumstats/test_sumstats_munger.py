@@ -613,7 +613,7 @@ class SumstatsMungerTest(unittest.TestCase):
             ldsc.LDSCInputError,
             "Cannot load munged summary statistics at .*snp_identifier='rsid_allele_aware' requires A1/A2 columns.*"
             "Re-run munge-sumstats from the raw GWAS file.*"
-            "docs/user-guide/troubleshooting.md#munge-sumstats-munged-summary-statistics-are-malformed-or-outdated",
+            "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#munge-sumstats-munged-summary-statistics-are-malformed-or-outdated",
         ):
             ldsc.load_sumstats(sumstats_file)
 
@@ -639,7 +639,7 @@ class SumstatsMungerTest(unittest.TestCase):
         with self.assertRaisesRegex(
             ldsc.LDSCInputError,
             "missing or invalid SNP identity rows.*"
-            "docs/user-guide/troubleshooting.md#munge-sumstats-munged-summary-statistics-are-malformed-or-outdated",
+            "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#munge-sumstats-munged-summary-statistics-are-malformed-or-outdated",
         ):
             ldsc.load_sumstats(sumstats_file)
 
@@ -1243,7 +1243,7 @@ class SumstatsMungerTest(unittest.TestCase):
         with self.assertRaisesRegex(
             ldsc.LDSCInputError,
             "munge-sumstats could not map required column.*Z.*"
-            "docs/user-guide/troubleshooting.md#munge-sumstats-could-not-map-a-required-column",
+            "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#munge-sumstats-could-not-map-a-required-column",
         ):
             table.validate()
 
@@ -1479,7 +1479,7 @@ class SumstatsMungerTest(unittest.TestCase):
         with self.assertRaisesRegex(
             ldsc.LDSCInputError,
             "duplicate or invalid SNP identity rows.*duplicate_identity.*"
-            "docs/user-guide/troubleshooting.md#munge-sumstats-munged-summary-statistics-are-malformed-or-outdated",
+            "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#munge-sumstats-munged-summary-statistics-are-malformed-or-outdated",
         ):
             ldsc.load_sumstats(sumstats_file)
 
@@ -1649,7 +1649,7 @@ class SumstatsMungerTest(unittest.TestCase):
             ldsc.LDSCInputError,
             "munge-sumstats no SNPs remain after SNP keep-list restriction.*"
             "snp_identifier=rsid.*keep-list identifiers=1.*"
-            "docs/user-guide/troubleshooting.md#munge-sumstats-no-snps-remain-after-filtering",
+            "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#munge-sumstats-no-snps-remain-after-filtering",
         ):
             self._munge(
                 tmpdir, "SNP A1 A2 P BETA N\n"

@@ -59,7 +59,7 @@ _COMPONENT_RESTORE = (
 _INDEX_RESTORE = (
     " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
     "build-gene-ldscore-index. See "
-    "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
+    "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
 )
 
 

@@ -40,8 +40,8 @@ PairColumns = tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
 
 # Troubleshooting section for R2 matrix errors, by the command that reads the R2 matrix.
 R2_MATRIX_TROUBLESHOOTING = {
-    "ldscore": "docs/user-guide/troubleshooting.md#ldscore-r2-matrix-is-incompatible",
-    "query-r2-matrix": "docs/user-guide/troubleshooting.md#query-r2-matrix-r2-matrix-is-incompatible",
+    "ldscore": "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#ldscore-an-r2-matrix-is-incompatible",
+    "query-r2-matrix": "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#query-r2-matrix-an-r2-matrix-is-incompatible",
 }
 _LDSCORE_PARQUET_DOC = R2_MATRIX_TROUBLESHOOTING["ldscore"]
 

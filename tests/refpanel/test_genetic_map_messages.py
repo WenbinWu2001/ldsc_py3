@@ -11,8 +11,8 @@ from tests.ref_panel_helpers import read_bim
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "minimal_external_resources"
 TROUBLESHOOTING = Path(__file__).resolve().parents[2] / "docs" / "user-guide" / "troubleshooting.md"
-LDSCORE_DOC = "docs/user-guide/troubleshooting.md#ldscore-a-genetic-map-cannot-be-used"
-GENE_INDEX_DOC = "docs/user-guide/troubleshooting.md#build-gene-ldscore-index-a-genetic-map-cannot-be-used"
+LDSCORE_DOC = "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#ldscore-a-genetic-map-cannot-be-used"
+GENE_INDEX_DOC = "https://wenbinwu2001.github.io/ldsc_py3/user-guide/troubleshooting.html#build-gene-ldscore-index-a-genetic-map-cannot-be-used"
 
 
 def _duplicated_map(tmp_path):

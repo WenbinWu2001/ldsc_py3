@@ -4,7 +4,7 @@
 
 # LDSC Package Guidance
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-06
 
 This repository, `ldsc_py3_restructured`, develops the distributable scientific Python package `ldsc` (distribution version `2.0b0`), with source under `src/ldsc/`.
 
@@ -131,6 +131,7 @@ pytest
   Recorded exception: `ldscore` excludes reference-panel SNPs that are not on the annotation SNP grid without failing and reports them instead; scope and rationale are in `docs/reference/ldscore-snp-universes.md`, "Reference SNPs on the annotation SNP grid".
   Recorded exception: regression drops summary-statistics rows whose `Z` or `N` is missing or infinite with a warning and a recorded count instead of failing; scope and rationale are in `docs/reference/regression-options.md`, "Missing or infinite statistics".
   Recorded exception: in allele-aware modes, reference-panel commands drop panel rows whose alleles are missing, non-ACGT or identical, list them in `diagnostics/dropped_snps/` and print a stderr WARNING instead of failing; scope and rationale are in `docs/reference/ldscore-snp-universes.md`, "Reference-panel rows without an allele-aware SNP identity".
+  Recorded exception: SNP identity cleanup drops every row of a duplicate effective-identity group among annotation rows and PLINK `.bim` rows in every SNP identifier mode, and every multi-allelic position in allele-aware modes, lists them in `diagnostics/dropped_snps/` and prints a stderr WARNING instead of failing; scope and rationale are in `docs/reference/formats/column-schema.md`, "Duplicate SNP identity policy".
 - Use exhaustive, stage-specific validation gates that collect every safely discoverable issue across focal/control inputs before aborting.
   An unreadable structural contract may fail immediately, a referenced analysis-changing defect must fail, and an unreferenced latent defect may be diagnosed without failing a correct run.
   Design diagnostics for concrete identification and repair; preserve explicit query-continuation policies and their attempted-query records, without introducing silent recovery.

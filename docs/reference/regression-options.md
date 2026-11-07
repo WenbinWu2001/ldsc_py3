@@ -166,6 +166,17 @@ Missing or infinite LD scores and regression weights are not dropped: they mean 
 
 *Mechanism:* `_prepare_trait_sumstats`, `_project_legacy_sumstats_to_panel` and `_PreparedLDScores` in `_regression/alignment.py`.
 
+### 1.7 Zero-variance and collinear LD-score columns
+
+After the merge, each model drops the LD-score columns that do not vary on its regression SNPs and logs a WARNING that names them.
+Before an estimator runs, every `h2` fit, including each `partitioned-h2` model and each trait's own fit in `rg`, and every `rg` pair checks the condition number of its LD-score design matrix, as legacy LDSC did.
+Above $10^5$ the annotations cannot be separated, and the fit stops with `LDSCInputError`, naming the two annotations that overlap most.
+In `h2` and in a baseline-only `partitioned-h2` run the error stops the run, and a `partitioned-h2` query model fails like any other query error ([query failures](results/partitioned-h2.md#query-failures-and-continuation)).
+In `rg` a collinear pair is recorded as a failed pair, and a trait whose own fit fails keeps its row in `h2_per_trait.tsv` with status `failed`; the run continues and the trait's pairs are still fitted.
+The check is skipped when the LD-score directory stores no overlap matrix or the model has fewer than two LD-score columns.
+
+*Mechanism:* `_select_model_columns` in `_regression/alignment.py`; `_raise_on_model_collinearity` in `_regression/fitting.py` and `model_collinearity_error` in `_regression/overlap_model.py`.
+
 ## 2. `h2` — single-trait heritability
 
 `h2` and `rg` use only the baseline LD scores of an LD-score directory, even when it contains query files.

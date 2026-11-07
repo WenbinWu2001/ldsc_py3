@@ -978,6 +978,20 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
             side_effect=lambda chrom_sources, *_args: chrom_sources,
         )
 
+    @contextlib.contextmanager
+    def _stub_chromosome_builds(self, builds=("hg19",)):
+        """Skip the selection pre-pass and stub _build_chromosome to return R2 and metadata paths for ``builds``."""
+        def fake_build(prefix, chrom, config, build_state):
+            out_root = Path(config.output_dir)
+            r2 = {f"r2_{build}": str(out_root / build / f"chr{chrom}_r2.parquet") for build in builds}
+            meta = {f"meta_{build}": str(out_root / build / f"chr{chrom}_meta.tsv.gz") for build in builds}
+            return {**r2, **meta}
+
+        with self._skip_selection_pre_pass(), mock.patch.object(
+            r2_matrix_builder.R2MatrixBuilder, "_build_chromosome", side_effect=fake_build,
+        ) as patched:
+            yield patched
+
     def _write_plink_prefix_rows(self, root: Path, stem: str, rows: list[tuple]):
         prefix = root / stem
         Path(str(prefix) + ".bed").write_bytes(b"\x6c\x1b\x01" + b"\x00" * len(rows))
@@ -1553,20 +1567,7 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
             config = self._build_config(tmpdir)
             builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
-            def fake_build(prefix, chrom, config, build_state):
-                out_root = Path(config.output_dir)
-                return {
-                    "r2_hg19": str(out_root / "hg19" / f"chr{chrom}_r2.parquet"),
-                    "r2_hg38": str(out_root / "hg38" / f"chr{chrom}_r2.parquet"),
-                    "meta_hg19": str(out_root / "hg19" / f"chr{chrom}_meta.tsv.gz"),
-                    "meta_hg38": str(out_root / "hg38" / f"chr{chrom}_meta.tsv.gz"),
-                }
-
-            with self._skip_selection_pre_pass(), mock.patch.object(
-                r2_matrix_builder.R2MatrixBuilder,
-                "_build_chromosome",
-                side_effect=fake_build,
-            ) as patched:
+            with self._stub_chromosome_builds(("hg19", "hg38")) as patched:
                 result = builder.run(config)
 
             self.assertEqual(result.matrix_name, "out")
@@ -1616,96 +1617,32 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
                 ]
             )
 
-            def fake_build(prefix, chrom, config, build_state):
-                out_root = Path(config.output_dir)
-                return {
-                    "r2_hg19": str(out_root / "hg19" / f"chr{chrom}_r2.parquet"),
-                    "meta_hg19": str(out_root / "hg19" / f"chr{chrom}_meta.tsv.gz"),
-                }
-
-            with self._skip_selection_pre_pass(), mock.patch.object(
-                r2_matrix_builder.R2MatrixBuilder,
-                "_build_chromosome",
-                side_effect=fake_build,
-            ):
+            with self._stub_chromosome_builds():
                 result = r2_matrix_builder.run_build_r2_matrix_from_args(args)
 
             self.assertTrue((tmpdir / "out" / "diagnostics" / "build-r2-matrix.log").exists())
             self.assertNotIn("log", result.output_paths)
 
-    def test_run_build_r2_matrix_from_args_single_concrete_prefix_writes_chromosome_scoped_log(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
-            parser = r2_matrix_builder.build_parser()
-            args = parser.parse_args(
-                [
-                    "--plink-prefix",
-                    str(tmpdir / "panel.1"),
-                    "--source-genome-build",
-                    "hg19",
-                    "--output-dir",
-                    str(tmpdir / "out"),
-                    "--ld-wind-kb",
-                    "1",
-                ]
-            )
+    def test_run_build_r2_matrix_from_args_single_concrete_prefix_writes_chromosome_scoped_log_and_metadata(self):
+        for overwrite in ([], ["--overwrite"]):
+            with self.subTest(overwrite=overwrite), tempfile.TemporaryDirectory() as tmpdir:
+                tmpdir = Path(tmpdir)
+                self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+                args = r2_matrix_builder.build_parser().parse_args([
+                    "--plink-prefix", str(tmpdir / "panel.1"), "--source-genome-build", "hg19",
+                    "--output-dir", str(tmpdir / "out"), "--ld-wind-kb", "1", *overwrite,
+                ])
 
-            def fake_build(prefix, chrom, config, build_state):
-                out_root = Path(config.output_dir)
-                return {
-                    "r2_hg19": str(out_root / "hg19" / f"chr{chrom}_r2.parquet"),
-                    "meta_hg19": str(out_root / "hg19" / f"chr{chrom}_meta.tsv.gz"),
-                }
+                with self._stub_chromosome_builds():
+                    result = r2_matrix_builder.run_build_r2_matrix_from_args(args)
 
-            with self._skip_selection_pre_pass(), mock.patch.object(
-                r2_matrix_builder.R2MatrixBuilder,
-                "_build_chromosome",
-                side_effect=fake_build,
-            ):
-                result = r2_matrix_builder.run_build_r2_matrix_from_args(args)
-
-            self.assertTrue((tmpdir / "out" / "diagnostics" / "build-r2-matrix.chr1.log").exists())
-            self.assertFalse((tmpdir / "out" / "diagnostics" / "build-r2-matrix.log").exists())
-            self.assertNotIn("log", result.output_paths)
-
-    def test_run_build_r2_matrix_from_args_single_concrete_prefix_writes_chromosome_scoped_metadata(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
-            parser = r2_matrix_builder.build_parser()
-            args = parser.parse_args(
-                [
-                    "--plink-prefix",
-                    str(tmpdir / "panel.1"),
-                    "--source-genome-build",
-                    "hg19",
-                    "--output-dir",
-                    str(tmpdir / "out"),
-                    "--ld-wind-kb",
-                    "1",
-                    "--overwrite",
-                ]
-            )
-
-            def fake_build(prefix, chrom, config, build_state):
-                out_root = Path(config.output_dir)
-                return {
-                    "r2_hg19": str(out_root / "hg19" / f"chr{chrom}_r2.parquet"),
-                    "meta_hg19": str(out_root / "hg19" / f"chr{chrom}_meta.tsv.gz"),
-                }
-
-            with self._skip_selection_pre_pass(), mock.patch.object(
-                r2_matrix_builder.R2MatrixBuilder,
-                "_build_chromosome",
-                side_effect=fake_build,
-            ):
-                result = r2_matrix_builder.run_build_r2_matrix_from_args(args)
-
-            metadata_path = tmpdir / "out" / "diagnostics" / "metadata.chr1.json"
-            self.assertEqual(result.output_paths["metadata"], [str(metadata_path)])
-            self.assertTrue(metadata_path.exists())
-            self.assertFalse((tmpdir / "out" / "diagnostics" / "metadata.json").exists())
+                self.assertTrue((tmpdir / "out" / "diagnostics" / "build-r2-matrix.chr1.log").exists())
+                self.assertFalse((tmpdir / "out" / "diagnostics" / "build-r2-matrix.log").exists())
+                self.assertNotIn("log", result.output_paths)
+                metadata_path = tmpdir / "out" / "diagnostics" / "metadata.chr1.json"
+                self.assertEqual(result.output_paths["metadata"], [str(metadata_path)])
+                self.assertTrue(metadata_path.exists())
+                self.assertFalse((tmpdir / "out" / "diagnostics" / "metadata.json").exists())
 
     def test_builder_run_allows_source_only_output_paths_when_no_chain_is_available(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1723,19 +1660,8 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
             )
             builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
-            def fake_build(prefix, chrom, config, build_state):
-                out_root = Path(config.output_dir)
-                return {
-                    "r2_hg19": str(out_root / "hg19" / f"chr{chrom}_r2.parquet"),
-                    "meta_hg19": str(out_root / "hg19" / f"chr{chrom}_meta.tsv.gz"),
-                }
-
             with self.assertLogs("LDSC.r2_matrix_builder", level="INFO") as logs:
-                with self._skip_selection_pre_pass(), mock.patch.object(
-                    r2_matrix_builder.R2MatrixBuilder,
-                    "_build_chromosome",
-                    side_effect=fake_build,
-                ):
+                with self._stub_chromosome_builds():
                     result = builder.run(config)
 
             self.assertIn("meta_hg19", result.output_paths)
@@ -2153,109 +2079,51 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
             state = builder._prepare_build_state(config)
             self.assertEqual(state.restriction_keys.keys, {'1:110'})
 
-    def test_chr_pos_restriction_filters_before_liftover(self):
+    def _keep_snps_reaching_liftover(self, rows, global_config, restriction=None):
+        """Return the PLINK row indices an hg19 chromosome build with a chain passes to liftover mapping."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            prefix = self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100), ("1", "rs2", 200)])
+            prefix = self._write_plink_prefix_rows(tmpdir, "panel.1", rows)
             config = R2MatrixBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg19",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
+                plink_prefix=tmpdir / "panel.@", source_genome_build="hg19", output_dir=tmpdir / "out", ld_wind_kb=1.0,
             )
+            restriction_keys = {} if restriction is None else {"restriction_keys": RestrictionIdentityKeys(
+                keys=restriction, match_kind="base", dropped=empty_identity_drop_frame(), n_input_rows=1, n_retained_keys=1,
+            )}
             build_state = r2_matrix_builder._BuildState(
-                genetic_map_hg19=None,
-                genetic_map_hg38=None,
-                liftover_chain_paths={("hg19", "hg38"): "chain.over"},
-                restriction_keys=RestrictionIdentityKeys(
-                    keys={"1:200"},
-                    match_kind="base",
-                    dropped=empty_identity_drop_frame(),
-                    n_input_rows=1,
-                    n_retained_keys=1,
-                ),
+                genetic_map_hg19=None, genetic_map_hg38=None, liftover_chain_paths={("hg19", "hg38"): "chain.over"},
+                **restriction_keys,
             )
-            builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos"))
-            captured = {}
+            builder = r2_matrix_builder.R2MatrixBuilder(global_config=global_config)
+            captured = []
 
-            def stop_after_restriction(*, keep_snps, **_kwargs):
-                captured["keep_snps"] = list(map(int, keep_snps))
-                raise RuntimeError("stop after restriction")
+            def stop_at_liftover(*, keep_snps, **_kwargs):
+                captured.extend(map(int, keep_snps))
+                raise RuntimeError("stop at liftover")
 
-            with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=stop_after_restriction):
-                with self.assertRaisesRegex(RuntimeError, "stop after restriction"):
+            with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=stop_at_liftover):
+                with self.assertRaisesRegex(RuntimeError, "stop at liftover"):
                     builder._build_chromosome(str(prefix), "1", config, build_state)
+        return captured
 
-        self.assertEqual(captured["keep_snps"], [1])
+    def test_chr_pos_restriction_filters_before_liftover(self):
+        keep_snps = self._keep_snps_reaching_liftover(
+            [("1", "rs1", 100), ("1", "rs2", 200)], GlobalConfig(snp_identifier="chr_pos"), restriction={"1:200"},
+        )
+        self.assertEqual(keep_snps, [1])
 
     def test_source_duplicates_are_dropped_by_identity_cleanup_before_liftover_mapping(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            prefix = self._write_plink_prefix_rows(
-                tmpdir,
-                "panel.1",
-                [("1", "rs1", 100), ("1", "rs2", 100), ("1", "rs3", 300)],
-            )
-            config = R2MatrixBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg19",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-            )
-            build_state = r2_matrix_builder._BuildState(
-                genetic_map_hg19=None,
-                genetic_map_hg38=None,
-                liftover_chain_paths={("hg19", "hg38"): "chain.over"},
-            )
-            builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos"))
-            captured = {}
-
-            def stop_before_mapping(*, keep_snps, **_kwargs):
-                captured["keep_snps"] = list(map(int, keep_snps))
-                raise RuntimeError("stop before mapping")
-
-            with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=stop_before_mapping):
-                with self.assertRaisesRegex(RuntimeError, "stop before mapping"):
-                    builder._build_chromosome(str(prefix), "1", config, build_state)
-
-        self.assertEqual(captured["keep_snps"], [2])
+        keep_snps = self._keep_snps_reaching_liftover(
+            [("1", "rs1", 100), ("1", "rs2", 100), ("1", "rs3", 300)], GlobalConfig(snp_identifier="chr_pos"),
+        )
+        self.assertEqual(keep_snps, [2])
 
     def test_rsid_restriction_filters_before_liftover_and_ignores_global_build(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            prefix = self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100), ("1", "rs2", 200)])
-            config = R2MatrixBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg19",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-            )
-            build_state = r2_matrix_builder._BuildState(
-                genetic_map_hg19=None,
-                genetic_map_hg38=None,
-                liftover_chain_paths={("hg19", "hg38"): "chain.over"},
-                restriction_keys=RestrictionIdentityKeys(
-                    keys={"rs2"},
-                    match_kind="base",
-                    dropped=empty_identity_drop_frame(),
-                    n_input_rows=1,
-                    n_retained_keys=1,
-                ),
-            )
-            builder = r2_matrix_builder.R2MatrixBuilder(
-                global_config=GlobalConfig(snp_identifier="rsid", genome_build="hg38")
-            )
-            captured = {}
-
-            def stop_after_restriction(*, keep_snps, **_kwargs):
-                captured["keep_snps"] = list(map(int, keep_snps))
-                raise RuntimeError("stop after restriction")
-
-            with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=stop_after_restriction):
-                with self.assertRaisesRegex(RuntimeError, "stop after restriction"):
-                    builder._build_chromosome(str(prefix), "1", config, build_state)
-
-        self.assertEqual(captured["keep_snps"], [1])
+        keep_snps = self._keep_snps_reaching_liftover(
+            [("1", "rs1", 100), ("1", "rs2", 200)], GlobalConfig(snp_identifier="rsid", genome_build="hg38"),
+            restriction={"rs2"},
+        )
+        self.assertEqual(keep_snps, [1])
 
     def test_build_restriction_mask_uses_identity_keys_when_restriction_is_allele_aware(self):
         metadata = pd.DataFrame(

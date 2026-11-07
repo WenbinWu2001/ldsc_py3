@@ -674,73 +674,33 @@ class AnnotationBuilderTest(unittest.TestCase):
             self.assertEqual(fixture_values(bundle, 'query')["query"].tolist(), [1.0, 1.0, 0.0])
             self.assertEqual(len(fixture_metadata(bundle)), len(fixture_values(bundle, 'query')))
 
-    def test_project_bed_annotations_refuses_existing_output_before_writing(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            output_dir = tmpdir / "out"
-            output_dir.mkdir()
-            existing = output_dir / "query.1.annot.gz"
-            existing.write_text("existing\n", encoding="utf-8")
-            bundle = make_annotation_bundle(
-                metadata=pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [0.1]}),
-                baseline_annotations=pd.DataFrame({"base": [1.0]}),
-                query_annotations=pd.DataFrame({"query": [1.0]}),
-                baseline_columns=["base"],
-                query_columns=["query"],
-                chromosomes=["1"],
-                source_summary={},
-                config_snapshot=GlobalConfig(snp_identifier="rsid"),
-            )
-            builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+    def _annotate_one_bed(self, tmpdir, output_dir, **kwargs):
+        """Annotate one rsID baseline SNP with a BED interval covering it, into ``output_dir``."""
+        base = tmpdir / "baseline.annot"
+        bed = tmpdir / "query.bed"
+        _write_annot(base, [("1", 10, "rs1", .1)], {"base": [1]})
+        bed.write_text("1\t9\t11\n")
+        return run_annotate(
+            global_config=GlobalConfig(snp_identifier="rsid"), query_annot_bed_sources=(str(bed),),
+            ref_snp_annot_sources=(str(base),), output_dir=output_dir, **kwargs,
+        )
 
-            base = tmpdir / "baseline.annot"
-            bed = tmpdir / "query.bed"
-            _write_annot(base, [("1", 10, "rs1", .1)], {"base": [1]})
-            bed.write_text("1\t9\t11\n")
-            with contextlib.nullcontext():
+    def test_project_bed_annotations_refuses_existing_or_stale_output_before_writing(self):
+        # query.1 is the shard this run would write; query.2 is a stale owned shard it would remove.
+        for name in ("query.1.annot.gz", "query.2.annot.gz"):
+            with self.subTest(existing=name), tempfile.TemporaryDirectory() as tmpdir:
+                tmpdir = Path(tmpdir)
+                output_dir = tmpdir / "out"
+                output_dir.mkdir()
+                existing = output_dir / name
+                existing.write_text("existing\n", encoding="utf-8")
+
                 with self.assertRaisesRegex(FileExistsError, "overwrite"):
-                    run_annotate(global_config=builder.global_config,
-                        query_annot_bed_sources=(str(bed),),
-                        ref_snp_annot_sources=(str(base),),
-                        output_dir=output_dir,
-                    )
+                    self._annotate_one_bed(tmpdir, output_dir)
 
-            self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
-            self.assertFalse((output_dir / "diagnostics" / "annotate.log").exists())
-
-    def test_project_bed_annotations_refuses_stale_query_shard_without_overwrite(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            output_dir = tmpdir / "out"
-            output_dir.mkdir()
-            stale = output_dir / "query.2.annot.gz"
-            stale.write_text("stale\n", encoding="utf-8")
-            bundle = make_annotation_bundle(
-                metadata=pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [0.1]}),
-                baseline_annotations=pd.DataFrame({"base": [1.0]}),
-                query_annotations=pd.DataFrame({"query": [1.0]}),
-                baseline_columns=["base"],
-                query_columns=["query"],
-                chromosomes=["1"],
-                source_summary={},
-                config_snapshot=GlobalConfig(snp_identifier="rsid"),
-            )
-            builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
-
-            base = tmpdir / "baseline.annot"
-            bed = tmpdir / "query.bed"
-            _write_annot(base, [("1", 10, "rs1", .1)], {"base": [1]})
-            bed.write_text("1\t9\t11\n")
-            with contextlib.nullcontext():
-                with self.assertRaisesRegex(FileExistsError, "overwrite"):
-                    run_annotate(global_config=builder.global_config,
-                        query_annot_bed_sources=(str(bed),),
-                        ref_snp_annot_sources=(str(base),),
-                        output_dir=output_dir,
-                    )
-
-            self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
-            self.assertFalse((output_dir / "query.1.annot.gz").exists())
+                self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
+                # Nothing else is written: no query shard and no annotate.log.
+                self.assertEqual([path.name for path in output_dir.rglob("*")], [name])
 
     def test_project_bed_annotations_overwrite_removes_stale_query_shard(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -749,29 +709,8 @@ class AnnotationBuilderTest(unittest.TestCase):
             output_dir.mkdir()
             stale = output_dir / "query.2.annot.gz"
             stale.write_text("stale\n", encoding="utf-8")
-            bundle = make_annotation_bundle(
-                metadata=pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [0.1]}),
-                baseline_annotations=pd.DataFrame({"base": [1.0]}),
-                query_annotations=pd.DataFrame({"query": [1.0]}),
-                baseline_columns=["base"],
-                query_columns=["query"],
-                chromosomes=["1"],
-                source_summary={},
-                config_snapshot=GlobalConfig(snp_identifier="rsid"),
-            )
-            builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
 
-            base = tmpdir / "baseline.annot"
-            bed = tmpdir / "query.bed"
-            _write_annot(base, [("1", 10, "rs1", .1)], {"base": [1]})
-            bed.write_text("1\t9\t11\n")
-            with contextlib.nullcontext():
-                run_annotate(global_config=builder.global_config,
-                    query_annot_bed_sources=(str(bed),),
-                    ref_snp_annot_sources=(str(base),),
-                    output_dir=output_dir,
-                    overwrite=True,
-                )
+            self._annotate_one_bed(tmpdir, output_dir, overwrite=True)
 
             self.assertTrue((output_dir / "query.1.annot.gz").exists())
             self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())

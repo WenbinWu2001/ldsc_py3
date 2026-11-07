@@ -5,6 +5,28 @@ Last updated on: 2026-11-06
 Branch `restructure`; checked on 2026-11-06.
 Nothing below is in progress; each open item needs the user's go-ahead.
 
+## Completed: code slimming with unchanged behavior (2026-11-06)
+
+The user asked on 2026-11-06 for less code with the same behavior across `src/`, `tests/` and `docs/`, removing public names case by case and trimming prose only where it clearly repeats other text.
+An audit came first; the user approved its items and the work ran in three phases, from `9885d508` to this commit.
+
+- Phases 1 and 2 (`9885d508..b49fbcee`): five `src/` areas slimmed, then merged with six follow-ups.
+  Breaking removals: `RefPanel.build_reader`, `LDScoreCalculator.compute_chromosome` and the `ChromLDScoreResult` export, `RegressionRunner.estimate_partitioned_h2`, `LDScoreDirectoryWriter.write_gene_list_preflight`, the public `LegacyLDScoreConverter` (use `convert_legacy_ldscores`), the `validate_config_compatibility` export, the munging `inferred_columns` field, the annotate parser helpers `add_annotate_arguments` and `parse_annotate_args` (use `build_parser()`), and unread estimator attributes (`intercept_delete_values`, `M`, `enrichment` and `M_prop` on fits, and `p`, `z` and `mean_z1z2` on genetic-covariance fits); the BREAKING CHANGE footers of those commits list each one.
+  Kept at the user's request: `SumstatsMunger.write_output`, `AnnotationBundle.from_frames` and the `preflight_output_artifact_family` Notes.
+- Phase 3 (`b49fbcee..`): tests share setup (`self.tmp_path` from `tests/conftest.py`, munging, PLINK, metadata-edit and fake-estimator helpers), use parametrized tables, and drop tests that another test pins through the same or a stricter route; each deletion's commit names that test.
+  Documentation states each contract once in its home page and links to it elsewhere; `docs/dev/architecture.md` keeps only how modules work together (636 to 242 lines), and the per-module facts moved to `code-structure.md` or reference pages.
+  New or moved contracts: `regression-options.md` section 1.7 (zero-variance and collinear LD-score columns), column-schema "SNP restriction files", and logs-and-outputs "Derived result roots".
+- Net lines removed from `9885d508`: `src/` 1,747, `tests/` 1,642, `docs/` 1,025.
+- Evidence: the harness at `b49fbcee` is identical to `9885d508` in all 207 cases (routes that called removed names were updated first); phase 3 changes no `src/` file; the full suite at the final commit passed (3071 passed, 5 skipped for the absent `resources/` directory, 0 failed; 3076 tests collected, against 3072 before phase 3, because merged tests became one case per table row); the link checker finds no broken link outside the 10 that already existed in `docs/dev/validation/legacy-issues-audit/`.
+
+### Open items
+
+- Should the "Ownership by layer and workflow" matrix in `architecture.md` be trimmed like the Code Map, and should the Test Map keep coverage notes or list file names only?
+- Please confirm the wording of `regression-options.md` section 1.7, whose contract was stated only in `architecture.md` before.
+- The collinearity check is also skipped without notice when the stored overlap cannot be assembled for the model's columns (`_regression/fitting.py`, the `ValueError`/`KeyError` branch); section 1.7 names only the other two skip conditions.
+- Forty `TemporaryDirectory` blocks remain in tests (subtest loops, helpers, `setUp`, several directories per test).
+- The legacy-issues audit pages hold 10 links to files that were removed or renamed.
+
 ## Completed: gene LD-score index format numbering reset (2026-11-06)
 
 No gene LD-score index had been used in production, so the user asked on 2026-11-06 to start module-specific version numbers again at 1.

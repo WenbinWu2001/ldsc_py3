@@ -11,7 +11,6 @@ import json
 from pathlib import Path
 import shutil
 import threading
-import time
 from types import SimpleNamespace
 import warnings
 import weakref
@@ -1037,9 +1036,11 @@ def test_completed_chromosome_is_durably_staged_before_other_workers_finish(
     from tests.worker_fixtures import local_task_pool
     monkeypatch.setattr("ldsc._runtime.parallelism.ProcessPoolExecutor", local_task_pool)
     chromosome, output, args = _configure_two_chromosome_builder(tmp_path, monkeypatch)
+    # Events order every observation; timeouts only guard against a hung build.
+    hang_guard_seconds = 60
     first_started = threading.Event()
     release_first = threading.Event()
-    second_computed = threading.Event()
+    second_collected = threading.Event()
     second_record_released = threading.Event()
     durable_rename_seen = threading.Event()
     build_error: list[BaseException] = []
@@ -1047,7 +1048,7 @@ def test_completed_chromosome_is_durably_staged_before_other_workers_finish(
     def fake_build(chrom, *_args, **_kwargs):
         if chrom == "1":
             first_started.set()
-            assert release_first.wait(timeout=10)
+            assert release_first.wait(timeout=hang_guard_seconds)
         record = replace(
             chromosome,
             baseline_rows=chromosome.baseline_rows.assign(CHR=chrom),
@@ -1058,7 +1059,6 @@ def test_completed_chromosome_is_durably_staged_before_other_workers_finish(
         )
         if chrom == "2":
             weakref.finalize(record, second_record_released.set)
-            second_computed.set()
         return _built(record)
 
     monkeypatch.setattr(gene_ldscore_index, "build_plink_index_chromosome", fake_build)
@@ -1076,6 +1076,17 @@ def test_completed_chromosome_is_durably_staged_before_other_workers_finish(
         return real_replace(source, destination)
 
     monkeypatch.setattr(gene_ldscore_index.os, "replace", observe_shard_rename)
+    real_run_tasks = gene_ldscore_index.run_chromosome_tasks
+
+    def signal_second_collection(chromosomes, workers, submit, collect, on_failure):
+        # The coordinator's collect callback logs "Finished chromosome N"; signal after it returns.
+        def collect_then_signal(chrom, result):
+            collect(chrom, result)
+            if chrom == "2":
+                second_collected.set()
+        return real_run_tasks(chromosomes, workers, submit, collect_then_signal, on_failure)
+
+    monkeypatch.setattr(gene_ldscore_index, "run_chromosome_tasks", signal_second_collection)
 
     def run_build():
         try:
@@ -1086,27 +1097,22 @@ def test_completed_chromosome_is_durably_staged_before_other_workers_finish(
     thread = threading.Thread(target=run_build)
     thread.start()
     try:
-        assert first_started.wait(timeout=10)
-        assert second_computed.wait(timeout=10)
-        deadline = time.monotonic() + 10
-        staged_shard = None
-        while time.monotonic() < deadline:
-            candidate = output / ".build" / "stage" / "chromosomes" / "chr2"
-            if candidate.is_dir():
-                staged_shard = candidate
-                break
-            time.sleep(0.01)
-
-        assert staged_shard is not None
+        assert first_started.wait(timeout=hang_guard_seconds)
+        assert second_collected.wait(timeout=hang_guard_seconds), build_error
+        # Chromosome 1 is still blocked in its worker, so nothing of it is staged yet.
+        staged_chromosomes = output / ".build" / "stage" / "chromosomes"
+        assert not (staged_chromosomes / "chr1").exists()
+        staged_shard = staged_chromosomes / "chr2"
+        assert staged_shard.is_dir()
         assert (staged_shard / "ldscore_operator.npz").exists()
         assert not (output / "metadata.json").exists()
         assert durable_rename_seen.is_set()
         assert "Finished chromosome 2" in live_log.read_text(encoding="utf-8")
         gc.collect()
-        assert second_record_released.wait(timeout=10)
+        assert second_record_released.wait(timeout=hang_guard_seconds)
     finally:
         release_first.set()
-        thread.join(timeout=20)
+        thread.join(timeout=hang_guard_seconds)
 
     assert not thread.is_alive()
     assert not build_error

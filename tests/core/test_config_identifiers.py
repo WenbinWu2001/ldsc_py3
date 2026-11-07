@@ -1,7 +1,6 @@
 from pathlib import Path
 import tempfile
 import unittest
-import warnings
 
 import pandas as pd
 
@@ -414,19 +413,6 @@ class IdentifierHelpersTest(unittest.TestCase):
         self.assertEqual(normalize_chromosome("X"), "X")
         self.assertEqual(normalize_chromosome("M"), "M")
         self.assertEqual(normalize_chromosome("MT"), "MT")
-
-    def test_normalize_chromosome_logs_on_sex_chromosome_numeric_inference(self):
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            with self.assertLogs("LDSC.chromosomes", level="INFO") as captured:
-                value = normalize_chromosome("23", context="test-sex-code")
-
-        self.assertEqual(value, "X")
-        self.assertEqual(caught, [])
-        self.assertEqual(captured.records[0].levelname, "INFO")
-        self.assertIn("sex chromosome", captured.output[0].lower())
-        self.assertIn("23", captured.output[0])
-        self.assertIn("X", captured.output[0])
 
     def test_normalize_chromosome_rejects_numeric_mitochondrial_codes(self):
         for value in ["25", "26", "25.0", "26.0"]:

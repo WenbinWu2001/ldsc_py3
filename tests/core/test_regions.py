@@ -28,11 +28,13 @@ def test_mhc_bed_is_single_chr6_interval(build):
     assert 0 < start < end
 
 
+# The padded `centromeres` preset also covers X; the raw core spans need only the autosomes.
 @pytest.mark.parametrize("build", ["hg19", "hg38"])
-def test_centromere_bed_covers_all_autosomes(build):
-    rows = _read_bed(f"centromeres.{build}.bed")
+@pytest.mark.parametrize(("name", "extra"), [("centromeres", {"X"}), ("centromeres_core", set())])
+def test_centromere_bed_covers_all_autosomes(build, name, extra):
+    rows = _read_bed(f"{name}.{build}.bed")
     chroms = {chrom for chrom, _, _ in rows}
-    assert ({str(i) for i in range(1, 23)} | {"X"}).issubset(chroms)
+    assert ({str(i) for i in range(1, 23)} | extra).issubset(chroms)
     for chrom, start, end in rows:
         assert start < end, f"{chrom}: start {start} not < end {end}"
 
@@ -195,15 +197,6 @@ def test_regr_snps_exclude_regions_choice_to_presets_maps_all_choices():
 def test_regr_snps_exclude_regions_choice_rejects_unknown_token():
     with pytest.raises(LDSCConfigError, match="Invalid --regr-snps-exclude-regions choice"):
         regions.regr_snps_exclude_regions_choice_to_presets("mhc,centromeres")
-
-
-@pytest.mark.parametrize("build", ["hg19", "hg38"])
-def test_centromeres_core_bed_covers_all_autosomes(build):
-    rows = _read_bed(f"centromeres_core.{build}.bed")
-    chroms = {chrom for chrom, _, _ in rows}
-    assert {str(i) for i in range(1, 23)}.issubset(chroms)
-    for chrom, start, end in rows:
-        assert start < end, f"{chrom}: start {start} not < end {end}"
 
 
 def test_centromeres_core_in_preset_menu():

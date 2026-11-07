@@ -33,16 +33,18 @@ class ChromosomeInferenceTest(unittest.TestCase):
         self.assertIn("input chromosome 'chr1.0'", captured.output[0])
 
     def test_normalize_chromosome_logs_on_sex_chromosome_inference(self):
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            with self.assertLogs("LDSC.chromosomes", level="INFO") as captured:
-                self.assertEqual(normalize_chromosome("24", context="sex-log-context"), "Y")
+        for code, chromosome in (("23", "X"), ("24", "Y")):
+            with self.subTest(code=code):
+                with warnings.catch_warnings(record=True) as caught:
+                    warnings.simplefilter("always")
+                    with self.assertLogs("LDSC.chromosomes", level="INFO") as captured:
+                        self.assertEqual(normalize_chromosome(code, context="sex-log-context"), chromosome)
 
-        self.assertEqual(caught, [])
-        self.assertEqual(captured.records[0].levelname, "INFO")
-        self.assertIn("sex chromosome", captured.output[0].lower())
-        self.assertIn("'24'", captured.output[0])
-        self.assertIn("'Y'", captured.output[0])
+                self.assertEqual(caught, [])
+                self.assertEqual(captured.records[0].levelname, "INFO")
+                self.assertIn("sex chromosome", captured.output[0].lower())
+                self.assertIn(f"'{code}'", captured.output[0])
+                self.assertIn(f"'{chromosome}'", captured.output[0])
 
     def test_chrom_sort_key_uses_standard_package_order(self):
         values = ["Y", "2", "MT", "1", "M", "X"]

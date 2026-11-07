@@ -1040,23 +1040,41 @@ The [conversion user guide](workflows/migrating-from-legacy-ldsc.md) gives full 
 
 ### standard filenames and directory organization
 
-Use these patterns directly inside the selected input directories. `<chrom>` means unpadded `1` through `22`; `<prefix>` is constant within each family and can be empty. Include separators in the prefix, such as `baseline.`. `(.gz)` denotes a plain or gzip alternative; counts must be plain text.
+The accepted filename patterns and directory flags are in [arrange the input files](workflows/migrating-from-legacy-ldsc.md#arrange-the-input-files).
+Select the directory that directly contains each family; do not point at a parent directory, filename prefix, individual file, or glob.
+Renaming repairs discovery only: keep the source release and valid table contents.
 
-| Input | Standard pattern | Example | Repair practice |
-| --- | --- | --- | --- |
-| Reference or weight scores | `<prefix><chrom>.l2.ldscore(.gz)` | `weights.1.l2.ldscore.gz` | Restore missing chromosomes or rename valid copies consistently; select the directory containing the files directly |
-| Baseline annotations | `<reference-prefix><chrom>.annot(.gz)` | `baseline.1.annot.gz` | Use the same prefix as the reference scores and restore all 22 matching shards |
-| Required common-SNP counts | `<reference-prefix><chrom>.l2.M_5_50` | `baseline.1.l2.M_5_50` | Restore the matching source count or rename a misnamed copy; `.l2.M` cannot substitute |
-| Optional all-SNP counts | `<reference-prefix><chrom>.l2.M` | `baseline.1.l2.M` | Supply matching original counts if available; see the profile-specific missing-count policy |
-| Baseline frequencies | `<prefix><chrom>.frq(.gz)` | `1000G.EUR.QC.1.frq.gz` | Rename valid `.freq` copies to `.frq` if needed, restore missing chromosomes, and select one complete family |
+| Problem | Example | Fix |
+| --- | --- | --- |
+| `.w` between the chromosome and `.l2.ldscore` | Only `1.w.l2.ldscore.gz` to `22.w.l2.ldscore.gz` | Copy them as `weights.1.l2.ldscore.gz` to `weights.22.l2.ldscore.gz` into a new directory and pass it to `--legacy-weight-dir` |
+| Padded chromosome numbers | `weights.01.l2.ldscore.gz` to `weights.22.l2.ldscore.gz` | Rename to unpadded `weights.1.l2.ldscore.gz` to `weights.22.l2.ldscore.gz` |
+| Wrong directory level | Files are in `/path/to/legacy/weights/`, but the flag points to `/path/to/legacy/` | Pass the directory that directly contains the files |
+| Missing chromosome | A family has chromosomes 1 to 21 only | Restore chromosome 22 from the same release; single-chromosome conversion is not supported |
+| Several complete releases | `releaseA.{1..22}.l2.ldscore.gz` and `releaseB.{1..22}.l2.ldscore.gz` in one directory | Put each release in its own directory and select one |
+| Wrong frequency suffix | `1000G.EUR.QC.1.freq.gz` | If the contents are a valid frequency table, rename copies to `1000G.EUR.QC.1.frq.gz` consistently across chromosomes |
+| Annotation prefix differs from the reference | Reference `baseline.1.l2.ldscore.gz`, annotation `other.1.annot.gz` | For annotations from the same suite, use `baseline.1.annot.gz`; apply the same prefix to the counts |
+| Missing common counts | A suite with `.l2.M` but no `.l2.M_5_50` | Restore the `.l2.M_5_50` files from the same release; `.l2.M` cannot substitute |
+| Wrong common-count suffix | `baseline.1.M_5_50` or `baseline.1.l2.M_5_50.gz` | Supply the plain-text count as `baseline.1.l2.M_5_50`; decompress a gzip file before removing `.gz` |
+| Missing baseline frequencies | Baseline suite without `--legacy-frequency-dir` | Supply the matching complete `.frq(.gz)` directory |
+| Unsupported table structure | Thin annotations; several weight columns; several reference columns without full annotations | Obtain a supported, coherent suite; renaming cannot repair the contents |
 
-Place different releases in separate directories when discovery finds multiple complete families. Do not point at a parent directory, filename prefix, individual file, or glob. Counts and annotations must match the selected reference prefix; weight and frequency prefixes can differ. Renaming repairs discovery only: retain the source release and valid table contents, and decompress gzip contents before changing a compressed count file to its plain-text standard name.
+A `.w.l2.ldscore.gz` file may hold valid regression weights; only its name is not recognized.
+To rename without touching the source suite, copy into a new directory; for example, this Bash loop copies 22 gzip files without changing their bytes:
 
-### unsupported weight filenames
+```bash
+mkdir -p /path/to/organized/weights
+for chrom in {1..22}; do
+  cp -n "/path/to/legacy/weights/${chrom}.w.l2.ldscore.gz" \
+    "/path/to/organized/weights/weights.${chrom}.l2.ldscore.gz"
+done
+```
 
-**Symptom:** family discovery reports unsupported `.w.l2.ldscore(.gz)` filenames, such as `1.w.l2.ldscore.gz`.
+Then pass `--legacy-weight-dir /path/to/organized/weights`.
+The same applies to plain files without `.gz`; changing an extension does not compress or decompress a file.
+When reorganizing a reference suite, rename its annotations and counts consistently and keep the original release.
 
-Both reference and weight suites require `<prefix><chrom>.l2.ldscore(.gz)` names across chromosomes 1–22. Rename copies in a separate input directory, for example `1.w.l2.ldscore.gz -> weights.1.l2.ldscore.gz`, and pass that directory to `--legacy-weight-dir`. Use the same correction without `.gz` for plain files. Each affected file in the inspected directory is recorded in `diagnostics/conversion_issues.tsv.gz` as `discarded_unsupported_weight_filename`. If a complete recognized family exists alongside these files, conversion uses that family and records the unused alternatives with a warning and in `legacy_ldscore_conversion.ignored_files`. After a failed conversion, rerun with a new output directory or `--overwrite` to replace its diagnostics.
+An unused `.w` file next to a complete recognized family does not block conversion: it is ignored with a warning, recorded in `diagnostics/conversion_issues.tsv.gz` as `discarded_unsupported_weight_filename`, and listed in `legacy_ldscore_conversion.ignored_files`.
+After a failed conversion, rerun with a new output directory or `--overwrite` to replace its diagnostics.
 
 ### conversion rejected the legacy suite
 

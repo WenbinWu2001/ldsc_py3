@@ -1,6 +1,6 @@
 # Migrating from legacy LDSC
 
-Last updated on: 2026-11-02
+Last updated on: 2026-11-06
 
 LDSC3 implements the same method as legacy LDSC, LD score regression (LDSC), behind one `ldsc` command with subcommands and new file formats.
 Build new commands from `ldsc COMMAND --help` and the workflow pages rather than translating old ones line by line.
@@ -197,36 +197,7 @@ Read the error message and `diagnostics/convert-legacy-ldscores.log`; naming err
 A failed directory holds only diagnostics and cannot be used for regression; after fixing the inputs, rerun with a new output directory or add `--overwrite`.
 Errors that occur before logging starts, such as a missing input directory or an output collision, appear only in the terminal.
 
-An unused `.w` file next to a complete recognized family does not block conversion: it is ignored with a warning, recorded as `discarded_unsupported_weight_filename`, and listed in `legacy_ldscore_conversion.ignored_files`.
-
-| Problem | Example | Fix |
-| --- | --- | --- |
-| `.w` between the chromosome and `.l2.ldscore` | Only `1.w.l2.ldscore.gz` to `22.w.l2.ldscore.gz` | Copy them as `weights.1.l2.ldscore.gz` to `weights.22.l2.ldscore.gz` into a new directory and pass it to `--legacy-weight-dir` |
-| Padded chromosome numbers | `weights.01.l2.ldscore.gz` to `weights.22.l2.ldscore.gz` | Rename to unpadded `weights.1.l2.ldscore.gz` to `weights.22.l2.ldscore.gz` |
-| Wrong directory level | Files are in `/path/to/legacy/weights/`, but the flag points to `/path/to/legacy/` | Pass the directory that directly contains the files |
-| Missing chromosome | A family has chromosomes 1 to 21 only | Restore chromosome 22 from the same release; single-chromosome conversion is not supported |
-| Several complete releases | `releaseA.{1..22}.l2.ldscore.gz` and `releaseB.{1..22}.l2.ldscore.gz` in one directory | Put each release in its own directory and select one |
-| Wrong frequency suffix | `1000G.EUR.QC.1.freq.gz` | If the contents are a valid frequency table, rename copies to `1000G.EUR.QC.1.frq.gz` consistently across chromosomes |
-| Annotation prefix differs from the reference | Reference `baseline.1.l2.ldscore.gz`, annotation `other.1.annot.gz` | For annotations from the same suite, use `baseline.1.annot.gz`; apply the same prefix to the counts |
-| Wrong common-count suffix | `baseline.1.M_5_50` or `baseline.1.l2.M_5_50.gz` | Supply the plain-text count as `baseline.1.l2.M_5_50`; decompress a gzip file before removing `.gz` |
-| Missing baseline frequencies | Baseline suite without `--legacy-frequency-dir` | Supply the matching complete `.frq(.gz)` directory |
-| Unsupported table structure | Thin annotations; several weight columns; several reference columns without full annotations | Obtain a supported, coherent suite; renaming cannot repair the contents |
-
-A `.w.l2.ldscore.gz` file may hold valid regression weights; only its name is not recognized.
-To rename without touching the source suite, copy into a new directory; for example, this Bash loop copies 22 gzip files without changing their bytes:
-
-```bash
-mkdir -p /path/to/organized/weights
-for chrom in {1..22}; do
-  cp -n "/path/to/legacy/weights/${chrom}.w.l2.ldscore.gz" \
-    "/path/to/organized/weights/weights.${chrom}.l2.ldscore.gz"
-done
-```
-
-Then pass `--legacy-weight-dir /path/to/organized/weights`.
-The same applies to plain files without `.gz`; changing an extension does not compress or decompress a file.
-When reorganizing a reference suite, rename its annotations and counts consistently and keep the original release.
-See [troubleshooting](../troubleshooting.md#convert-legacy-ldscores) for more repairs.
+Naming problems such as `.w` weight files, padded chromosome numbers or several releases in one directory, with their fixes and a copy-and-rename loop, are listed in [troubleshooting](../troubleshooting.md#standard-filenames-and-directory-organization).
 
 ## Partitioned and cell-type analyses
 

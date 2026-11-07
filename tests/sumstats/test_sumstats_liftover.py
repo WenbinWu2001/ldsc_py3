@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import gzip
 from pathlib import Path
-import tempfile
 import unittest
 from unittest import mock
 
@@ -37,101 +36,100 @@ class SumstatsLiftoverTest(unittest.TestCase):
         return path
 
     def test_hm3_map_loader_accepts_aliases_and_ignores_extra_columns(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = self.write_hm3_map(
-                Path(tmpdir),
-                "chromosome\tGRCh37_bp\tGRCh38_position\trsid\textra\n"
-                "chr1\t100\t1000\trs1\tignored\n"
-                "1\t200\t2000\trs2\tignored\n",
-            )
+        tmpdir = self.tmp_path
+        path = self.write_hm3_map(
+            tmpdir,
+            "chromosome\tGRCh37_bp\tGRCh38_position\trsid\textra\n"
+            "chr1\t100\t1000\trs1\tignored\n"
+            "1\t200\t2000\trs2\tignored\n",
+        )
 
-            loaded = _load_hm3_curated_map_from_path(path, preserve_extra_columns=False)
+        loaded = _load_hm3_curated_map_from_path(path, preserve_extra_columns=False)
 
-            self.assertEqual(loaded.columns.tolist(), ["CHR", "hg19_POS", "hg38_POS", "SNP"])
-            self.assertEqual(loaded["CHR"].tolist(), ["1", "1"])
-            self.assertEqual(loaded["hg19_POS"].tolist(), [100, 200])
-            self.assertEqual(loaded["hg38_POS"].tolist(), [1000, 2000])
-            self.assertEqual(loaded["SNP"].tolist(), ["rs1", "rs2"])
+        self.assertEqual(loaded.columns.tolist(), ["CHR", "hg19_POS", "hg38_POS", "SNP"])
+        self.assertEqual(loaded["CHR"].tolist(), ["1", "1"])
+        self.assertEqual(loaded["hg19_POS"].tolist(), [100, 200])
+        self.assertEqual(loaded["hg38_POS"].tolist(), [1000, 2000])
+        self.assertEqual(loaded["SNP"].tolist(), ["rs1", "rs2"])
 
     def test_hm3_map_loader_rejects_duplicate_source_or_target_coordinates(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            duplicate_hg19 = self.write_hm3_map(
-                root,
-                "CHR\thg19_POS\thg38_POS\tSNP\n"
-                "1\t100\t1000\trs1\n"
-                "1\t100\t2000\trs2\n",
-            )
-            with self.assertRaisesRegex(LDSCInputError, "duplicate.*hg19"):
-                _load_hm3_curated_map_from_path(duplicate_hg19, preserve_extra_columns=False)
+        root = self.tmp_path
+        duplicate_hg19 = self.write_hm3_map(
+            root,
+            "CHR\thg19_POS\thg38_POS\tSNP\n"
+            "1\t100\t1000\trs1\n"
+            "1\t100\t2000\trs2\n",
+        )
+        with self.assertRaisesRegex(LDSCInputError, "duplicate.*hg19"):
+            _load_hm3_curated_map_from_path(duplicate_hg19, preserve_extra_columns=False)
 
-            duplicate_hg38 = self.write_hm3_map(
-                root,
-                "CHR\thg19_POS\thg38_POS\tSNP\n"
-                "1\t100\t1000\trs1\n"
-                "1\t200\t1000\trs2\n",
-            )
-            with self.assertRaisesRegex(LDSCInputError, "duplicate.*hg38"):
-                _load_hm3_curated_map_from_path(duplicate_hg38, preserve_extra_columns=False)
+        duplicate_hg38 = self.write_hm3_map(
+            root,
+            "CHR\thg19_POS\thg38_POS\tSNP\n"
+            "1\t100\t1000\trs1\n"
+            "1\t200\t1000\trs2\n",
+        )
+        with self.assertRaisesRegex(LDSCInputError, "duplicate.*hg38"):
+            _load_hm3_curated_map_from_path(duplicate_hg38, preserve_extra_columns=False)
 
     def test_hm3_liftover_uses_coordinates_only_and_preserves_snp_labels(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = self.write_hm3_map(
-                Path(tmpdir),
-                "CHR\thg19_POS\thg38_POS\tSNP\n"
-                "1\t100\t1000\tmap_rs1\n"
-                "1\t200\t2000\tmap_rs2\n",
-            )
-            frame = pd.DataFrame(
-                {
-                    "CHR": ["1", "1", "1"],
-                    "POS": [100, 200, 999],
-                    "SNP": ["raw_a", "raw_b", "raw_missing"],
-                    "Z": [1.0, 2.0, 3.0],
-                    "N": [100.0, 100.0, 100.0],
-                }
-            )
-            request = SumstatsLiftoverRequest(target_build="hg38", use_hm3_quick_liftover=True, hm3_map_file=path)
+        tmpdir = self.tmp_path
+        path = self.write_hm3_map(
+            tmpdir,
+            "CHR\thg19_POS\thg38_POS\tSNP\n"
+            "1\t100\t1000\tmap_rs1\n"
+            "1\t200\t2000\tmap_rs2\n",
+        )
+        frame = pd.DataFrame(
+            {
+                "CHR": ["1", "1", "1"],
+                "POS": [100, 200, 999],
+                "SNP": ["raw_a", "raw_b", "raw_missing"],
+                "Z": [1.0, 2.0, 3.0],
+                "N": [100.0, 100.0, 100.0],
+            }
+        )
+        request = SumstatsLiftoverRequest(target_build="hg38", use_hm3_quick_liftover=True, hm3_map_file=path)
 
-            lifted, report, drop_frame = apply_sumstats_liftover(
-                frame,
-                request,
-                source_build="hg19",
-                hm3_map=_load_hm3_curated_map_from_path(path, preserve_extra_columns=False),
-            )
+        lifted, report, drop_frame = apply_sumstats_liftover(
+            frame,
+            request,
+            source_build="hg19",
+            hm3_map=_load_hm3_curated_map_from_path(path, preserve_extra_columns=False),
+        )
 
-            self.assertEqual(lifted["SNP"].tolist(), ["raw_a", "raw_b"])
-            self.assertEqual(lifted["POS"].tolist(), [1000, 2000])
-            self.assertEqual(report["method"], "hm3_curated")
-            self.assertEqual(report["n_input"], 3)
-            self.assertEqual(report["n_lifted"], 2)
-            self.assertEqual(report["n_unmapped"], 1)
-            self.assertEqual(drop_frame["reason"].tolist(), ["unmapped_liftover"])
+        self.assertEqual(lifted["SNP"].tolist(), ["raw_a", "raw_b"])
+        self.assertEqual(lifted["POS"].tolist(), [1000, 2000])
+        self.assertEqual(report["method"], "hm3_curated")
+        self.assertEqual(report["n_input"], 3)
+        self.assertEqual(report["n_lifted"], 2)
+        self.assertEqual(report["n_unmapped"], 1)
+        self.assertEqual(drop_frame["reason"].tolist(), ["unmapped_liftover"])
 
     def test_hm3_quick_liftover_maps_hg38_to_hg19(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = self.write_hm3_map(
-                Path(tmpdir),
-                "CHR\thg19_POS\thg38_POS\tSNP\n"
-                "1\t100\t1000\trs1\n"
-                "1\t200\t2000\trs2\n",
-            )
-            frame = pd.DataFrame(
-                {"CHR": ["1", "1"], "POS": [1000, 9999], "SNP": ["raw_a", "raw_missing"], "Z": [1.0, 2.0], "N": [100.0, 100.0]}
-            )
-            request = SumstatsLiftoverRequest(target_build="hg19", use_hm3_quick_liftover=True, hm3_map_file=path)
+        tmpdir = self.tmp_path
+        path = self.write_hm3_map(
+            tmpdir,
+            "CHR\thg19_POS\thg38_POS\tSNP\n"
+            "1\t100\t1000\trs1\n"
+            "1\t200\t2000\trs2\n",
+        )
+        frame = pd.DataFrame(
+            {"CHR": ["1", "1"], "POS": [1000, 9999], "SNP": ["raw_a", "raw_missing"], "Z": [1.0, 2.0], "N": [100.0, 100.0]}
+        )
+        request = SumstatsLiftoverRequest(target_build="hg19", use_hm3_quick_liftover=True, hm3_map_file=path)
 
-            lifted, report, drop_frame = apply_sumstats_liftover(
-                frame,
-                request,
-                source_build="hg38",
-                hm3_map=_load_hm3_curated_map_from_path(path, preserve_extra_columns=False),
-            )
+        lifted, report, drop_frame = apply_sumstats_liftover(
+            frame,
+            request,
+            source_build="hg38",
+            hm3_map=_load_hm3_curated_map_from_path(path, preserve_extra_columns=False),
+        )
 
-            self.assertEqual(lifted["SNP"].tolist(), ["raw_a"])
-            self.assertEqual(lifted["POS"].tolist(), [100])
-            self.assertEqual(report["n_unmapped"], 1)
-            self.assertEqual(drop_frame["reason"].tolist(), ["unmapped_liftover"])
+        self.assertEqual(lifted["SNP"].tolist(), ["raw_a"])
+        self.assertEqual(lifted["POS"].tolist(), [100])
+        self.assertEqual(report["n_unmapped"], 1)
+        self.assertEqual(drop_frame["reason"].tolist(), ["unmapped_liftover"])
 
     def test_chain_liftover_counts_cross_chromosome_drops(self):
         frame = pd.DataFrame(
@@ -286,47 +284,47 @@ class SumstatsLiftoverTest(unittest.TestCase):
         )
 
     def test_missing_coordinates_are_dropped_before_hm3_liftover(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = self.write_hm3_map(
-                Path(tmpdir),
-                "CHR\thg19_POS\thg38_POS\tSNP\n"
-                "1\t100\t1000\trs1\n",
-            )
-            request = SumstatsLiftoverRequest(target_build="hg38", use_hm3_quick_liftover=True, hm3_map_file=path)
-            frame = pd.DataFrame(
-                {
-                    "CHR": ["1", "1", pd.NA, "1"],
-                    "POS": [100, pd.NA, 200, 999],
-                    "SNP": ["rs1", "missing_pos", "missing_chr", "unmapped"],
-                    "Z": [1.0, 2.0, 3.0, 4.0],
-                    "N": [100.0, 100.0, 100.0, 100.0],
-                }
+        tmpdir = self.tmp_path
+        path = self.write_hm3_map(
+            tmpdir,
+            "CHR\thg19_POS\thg38_POS\tSNP\n"
+            "1\t100\t1000\trs1\n",
+        )
+        request = SumstatsLiftoverRequest(target_build="hg38", use_hm3_quick_liftover=True, hm3_map_file=path)
+        frame = pd.DataFrame(
+            {
+                "CHR": ["1", "1", pd.NA, "1"],
+                "POS": [100, pd.NA, 200, 999],
+                "SNP": ["rs1", "missing_pos", "missing_chr", "unmapped"],
+                "Z": [1.0, 2.0, 3.0, 4.0],
+                "N": [100.0, 100.0, 100.0, 100.0],
+            }
+        )
+
+        with self.assertLogs("LDSC.sumstats_liftover", level="INFO") as caught:
+            lifted, report, drop_frame = apply_sumstats_liftover(
+                frame,
+                request,
+                source_build="hg19",
+                hm3_map=_load_hm3_curated_map_from_path(path, preserve_extra_columns=False),
             )
 
-            with self.assertLogs("LDSC.sumstats_liftover", level="INFO") as caught:
-                lifted, report, drop_frame = apply_sumstats_liftover(
-                    frame,
-                    request,
-                    source_build="hg19",
-                    hm3_map=_load_hm3_curated_map_from_path(path, preserve_extra_columns=False),
-                )
-
-            self.assertEqual(lifted["SNP"].tolist(), ["rs1"])
-            self.assertEqual(lifted["POS"].tolist(), [1000])
-            self.assertEqual(report["n_input"], 4)
-            self.assertEqual(report["n_lifted"], 1)
-            self.assertEqual(report["n_missing_chr_pos_dropped"], 2)
-            self.assertEqual(report["n_unmapped"], 1)
-            self.assertEqual(report["n_dropped"], 3)
-            log_text = "\n".join(caught.output)
-            self.assertIn("Dropped 2 SNPs with invalid or missing CHR/POS", log_text)
-            self.assertIn("missing CHR=1", log_text)
-            self.assertIn("missing POS=1", log_text)
-            self.assertNotIn("missing_pos", log_text)
-            self.assertEqual(
-                drop_frame["reason"].tolist(),
-                ["missing_coordinate", "missing_coordinate", "unmapped_liftover"],
-            )
+        self.assertEqual(lifted["SNP"].tolist(), ["rs1"])
+        self.assertEqual(lifted["POS"].tolist(), [1000])
+        self.assertEqual(report["n_input"], 4)
+        self.assertEqual(report["n_lifted"], 1)
+        self.assertEqual(report["n_missing_chr_pos_dropped"], 2)
+        self.assertEqual(report["n_unmapped"], 1)
+        self.assertEqual(report["n_dropped"], 3)
+        log_text = "\n".join(caught.output)
+        self.assertIn("Dropped 2 SNPs with invalid or missing CHR/POS", log_text)
+        self.assertIn("missing CHR=1", log_text)
+        self.assertIn("missing POS=1", log_text)
+        self.assertNotIn("missing_pos", log_text)
+        self.assertEqual(
+            drop_frame["reason"].tolist(),
+            ["missing_coordinate", "missing_coordinate", "unmapped_liftover"],
+        )
 
     def test_chain_liftover_drop_frame_contains_all_sumstats_reasons(self):
         frame = pd.DataFrame(
@@ -383,43 +381,43 @@ class SumstatsLiftoverTest(unittest.TestCase):
         self.assertEqual(set(drop_frame["stage"]), {"liftover"})
 
     def test_liftover_errors_after_missing_coordinate_drop_removes_everything(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = self.write_hm3_map(
-                Path(tmpdir),
-                "CHR\thg19_POS\thg38_POS\tSNP\n"
-                "1\t100\t1000\trs1\n",
-            )
-            request = SumstatsLiftoverRequest(target_build="hg38", use_hm3_quick_liftover=True, hm3_map_file=path)
-            missing = pd.DataFrame({"CHR": ["1"], "POS": [pd.NA], "SNP": ["rs1"], "Z": [1.0], "N": [100.0]})
-            with self.assertRaises(LDSCInputError) as missing_ctx:
-                apply_sumstats_liftover(missing, request, source_build="hg19",
-                                        hm3_map=_load_hm3_curated_map_from_path(path, preserve_extra_columns=False))
-            missing_message = str(missing_ctx.exception)
-            self.assertIn("Summary-statistics liftover from hg19 to hg38 using hm3_curated dropped all rows", missing_message)
-            self.assertIn("Most likely", missing_message)
-            self.assertIn("Fix the source CHR/POS coordinates", missing_message)
-            self.assertIn(
-                "docs/user-guide/troubleshooting.md#munge-sumstats-liftover-dropped-all-rows",
-                missing_message,
-            )
+        tmpdir = self.tmp_path
+        path = self.write_hm3_map(
+            tmpdir,
+            "CHR\thg19_POS\thg38_POS\tSNP\n"
+            "1\t100\t1000\trs1\n",
+        )
+        request = SumstatsLiftoverRequest(target_build="hg38", use_hm3_quick_liftover=True, hm3_map_file=path)
+        missing = pd.DataFrame({"CHR": ["1"], "POS": [pd.NA], "SNP": ["rs1"], "Z": [1.0], "N": [100.0]})
+        with self.assertRaises(LDSCInputError) as missing_ctx:
+            apply_sumstats_liftover(missing, request, source_build="hg19",
+                                    hm3_map=_load_hm3_curated_map_from_path(path, preserve_extra_columns=False))
+        missing_message = str(missing_ctx.exception)
+        self.assertIn("Summary-statistics liftover from hg19 to hg38 using hm3_curated dropped all rows", missing_message)
+        self.assertIn("Most likely", missing_message)
+        self.assertIn("Fix the source CHR/POS coordinates", missing_message)
+        self.assertIn(
+            "docs/user-guide/troubleshooting.md#munge-sumstats-liftover-dropped-all-rows",
+            missing_message,
+        )
 
-            unmapped = pd.DataFrame({"CHR": ["1"], "POS": [999], "SNP": ["rs2"], "Z": [1.0], "N": [100.0]})
-            with self.assertRaisesRegex(LDSCInputError, "dropped all rows"):
-                apply_sumstats_liftover(unmapped, request, source_build="hg19",
-                                        hm3_map=_load_hm3_curated_map_from_path(path, preserve_extra_columns=False))
+        unmapped = pd.DataFrame({"CHR": ["1"], "POS": [999], "SNP": ["rs2"], "Z": [1.0], "N": [100.0]})
+        with self.assertRaisesRegex(LDSCInputError, "dropped all rows"):
+            apply_sumstats_liftover(unmapped, request, source_build="hg19",
+                                    hm3_map=_load_hm3_curated_map_from_path(path, preserve_extra_columns=False))
 
-            duplicate_source = pd.DataFrame(
-                {
-                    "CHR": ["1", "1"],
-                    "POS": [100, 100],
-                    "SNP": ["rs1", "rs2"],
-                    "Z": [1.0, 2.0],
-                    "N": [100.0, 100.0],
-                }
-            )
-            with self.assertRaisesRegex(LDSCInputError, "dropped all rows"):
-                apply_sumstats_liftover(duplicate_source, request, source_build="hg19",
-                                        hm3_map=_load_hm3_curated_map_from_path(path, preserve_extra_columns=False))
+        duplicate_source = pd.DataFrame(
+            {
+                "CHR": ["1", "1"],
+                "POS": [100, 100],
+                "SNP": ["rs1", "rs2"],
+                "Z": [1.0, 2.0],
+                "N": [100.0, 100.0],
+            }
+        )
+        with self.assertRaisesRegex(LDSCInputError, "dropped all rows"):
+            apply_sumstats_liftover(duplicate_source, request, source_build="hg19",
+                                    hm3_map=_load_hm3_curated_map_from_path(path, preserve_extra_columns=False))
 
     def test_noop_liftover_metadata_schema(self):
         frame = pd.DataFrame({"CHR": ["1"], "POS": [100], "SNP": ["rs1"], "Z": [1.0], "N": [100.0]})

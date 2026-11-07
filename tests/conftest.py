@@ -1,4 +1,6 @@
-"""Collection markers for the LDSC test suite."""
+"""Collection markers and shared fixtures for the LDSC test suite."""
+
+import unittest
 
 import pytest
 
@@ -11,3 +13,10 @@ def pytest_collection_modifyitems(items):
             item.add_marker(pytest.mark.io)
         if any(name in path for name in ("test_formats.py", "test_plink_io.py")):
             item.add_marker(pytest.mark.file_format_compat)
+
+
+@pytest.fixture(autouse=True)
+def _tmp_path_for_unittest_classes(request):
+    """Give each unittest.TestCase test pytest's per-test ``tmp_path`` as ``self.tmp_path``."""
+    if isinstance(request.instance, unittest.TestCase):
+        request.instance.tmp_path = request.getfixturevalue("tmp_path")

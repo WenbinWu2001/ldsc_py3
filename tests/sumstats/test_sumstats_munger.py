@@ -201,94 +201,92 @@ class SumstatsMungerTest(unittest.TestCase):
             MungeConfig(source_genome_build=None, output_genome_build="hg38")
 
     def test_workflow_reports_actionable_signed_sumstats_format_error(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            raw_path = Path(tmpdir) / "raw.tsv"
-            self._write_raw_sumstats(raw_path)
-            with self.assertRaisesRegex(ldsc.LDSCUsageError, "could not parse --signed-sumstats='BETA'.*BETA,0"):
-                SumstatsMunger().run(
-                    MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path, output_dir=Path(tmpdir) / "out", signed_sumstats_spec="BETA"),
-                    global_config=GlobalConfig(snp_identifier="rsid"),
-                )
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        self._write_raw_sumstats(raw_path)
+        with self.assertRaisesRegex(ldsc.LDSCUsageError, "could not parse --signed-sumstats='BETA'.*BETA,0"):
+            SumstatsMunger().run(
+                MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path, output_dir=tmpdir / "out", signed_sumstats_spec="BETA"),
+                global_config=GlobalConfig(snp_identifier="rsid"),
+            )
 
     def test_run_rejects_explicit_qc_thresholds_without_columns_before_writing(self):
         # An explicit threshold is a request; silently skipping it would change
         # the curated SNP set without the user knowing.
-        with tempfile.TemporaryDirectory() as tmpdir:
-            raw_path = Path(tmpdir) / "raw.txt"
-            self._write_raw_sumstats(raw_path)
-            output = Path(tmpdir) / "out"
-            with self.assertRaises(ldsc.LDSCInputError) as ctx:
-                SumstatsMunger().run(
-                    MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path, output_dir=output,
-                                info_min=0.8, maf_min=0.05),
-                    global_config=GlobalConfig(snp_identifier="rsid"),
-                )
-            message = str(ctx.exception)
-            self.assertIn("--info-min=0.8", message)
-            self.assertIn("--info COLUMN", message)
-            self.assertIn("--maf-min=0.05", message)
-            self.assertIn("--frq COLUMN", message)
-            self.assertFalse(any(output.glob("*sumstats*")))
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.txt"
+        self._write_raw_sumstats(raw_path)
+        output = tmpdir / "out"
+        with self.assertRaises(ldsc.LDSCInputError) as ctx:
+            SumstatsMunger().run(
+                MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path, output_dir=output,
+                            info_min=0.8, maf_min=0.05),
+                global_config=GlobalConfig(snp_identifier="rsid"),
+            )
+        message = str(ctx.exception)
+        self.assertIn("--info-min=0.8", message)
+        self.assertIn("--info COLUMN", message)
+        self.assertIn("--maf-min=0.05", message)
+        self.assertIn("--frq COLUMN", message)
+        self.assertFalse(any(output.glob("*sumstats*")))
 
     def test_run_applies_default_qc_thresholds_only_to_present_columns(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            absent = tmpdir / "absent.txt"
-            self._write_raw_sumstats(absent)
-            present = tmpdir / "present.txt"
-            present.write_text(
-                "SNP A1 A2 P BETA N INFO FRQ\n"
-                "rs1 A G 0.05 0.1 1000 0.95 0.30\n"
-                "rs2 A C 0.05 0.1 1000 0.50 0.30\n"
-                "rs3 A C 0.05 0.1 1000 0.95 0.005\n",
-                encoding="utf-8",
-            )
-            cases = {
-                absent: ({"INFO": None, "FRQ": None}, ["rs1"], {"INFO": 0, "FRQ": 0}),
-                present: ({"INFO": 0.9, "FRQ": 0.01}, ["rs1"], {"INFO": 1, "FRQ": 1}),
-            }
-            for raw_path, (thresholds, kept, drops) in cases.items():
-                with self.subTest(raw=raw_path.name):
-                    munger = SumstatsMunger()
-                    table = munger.run(
-                        MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path,
-                                    output_dir=tmpdir / f"out-{raw_path.stem}"),
-                        global_config=GlobalConfig(snp_identifier="rsid"),
-                    )
-                    summary = munger.build_run_summary()
-                    self.assertEqual(summary.qc_thresholds, thresholds)
-                    self.assertEqual(table.data["SNP"].tolist(), kept)
-                    self.assertEqual({key: summary.drop_counts[key] for key in drops}, drops)
+        tmpdir = self.tmp_path
+        absent = tmpdir / "absent.txt"
+        self._write_raw_sumstats(absent)
+        present = tmpdir / "present.txt"
+        present.write_text(
+            "SNP A1 A2 P BETA N INFO FRQ\n"
+            "rs1 A G 0.05 0.1 1000 0.95 0.30\n"
+            "rs2 A C 0.05 0.1 1000 0.50 0.30\n"
+            "rs3 A C 0.05 0.1 1000 0.95 0.005\n",
+            encoding="utf-8",
+        )
+        cases = {
+            absent: ({"INFO": None, "FRQ": None}, ["rs1"], {"INFO": 0, "FRQ": 0}),
+            present: ({"INFO": 0.9, "FRQ": 0.01}, ["rs1"], {"INFO": 1, "FRQ": 1}),
+        }
+        for raw_path, (thresholds, kept, drops) in cases.items():
+            with self.subTest(raw=raw_path.name):
+                munger = SumstatsMunger()
+                table = munger.run(
+                    MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path,
+                                output_dir=tmpdir / f"out-{raw_path.stem}"),
+                    global_config=GlobalConfig(snp_identifier="rsid"),
+                )
+                summary = munger.build_run_summary()
+                self.assertEqual(summary.qc_thresholds, thresholds)
+                self.assertEqual(table.data["SNP"].tolist(), kept)
+                self.assertEqual({key: summary.drop_counts[key] for key in drops}, drops)
 
     def test_parquet_footer_records_effective_qc_thresholds(self):
         # A saved sumstats.parquet must say which INFO/MAF filters ran; an empty
         # value means the filter was not applied because its column was absent.
         import pyarrow.parquet as pq
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            absent = tmpdir / "absent.txt"
-            self._write_raw_sumstats(absent)
-            present = tmpdir / "present.txt"
-            present.write_text(
-                "SNP A1 A2 P BETA N INFO FRQ\n"
-                "rs1 A G 0.05 0.1 1000 0.95 0.30\n",
-                encoding="utf-8",
-            )
-            cases = {
-                "absent": (absent, {}, (b"", b"")),
-                "defaults": (present, {}, (b"0.9", b"0.01")),
-                "explicit": (present, {"info_min": 0.8, "maf_min": 0.05}, (b"0.8", b"0.05")),
-            }
-            for name, (raw_path, thresholds, expected) in cases.items():
-                with self.subTest(case=name):
-                    table = SumstatsMunger().run(
-                        MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path,
-                                    output_dir=tmpdir / f"out-{name}", **thresholds),
-                        global_config=GlobalConfig(snp_identifier="rsid"),
-                    )
-                    footer = pq.read_schema(table.provenance["output_files"]["parquet"]).metadata
-                    self.assertEqual((footer[b"ldsc:qc_info_min"], footer[b"ldsc:qc_maf_min"]), expected)
+        tmpdir = self.tmp_path
+        absent = tmpdir / "absent.txt"
+        self._write_raw_sumstats(absent)
+        present = tmpdir / "present.txt"
+        present.write_text(
+            "SNP A1 A2 P BETA N INFO FRQ\n"
+            "rs1 A G 0.05 0.1 1000 0.95 0.30\n",
+            encoding="utf-8",
+        )
+        cases = {
+            "absent": (absent, {}, (b"", b"")),
+            "defaults": (present, {}, (b"0.9", b"0.01")),
+            "explicit": (present, {"info_min": 0.8, "maf_min": 0.05}, (b"0.8", b"0.05")),
+        }
+        for name, (raw_path, thresholds, expected) in cases.items():
+            with self.subTest(case=name):
+                table = SumstatsMunger().run(
+                    MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path,
+                                output_dir=tmpdir / f"out-{name}", **thresholds),
+                    global_config=GlobalConfig(snp_identifier="rsid"),
+                )
+                footer = pq.read_schema(table.provenance["output_files"]["parquet"]).metadata
+                self.assertEqual((footer[b"ldsc:qc_info_min"], footer[b"ldsc:qc_maf_min"]), expected)
 
     def test_write_output_keeps_qc_thresholds_only_when_the_table_records_them(self):
         # A table from run() knows which filters ran, so a re-saved copy keeps the
@@ -299,36 +297,35 @@ class SumstatsMungerTest(unittest.TestCase):
             footer = pq.read_schema(path).metadata
             return footer.get(b"ldsc:qc_info_min"), footer.get(b"ldsc:qc_maf_min")
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.txt"
-            raw_path.write_text("SNP A1 A2 P BETA N INFO\nrs1 A G 0.05 0.1 1000 0.95\n", encoding="utf-8")
-            table = SumstatsMunger().run(
-                MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path,
-                            output_dir=tmpdir / "run", info_min=0.8),
-                global_config=GlobalConfig(snp_identifier="rsid"),
-            )
-            copy = SumstatsMunger().write_output(replace(table, data=table.data.copy()), tmpdir / "copy")
-            self.assertEqual(qc_keys(copy), (b"0.8", b""))
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.txt"
+        raw_path.write_text("SNP A1 A2 P BETA N INFO\nrs1 A G 0.05 0.1 1000 0.95\n", encoding="utf-8")
+        table = SumstatsMunger().run(
+            MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path,
+                        output_dir=tmpdir / "run", info_min=0.8),
+            global_config=GlobalConfig(snp_identifier="rsid"),
+        )
+        copy = SumstatsMunger().write_output(replace(table, data=table.data.copy()), tmpdir / "copy")
+        self.assertEqual(qc_keys(copy), (b"0.8", b""))
 
-            hand_built = sumstats_table.SumstatsTable(
-                data=table.data, has_alleles=True, source_path=None, trait_name=None,
-                config_snapshot=table.config_snapshot,
-            )
-            self.assertEqual(qc_keys(SumstatsMunger().write_output(hand_built, tmpdir / "hand")), (None, None))
+        hand_built = sumstats_table.SumstatsTable(
+            data=table.data, has_alleles=True, source_path=None, trait_name=None,
+            config_snapshot=table.config_snapshot,
+        )
+        self.assertEqual(qc_keys(SumstatsMunger().write_output(hand_built, tmpdir / "hand")), (None, None))
 
     def test_cli_summary_reports_default_qc_filters_not_applied(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            raw_path = Path(tmpdir) / "raw.txt"
-            self._write_raw_sumstats(raw_path)
-            stdout = io.StringIO()
-            with contextlib.redirect_stdout(stdout):
-                sumstats_workflow.main([
-                    "--raw-sumstats-file", str(raw_path), "--output-dir", str(Path(tmpdir) / "out"),
-                    "--snp-identifier", "rsid", "--no-snp-restriction",
-                ])
-            self.assertIn("QC filters not applied: INFO (no INFO column); MAF (no frequency column)",
-                          stdout.getvalue())
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.txt"
+        self._write_raw_sumstats(raw_path)
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            sumstats_workflow.main([
+                "--raw-sumstats-file", str(raw_path), "--output-dir", str(tmpdir / "out"),
+                "--snp-identifier", "rsid", "--no-snp-restriction",
+            ])
+        self.assertIn("QC filters not applied: INFO (no INFO column); MAF (no frequency column)",
+                      stdout.getvalue())
 
     def test_kernel_p_to_z_matches_legacy_direction_convention(self):
         z = kernel_munge.p_to_z(pd.Series([0.1, 0.1, 0.1]), pd.Series([1, 2, 3]))
@@ -358,538 +355,513 @@ class SumstatsMungerTest(unittest.TestCase):
         )
 
     def test_run_filters_sumstats_snps_file_by_rsid_before_process_n(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            keep_path = tmpdir / "keep.tsv"
-            keep_path.write_text("SNP\nrs_keep\n", encoding="utf-8")
-            original_process_n = kernel_munge.process_n
+        tmpdir = self.tmp_path
+        keep_path = tmpdir / "keep.tsv"
+        keep_path.write_text("SNP\nrs_keep\n", encoding="utf-8")
+        original_process_n = kernel_munge.process_n
 
-            def assert_restricted_before_process_n(dat, args):
-                self.assertEqual(dat["SNP"].tolist(), ["rs_keep"])
-                return original_process_n(dat, args)
+        def assert_restricted_before_process_n(dat, args):
+            self.assertEqual(dat["SNP"].tolist(), ["rs_keep"])
+            return original_process_n(dat, args)
 
-            with mock.patch.object(kernel_munge, "process_n", side_effect=assert_restricted_before_process_n):
-                table = self._munge(
-                    tmpdir, "SNP A1 A2 P BETA N\n"
-                            "rs_keep A G 0.05 0.1 1000\n"
-                            "rs_drop C T 0.10 -0.1 1000\n",
-                    trait_name="trait", output_dir=tmpdir / "munged", sumstats_snps_file=keep_path,
-                )
+        with mock.patch.object(kernel_munge, "process_n", side_effect=assert_restricted_before_process_n):
+            table = self._munge(
+                tmpdir, "SNP A1 A2 P BETA N\n"
+                        "rs_keep A G 0.05 0.1 1000\n"
+                        "rs_drop C T 0.10 -0.1 1000\n",
+                trait_name="trait", output_dir=tmpdir / "munged", sumstats_snps_file=keep_path,
+            )
 
-            self.assertEqual(table.data["SNP"].tolist(), ["rs_keep"])
+        self.assertEqual(table.data["SNP"].tolist(), ["rs_keep"])
 
     def test_run_filters_sumstats_snps_file_by_chr_pos_before_process_n_without_string_keys(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            restrict_path = Path(tmpdir) / "hm3.tsv"
-            restrict_path.write_text(
-                "SNP\tCHR\thg19_POS\thg38_POS\n"
-                "rs1\t1\t10\t100\n"
-                "rs2\t2\t20\t200\n",
-                encoding="utf-8",
-            )
-            original_process_n = kernel_munge.process_n
+        tmpdir = self.tmp_path
+        restrict_path = Path(tmpdir) / "hm3.tsv"
+        restrict_path.write_text(
+            "SNP\tCHR\thg19_POS\thg38_POS\n"
+            "rs1\t1\t10\t100\n"
+            "rs2\t2\t20\t200\n",
+            encoding="utf-8",
+        )
+        original_process_n = kernel_munge.process_n
 
-            def assert_restricted_before_process_n(dat, args):
-                self.assertEqual(dat["SNP"].tolist(), ["label_a", "label_c"])
-                return original_process_n(dat, args)
+        def assert_restricted_before_process_n(dat, args):
+            self.assertEqual(dat["SNP"].tolist(), ["label_a", "label_c"])
+            return original_process_n(dat, args)
 
-            original_packed_keys = kernel_munge.build_packed_chr_pos_series
-            packed_key_calls = []
+        original_packed_keys = kernel_munge.build_packed_chr_pos_series
+        packed_key_calls = []
 
-            def assert_packed_keys(chr_values, pos_values, **kwargs):
-                keys = original_packed_keys(chr_values, pos_values, **kwargs)
-                self.assertEqual(keys.dtype, np.dtype("uint64"))
-                packed_key_calls.append(keys)
-                return keys
+        def assert_packed_keys(chr_values, pos_values, **kwargs):
+            keys = original_packed_keys(chr_values, pos_values, **kwargs)
+            self.assertEqual(keys.dtype, np.dtype("uint64"))
+            packed_key_calls.append(keys)
+            return keys
 
-            for mode in ("chr_pos", "chr_pos_allele_aware"):
-                with self.subTest(mode=mode):
-                    packed_key_calls.clear()
-                    with mock.patch.object(kernel_munge, "build_packed_chr_pos_series", side_effect=assert_packed_keys), \
-                         mock.patch.object(kernel_munge, "process_n", side_effect=assert_restricted_before_process_n):
-                        table = self._munge(
-                            tmpdir, "CHR POS SNP A1 A2 P BETA N\n"
-                                    "1 10 label_a A G 0.05 0.0 1000\n"
-                                    "1 11 label_b C T 0.10 -0.1 1000\n"
-                                    "2 20 label_c G A 0.20 0.0 1000\n",
-                            trait_name="trait", output_dir=tmpdir / f"munged_{mode}", sumstats_snps_file=restrict_path,
-                            source_genome_build="hg19", output_genome_build="hg19", snp_identifier=mode,
-                            genome_build="hg19",
-                        )
+        for mode in ("chr_pos", "chr_pos_allele_aware"):
+            with self.subTest(mode=mode):
+                packed_key_calls.clear()
+                with mock.patch.object(kernel_munge, "build_packed_chr_pos_series", side_effect=assert_packed_keys), \
+                     mock.patch.object(kernel_munge, "process_n", side_effect=assert_restricted_before_process_n):
+                    table = self._munge(
+                        tmpdir, "CHR POS SNP A1 A2 P BETA N\n"
+                                "1 10 label_a A G 0.05 0.0 1000\n"
+                                "1 11 label_b C T 0.10 -0.1 1000\n"
+                                "2 20 label_c G A 0.20 0.0 1000\n",
+                        trait_name="trait", output_dir=tmpdir / f"munged_{mode}", sumstats_snps_file=restrict_path,
+                        source_genome_build="hg19", output_genome_build="hg19", snp_identifier=mode,
+                        genome_build="hg19",
+                    )
 
-                    self.assertEqual(table.data["SNP"].tolist(), ["label_a", "label_c"])
-                    self.assertEqual(table.data["POS"].tolist(), [10, 20])
-                    self.assertTrue(packed_key_calls)
+                self.assertEqual(table.data["SNP"].tolist(), ["label_a", "label_c"])
+                self.assertEqual(table.data["POS"].tolist(), [10, 20])
+                self.assertTrue(packed_key_calls)
 
     def test_prepare_sumstats_restriction_uses_rich_reader_for_allele_aware_modes(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            keep_path = tmpdir / "keep.tsv"
-            keep_path.write_text("SNP\tA1\tA2\nrs1\tA\tC\n", encoding="utf-8")
-            restriction = kernel_munge.prepare_sumstats_restriction(str(keep_path), "rsid_allele_aware", None)
+        tmpdir = self.tmp_path
+        keep_path = tmpdir / "keep.tsv"
+        keep_path.write_text("SNP\tA1\tA2\nrs1\tA\tC\n", encoding="utf-8")
+        restriction = kernel_munge.prepare_sumstats_restriction(str(keep_path), "rsid_allele_aware", None)
 
-            self.assertEqual(restriction.identity_keys.match_kind, "identity")
-            self.assertEqual(restriction.identity_keys.keys, {"rs1:A:C"})
+        self.assertEqual(restriction.identity_keys.match_kind, "identity")
+        self.assertEqual(restriction.identity_keys.keys, {"rs1:A:C"})
 
     def test_run_filters_sumstats_snps_file_by_identity_in_allele_aware_mode_before_process_n(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            keep_path = tmpdir / "keep.tsv"
-            keep_path.write_text("SNP\tA1\tA2\nrs1\tA\tC\n", encoding="utf-8")
-            original_process_n = kernel_munge.process_n
+        tmpdir = self.tmp_path
+        keep_path = tmpdir / "keep.tsv"
+        keep_path.write_text("SNP\tA1\tA2\nrs1\tA\tC\n", encoding="utf-8")
+        original_process_n = kernel_munge.process_n
 
-            def assert_restricted_before_process_n(dat, args):
-                self.assertEqual(dat["SNP"].tolist(), ["rs1"])
-                self.assertEqual(dat["A1"].tolist(), ["A"])
-                self.assertEqual(dat["A2"].tolist(), ["C"])
-                return original_process_n(dat, args)
+        def assert_restricted_before_process_n(dat, args):
+            self.assertEqual(dat["SNP"].tolist(), ["rs1"])
+            self.assertEqual(dat["A1"].tolist(), ["A"])
+            self.assertEqual(dat["A2"].tolist(), ["C"])
+            return original_process_n(dat, args)
 
-            with mock.patch.object(kernel_munge, "process_n", side_effect=assert_restricted_before_process_n):
-                table = self._munge(
-                    tmpdir, "SNP A1 A2 P BETA N\n"
-                            "rs1 A C 0.05 0.1 1000\n"
-                            "rs1 A G 0.10 -0.1 1000\n",
-                    trait_name="trait", output_dir=tmpdir / "munged", sumstats_snps_file=keep_path,
-                    snp_identifier="rsid_allele_aware",
-                )
+        with mock.patch.object(kernel_munge, "process_n", side_effect=assert_restricted_before_process_n):
+            table = self._munge(
+                tmpdir, "SNP A1 A2 P BETA N\n"
+                        "rs1 A C 0.05 0.1 1000\n"
+                        "rs1 A G 0.10 -0.1 1000\n",
+                trait_name="trait", output_dir=tmpdir / "munged", sumstats_snps_file=keep_path,
+                snp_identifier="rsid_allele_aware",
+            )
 
-            self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
-            self.assertEqual(table.data["A1"].tolist(), ["A"])
-            self.assertEqual(table.data["A2"].tolist(), ["C"])
+        self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
+        self.assertEqual(table.data["A1"].tolist(), ["A"])
+        self.assertEqual(table.data["A2"].tolist(), ["C"])
 
     def test_run_resolves_chr_pos_auto_before_chunk_parsing(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        tmpdir = self.tmp_path
 
-            inference = mock.Mock(
-                genome_build="hg19",
-                coordinate_basis="0-based",
-                inspected_snp_count=1,
-                match_counts={},
-                match_fractions={},
-                summary_message="mock inferred hg19 0-based",
+        inference = mock.Mock(
+            genome_build="hg19",
+            coordinate_basis="0-based",
+            inspected_snp_count=1,
+            match_counts={},
+            match_fractions={},
+            summary_message="mock inferred hg19 0-based",
+        )
+
+
+        original_parse = kernel_munge.parse_dat
+
+        def assert_auto_resolved_before_parse(dat_gen, request):
+            self.assertEqual(request.genome_build, "hg19")
+            self.assertTrue(request.coordinate_metadata["genome_build_inferred"])
+            self.assertEqual(request.coordinate_basis, "0-based")
+            return original_parse(dat_gen, request)
+
+        with mock.patch("ldsc._genome.build_policy.infer_chr_pos_build", return_value=inference), \
+             mock.patch.object(kernel_munge, "parse_dat", side_effect=assert_auto_resolved_before_parse):
+            table = self._munge(
+                tmpdir, "CHR POS SNP A1 A2 P BETA N\n"
+                        "1 99 rs1 A G 0.05 0.1 1000\n",
+                trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged",
+                source_genome_build="auto", output_genome_build="hg19", snp_identifier="chr_pos",
+                genome_build="auto",
             )
 
-
-            original_parse = kernel_munge.parse_dat
-
-            def assert_auto_resolved_before_parse(dat_gen, request):
-                self.assertEqual(request.genome_build, "hg19")
-                self.assertTrue(request.coordinate_metadata["genome_build_inferred"])
-                self.assertEqual(request.coordinate_basis, "0-based")
-                return original_parse(dat_gen, request)
-
-            with mock.patch("ldsc._genome.build_policy.infer_chr_pos_build", return_value=inference), \
-                 mock.patch.object(kernel_munge, "parse_dat", side_effect=assert_auto_resolved_before_parse):
-                table = self._munge(
-                    tmpdir, "CHR POS SNP A1 A2 P BETA N\n"
-                            "1 99 rs1 A G 0.05 0.1 1000\n",
-                    trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged",
-                    source_genome_build="auto", output_genome_build="hg19", snp_identifier="chr_pos",
-                    genome_build="auto",
-                )
-
-            self.assertEqual(table.config_snapshot.genome_build, "hg19")
-            self.assertEqual(table.data["POS"].tolist(), [100])
+        self.assertEqual(table.config_snapshot.genome_build, "hg19")
+        self.assertEqual(table.data["POS"].tolist(), [100])
 
     def test_load_sumstats_reads_footer_parquet_with_exact_one_glob(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            sumstats_file = tmpdir / "trait.v1.parquet"
-            self._write_footer_parquet(
-                sumstats_file,
-                pd.DataFrame({"SNP": ["rs1"], "Z": [1.5], "N": [1000.0], "A1": ["A"], "A2": ["G"], "FRQ": [0.2]}),
-                snp_identifier="rsid_allele_aware",
-                trait_name="trait",
-            )
+        tmpdir = self.tmp_path
+        sumstats_file = tmpdir / "trait.v1.parquet"
+        self._write_footer_parquet(
+            sumstats_file,
+            pd.DataFrame({"SNP": ["rs1"], "Z": [1.5], "N": [1000.0], "A1": ["A"], "A2": ["G"], "FRQ": [0.2]}),
+            snp_identifier="rsid_allele_aware",
+            trait_name="trait",
+        )
 
-            with warnings.catch_warnings(record=True) as caught:
-                warnings.simplefilter("always")
-                table = ldsc.load_sumstats(str(tmpdir / "trait*.parquet"), trait_name="trait")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            table = ldsc.load_sumstats(str(tmpdir / "trait*.parquet"), trait_name="trait")
 
-            self.assertEqual(table.source_path, str(sumstats_file))
-            self.assertEqual(table.trait_name, "trait")
-            self.assertTrue(table.has_alleles)
-            self.assertEqual(table.data.loc[0, "SNP"], "rs1")
-            self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="rsid_allele_aware"))
-            self.assertFalse(any("cannot recover the GlobalConfig" in str(item.message) for item in caught))
+        self.assertEqual(table.source_path, str(sumstats_file))
+        self.assertEqual(table.trait_name, "trait")
+        self.assertTrue(table.has_alleles)
+        self.assertEqual(table.data.loc[0, "SNP"], "rs1")
+        self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="rsid_allele_aware"))
+        self.assertFalse(any("cannot recover the GlobalConfig" in str(item.message) for item in caught))
 
     def test_load_sumstats_reads_legacy_sumstats_gz_without_metadata(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            sumstats_file = tmpdir / "trait.sumstats.gz"
-            with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tG\t1.5\t1000\n")
+        tmpdir = self.tmp_path
+        sumstats_file = tmpdir / "trait.sumstats.gz"
+        with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
+            handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tG\t1.5\t1000\n")
 
-            table = ldsc.load_sumstats(sumstats_file, trait_name="trait")
+        table = ldsc.load_sumstats(sumstats_file, trait_name="trait")
 
-            self.assertIsNone(table.config_snapshot)
-            self.assertEqual(table.trait_name, "trait")
-            self.assertTrue(table.has_alleles)
-            self.assertEqual(table.data.loc[0, "SNP"], "rs1")
+        self.assertIsNone(table.config_snapshot)
+        self.assertEqual(table.trait_name, "trait")
+        self.assertTrue(table.has_alleles)
+        self.assertEqual(table.data.loc[0, "SNP"], "rs1")
 
     def test_load_sumstats_reads_uncompressed_legacy_sumstats(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            sumstats_file = tmpdir / "trait.sumstats"
-            sumstats_file.write_text("SNP\tZ\tN\nrs1\t1.5\t1000\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        sumstats_file = tmpdir / "trait.sumstats"
+        sumstats_file.write_text("SNP\tZ\tN\nrs1\t1.5\t1000\n", encoding="utf-8")
 
-            table = ldsc.load_sumstats(sumstats_file, trait_name="trait")
+        table = ldsc.load_sumstats(sumstats_file, trait_name="trait")
 
-            self.assertIsNone(table.config_snapshot)
-            self.assertEqual(table.data.columns.tolist(), ["SNP", "N", "Z"])
-            self.assertEqual(table.data.loc[0, "SNP"], "rs1")
+        self.assertIsNone(table.config_snapshot)
+        self.assertEqual(table.data.columns.tolist(), ["SNP", "N", "Z"])
+        self.assertEqual(table.data.loc[0, "SNP"], "rs1")
 
     def test_load_sumstats_recovers_trait_name_from_footer(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            sumstats_file = tmpdir / "trait.parquet"
-            self._write_footer_parquet(
-                sumstats_file, pd.DataFrame({"SNP": ["rs1"], "Z": [1.5], "N": [1000.0]}), trait_name="MDD"
-            )
+        tmpdir = self.tmp_path
+        sumstats_file = tmpdir / "trait.parquet"
+        self._write_footer_parquet(
+            sumstats_file, pd.DataFrame({"SNP": ["rs1"], "Z": [1.5], "N": [1000.0]}), trait_name="MDD"
+        )
 
-            table = ldsc.load_sumstats(sumstats_file)
+        table = ldsc.load_sumstats(sumstats_file)
 
-            self.assertEqual(table.trait_name, "MDD")
+        self.assertEqual(table.trait_name, "MDD")
 
     def test_load_sumstats_explicit_trait_name_overrides_footer(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            sumstats_file = tmpdir / "trait.parquet"
-            self._write_footer_parquet(
-                sumstats_file, pd.DataFrame({"SNP": ["rs1"], "Z": [1.5], "N": [1000.0]}), trait_name="MDD"
-            )
+        tmpdir = self.tmp_path
+        sumstats_file = tmpdir / "trait.parquet"
+        self._write_footer_parquet(
+            sumstats_file, pd.DataFrame({"SNP": ["rs1"], "Z": [1.5], "N": [1000.0]}), trait_name="MDD"
+        )
 
-            table = ldsc.load_sumstats(sumstats_file, trait_name=" SCZ ")
+        table = ldsc.load_sumstats(sumstats_file, trait_name=" SCZ ")
 
-            self.assertEqual(table.trait_name, "SCZ")
+        self.assertEqual(table.trait_name, "SCZ")
 
     def test_load_sumstats_leaves_trait_name_unset_without_stored_or_explicit_name(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            parquet_file = tmpdir / "sumstats.parquet"
-            self._write_footer_parquet(
-                parquet_file, pd.DataFrame({"SNP": ["rs1"], "Z": [1.5], "N": [1000.0]}), trait_name=None
-            )
-            legacy_file = tmpdir / "MDD.sumstats.gz"
-            pd.DataFrame({"SNP": ["rs1"], "A1": ["A"], "A2": ["G"], "Z": [1.5], "N": [1000.0]}).to_csv(
-                legacy_file, sep="\t", index=False, compression="gzip"
-            )
+        tmpdir = self.tmp_path
+        parquet_file = tmpdir / "sumstats.parquet"
+        self._write_footer_parquet(
+            parquet_file, pd.DataFrame({"SNP": ["rs1"], "Z": [1.5], "N": [1000.0]}), trait_name=None
+        )
+        legacy_file = tmpdir / "MDD.sumstats.gz"
+        pd.DataFrame({"SNP": ["rs1"], "A1": ["A"], "A2": ["G"], "Z": [1.5], "N": [1000.0]}).to_csv(
+            legacy_file, sep="\t", index=False, compression="gzip"
+        )
 
-            self.assertIsNone(ldsc.load_sumstats(parquet_file).trait_name)
-            self.assertIsNone(ldsc.load_sumstats(legacy_file).trait_name)
+        self.assertIsNone(ldsc.load_sumstats(parquet_file).trait_name)
+        self.assertIsNone(ldsc.load_sumstats(legacy_file).trait_name)
 
     def test_write_output_round_trips_loaded_table_without_trait_name(self):
         import pyarrow.parquet as pq
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            (tmpdir / "first").mkdir()
-            self._write_footer_parquet(tmpdir / "first" / "sumstats.parquet", self._fake_munged_frame(), trait_name=None)
-            loaded = ldsc.load_sumstats(tmpdir / "first" / "sumstats.parquet")
+        tmpdir = self.tmp_path
+        (tmpdir / "first").mkdir()
+        self._write_footer_parquet(tmpdir / "first" / "sumstats.parquet", self._fake_munged_frame(), trait_name=None)
+        loaded = ldsc.load_sumstats(tmpdir / "first" / "sumstats.parquet")
 
-            written = ldsc.SumstatsMunger().write_output(loaded, tmpdir / "second", output_format="parquet")
+        written = ldsc.SumstatsMunger().write_output(loaded, tmpdir / "second", output_format="parquet")
 
-            self.assertEqual(Path(written).name, "sumstats.parquet")
-            footer = pq.read_schema(tmpdir / "second" / "sumstats.parquet").metadata
-            self.assertEqual(footer[b"ldsc:trait_name"], b"")
+        self.assertEqual(Path(written).name, "sumstats.parquet")
+        footer = pq.read_schema(tmpdir / "second" / "sumstats.parquet").metadata
+        self.assertEqual(footer[b"ldsc:trait_name"], b"")
 
     def test_load_sumstats_reads_chr_pos_footer_parquet_with_exact_one_glob(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            sumstats_file = tmpdir / "trait.parquet"
-            self._write_footer_parquet(
-                sumstats_file,
-                pd.DataFrame({"SNP": ["rs1"], "CHR": ["1"], "POS": [100], "Z": [1.5], "N": [1000.0]}),
-                snp_identifier="chr_pos",
-                genome_build="hg38",
-                trait_name=None,
-            )
+        tmpdir = self.tmp_path
+        sumstats_file = tmpdir / "trait.parquet"
+        self._write_footer_parquet(
+            sumstats_file,
+            pd.DataFrame({"SNP": ["rs1"], "CHR": ["1"], "POS": [100], "Z": [1.5], "N": [1000.0]}),
+            snp_identifier="chr_pos",
+            genome_build="hg38",
+            trait_name=None,
+        )
 
-            with warnings.catch_warnings(record=True) as caught:
-                warnings.simplefilter("always")
-                table = ldsc.load_sumstats(str(tmpdir / "trait*.parquet"), trait_name="trait")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            table = ldsc.load_sumstats(str(tmpdir / "trait*.parquet"), trait_name="trait")
 
-            self.assertEqual(table.source_path, str(sumstats_file))
-            self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
-            self.assertFalse(any("cannot recover the GlobalConfig" in str(item.message) for item in caught))
+        self.assertEqual(table.source_path, str(sumstats_file))
+        self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+        self.assertFalse(any("cannot recover the GlobalConfig" in str(item.message) for item in caught))
 
     def test_load_sumstats_rejects_allele_aware_artifact_without_alleles(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            sumstats_file = tmpdir / "trait.parquet"
-            self._write_footer_parquet(
-                sumstats_file,
-                pd.DataFrame({"SNP": ["rs1"], "Z": [1.0], "N": [100.0]}),
-                snp_identifier="rsid_allele_aware",
-                trait_name="trait",
-            )
+        tmpdir = self.tmp_path
+        sumstats_file = tmpdir / "trait.parquet"
+        self._write_footer_parquet(
+            sumstats_file,
+            pd.DataFrame({"SNP": ["rs1"], "Z": [1.0], "N": [100.0]}),
+            snp_identifier="rsid_allele_aware",
+            trait_name="trait",
+        )
 
-            with self.assertRaisesRegex(
-                ldsc.LDSCInputError,
-                "Cannot load munged summary statistics at .*snp_identifier='rsid_allele_aware' requires A1/A2 columns.*"
-                "Re-run munge-sumstats from the raw GWAS file.*"
-                "docs/user-guide/troubleshooting.md#munge-sumstats-munged-summary-statistics-are-malformed-or-outdated",
-            ):
-                ldsc.load_sumstats(sumstats_file)
+        with self.assertRaisesRegex(
+            ldsc.LDSCInputError,
+            "Cannot load munged summary statistics at .*snp_identifier='rsid_allele_aware' requires A1/A2 columns.*"
+            "Re-run munge-sumstats from the raw GWAS file.*"
+            "docs/user-guide/troubleshooting.md#munge-sumstats-munged-summary-statistics-are-malformed-or-outdated",
+        ):
+            ldsc.load_sumstats(sumstats_file)
 
     def test_load_sumstats_rejects_chr_pos_artifact_with_missing_base_identity(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            sumstats_file = tmpdir / "trait.parquet"
-            self._write_footer_parquet(
-                sumstats_file,
-                pd.DataFrame(
-                    {
-                        "SNP": ["rs_missing_chr", "rs_missing_pos"],
-                        "CHR": [pd.NA, "1"],
-                        "POS": [100, pd.NA],
-                        "Z": [1.0, 1.0],
-                        "N": [100.0, 100.0],
-                    }
-                ),
-                snp_identifier="chr_pos",
-                genome_build="hg38",
-                trait_name="trait",
-            )
+        tmpdir = self.tmp_path
+        sumstats_file = tmpdir / "trait.parquet"
+        self._write_footer_parquet(
+            sumstats_file,
+            pd.DataFrame(
+                {
+                    "SNP": ["rs_missing_chr", "rs_missing_pos"],
+                    "CHR": [pd.NA, "1"],
+                    "POS": [100, pd.NA],
+                    "Z": [1.0, 1.0],
+                    "N": [100.0, 100.0],
+                }
+            ),
+            snp_identifier="chr_pos",
+            genome_build="hg38",
+            trait_name="trait",
+        )
 
-            with self.assertRaisesRegex(
-                ldsc.LDSCInputError,
-                "missing or invalid SNP identity rows.*"
-                "docs/user-guide/troubleshooting.md#munge-sumstats-munged-summary-statistics-are-malformed-or-outdated",
-            ):
-                ldsc.load_sumstats(sumstats_file)
+        with self.assertRaisesRegex(
+            ldsc.LDSCInputError,
+            "missing or invalid SNP identity rows.*"
+            "docs/user-guide/troubleshooting.md#munge-sumstats-munged-summary-statistics-are-malformed-or-outdated",
+        ):
+            ldsc.load_sumstats(sumstats_file)
 
     def test_load_sumstats_rejects_unknown_suffix(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "trait.csv"
-            path.write_text("SNP,Z,N\nrs1,1.5,1000\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        path = tmpdir / "trait.csv"
+        path.write_text("SNP,Z,N\nrs1,1.5,1000\n", encoding="utf-8")
 
-            with self.assertRaisesRegex(ldsc.LDSCInputError, "unsupported file suffix.*run munge-sumstats first"):
-                ldsc.load_sumstats(path)
+        with self.assertRaisesRegex(ldsc.LDSCInputError, "unsupported file suffix.*run munge-sumstats first"):
+            ldsc.load_sumstats(path)
 
     def test_run_munges_and_writes_parquet_by_default(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text(
-                "SNP A1 A2 P OR N\n"
-                "rs1 A G 0.05 1.1 1000\n"
-                "rs2 C T 0.10 0.9 1000\n",
-                encoding="utf-8",
-            )
-            config = MungeConfig(no_snp_restriction=True, raw_sumstats_file=str(raw_path), trait_name="trait",
-                                 output_dir=str(tmpdir / "munged"))
-            munger = SumstatsMunger()
-            table = munger.run(config, global_config=GlobalConfig(snp_identifier="rsid"))
-            self.assertEqual(table.trait_name, "trait")
-            self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="rsid"))
-            self.assertTrue((tmpdir / "munged" / "trait.parquet").exists())
-            self.assertFalse((tmpdir / "munged" / "trait.sumstats.gz").exists())
-            output = pd.read_parquet(tmpdir / "munged" / "trait.parquet")
-            self.assertEqual(output.columns.tolist(), ["SNP", "CHR", "POS", "A1", "A2", "Z", "N"])
-            self.assertTrue(output["CHR"].isna().all())
-            self.assertTrue(output["POS"].isna().all())
-            self.assertFalse((tmpdir / "munged" / "metadata.json").exists())
-            self.assertFalse((tmpdir / "munged" / "sumstats.metadata.json").exists())
-            import pyarrow.parquet as pq
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        raw_path.write_text(
+            "SNP A1 A2 P OR N\n"
+            "rs1 A G 0.05 1.1 1000\n"
+            "rs2 C T 0.10 0.9 1000\n",
+            encoding="utf-8",
+        )
+        config = MungeConfig(no_snp_restriction=True, raw_sumstats_file=str(raw_path), trait_name="trait",
+                             output_dir=str(tmpdir / "munged"))
+        munger = SumstatsMunger()
+        table = munger.run(config, global_config=GlobalConfig(snp_identifier="rsid"))
+        self.assertEqual(table.trait_name, "trait")
+        self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="rsid"))
+        self.assertTrue((tmpdir / "munged" / "trait.parquet").exists())
+        self.assertFalse((tmpdir / "munged" / "trait.sumstats.gz").exists())
+        output = pd.read_parquet(tmpdir / "munged" / "trait.parquet")
+        self.assertEqual(output.columns.tolist(), ["SNP", "CHR", "POS", "A1", "A2", "Z", "N"])
+        self.assertTrue(output["CHR"].isna().all())
+        self.assertTrue(output["POS"].isna().all())
+        self.assertFalse((tmpdir / "munged" / "metadata.json").exists())
+        self.assertFalse((tmpdir / "munged" / "sumstats.metadata.json").exists())
+        import pyarrow.parquet as pq
 
-            footer = pq.read_schema(str(tmpdir / "munged" / "trait.parquet")).metadata
-            self.assertEqual(footer[b"ldsc:artifact_type"], b"sumstats")
-            self.assertEqual(footer[b"ldsc:snp_identifier"], b"rsid")
-            self.assertEqual(footer[b"ldsc:genome_build"], b"")
-            self.assertEqual(footer[b"ldsc:trait_name"], b"trait")
-            self.assertNotIn(b"ldsc:schema_version", footer)
-            summary = munger.build_run_summary()
-            self.assertEqual(summary.n_retained_rows, 2)
-            self.assertIn("sumstats_parquet", summary.output_paths)
-            self.assertEqual(summary.output_paths["sumstats_parquet"], str(tmpdir / "munged" / "trait.parquet"))
-            self.assertNotIn("sumstats_gz", summary.output_paths)
-            self.assertNotIn("log", summary.output_paths)
-            self.assertNotIn("metadata_json", summary.output_paths)
+        footer = pq.read_schema(str(tmpdir / "munged" / "trait.parquet")).metadata
+        self.assertEqual(footer[b"ldsc:artifact_type"], b"sumstats")
+        self.assertEqual(footer[b"ldsc:snp_identifier"], b"rsid")
+        self.assertEqual(footer[b"ldsc:genome_build"], b"")
+        self.assertEqual(footer[b"ldsc:trait_name"], b"trait")
+        self.assertNotIn(b"ldsc:schema_version", footer)
+        summary = munger.build_run_summary()
+        self.assertEqual(summary.n_retained_rows, 2)
+        self.assertIn("sumstats_parquet", summary.output_paths)
+        self.assertEqual(summary.output_paths["sumstats_parquet"], str(tmpdir / "munged" / "trait.parquet"))
+        self.assertNotIn("sumstats_gz", summary.output_paths)
+        self.assertNotIn("log", summary.output_paths)
+        self.assertNotIn("metadata_json", summary.output_paths)
 
     def test_run_base_rsid_without_allele_columns_defaults_to_allele_free_table(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            output_dir = tmpdir / "munged"
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "munged"
 
-            table = self._munge(
-                tmpdir, "SNP P BETA N\n"
-                        "rs1 0.05 0.1 1000\n",
-                trait_name="trait", no_snp_restriction=True, output_dir=output_dir,
-            )
+        table = self._munge(
+            tmpdir, "SNP P BETA N\n"
+                    "rs1 0.05 0.1 1000\n",
+            trait_name="trait", no_snp_restriction=True, output_dir=output_dir,
+        )
 
-            self.assertFalse(table.has_alleles)
-            self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
-            self.assertNotIn("A1", table.data.columns)
-            output = pd.read_parquet(output_dir / "trait.parquet")
-            self.assertEqual(output["SNP"].tolist(), ["rs1"])
+        self.assertFalse(table.has_alleles)
+        self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
+        self.assertNotIn("A1", table.data.columns)
+        output = pd.read_parquet(output_dir / "trait.parquet")
+        self.assertEqual(output["SNP"].tolist(), ["rs1"])
 
     def test_run_writes_tsv_gz_when_requested(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text(
-                "SNP A1 A2 P OR N\n"
-                "rs1 A G 0.05 1.0 1000\n",
-                encoding="utf-8",
-            )
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        raw_path.write_text(
+            "SNP A1 A2 P OR N\n"
+            "rs1 A G 0.05 1.0 1000\n",
+            encoding="utf-8",
+        )
 
-            table = SumstatsMunger().run(
-                MungeConfig(raw_sumstats_file=str(raw_path), trait_name="trait", no_snp_restriction=True, output_dir=str(tmpdir / "munged"), output_format="tsv.gz"),
-                global_config=GlobalConfig(snp_identifier="rsid"),
-            )
+        table = SumstatsMunger().run(
+            MungeConfig(raw_sumstats_file=str(raw_path), trait_name="trait", no_snp_restriction=True, output_dir=str(tmpdir / "munged"), output_format="tsv.gz"),
+            global_config=GlobalConfig(snp_identifier="rsid"),
+        )
 
-            self.assertEqual(len(table.data), 1)
-            self.assertTrue((tmpdir / "munged" / "trait.sumstats.gz").exists())
-            self.assertFalse((tmpdir / "munged" / "trait.parquet").exists())
-            with gzip.open(tmpdir / "munged" / "trait.sumstats.gz", "rt", encoding="utf-8") as handle:
-                output = pd.read_csv(handle, sep="\t")
-            self.assertEqual(output.columns.tolist(), ["SNP", "CHR", "POS", "A1", "A2", "Z", "N"])
-            # tsv.gz carries no embedded metadata and no metadata.json sidecar is written.
-            self.assertFalse((tmpdir / "munged" / "metadata.json").exists())
+        self.assertEqual(len(table.data), 1)
+        self.assertTrue((tmpdir / "munged" / "trait.sumstats.gz").exists())
+        self.assertFalse((tmpdir / "munged" / "trait.parquet").exists())
+        with gzip.open(tmpdir / "munged" / "trait.sumstats.gz", "rt", encoding="utf-8") as handle:
+            output = pd.read_csv(handle, sep="\t")
+        self.assertEqual(output.columns.tolist(), ["SNP", "CHR", "POS", "A1", "A2", "Z", "N"])
+        # tsv.gz carries no embedded metadata and no metadata.json sidecar is written.
+        self.assertFalse((tmpdir / "munged" / "metadata.json").exists())
 
     def test_run_writes_both_formats_and_lists_outputs_in_metadata(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text(
-                "SNP A1 A2 P OR N\n"
-                "rs1 A G 0.05 1.0 1000\n",
-                encoding="utf-8",
-            )
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        raw_path.write_text(
+            "SNP A1 A2 P OR N\n"
+            "rs1 A G 0.05 1.0 1000\n",
+            encoding="utf-8",
+        )
 
-            SumstatsMunger().run(
-                MungeConfig(raw_sumstats_file=str(raw_path), trait_name="trait", no_snp_restriction=True, output_dir=str(tmpdir / "munged"), output_format="both"),
-                global_config=GlobalConfig(snp_identifier="rsid"),
-            )
+        SumstatsMunger().run(
+            MungeConfig(raw_sumstats_file=str(raw_path), trait_name="trait", no_snp_restriction=True, output_dir=str(tmpdir / "munged"), output_format="both"),
+            global_config=GlobalConfig(snp_identifier="rsid"),
+        )
 
-            import pyarrow.parquet as pq
+        import pyarrow.parquet as pq
 
-            self.assertTrue((tmpdir / "munged" / "trait.parquet").exists())
-            self.assertTrue((tmpdir / "munged" / "trait.sumstats.gz").exists())
-            self.assertFalse((tmpdir / "munged" / "metadata.json").exists())
-            footer = pq.read_schema(str(tmpdir / "munged" / "trait.parquet")).metadata
-            self.assertEqual(footer[b"ldsc:artifact_type"], b"sumstats")
-            self.assertEqual(footer[b"ldsc:trait_name"], b"trait")
+        self.assertTrue((tmpdir / "munged" / "trait.parquet").exists())
+        self.assertTrue((tmpdir / "munged" / "trait.sumstats.gz").exists())
+        self.assertFalse((tmpdir / "munged" / "metadata.json").exists())
+        footer = pq.read_schema(str(tmpdir / "munged" / "trait.parquet")).metadata
+        self.assertEqual(footer[b"ldsc:artifact_type"], b"sumstats")
+        self.assertEqual(footer[b"ldsc:trait_name"], b"trait")
 
     def test_run_overwrite_removes_unselected_sumstats_sibling(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text("SNP A1 A2 P OR N\nrs1 A G 0.05 1.0 1000\n", encoding="utf-8")
-            output_dir = tmpdir / "munged"
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        raw_path.write_text("SNP A1 A2 P OR N\nrs1 A G 0.05 1.0 1000\n", encoding="utf-8")
+        output_dir = tmpdir / "munged"
 
-            SumstatsMunger().run(
-                MungeConfig(raw_sumstats_file=raw_path, trait_name="trait", no_snp_restriction=True, output_dir=output_dir, output_format="both"),
-                global_config=GlobalConfig(snp_identifier="rsid"),
-            )
-            self.assertTrue((output_dir / "trait.sumstats.gz").exists())
+        SumstatsMunger().run(
+            MungeConfig(raw_sumstats_file=raw_path, trait_name="trait", no_snp_restriction=True, output_dir=output_dir, output_format="both"),
+            global_config=GlobalConfig(snp_identifier="rsid"),
+        )
+        self.assertTrue((output_dir / "trait.sumstats.gz").exists())
 
-            SumstatsMunger().run(
-                MungeConfig(raw_sumstats_file=raw_path, trait_name="trait", no_snp_restriction=True, output_dir=output_dir, output_format="parquet", overwrite=True),
-                global_config=GlobalConfig(snp_identifier="rsid"),
-            )
+        SumstatsMunger().run(
+            MungeConfig(raw_sumstats_file=raw_path, trait_name="trait", no_snp_restriction=True, output_dir=output_dir, output_format="parquet", overwrite=True),
+            global_config=GlobalConfig(snp_identifier="rsid"),
+        )
 
-            self.assertTrue((output_dir / "trait.parquet").exists())
-            self.assertFalse((output_dir / "trait.sumstats.gz").exists())
-            self.assertFalse((output_dir / "metadata.json").exists())
+        self.assertTrue((output_dir / "trait.parquet").exists())
+        self.assertFalse((output_dir / "trait.sumstats.gz").exists())
+        self.assertFalse((output_dir / "metadata.json").exists())
 
     def test_run_refuses_unselected_owned_sumstats_sibling_without_overwrite(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            output_dir = tmpdir / "munged"
-            output_dir.mkdir()
-            stale = output_dir / "trait.sumstats.gz"
-            stale.write_text("stale\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "munged"
+        output_dir.mkdir()
+        stale = output_dir / "trait.sumstats.gz"
+        stale.write_text("stale\n", encoding="utf-8")
 
-            with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=AssertionError("kernel should not run")):
-                with self.assertRaisesRegex(FileExistsError, "overwrite"):
-                    self._munge(
-                        tmpdir, "SNP A1 A2 P OR N\nrs1 A G 0.05 1.0 1000\n",
-                        trait_name="trait", no_snp_restriction=True, output_dir=output_dir, output_format="parquet",
-                    )
+        with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=AssertionError("kernel should not run")):
+            with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                self._munge(
+                    tmpdir, "SNP A1 A2 P OR N\nrs1 A G 0.05 1.0 1000\n",
+                    trait_name="trait", no_snp_restriction=True, output_dir=output_dir, output_format="parquet",
+                )
 
-            self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
-            self.assertFalse((output_dir / "diagnostics" / "sumstats.log").exists())
+        self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
+        self.assertFalse((output_dir / "diagnostics" / "sumstats.log").exists())
 
     def test_run_preserves_unrelated_files_without_overwrite(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            self._write_raw_sumstats(raw_path)
-            output_dir = tmpdir / "munged"
-            output_dir.mkdir()
-            (output_dir / "notes.txt").write_text("user notes\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        self._write_raw_sumstats(raw_path)
+        output_dir = tmpdir / "munged"
+        output_dir.mkdir()
+        (output_dir / "notes.txt").write_text("user notes\n", encoding="utf-8")
 
-            SumstatsMunger().run(
-                MungeConfig(raw_sumstats_file=raw_path, no_snp_restriction=True, output_dir=output_dir, output_format="tsv.gz"),
-                global_config=GlobalConfig(snp_identifier="rsid"),
-            )
+        SumstatsMunger().run(
+            MungeConfig(raw_sumstats_file=raw_path, no_snp_restriction=True, output_dir=output_dir, output_format="tsv.gz"),
+            global_config=GlobalConfig(snp_identifier="rsid"),
+        )
 
-            self.assertEqual((output_dir / "notes.txt").read_text(encoding="utf-8"), "user notes\n")
-            self.assertTrue((output_dir / "diagnostics" / "sumstats.log").exists())
-            self.assertTrue((output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz").exists())
+        self.assertEqual((output_dir / "notes.txt").read_text(encoding="utf-8"), "user notes\n")
+        self.assertTrue((output_dir / "diagnostics" / "sumstats.log").exists())
+        self.assertTrue((output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz").exists())
 
     def test_write_output_accepts_output_format(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            table = sumstats_table.SumstatsTable(
-                data=pd.DataFrame({"SNP": ["rs1"], "Z": [1.234567], "N": [1000.123], "A1": ["A"], "A2": ["G"]}),
-                has_alleles=True,
-                source_path="source.tsv",
-                trait_name="trait",
-                config_snapshot=GlobalConfig(snp_identifier="rsid"),
-            )
+        tmpdir = self.tmp_path
+        table = sumstats_table.SumstatsTable(
+            data=pd.DataFrame({"SNP": ["rs1"], "Z": [1.234567], "N": [1000.123], "A1": ["A"], "A2": ["G"]}),
+            has_alleles=True,
+            source_path="source.tsv",
+            trait_name="trait",
+            config_snapshot=GlobalConfig(snp_identifier="rsid"),
+        )
 
-            path = SumstatsMunger().write_output(table, tmpdir / "out", output_format="both")
+        path = SumstatsMunger().write_output(table, tmpdir / "out", output_format="both")
 
-            self.assertEqual(path, str(tmpdir / "out" / "trait.parquet"))
-            self.assertTrue((tmpdir / "out" / "trait.parquet").exists())
-            self.assertTrue((tmpdir / "out" / "trait.sumstats.gz").exists())
+        self.assertEqual(path, str(tmpdir / "out" / "trait.parquet"))
+        self.assertTrue((tmpdir / "out" / "trait.parquet").exists())
+        self.assertTrue((tmpdir / "out" / "trait.sumstats.gz").exists())
 
     def test_write_output_refuses_unselected_owned_sumstats_sibling_without_overwrite(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            output_dir = tmpdir / "out"
-            output_dir.mkdir()
-            stale = output_dir / "trait.sumstats.gz"
-            stale.write_text("stale\n", encoding="utf-8")
-            table = sumstats_table.SumstatsTable(
-                data=pd.DataFrame({"SNP": ["rs1"], "Z": [1.5], "N": [1000.0]}),
-                has_alleles=False,
-                source_path="source.tsv",
-                trait_name="trait",
-                config_snapshot=GlobalConfig(snp_identifier="rsid"),
-            )
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "out"
+        output_dir.mkdir()
+        stale = output_dir / "trait.sumstats.gz"
+        stale.write_text("stale\n", encoding="utf-8")
+        table = sumstats_table.SumstatsTable(
+            data=pd.DataFrame({"SNP": ["rs1"], "Z": [1.5], "N": [1000.0]}),
+            has_alleles=False,
+            source_path="source.tsv",
+            trait_name="trait",
+            config_snapshot=GlobalConfig(snp_identifier="rsid"),
+        )
 
-            with self.assertRaisesRegex(FileExistsError, "overwrite"):
-                SumstatsMunger().write_output(table, output_dir, output_format="parquet")
+        with self.assertRaisesRegex(FileExistsError, "overwrite"):
+            SumstatsMunger().write_output(table, output_dir, output_format="parquet")
 
-            self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
+        self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
 
     def test_write_output_overwrite_removes_unselected_sumstats_sibling(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            output_dir = tmpdir / "out"
-            output_dir.mkdir()
-            stale = output_dir / "trait.sumstats.gz"
-            stale.write_text("stale\n", encoding="utf-8")
-            table = sumstats_table.SumstatsTable(
-                data=pd.DataFrame({"SNP": ["rs1"], "Z": [1.5], "N": [1000.0]}),
-                has_alleles=False,
-                source_path="source.tsv",
-                trait_name="trait",
-                config_snapshot=GlobalConfig(snp_identifier="rsid"),
-            )
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "out"
+        output_dir.mkdir()
+        stale = output_dir / "trait.sumstats.gz"
+        stale.write_text("stale\n", encoding="utf-8")
+        table = sumstats_table.SumstatsTable(
+            data=pd.DataFrame({"SNP": ["rs1"], "Z": [1.5], "N": [1000.0]}),
+            has_alleles=False,
+            source_path="source.tsv",
+            trait_name="trait",
+            config_snapshot=GlobalConfig(snp_identifier="rsid"),
+        )
 
-            SumstatsMunger().write_output(table, output_dir, output_format="parquet", overwrite=True)
+        SumstatsMunger().write_output(table, output_dir, output_format="parquet", overwrite=True)
 
-            self.assertTrue((output_dir / "trait.parquet").exists())
-            self.assertFalse((output_dir / "metadata.json").exists())
-            self.assertFalse((output_dir / "sumstats.metadata.json").exists())
-            self.assertFalse(stale.exists())
+        self.assertTrue((output_dir / "trait.parquet").exists())
+        self.assertFalse((output_dir / "metadata.json").exists())
+        self.assertFalse((output_dir / "sumstats.metadata.json").exists())
+        self.assertFalse(stale.exists())
 
     def test_curated_frame_converts_numeric_chromosomes_without_a_dtype_warning(self):
         frame = pd.DataFrame({"SNP": ["rs1", "rs2", "rs3", "rs4"], "CHR": [2, 1, 1, 23], "POS": [5, 9, 3, 7],
@@ -904,380 +876,361 @@ class SumstatsMungerTest(unittest.TestCase):
     def test_parquet_output_sorts_by_chr_pos_records_row_groups_and_preserves_precision(self):
         import pyarrow.parquet as pq
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text("CHR POS SNP A1 A2 P OR N\n1 100 rs1 A G 0.05 1.1 1000\n", encoding="utf-8")
-            returned = pd.DataFrame(
-                {
-                    "SNP": ["rs2", "rs1", "rs4", "rs3"],
-                    "CHR": ["2", "1", pd.NA, "1"],
-                    "POS": [200, 100, pd.NA, 50],
-                    "A1": ["A", "A", "T", "C"],
-                    "A2": ["G", "G", "C", "T"],
-                    "Z": [1.123456789, 2.987654321, 0.444444444, -0.333333333],
-                    "N": [1000.123456, 2000.987654, 4000.777777, 3000.555555],
-                }
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        raw_path.write_text("CHR POS SNP A1 A2 P OR N\n1 100 rs1 A G 0.05 1.1 1000\n", encoding="utf-8")
+        returned = pd.DataFrame(
+            {
+                "SNP": ["rs2", "rs1", "rs4", "rs3"],
+                "CHR": ["2", "1", pd.NA, "1"],
+                "POS": [200, 100, pd.NA, 50],
+                "A1": ["A", "A", "T", "C"],
+                "A2": ["G", "G", "C", "T"],
+                "Z": [1.123456789, 2.987654321, 0.444444444, -0.333333333],
+                "N": [1000.123456, 2000.987654, 4000.777777, 3000.555555],
+            }
+        )
+
+        with mock.patch.object(kernel_munge, "munge_sumstats", return_value=kernel_munge.MungeResult(
+            returned, len(returned), {}, "input_columns",
+            {"snp_identifier": "chr_pos", "genome_build": "hg38", "liftover": {"applied": False}}, pd.DataFrame(), pd.DataFrame(),
+        )):
+            SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=str(raw_path), trait_name="trait", no_snp_restriction=True, output_dir=str(tmpdir / "munged"), source_genome_build="hg38", output_genome_build="hg38"),
+                global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
             )
 
-            with mock.patch.object(kernel_munge, "munge_sumstats", return_value=kernel_munge.MungeResult(
-                returned, len(returned), {}, "input_columns",
-                {"snp_identifier": "chr_pos", "genome_build": "hg38", "liftover": {"applied": False}}, pd.DataFrame(), pd.DataFrame(),
-            )):
-                SumstatsMunger().run(
-                    MungeConfig(raw_sumstats_file=str(raw_path), trait_name="trait", no_snp_restriction=True, output_dir=str(tmpdir / "munged"), source_genome_build="hg38", output_genome_build="hg38"),
-                    global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                )
-
-            parquet_path = tmpdir / "munged" / "trait.parquet"
-            output = pd.read_parquet(parquet_path)
-            self.assertEqual(output["SNP"].tolist(), ["rs3", "rs1", "rs2", "rs4"])
-            self.assertAlmostEqual(output.loc[0, "Z"], -0.333333333)
-            self.assertAlmostEqual(output.loc[1, "N"], 2000.987654)
-            self.assertTrue(pd.isna(output.loc[3, "CHR"]))
-            self.assertTrue(pd.isna(output.loc[3, "POS"]))
-            parquet_file = pq.ParquetFile(parquet_path)
-            self.assertEqual(parquet_file.num_row_groups, 3)
-            self.assertFalse((tmpdir / "munged" / "metadata.json").exists())
-            footer = parquet_file.schema_arrow.metadata
-            self.assertEqual(footer[b"ldsc:artifact_type"], b"sumstats")
+        parquet_path = tmpdir / "munged" / "trait.parquet"
+        output = pd.read_parquet(parquet_path)
+        self.assertEqual(output["SNP"].tolist(), ["rs3", "rs1", "rs2", "rs4"])
+        self.assertAlmostEqual(output.loc[0, "Z"], -0.333333333)
+        self.assertAlmostEqual(output.loc[1, "N"], 2000.987654)
+        self.assertTrue(pd.isna(output.loc[3, "CHR"]))
+        self.assertTrue(pd.isna(output.loc[3, "POS"]))
+        parquet_file = pq.ParquetFile(parquet_path)
+        self.assertEqual(parquet_file.num_row_groups, 3)
+        self.assertFalse((tmpdir / "munged" / "metadata.json").exists())
+        footer = parquet_file.schema_arrow.metadata
+        self.assertEqual(footer[b"ldsc:artifact_type"], b"sumstats")
 
     def test_run_writes_thin_sidecar_and_logs_coordinate_liftover_provenance(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        tmpdir = self.tmp_path
 
 
-            self._munge(
-                tmpdir, "CHR POS SNP A1 A2 P BETA N\n1 100 rs1 A G 0.05 0.1 1000\n",
-                trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged", source_genome_build="hg38",
-                output_genome_build="hg38", snp_identifier="chr_pos", genome_build="hg38",
-            )
+        self._munge(
+            tmpdir, "CHR POS SNP A1 A2 P BETA N\n1 100 rs1 A G 0.05 0.1 1000\n",
+            trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged", source_genome_build="hg38",
+            output_genome_build="hg38", snp_identifier="chr_pos", genome_build="hg38",
+        )
 
-            import pyarrow.parquet as pq
+        import pyarrow.parquet as pq
 
-            self.assertFalse((tmpdir / "munged" / "metadata.json").exists())
-            footer = pq.read_schema(str(tmpdir / "munged" / "trait.parquet")).metadata
-            self.assertEqual(footer[b"ldsc:artifact_type"], b"sumstats")
-            self.assertEqual(footer[b"ldsc:snp_identifier"], b"chr_pos")
-            self.assertEqual(footer[b"ldsc:genome_build"], b"hg38")
-            self.assertEqual(footer[b"ldsc:trait_name"], b"trait")
-            self.assertNotIn(b"ldsc:schema_version", footer)
-            log_text = (tmpdir / "munged" / "diagnostics" / "sumstats.log").read_text(encoding="utf-8")
-            self.assertIn("Summary-statistics coordinate provenance", log_text)
-            self.assertIn("coordinate_basis=1-based", log_text)
-            self.assertIn("Summary-statistics liftover report", log_text)
-            self.assertNotIn('"coordinate_basis"', log_text)
+        self.assertFalse((tmpdir / "munged" / "metadata.json").exists())
+        footer = pq.read_schema(str(tmpdir / "munged" / "trait.parquet")).metadata
+        self.assertEqual(footer[b"ldsc:artifact_type"], b"sumstats")
+        self.assertEqual(footer[b"ldsc:snp_identifier"], b"chr_pos")
+        self.assertEqual(footer[b"ldsc:genome_build"], b"hg38")
+        self.assertEqual(footer[b"ldsc:trait_name"], b"trait")
+        self.assertNotIn(b"ldsc:schema_version", footer)
+        log_text = (tmpdir / "munged" / "diagnostics" / "sumstats.log").read_text(encoding="utf-8")
+        self.assertIn("Summary-statistics coordinate provenance", log_text)
+        self.assertIn("coordinate_basis=1-based", log_text)
+        self.assertIn("Summary-statistics liftover report", log_text)
+        self.assertNotIn('"coordinate_basis"', log_text)
 
     def test_run_rejects_liftover_request_in_rsid_mode_before_kernel_call(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        tmpdir = self.tmp_path
 
-            with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=AssertionError("kernel should not run")):
-                with self.assertRaisesRegex(ldsc.LDSCUsageError, "liftover.*chr_pos"):
-                    self._munge(
-                        tmpdir, "SNP A1 A2 P BETA N\nrs1 A G 0.05 0.1 1000\n",
-                        trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged",
-                        liftover_chain_file="unused.chain",
-                    )
+        with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=AssertionError("kernel should not run")):
+            with self.assertRaisesRegex(ldsc.LDSCUsageError, "liftover.*chr_pos"):
+                self._munge(
+                    tmpdir, "SNP A1 A2 P BETA N\nrs1 A G 0.05 0.1 1000\n",
+                    trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged",
+                    liftover_chain_file="unused.chain",
+                )
 
     def test_run_requires_liftover_method_when_target_differs_from_resolved_source(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        tmpdir = self.tmp_path
 
-            with self.assertRaisesRegex(ldsc.LDSCUsageError, "liftover method"):
-                self._munge(
-                    tmpdir, "CHR POS SNP A1 A2 P BETA N\n1 100 rs1 A G 0.05 0.1 1000\n",
-                    trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged",
-                    source_genome_build="hg19", output_genome_build="hg38", snp_identifier="chr_pos",
-                    genome_build="hg19",
-                )
+        with self.assertRaisesRegex(ldsc.LDSCUsageError, "liftover method"):
+            self._munge(
+                tmpdir, "CHR POS SNP A1 A2 P BETA N\n1 100 rs1 A G 0.05 0.1 1000\n",
+                trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged",
+                source_genome_build="hg19", output_genome_build="hg38", snp_identifier="chr_pos",
+                genome_build="hg19",
+            )
 
     def test_run_writes_header_only_dropped_snps_sidecar_when_no_liftover_drops(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            self._write_raw_sumstats(raw_path)
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        self._write_raw_sumstats(raw_path)
 
 
-            SumstatsMunger().run(
-                MungeConfig(raw_sumstats_file=raw_path, no_snp_restriction=True, output_dir=tmpdir / "munged", output_format="tsv.gz"),
-                global_config=GlobalConfig(snp_identifier="rsid"),
-            )
+        SumstatsMunger().run(
+            MungeConfig(raw_sumstats_file=raw_path, no_snp_restriction=True, output_dir=tmpdir / "munged", output_format="tsv.gz"),
+            global_config=GlobalConfig(snp_identifier="rsid"),
+        )
 
-            sidecar = tmpdir / "munged" / "diagnostics" / "dropped_snps" / "dropped.tsv.gz"
-            self.assertTrue(sidecar.exists())
-            dropped = self._read_dropped_snps_sidecar(sidecar)
-            self.assertEqual(len(dropped), 0)
-            self.assertEqual(dropped.columns.tolist(), IDENTITY_DROP_COLUMNS)
-            self.assertEqual({column: str(dtype) for column, dtype in dropped.dtypes.items()}, self.DROPPED_SNP_DTYPES)
+        sidecar = tmpdir / "munged" / "diagnostics" / "dropped_snps" / "dropped.tsv.gz"
+        self.assertTrue(sidecar.exists())
+        dropped = self._read_dropped_snps_sidecar(sidecar)
+        self.assertEqual(len(dropped), 0)
+        self.assertEqual(dropped.columns.tolist(), IDENTITY_DROP_COLUMNS)
+        self.assertEqual({column: str(dtype) for column, dtype in dropped.dtypes.items()}, self.DROPPED_SNP_DTYPES)
 
     def test_run_summary_includes_dropped_snps_sidecar_unconditionally(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            self._write_raw_sumstats(raw_path)
-            munger = SumstatsMunger()
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        self._write_raw_sumstats(raw_path)
+        munger = SumstatsMunger()
 
-            table = munger.run(
-                MungeConfig(raw_sumstats_file=raw_path, no_snp_restriction=True, output_dir=tmpdir / "munged", output_format="tsv.gz"),
-                global_config=GlobalConfig(snp_identifier="rsid"),
-            )
+        table = munger.run(
+            MungeConfig(raw_sumstats_file=raw_path, no_snp_restriction=True, output_dir=tmpdir / "munged", output_format="tsv.gz"),
+            global_config=GlobalConfig(snp_identifier="rsid"),
+        )
 
-            summary = munger.build_run_summary()
-            self.assertEqual(
-                summary.output_paths["dropped_snps_tsv_gz"],
-                str(tmpdir / "munged" / "diagnostics" / "dropped_snps" / "dropped.tsv.gz"),
-            )
+        summary = munger.build_run_summary()
+        self.assertEqual(
+            summary.output_paths["dropped_snps_tsv_gz"],
+            str(tmpdir / "munged" / "diagnostics" / "dropped_snps" / "dropped.tsv.gz"),
+        )
 
     def test_dropped_snps_sidecar_preflight_blocks_existing_file(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            self._write_raw_sumstats(raw_path)
-            sidecar = tmpdir / "munged" / "diagnostics" / "dropped_snps" / "dropped.tsv.gz"
-            sidecar.parent.mkdir(parents=True)
-            sidecar.write_text("stale\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        self._write_raw_sumstats(raw_path)
+        sidecar = tmpdir / "munged" / "diagnostics" / "dropped_snps" / "dropped.tsv.gz"
+        sidecar.parent.mkdir(parents=True)
+        sidecar.write_text("stale\n", encoding="utf-8")
 
-            with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=AssertionError("kernel should not run")):
-                with self.assertRaises(FileExistsError):
-                    SumstatsMunger().run(
-                        MungeConfig(raw_sumstats_file=raw_path, no_snp_restriction=True, output_dir=tmpdir / "munged", output_format="tsv.gz"),
-                        global_config=GlobalConfig(snp_identifier="rsid"),
-                    )
-
-    def test_dropped_snps_sidecar_is_overwritten_when_overwrite_true(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            self._write_raw_sumstats(raw_path)
-            sidecar = tmpdir / "munged" / "diagnostics" / "dropped_snps" / "dropped.tsv.gz"
-            sidecar.parent.mkdir(parents=True)
-            sidecar.write_text("stale\n", encoding="utf-8")
-
-            SumstatsMunger().run(
-                MungeConfig(raw_sumstats_file=raw_path, no_snp_restriction=True, output_dir=tmpdir / "munged", output_format="tsv.gz", overwrite=True),
-                global_config=GlobalConfig(snp_identifier="rsid"),
-            )
-
-            dropped = self._read_dropped_snps_sidecar(sidecar)
-            self.assertEqual(len(dropped), 0)
-            with gzip.open(sidecar, "rt", encoding="utf-8") as handle:
-                self.assertEqual(handle.readline().strip(), "\t".join(IDENTITY_DROP_COLUMNS))
-
-    def test_sumstats_log_points_to_dropped_snps_sidecar_at_info(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            self._write_raw_sumstats(raw_path)
-            drop_frame = pd.DataFrame(
-                {
-                    "CHR": pd.Series(["1"], dtype="string"),
-                    "SNP": pd.Series(["rs_drop"], dtype="string"),
-                    "source_pos": pd.Series([100], dtype="Int64"),
-                    "target_pos": pd.Series([pd.NA], dtype="Int64"),
-                    "reason": pd.Series(["unmapped_liftover"], dtype="string"),
-                    "stage": pd.Series(["liftover"], dtype="string"),
-                }
-            )
-
-            def fake_munge(request):
-                return kernel_munge.MungeResult(
-                    self._fake_munged_frame(), 2, {"liftover": 1}, "input_columns",
-                    {**request.coordinate_metadata, "liftover": {
-                        "applied": True, "method": "hm3_curated", "source_build": "hg19", "target_build": "hg38",
-                        "n_input": 2, "n_lifted": 1, "n_dropped": 1, "n_unmapped": 1,
-                        "n_missing_chr_pos_dropped": 0, "n_cross_chrom": 0,
-                        "n_duplicate_source_dropped": 0, "n_duplicate_target_dropped": 0,
-                    }}, drop_frame, pd.DataFrame(),
-                )
-
-            with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=fake_munge):
+        with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=AssertionError("kernel should not run")):
+            with self.assertRaises(FileExistsError):
                 SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, no_snp_restriction=True, output_dir=tmpdir / "munged", output_format="tsv.gz"),
                     global_config=GlobalConfig(snp_identifier="rsid"),
                 )
 
-            sidecar = tmpdir / "munged" / "diagnostics" / "dropped_snps" / "dropped.tsv.gz"
-            log_text = (tmpdir / "munged" / "diagnostics" / "sumstats.log").read_text(encoding="utf-8")
-            dropped = self._read_dropped_snps_sidecar(sidecar)
-            self.assertEqual(dropped.columns.tolist(), IDENTITY_DROP_COLUMNS)
-            self.assertEqual(dropped["stage"].tolist(), ["liftover"])
-            self.assertIn(str(sidecar), log_text)
-            self.assertIn("unmapped_liftover=1", log_text)
-            self.assertNotIn("rs_drop", log_text)
+    def test_dropped_snps_sidecar_is_overwritten_when_overwrite_true(self):
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        self._write_raw_sumstats(raw_path)
+        sidecar = tmpdir / "munged" / "diagnostics" / "dropped_snps" / "dropped.tsv.gz"
+        sidecar.parent.mkdir(parents=True)
+        sidecar.write_text("stale\n", encoding="utf-8")
+
+        SumstatsMunger().run(
+            MungeConfig(raw_sumstats_file=raw_path, no_snp_restriction=True, output_dir=tmpdir / "munged", output_format="tsv.gz", overwrite=True),
+            global_config=GlobalConfig(snp_identifier="rsid"),
+        )
+
+        dropped = self._read_dropped_snps_sidecar(sidecar)
+        self.assertEqual(len(dropped), 0)
+        with gzip.open(sidecar, "rt", encoding="utf-8") as handle:
+            self.assertEqual(handle.readline().strip(), "\t".join(IDENTITY_DROP_COLUMNS))
+
+    def test_sumstats_log_points_to_dropped_snps_sidecar_at_info(self):
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        self._write_raw_sumstats(raw_path)
+        drop_frame = pd.DataFrame(
+            {
+                "CHR": pd.Series(["1"], dtype="string"),
+                "SNP": pd.Series(["rs_drop"], dtype="string"),
+                "source_pos": pd.Series([100], dtype="Int64"),
+                "target_pos": pd.Series([pd.NA], dtype="Int64"),
+                "reason": pd.Series(["unmapped_liftover"], dtype="string"),
+                "stage": pd.Series(["liftover"], dtype="string"),
+            }
+        )
+
+        def fake_munge(request):
+            return kernel_munge.MungeResult(
+                self._fake_munged_frame(), 2, {"liftover": 1}, "input_columns",
+                {**request.coordinate_metadata, "liftover": {
+                    "applied": True, "method": "hm3_curated", "source_build": "hg19", "target_build": "hg38",
+                    "n_input": 2, "n_lifted": 1, "n_dropped": 1, "n_unmapped": 1,
+                    "n_missing_chr_pos_dropped": 0, "n_cross_chrom": 0,
+                    "n_duplicate_source_dropped": 0, "n_duplicate_target_dropped": 0,
+                }}, drop_frame, pd.DataFrame(),
+            )
+
+        with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=fake_munge):
+            SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=raw_path, no_snp_restriction=True, output_dir=tmpdir / "munged", output_format="tsv.gz"),
+                global_config=GlobalConfig(snp_identifier="rsid"),
+            )
+
+        sidecar = tmpdir / "munged" / "diagnostics" / "dropped_snps" / "dropped.tsv.gz"
+        log_text = (tmpdir / "munged" / "diagnostics" / "sumstats.log").read_text(encoding="utf-8")
+        dropped = self._read_dropped_snps_sidecar(sidecar)
+        self.assertEqual(dropped.columns.tolist(), IDENTITY_DROP_COLUMNS)
+        self.assertEqual(dropped["stage"].tolist(), ["liftover"])
+        self.assertIn(str(sidecar), log_text)
+        self.assertIn("unmapped_liftover=1", log_text)
+        self.assertNotIn("rs_drop", log_text)
 
     def test_run_accepts_merged_munge_config(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text(
-                "SNP A1 A2 P OR N\n"
-                "rs1 A G 0.05 1.1 1000\n"
-                "rs2 C T 0.10 0.9 1000\n",
-                encoding="utf-8",
-            )
-            config = MungeConfig(
-                no_snp_restriction=True,
-                raw_sumstats_file=str(raw_path),
-                output_dir=str(tmpdir / "munged"),
-                trait_name="trait",
-            )
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        raw_path.write_text(
+            "SNP A1 A2 P OR N\n"
+            "rs1 A G 0.05 1.1 1000\n"
+            "rs2 C T 0.10 0.9 1000\n",
+            encoding="utf-8",
+        )
+        config = MungeConfig(
+            no_snp_restriction=True,
+            raw_sumstats_file=str(raw_path),
+            output_dir=str(tmpdir / "munged"),
+            trait_name="trait",
+        )
 
-            table = SumstatsMunger().run(config, global_config=GlobalConfig(snp_identifier="rsid"))
+        table = SumstatsMunger().run(config, global_config=GlobalConfig(snp_identifier="rsid"))
 
-            self.assertEqual(table.trait_name, "trait")
-            self.assertEqual(table.source_path, str(raw_path))
-            self.assertTrue((tmpdir / "munged" / "trait.parquet").exists())
+        self.assertEqual(table.trait_name, "trait")
+        self.assertEqual(table.source_path, str(raw_path))
+        self.assertTrue((tmpdir / "munged" / "trait.parquet").exists())
 
     def test_main_resolves_source_build_before_calling_kernel(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text("CHR POS SNP A1 A2 P BETA N\n1 99 rs1 A G .05 .05 1000\n")
-            inference = mock.Mock(genome_build="hg38", coordinate_basis="0-based", inspected_snp_count=1,
-                                  match_counts={}, match_fractions={}, summary_message="inferred hg38 0-based")
-            with mock.patch("ldsc._genome.build_policy.infer_chr_pos_build", return_value=inference), \
-                 mock.patch.object(kernel_munge, "munge_sumstats", wraps=kernel_munge.munge_sumstats) as kernel:
-                sumstats_workflow.main(["--no-snp-restriction",
-                    "--raw-sumstats-file", str(raw_path), "--output-dir", str(tmpdir / "out"),
-                    "--snp-identifier", "chr_pos", "--source-genome-build", "auto", "--output-genome-build", "hg38",
-                ])
-            self.assertEqual(kernel.call_args.args[0].genome_build, "hg38")
-            table = ldsc.load_sumstats(tmpdir / "out" / "sumstats.parquet")
-            self.assertEqual(table.data.POS.tolist(), [100])
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        raw_path.write_text("CHR POS SNP A1 A2 P BETA N\n1 99 rs1 A G .05 .05 1000\n")
+        inference = mock.Mock(genome_build="hg38", coordinate_basis="0-based", inspected_snp_count=1,
+                              match_counts={}, match_fractions={}, summary_message="inferred hg38 0-based")
+        with mock.patch("ldsc._genome.build_policy.infer_chr_pos_build", return_value=inference), \
+             mock.patch.object(kernel_munge, "munge_sumstats", wraps=kernel_munge.munge_sumstats) as kernel:
+            sumstats_workflow.main(["--no-snp-restriction",
+                "--raw-sumstats-file", str(raw_path), "--output-dir", str(tmpdir / "out"),
+                "--snp-identifier", "chr_pos", "--source-genome-build", "auto", "--output-genome-build", "hg38",
+            ])
+        self.assertEqual(kernel.call_args.args[0].genome_build, "hg38")
+        table = ldsc.load_sumstats(tmpdir / "out" / "sumstats.parquet")
+        self.assertEqual(table.data.POS.tolist(), [100])
 
     def test_main_accepts_sumstats_snps_file(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text("SNP P BETA N\nrs1 .05 .05 1000\nrs2 .05 -.05 1000\n")
-            keep_path = tmpdir / "keep.tsv"
-            keep_path.write_text("SNP\nrs2\n")
-            sumstats_workflow.main([
-                "--raw-sumstats-file", str(raw_path), "--output-dir", str(tmpdir / "out"),
-                "--snp-identifier", "rsid", "--sumstats-snps-file", str(keep_path),
-            ])
-            table = ldsc.load_sumstats(tmpdir / "out" / "sumstats.parquet")
-            self.assertEqual(table.data.SNP.tolist(), ["rs2"])
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        raw_path.write_text("SNP P BETA N\nrs1 .05 .05 1000\nrs2 .05 -.05 1000\n")
+        keep_path = tmpdir / "keep.tsv"
+        keep_path.write_text("SNP\nrs2\n")
+        sumstats_workflow.main([
+            "--raw-sumstats-file", str(raw_path), "--output-dir", str(tmpdir / "out"),
+            "--snp-identifier", "rsid", "--sumstats-snps-file", str(keep_path),
+        ])
+        table = ldsc.load_sumstats(tmpdir / "out" / "sumstats.parquet")
+        self.assertEqual(table.data.SNP.tolist(), ["rs2"])
 
     def test_main_requires_output_genome_build_for_default_coordinate_mode(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text("CHR POS SNP A1 A2 P N\n1 100 rs1 A G 0.05 1000\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        raw_path.write_text("CHR POS SNP A1 A2 P N\n1 100 rs1 A G 0.05 1000\n", encoding="utf-8")
 
-            with self.assertRaisesRegex(ldsc.LDSCUsageError, "Pass --output-genome-build"):
-                sumstats_workflow.main(
-                    ["--no-snp-restriction",
-                        "--raw-sumstats-file",
-                        str(raw_path),
-                        "--output-dir",
-                        str(tmpdir / "out"),
-                    ]
-                )
+        with self.assertRaisesRegex(ldsc.LDSCUsageError, "Pass --output-genome-build"):
+            sumstats_workflow.main(
+                ["--no-snp-restriction",
+                    "--raw-sumstats-file",
+                    str(raw_path),
+                    "--output-dir",
+                    str(tmpdir / "out"),
+                ]
+            )
 
     def test_run_creates_output_dir(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text(
-                "SNP A1 A2 P OR N\n"
-                "rs1 A G 0.05 1.0 1000\n",
-                encoding="utf-8",
-            )
-            output_dir = tmpdir / "nested" / "dir" / "munged"
-            config = MungeConfig(no_snp_restriction=True, raw_sumstats_file=str(raw_path), trait_name="trait",
-                                 output_dir=str(output_dir))
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        raw_path.write_text(
+            "SNP A1 A2 P OR N\n"
+            "rs1 A G 0.05 1.0 1000\n",
+            encoding="utf-8",
+        )
+        output_dir = tmpdir / "nested" / "dir" / "munged"
+        config = MungeConfig(no_snp_restriction=True, raw_sumstats_file=str(raw_path), trait_name="trait",
+                             output_dir=str(output_dir))
 
-            table = SumstatsMunger().run(config, global_config=GlobalConfig(snp_identifier="rsid"))
+        table = SumstatsMunger().run(config, global_config=GlobalConfig(snp_identifier="rsid"))
 
-            self.assertEqual(len(table.data), 1)
-            self.assertTrue((output_dir / "trait.parquet").exists())
-            self.assertTrue((output_dir / "diagnostics" / "sumstats.log").exists())
-            log_text = (output_dir / "diagnostics" / "sumstats.log").read_text(encoding="utf-8")
-            self.assertIn("LDSC munge-sumstats Started", log_text)
-            self.assertIn("Munging summary statistics", log_text)
+        self.assertEqual(len(table.data), 1)
+        self.assertTrue((output_dir / "trait.parquet").exists())
+        self.assertTrue((output_dir / "diagnostics" / "sumstats.log").exists())
+        log_text = (output_dir / "diagnostics" / "sumstats.log").read_text(encoding="utf-8")
+        self.assertIn("LDSC munge-sumstats Started", log_text)
+        self.assertIn("Munging summary statistics", log_text)
 
     def test_run_refuses_existing_trait_outputs_before_kernel_call(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            output_dir = tmpdir / "munged"
-            output_dir.mkdir()
-            existing = output_dir / "trait.parquet"
-            existing.write_text("existing\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "munged"
+        output_dir.mkdir()
+        existing = output_dir / "trait.parquet"
+        existing.write_text("existing\n", encoding="utf-8")
 
-            with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=AssertionError("kernel should not run")):
-                with self.assertRaisesRegex(FileExistsError, "overwrite"):
-                    self._munge(
-                        tmpdir, "SNP A1 A2 P OR N\nrs1 A G 0.05 1.0 1000\n",
-                        trait_name="trait", no_snp_restriction=True, output_dir=output_dir,
-                    )
+        with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=AssertionError("kernel should not run")):
+            with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                self._munge(
+                    tmpdir, "SNP A1 A2 P OR N\nrs1 A G 0.05 1.0 1000\n",
+                    trait_name="trait", no_snp_restriction=True, output_dir=output_dir,
+                )
 
-            self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
-            self.assertFalse((output_dir / "diagnostics" / "sumstats.log").exists())
+        self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
+        self.assertFalse((output_dir / "diagnostics" / "sumstats.log").exists())
 
     def test_run_allows_existing_trait_outputs_with_overwrite(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            output_dir = tmpdir / "munged"
-            output_dir.mkdir()
-            (output_dir / "trait.parquet").write_text("existing\n", encoding="utf-8")
-            returned = pd.DataFrame({"SNP": ["rs1"], "N": [1000.0], "Z": [1.5], "A1": ["A"], "A2": ["G"]})
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "munged"
+        output_dir.mkdir()
+        (output_dir / "trait.parquet").write_text("existing\n", encoding="utf-8")
+        returned = pd.DataFrame({"SNP": ["rs1"], "N": [1000.0], "Z": [1.5], "A1": ["A"], "A2": ["G"]})
 
-            table = self._munge(
-                tmpdir, "SNP A1 A2 P OR N\nrs1 A G 0.05 1.0 1000\n",
-                trait_name="trait", no_snp_restriction=True, output_dir=output_dir, overwrite=True,
-            )
+        table = self._munge(
+            tmpdir, "SNP A1 A2 P OR N\nrs1 A G 0.05 1.0 1000\n",
+            trait_name="trait", no_snp_restriction=True, output_dir=output_dir, overwrite=True,
+        )
 
-            self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
+        self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
 
     def test_run_accepts_path_objects_for_input_and_output(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text(
-                "SNP A1 A2 P OR N\n"
-                "rs1 A G 0.05 1.0 1000\n",
-                encoding="utf-8",
-            )
-            output_dir = tmpdir / "nested" / "mdd2025"
-            config = MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path, trait_name="trait", output_dir=output_dir)
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        raw_path.write_text(
+            "SNP A1 A2 P OR N\n"
+            "rs1 A G 0.05 1.0 1000\n",
+            encoding="utf-8",
+        )
+        output_dir = tmpdir / "nested" / "mdd2025"
+        config = MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path, trait_name="trait", output_dir=output_dir)
 
-            table = SumstatsMunger().run(config, global_config=GlobalConfig(snp_identifier="rsid"))
+        table = SumstatsMunger().run(config, global_config=GlobalConfig(snp_identifier="rsid"))
 
-            self.assertEqual(len(table.data), 1)
-            self.assertEqual(table.source_path, str(raw_path))
-            self.assertTrue((output_dir / "trait.parquet").exists())
-            self.assertTrue((output_dir / "diagnostics" / "sumstats.log").exists())
+        self.assertEqual(len(table.data), 1)
+        self.assertEqual(table.source_path, str(raw_path))
+        self.assertTrue((output_dir / "trait.parquet").exists())
+        self.assertTrue((output_dir / "diagnostics" / "sumstats.log").exists())
 
     def test_run_resolves_glob_pattern_for_single_sumstats_input(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "trait.raw.tsv"
-            raw_path.write_text(
-                "SNP A1 A2 P OR N\n"
-                "rs1 A G 0.05 1.0 1000\n",
-                encoding="utf-8",
-            )
-            output_dir = tmpdir / "out" / "munged"
-            config = MungeConfig(no_snp_restriction=True, raw_sumstats_file=str(tmpdir / "trait.*.tsv"), trait_name="trait",
-                                 output_dir=output_dir)
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "trait.raw.tsv"
+        raw_path.write_text(
+            "SNP A1 A2 P OR N\n"
+            "rs1 A G 0.05 1.0 1000\n",
+            encoding="utf-8",
+        )
+        output_dir = tmpdir / "out" / "munged"
+        config = MungeConfig(no_snp_restriction=True, raw_sumstats_file=str(tmpdir / "trait.*.tsv"), trait_name="trait",
+                             output_dir=output_dir)
 
-            table = SumstatsMunger().run(config, global_config=GlobalConfig(snp_identifier="rsid"))
+        table = SumstatsMunger().run(config, global_config=GlobalConfig(snp_identifier="rsid"))
 
-            self.assertEqual(table.source_path, str(raw_path))
-            self.assertTrue((output_dir / "trait.parquet").exists())
+        self.assertEqual(table.source_path, str(raw_path))
+        self.assertTrue((output_dir / "trait.parquet").exists())
 
     def test_workflow_missing_sample_size_error_names_fix_options(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        tmpdir = self.tmp_path
 
-            with self.assertRaisesRegex(
-                ldsc.LDSCInputError,
-                "munge-sumstats could not determine sample size \\(N\\).*"
-                "--N.*--N-cas.*--N-con.*N column",
-            ):
-                self._munge(tmpdir, "SNP A1 A2 P OR\nrs1 A G 0.05 1.1\n", no_snp_restriction=True)
+        with self.assertRaisesRegex(
+            ldsc.LDSCInputError,
+            "munge-sumstats could not determine sample size \\(N\\).*"
+            "--N.*--N-cas.*--N-con.*N column",
+        ):
+            self._munge(tmpdir, "SNP A1 A2 P OR\nrs1 A G 0.05 1.1\n", no_snp_restriction=True)
 
     def test_sumstats_table_missing_required_columns_uses_input_error(self):
         table = sumstats_table.SumstatsTable(
@@ -1295,15 +1248,14 @@ class SumstatsMungerTest(unittest.TestCase):
             table.validate()
 
     def test_workflow_error_path_does_not_write_progress_to_stdout(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            stdout = io.StringIO()
+        tmpdir = self.tmp_path
+        stdout = io.StringIO()
 
-            with contextlib.redirect_stdout(stdout):
-                with self.assertRaisesRegex(ldsc.LDSCInputError, "munge-sumstats could not determine sample size"):
-                    self._munge(tmpdir, "SNP A1 A2 P OR\nrs1 A G 0.05 1.1\n", no_snp_restriction=True)
+        with contextlib.redirect_stdout(stdout):
+            with self.assertRaisesRegex(ldsc.LDSCInputError, "munge-sumstats could not determine sample size"):
+                self._munge(tmpdir, "SNP A1 A2 P OR\nrs1 A G 0.05 1.1\n", no_snp_restriction=True)
 
-            self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(stdout.getvalue(), "")
 
     def test_internal_sample_size_guard_uses_internal_error(self):
         args = kernel_munge.MungeQC()
@@ -1315,43 +1267,40 @@ class SumstatsMungerTest(unittest.TestCase):
             kernel_munge.process_n(pd.DataFrame({"P": [0.05]}), args)
 
     def test_default_allele_aware_mode_rejects_missing_alleles_and_suggests_base_mode(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        tmpdir = self.tmp_path
 
-            with self.assertRaisesRegex(
-                ldsc.LDSCInputError,
-                "snp_identifier='chr_pos_allele_aware'.*--snp-identifier chr_pos",
-            ):
-                self._munge(
-                    tmpdir, "CHR POS SNP P BETA N\n1 100 rs1 0.05 0.1 1000\n",
-                    no_snp_restriction=True, source_genome_build="hg38", output_genome_build="hg38",
-                    snp_identifier="chr_pos_allele_aware", genome_build="hg38",
-                )
+        with self.assertRaisesRegex(
+            ldsc.LDSCInputError,
+            "snp_identifier='chr_pos_allele_aware'.*--snp-identifier chr_pos",
+        ):
+            self._munge(
+                tmpdir, "CHR POS SNP P BETA N\n1 100 rs1 0.05 0.1 1000\n",
+                no_snp_restriction=True, source_genome_build="hg38", output_genome_build="hg38",
+                snp_identifier="chr_pos_allele_aware", genome_build="hg38",
+            )
 
     def test_rsid_allele_aware_requires_alleles(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            with self.assertRaisesRegex(
-                ldsc.LDSCInputError,
-                "snp_identifier='rsid_allele_aware'.*--snp-identifier rsid",
-            ):
-                self._munge(
-                    tmpdir, "SNP P BETA N\nrs1 0.05 0.1 1000\n",
-                    no_snp_restriction=True, snp_identifier="rsid_allele_aware",
-                )
+        tmpdir = self.tmp_path
+        with self.assertRaisesRegex(
+            ldsc.LDSCInputError,
+            "snp_identifier='rsid_allele_aware'.*--snp-identifier rsid",
+        ):
+            self._munge(
+                tmpdir, "SNP P BETA N\nrs1 0.05 0.1 1000\n",
+                no_snp_restriction=True, snp_identifier="rsid_allele_aware",
+            )
 
     def test_base_modes_run_without_alleles_without_extra_flag(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text("CHR POS SNP P BETA N\n1 100 rs1 0.05 0.1 1000\n")
-            for mode in ("rsid", "chr_pos"):
-                build = {"source_genome_build": "hg38", "output_genome_build": "hg38"} if mode == "chr_pos" else {}
-                table = SumstatsMunger().run(
-                    MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path, output_dir=tmpdir / mode, **build),
-                    global_config=GlobalConfig(snp_identifier=mode, genome_build="hg38" if mode == "chr_pos" else None),
-                )
-                self.assertEqual(table.data.SNP.tolist(), ["rs1"])
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        raw_path.write_text("CHR POS SNP P BETA N\n1 100 rs1 0.05 0.1 1000\n")
+        for mode in ("rsid", "chr_pos"):
+            build = {"source_genome_build": "hg38", "output_genome_build": "hg38"} if mode == "chr_pos" else {}
+            table = SumstatsMunger().run(
+                MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path, output_dir=tmpdir / mode, **build),
+                global_config=GlobalConfig(snp_identifier=mode, genome_build="hg38" if mode == "chr_pos" else None),
+            )
+            self.assertEqual(table.data.SNP.tolist(), ["rs1"])
 
     def test_base_modes_keep_singletons_with_bad_allele_columns(self):
         rows = (
@@ -1361,305 +1310,288 @@ class SumstatsMungerTest(unittest.TestCase):
             "1 300 multibase AT C 0.05 0.1 1000\n"
             "1 400 identical G G 0.05 0.1 1000\n"
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            for mode in ("rsid", "chr_pos"):
-                raw_path = tmpdir / f"{mode}.tsv"
-                raw_path.write_text(rows, encoding="utf-8")
-                build = {"source_genome_build": "hg38", "output_genome_build": "hg38"} if mode == "chr_pos" else {}
-                munged = SumstatsMunger().run(
-                    MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path, output_dir=tmpdir / f"{mode}_out", **build),
-                    global_config=GlobalConfig(snp_identifier=mode, genome_build="hg38" if mode == "chr_pos" else None),
-                ).data
+        tmpdir = self.tmp_path
+        for mode in ("rsid", "chr_pos"):
+            raw_path = tmpdir / f"{mode}.tsv"
+            raw_path.write_text(rows, encoding="utf-8")
+            build = {"source_genome_build": "hg38", "output_genome_build": "hg38"} if mode == "chr_pos" else {}
+            munged = SumstatsMunger().run(
+                MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path, output_dir=tmpdir / f"{mode}_out", **build),
+                global_config=GlobalConfig(snp_identifier=mode, genome_build="hg38" if mode == "chr_pos" else None),
+            ).data
 
-                self.assertEqual(munged["SNP"].tolist(), ["missing", "ambiguous", "multibase", "identical"])
+            self.assertEqual(munged["SNP"].tolist(), ["missing", "ambiguous", "multibase", "identical"])
 
     def test_base_mode_duplicate_drops_use_duplicate_identity(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            output_dir = tmpdir / "munged"
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "munged"
 
-            table = self._munge(
-                tmpdir, "SNP A1 A2 P BETA N\n"
-                        "rs1 A C 0.05 0.1 1000\n"
-                        "rs1 A G 0.05 0.1 1000\n"
-                        "rs2 A T 0.05 0.1 1000\n",
-                no_snp_restriction=True, output_dir=output_dir,
-            )
+        table = self._munge(
+            tmpdir, "SNP A1 A2 P BETA N\n"
+                    "rs1 A C 0.05 0.1 1000\n"
+                    "rs1 A G 0.05 0.1 1000\n"
+                    "rs2 A T 0.05 0.1 1000\n",
+            no_snp_restriction=True, output_dir=output_dir,
+        )
 
-            self.assertEqual(table.data["SNP"].tolist(), ["rs2"])
-            dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
-            self.assertEqual(dropped["reason"].tolist(), ["duplicate_identity", "duplicate_identity"])
-            self.assertEqual(dropped["stage"].tolist(), ["post_liftover_identity_cleanup", "post_liftover_identity_cleanup"])
+        self.assertEqual(table.data["SNP"].tolist(), ["rs2"])
+        dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
+        self.assertEqual(dropped["reason"].tolist(), ["duplicate_identity", "duplicate_identity"])
+        self.assertEqual(dropped["stage"].tolist(), ["post_liftover_identity_cleanup", "post_liftover_identity_cleanup"])
 
     def test_allele_aware_sumstats_snps_file_does_not_raise_on_bad_raw_alleles(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            keep_path = tmpdir / "keep.tsv"
-            keep_path.write_text(
-                "SNP\tA1\tA2\n"
-                "rs1\tA\tC\n"
-                "rs2\tA\tC\n"
-                "rs3\tA\tC\n",
-                encoding="utf-8",
-            )
-            output_dir = tmpdir / "munged"
+        tmpdir = self.tmp_path
+        keep_path = tmpdir / "keep.tsv"
+        keep_path.write_text(
+            "SNP\tA1\tA2\n"
+            "rs1\tA\tC\n"
+            "rs2\tA\tC\n"
+            "rs3\tA\tC\n",
+            encoding="utf-8",
+        )
+        output_dir = tmpdir / "munged"
 
-            table = self._munge(
-                tmpdir, "SNP A1 A2 P BETA N\n"
-                        "rs1 A C 0.05 0.1 1000\n"
-                        "rs2 AT C 0.05 0.1 1000\n"
-                        "rs3 G G 0.05 0.1 1000\n",
-                output_dir=output_dir, sumstats_snps_file=keep_path, snp_identifier="rsid_allele_aware",
-            )
+        table = self._munge(
+            tmpdir, "SNP A1 A2 P BETA N\n"
+                    "rs1 A C 0.05 0.1 1000\n"
+                    "rs2 AT C 0.05 0.1 1000\n"
+                    "rs3 G G 0.05 0.1 1000\n",
+            output_dir=output_dir, sumstats_snps_file=keep_path, snp_identifier="rsid_allele_aware",
+        )
 
-            self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
-            dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
-            self.assertEqual(
-                dropped["reason"].tolist(),
-                ["invalid_allele", "invalid_allele"],
-            )
-            self.assertEqual(
-                dropped["stage"].tolist(),
-                ["post_liftover_identity_cleanup", "post_liftover_identity_cleanup"],
-            )
+        self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
+        dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
+        self.assertEqual(
+            dropped["reason"].tolist(),
+            ["invalid_allele", "invalid_allele"],
+        )
+        self.assertEqual(
+            dropped["stage"].tolist(),
+            ["post_liftover_identity_cleanup", "post_liftover_identity_cleanup"],
+        )
 
     def test_rsid_allele_aware_sumstats_snps_file_filters_bad_raw_alleles_outside_keep_list(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            keep_path = tmpdir / "keep.tsv"
-            keep_path.write_text("SNP\tA1\tA2\nrs_keep\tA\tC\n", encoding="utf-8")
-            output_dir = tmpdir / "munged"
+        tmpdir = self.tmp_path
+        keep_path = tmpdir / "keep.tsv"
+        keep_path.write_text("SNP\tA1\tA2\nrs_keep\tA\tC\n", encoding="utf-8")
+        output_dir = tmpdir / "munged"
 
-            table = self._munge(
-                tmpdir, "SNP A1 A2 P BETA N\n"
-                        "rs_keep A C 0.05 0.1 1000\n"
-                        "rs_bad_out AT C 0.05 0.1 1000\n",
-                output_dir=output_dir, sumstats_snps_file=keep_path, snp_identifier="rsid_allele_aware",
-            )
+        table = self._munge(
+            tmpdir, "SNP A1 A2 P BETA N\n"
+                    "rs_keep A C 0.05 0.1 1000\n"
+                    "rs_bad_out AT C 0.05 0.1 1000\n",
+            output_dir=output_dir, sumstats_snps_file=keep_path, snp_identifier="rsid_allele_aware",
+        )
 
-            self.assertEqual(table.data["SNP"].tolist(), ["rs_keep"])
-            dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
-            self.assertNotIn("rs_bad_out", dropped["SNP"].tolist())
+        self.assertEqual(table.data["SNP"].tolist(), ["rs_keep"])
+        dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
+        self.assertNotIn("rs_bad_out", dropped["SNP"].tolist())
 
     def test_chr_pos_allele_aware_sumstats_snps_file_filters_bad_raw_alleles_outside_keep_list(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            keep_path = tmpdir / "keep.tsv"
-            keep_path.write_text("CHR\tPOS\tA1\tA2\n1\t100\tA\tC\n", encoding="utf-8")
-            output_dir = tmpdir / "munged"
+        tmpdir = self.tmp_path
+        keep_path = tmpdir / "keep.tsv"
+        keep_path.write_text("CHR\tPOS\tA1\tA2\n1\t100\tA\tC\n", encoding="utf-8")
+        output_dir = tmpdir / "munged"
 
-            table = self._munge(
-                tmpdir, "CHR POS SNP A1 A2 P BETA N\n"
-                        "1 100 rs_keep A C 0.05 0.1 1000\n"
-                        "1 200 rs_bad_out AT C 0.05 0.1 1000\n",
-                output_dir=output_dir, sumstats_snps_file=keep_path, source_genome_build="hg38",
-                output_genome_build="hg38", snp_identifier="chr_pos_allele_aware", genome_build="hg38",
-            )
+        table = self._munge(
+            tmpdir, "CHR POS SNP A1 A2 P BETA N\n"
+                    "1 100 rs_keep A C 0.05 0.1 1000\n"
+                    "1 200 rs_bad_out AT C 0.05 0.1 1000\n",
+            output_dir=output_dir, sumstats_snps_file=keep_path, source_genome_build="hg38",
+            output_genome_build="hg38", snp_identifier="chr_pos_allele_aware", genome_build="hg38",
+        )
 
-            self.assertEqual(table.data["SNP"].tolist(), ["rs_keep"])
-            dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
-            self.assertNotIn("rs_bad_out", dropped["SNP"].tolist())
+        self.assertEqual(table.data["SNP"].tolist(), ["rs_keep"])
+        dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
+        self.assertNotIn("rs_bad_out", dropped["SNP"].tolist())
 
     def test_allele_aware_missing_raw_alleles_are_reported_in_identity_sidecar(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            output_dir = tmpdir / "munged"
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "munged"
 
-            table = self._munge(
-                tmpdir, "SNP A1 A2 P BETA N\n"
-                        "rs1 A C 0.05 0.1 1000\n"
-                        "rs_missing . C 0.05 0.1 1000\n",
-                no_snp_restriction=True, output_dir=output_dir, snp_identifier="rsid_allele_aware",
-            )
+        table = self._munge(
+            tmpdir, "SNP A1 A2 P BETA N\n"
+                    "rs1 A C 0.05 0.1 1000\n"
+                    "rs_missing . C 0.05 0.1 1000\n",
+            no_snp_restriction=True, output_dir=output_dir, snp_identifier="rsid_allele_aware",
+        )
 
-            self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
-            dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
-            self.assertEqual(dropped["SNP"].tolist(), ["rs_missing"])
-            self.assertEqual(dropped["reason"].tolist(), ["missing_allele"])
-            self.assertEqual(dropped["stage"].tolist(), ["post_liftover_identity_cleanup"])
+        self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
+        dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
+        self.assertEqual(dropped["SNP"].tolist(), ["rs_missing"])
+        self.assertEqual(dropped["reason"].tolist(), ["missing_allele"])
+        self.assertEqual(dropped["stage"].tolist(), ["post_liftover_identity_cleanup"])
 
     def test_allele_aware_all_missing_raw_allele_chunk_reaches_identity_sidecar(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            output_dir = tmpdir / "munged"
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "munged"
 
-            # The first two-row chunk has no allele value; a run that keeps no row stops instead.
-            table = self._munge(
-                tmpdir, "SNP A1 A2 P BETA N\n"
-                        "rs_missing_1 . . 0.05 0.1 1000\n"
-                        "rs_missing_2 . . 0.05 0.1 1000\n"
-                        "rs_ok A G 0.05 -0.1 1000\n",
-                no_snp_restriction=True, output_dir=output_dir, chunk_size=2, snp_identifier="rsid_allele_aware",
-            )
+        # The first two-row chunk has no allele value; a run that keeps no row stops instead.
+        table = self._munge(
+            tmpdir, "SNP A1 A2 P BETA N\n"
+                    "rs_missing_1 . . 0.05 0.1 1000\n"
+                    "rs_missing_2 . . 0.05 0.1 1000\n"
+                    "rs_ok A G 0.05 -0.1 1000\n",
+            no_snp_restriction=True, output_dir=output_dir, chunk_size=2, snp_identifier="rsid_allele_aware",
+        )
 
-            self.assertEqual(table.data["SNP"].tolist(), ["rs_ok"])
-            dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
-            self.assertEqual(dropped["SNP"].tolist(), ["rs_missing_1", "rs_missing_2"])
-            self.assertEqual(dropped["reason"].tolist(), ["missing_allele", "missing_allele"])
+        self.assertEqual(table.data["SNP"].tolist(), ["rs_ok"])
+        dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
+        self.assertEqual(dropped["SNP"].tolist(), ["rs_missing_1", "rs_missing_2"])
+        self.assertEqual(dropped["reason"].tolist(), ["missing_allele", "missing_allele"])
 
     def test_allele_aware_sumstats_snps_file_all_bad_raw_alleles_reaches_identity_sidecar(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            keep_path = tmpdir / "keep.tsv"
-            keep_path.write_text(
-                "SNP\tA1\tA2\n"
-                "rs_bad\tA\tC\n"
-                "rs_identical\tA\tC\n"
-                "rs_ok\tA\tC\n",
-                encoding="utf-8",
-            )
-            output_dir = tmpdir / "munged"
+        tmpdir = self.tmp_path
+        keep_path = tmpdir / "keep.tsv"
+        keep_path.write_text(
+            "SNP\tA1\tA2\n"
+            "rs_bad\tA\tC\n"
+            "rs_identical\tA\tC\n"
+            "rs_ok\tA\tC\n",
+            encoding="utf-8",
+        )
+        output_dir = tmpdir / "munged"
 
-            # Every allele of the first two-row chunk is unusable; a run that keeps no row stops instead.
-            table = self._munge(
-                tmpdir, "SNP A1 A2 P BETA N\n"
-                        "rs_bad AT C 0.05 0.1 1000\n"
-                        "rs_identical G G 0.05 0.1 1000\n"
-                        "rs_ok A C 0.05 -0.1 1000\n",
-                output_dir=output_dir, sumstats_snps_file=keep_path, chunk_size=2, snp_identifier="rsid_allele_aware",
-            )
+        # Every allele of the first two-row chunk is unusable; a run that keeps no row stops instead.
+        table = self._munge(
+            tmpdir, "SNP A1 A2 P BETA N\n"
+                    "rs_bad AT C 0.05 0.1 1000\n"
+                    "rs_identical G G 0.05 0.1 1000\n"
+                    "rs_ok A C 0.05 -0.1 1000\n",
+            output_dir=output_dir, sumstats_snps_file=keep_path, chunk_size=2, snp_identifier="rsid_allele_aware",
+        )
 
-            self.assertEqual(table.data["SNP"].tolist(), ["rs_ok"])
-            dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
-            self.assertEqual(dropped["SNP"].tolist(), ["rs_bad", "rs_identical"])
-            self.assertEqual(dropped["reason"].tolist(), ["invalid_allele", "invalid_allele"])
+        self.assertEqual(table.data["SNP"].tolist(), ["rs_ok"])
+        dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
+        self.assertEqual(dropped["SNP"].tolist(), ["rs_bad", "rs_identical"])
+        self.assertEqual(dropped["reason"].tolist(), ["invalid_allele", "invalid_allele"])
 
     def test_load_sumstats_rejects_duplicate_effective_keys(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            sumstats_file = tmpdir / "trait.parquet"
-            self._write_footer_parquet(
-                sumstats_file,
-                pd.DataFrame({"SNP": ["rs1", "rs1"], "Z": [1.0, 2.0], "N": [100.0, 100.0]}),
-                snp_identifier="rsid",
-                trait_name="trait",
-            )
+        tmpdir = self.tmp_path
+        sumstats_file = tmpdir / "trait.parquet"
+        self._write_footer_parquet(
+            sumstats_file,
+            pd.DataFrame({"SNP": ["rs1", "rs1"], "Z": [1.0, 2.0], "N": [100.0, 100.0]}),
+            snp_identifier="rsid",
+            trait_name="trait",
+        )
 
-            with self.assertRaisesRegex(
-                ldsc.LDSCInputError,
-                "duplicate or invalid SNP identity rows.*duplicate_identity.*"
-                "docs/user-guide/troubleshooting.md#munge-sumstats-munged-summary-statistics-are-malformed-or-outdated",
-            ):
-                ldsc.load_sumstats(sumstats_file)
+        with self.assertRaisesRegex(
+            ldsc.LDSCInputError,
+            "duplicate or invalid SNP identity rows.*duplicate_identity.*"
+            "docs/user-guide/troubleshooting.md#munge-sumstats-munged-summary-statistics-are-malformed-or-outdated",
+        ):
+            ldsc.load_sumstats(sumstats_file)
 
     def test_workflow_missing_sample_size_error_explains_neff_is_not_n(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        tmpdir = self.tmp_path
 
-            with self.assertRaisesRegex(ldsc.LDSCInputError, "NEFF is not treated as N.*--N-col NEFF"):
-                self._munge(tmpdir, "SNP A1 A2 P OR NEFF\nrs1 A G 0.05 1.1 1000\n", no_snp_restriction=True)
+        with self.assertRaisesRegex(ldsc.LDSCInputError, "NEFF is not treated as N.*--N-col NEFF"):
+            self._munge(tmpdir, "SNP A1 A2 P OR NEFF\nrs1 A G 0.05 1.1 1000\n", no_snp_restriction=True)
 
     def test_workflow_missing_signed_stat_error_suggests_likely_effect_column(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        tmpdir = self.tmp_path
 
-            with self.assertRaisesRegex(ldsc.LDSCInputError, "--signed-sumstats EFFECT_SIZE,0"):
-                self._munge(tmpdir, "SNP A1 A2 P EFFECT_SIZE N\nrs1 A G 0.05 0.2 1000\n", no_snp_restriction=True)
+        with self.assertRaisesRegex(ldsc.LDSCInputError, "--signed-sumstats EFFECT_SIZE,0"):
+            self._munge(tmpdir, "SNP A1 A2 P EFFECT_SIZE N\nrs1 A G 0.05 0.2 1000\n", no_snp_restriction=True)
 
     def test_run_restricts_sumstats_snps_file_by_rsid_without_reordering(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            keep_path = tmpdir / "keep.tsv"
-            keep_path.write_text("SNP\nrs3\nrs1\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        keep_path = tmpdir / "keep.tsv"
+        keep_path.write_text("SNP\nrs3\nrs1\n", encoding="utf-8")
 
+        table = self._munge(
+            tmpdir, "SNP A1 A2 P BETA N\n"
+                    "rs1 A G 0.05 0.1 1000\n"
+                    "rs2 C T 0.10 -0.1 1000\n"
+                    "rs3 G A 0.20 0.0 1000\n",
+            trait_name="trait", output_dir=tmpdir / "munged", sumstats_snps_file=keep_path,
+        )
+
+        self.assertEqual(table.data["SNP"].tolist(), ["rs1", "rs3"])
+        log_text = (tmpdir / "munged" / "diagnostics" / "sumstats.log").read_text(encoding="utf-8")
+        self.assertIn("Applying SNP keep-list restriction", log_text)
+        self.assertIn("snp_identifier=rsid", log_text)
+        self.assertIn("read 2 keep-list identifiers", log_text)
+
+    def test_run_restricts_default_hm3_by_rsid(self):
+        tmpdir = self.tmp_path
+        hm3_path = tmpdir / "hm3.tsv"
+        hm3_path.write_text("CHR\thg19_POS\thg38_POS\tSNP\n1\t10\t20\trs2\n", encoding="utf-8")
+
+        with mock.patch("ldsc._sumstats.munge_input.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
             table = self._munge(
                 tmpdir, "SNP A1 A2 P BETA N\n"
                         "rs1 A G 0.05 0.1 1000\n"
-                        "rs2 C T 0.10 -0.1 1000\n"
-                        "rs3 G A 0.20 0.0 1000\n",
-                trait_name="trait", output_dir=tmpdir / "munged", sumstats_snps_file=keep_path,
+                        "rs2 C T 0.10 -0.1 1000\n",
+                trait_name="trait", output_dir=tmpdir / "munged",
             )
-
-            self.assertEqual(table.data["SNP"].tolist(), ["rs1", "rs3"])
-            log_text = (tmpdir / "munged" / "diagnostics" / "sumstats.log").read_text(encoding="utf-8")
-            self.assertIn("Applying SNP keep-list restriction", log_text)
-            self.assertIn("snp_identifier=rsid", log_text)
-            self.assertIn("read 2 keep-list identifiers", log_text)
-
-    def test_run_restricts_default_hm3_by_rsid(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            hm3_path = tmpdir / "hm3.tsv"
-            hm3_path.write_text("CHR\thg19_POS\thg38_POS\tSNP\n1\t10\t20\trs2\n", encoding="utf-8")
-
-            with mock.patch("ldsc._sumstats.munge_input.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
-                table = self._munge(
-                    tmpdir, "SNP A1 A2 P BETA N\n"
-                            "rs1 A G 0.05 0.1 1000\n"
-                            "rs2 C T 0.10 -0.1 1000\n",
-                    trait_name="trait", output_dir=tmpdir / "munged",
-                )
 
         self.assertEqual(table.data["SNP"].tolist(), ["rs2"])
 
     def test_run_restricts_sumstats_snps_file_by_chr_pos(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            keep_path = tmpdir / "keep.tsv"
-            keep_path.write_text("CHR\tPOS\n1\t200\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        keep_path = tmpdir / "keep.tsv"
+        keep_path.write_text("CHR\tPOS\n1\t200\n", encoding="utf-8")
 
+        table = self._munge(
+            tmpdir, "CHR POS SNP A1 A2 P BETA N\n"
+                    "1 100 rs1 A G 0.05 0.1 1000\n"
+                    "1 200 rs2 C T 0.10 -0.1 1000\n",
+            trait_name="trait", output_dir=tmpdir / "munged", sumstats_snps_file=keep_path,
+            source_genome_build="hg38", output_genome_build="hg38", snp_identifier="chr_pos", genome_build="hg38",
+        )
+
+        self.assertEqual(table.data["SNP"].tolist(), ["rs2"])
+        self.assertEqual(table.data["POS"].tolist(), [200])
+
+    def test_run_restricts_default_hm3_by_source_build_chr_pos(self):
+        tmpdir = self.tmp_path
+        hm3_path = tmpdir / "hm3.tsv"
+        hm3_path.write_text("CHR\thg19_POS\thg38_POS\tSNP\n1\t200\t999\trs2\n", encoding="utf-8")
+
+        with mock.patch("ldsc._sumstats.munge_input.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
             table = self._munge(
                 tmpdir, "CHR POS SNP A1 A2 P BETA N\n"
                         "1 100 rs1 A G 0.05 0.1 1000\n"
                         "1 200 rs2 C T 0.10 -0.1 1000\n",
-                trait_name="trait", output_dir=tmpdir / "munged", sumstats_snps_file=keep_path,
-                source_genome_build="hg38", output_genome_build="hg38", snp_identifier="chr_pos", genome_build="hg38",
+                trait_name="trait", output_dir=tmpdir / "munged", source_genome_build="hg19",
+                output_genome_build="hg19", snp_identifier="chr_pos", genome_build="hg19",
             )
-
-            self.assertEqual(table.data["SNP"].tolist(), ["rs2"])
-            self.assertEqual(table.data["POS"].tolist(), [200])
-
-    def test_run_restricts_default_hm3_by_source_build_chr_pos(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            hm3_path = tmpdir / "hm3.tsv"
-            hm3_path.write_text("CHR\thg19_POS\thg38_POS\tSNP\n1\t200\t999\trs2\n", encoding="utf-8")
-
-            with mock.patch("ldsc._sumstats.munge_input.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
-                table = self._munge(
-                    tmpdir, "CHR POS SNP A1 A2 P BETA N\n"
-                            "1 100 rs1 A G 0.05 0.1 1000\n"
-                            "1 200 rs2 C T 0.10 -0.1 1000\n",
-                    trait_name="trait", output_dir=tmpdir / "munged", source_genome_build="hg19",
-                    output_genome_build="hg19", snp_identifier="chr_pos", genome_build="hg19",
-                )
 
         self.assertEqual(table.data["SNP"].tolist(), ["rs2"])
         self.assertEqual(table.data["POS"].tolist(), [200])
 
     def test_run_restricts_default_hm3_by_rsid_alleles(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            hm3_path = tmpdir / "hm3.tsv"
-            hm3_path.write_text("CHR\thg19_POS\thg38_POS\tSNP\tA1\tA2\n1\t100\t200\trs1\tA\tC\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        hm3_path = tmpdir / "hm3.tsv"
+        hm3_path.write_text("CHR\thg19_POS\thg38_POS\tSNP\tA1\tA2\n1\t100\t200\trs1\tA\tC\n", encoding="utf-8")
 
-            with mock.patch("ldsc._sumstats.munge_input.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
-                table = self._munge(
-                    tmpdir, "SNP A1 A2 P BETA N\n"
-                            "rs1 A G 0.05 0.1 1000\n"
-                            "rs1 A C 0.10 -0.1 1000\n",
-                    trait_name="trait", output_dir=tmpdir / "munged", snp_identifier="rsid_allele_aware",
-                )
+        with mock.patch("ldsc._sumstats.munge_input.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
+            table = self._munge(
+                tmpdir, "SNP A1 A2 P BETA N\n"
+                        "rs1 A G 0.05 0.1 1000\n"
+                        "rs1 A C 0.10 -0.1 1000\n",
+                trait_name="trait", output_dir=tmpdir / "munged", snp_identifier="rsid_allele_aware",
+            )
 
         self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
         self.assertEqual(table.data["A1"].tolist(), ["A"])
         self.assertEqual(table.data["A2"].tolist(), ["C"])
 
     def test_run_restricts_default_hm3_by_source_build_chr_pos_alleles(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            hm3_path = tmpdir / "hm3.tsv"
-            hm3_path.write_text("CHR\thg19_POS\thg38_POS\tSNP\tA1\tA2\n1\t100\t200\trs2\tA\tC\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        hm3_path = tmpdir / "hm3.tsv"
+        hm3_path.write_text("CHR\thg19_POS\thg38_POS\tSNP\tA1\tA2\n1\t100\t200\trs2\tA\tC\n", encoding="utf-8")
 
-            with mock.patch("ldsc._sumstats.munge_input.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
-                table = self._munge(
-                    tmpdir, "CHR POS SNP A1 A2 P BETA N\n"
-                            "1 100 rs1 A G 0.05 0.1 1000\n"
-                            "1 100 rs2 A C 0.10 -0.1 1000\n",
-                    trait_name="trait", output_dir=tmpdir / "munged", source_genome_build="hg19",
-                    output_genome_build="hg19", snp_identifier="chr_pos_allele_aware", genome_build="hg19",
-                )
+        with mock.patch("ldsc._sumstats.munge_input.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
+            table = self._munge(
+                tmpdir, "CHR POS SNP A1 A2 P BETA N\n"
+                        "1 100 rs1 A G 0.05 0.1 1000\n"
+                        "1 100 rs2 A C 0.10 -0.1 1000\n",
+                trait_name="trait", output_dir=tmpdir / "munged", source_genome_build="hg19",
+                output_genome_build="hg19", snp_identifier="chr_pos_allele_aware", genome_build="hg19",
+            )
 
         self.assertEqual(table.data["SNP"].tolist(), ["rs2"])
         self.assertEqual(table.data["POS"].tolist(), [100])
@@ -1667,205 +1599,194 @@ class SumstatsMungerTest(unittest.TestCase):
         self.assertEqual(table.data["A2"].tolist(), ["C"])
 
     def test_run_restricts_sumstats_snps_file_by_chr_pos_logs_missing_coordinate_drops(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            keep_path = tmpdir / "keep.tsv"
-            keep_path.write_text("CHR\tPOS\n1\t100\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        keep_path = tmpdir / "keep.tsv"
+        keep_path.write_text("CHR\tPOS\n1\t100\n", encoding="utf-8")
 
-            table = self._munge(
-                tmpdir, "CHR POS SNP A1 A2 P BETA N\n"
-                        "1 100 rs1 A G 0.05 0.1 1000\n"
-                        "NA 200 missing_chr C T 0.10 -0.1 1000\n"
-                        "1 NA missing_pos G A 0.20 0.2 1000\n",
-                trait_name="trait", output_dir=tmpdir / "munged", sumstats_snps_file=keep_path,
-                source_genome_build="hg38", output_genome_build="hg38", snp_identifier="chr_pos", genome_build="hg38",
-            )
+        table = self._munge(
+            tmpdir, "CHR POS SNP A1 A2 P BETA N\n"
+                    "1 100 rs1 A G 0.05 0.1 1000\n"
+                    "NA 200 missing_chr C T 0.10 -0.1 1000\n"
+                    "1 NA missing_pos G A 0.20 0.2 1000\n",
+            trait_name="trait", output_dir=tmpdir / "munged", sumstats_snps_file=keep_path,
+            source_genome_build="hg38", output_genome_build="hg38", snp_identifier="chr_pos", genome_build="hg38",
+        )
 
-            self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
-            log_text = (tmpdir / "munged" / "diagnostics" / "sumstats.log").read_text(encoding="utf-8")
-            self.assertIn("Dropped 2 SNPs with invalid or missing CHR/POS", log_text)
-            self.assertIn("Removed 0 SNPs with missing values.", log_text)
-            self.assertIn("Removed 0 SNPs with out-of-bounds p-values.", log_text)
-            self.assertIn("missing_chr", log_text)
+        self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
+        log_text = (tmpdir / "munged" / "diagnostics" / "sumstats.log").read_text(encoding="utf-8")
+        self.assertIn("Dropped 2 SNPs with invalid or missing CHR/POS", log_text)
+        self.assertIn("Removed 0 SNPs with missing values.", log_text)
+        self.assertIn("Removed 0 SNPs with out-of-bounds p-values.", log_text)
+        self.assertIn("missing_chr", log_text)
 
     def test_run_drops_invalid_chr_pos_rows_before_writing_outputs(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        tmpdir = self.tmp_path
 
-            table = self._munge(
-                tmpdir, "CHR POS SNP A1 A2 P BETA N\n"
-                        "1 100 rs1 A G 0.05 0.1 1000\n"
-                        "chrUn 200 bad_chr C T 0.10 -0.1 1000\n"
-                        "1 abc bad_pos G A 0.20 0.2 1000\n",
-                trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged", source_genome_build="hg38",
-                output_genome_build="hg38", snp_identifier="chr_pos", genome_build="hg38",
-            )
+        table = self._munge(
+            tmpdir, "CHR POS SNP A1 A2 P BETA N\n"
+                    "1 100 rs1 A G 0.05 0.1 1000\n"
+                    "chrUn 200 bad_chr C T 0.10 -0.1 1000\n"
+                    "1 abc bad_pos G A 0.20 0.2 1000\n",
+            trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged", source_genome_build="hg38",
+            output_genome_build="hg38", snp_identifier="chr_pos", genome_build="hg38",
+        )
 
-            self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
-            self.assertEqual(table.data["POS"].tolist(), [100])
-            self.assertEqual(table.provenance["coordinate_provenance"]["n_dropped_invalid_chr_pos"], 2)
-            log_text = (tmpdir / "munged" / "diagnostics" / "sumstats.log").read_text(encoding="utf-8")
-            self.assertIn("Dropped 2 SNPs with invalid or missing CHR/POS", log_text)
-            self.assertIn("Removed 0 SNPs with missing values.", log_text)
-            self.assertIn("Removed 0 SNPs with out-of-bounds p-values.", log_text)
-            self.assertIn("bad_chr", log_text)
+        self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
+        self.assertEqual(table.data["POS"].tolist(), [100])
+        self.assertEqual(table.provenance["coordinate_provenance"]["n_dropped_invalid_chr_pos"], 2)
+        log_text = (tmpdir / "munged" / "diagnostics" / "sumstats.log").read_text(encoding="utf-8")
+        self.assertIn("Dropped 2 SNPs with invalid or missing CHR/POS", log_text)
+        self.assertIn("Removed 0 SNPs with missing values.", log_text)
+        self.assertIn("Removed 0 SNPs with out-of-bounds p-values.", log_text)
+        self.assertIn("bad_chr", log_text)
 
     def test_run_reports_context_when_sumstats_snps_file_removes_everything(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            keep_path = tmpdir / "keep.tsv"
-            keep_path.write_text("SNP\nrs2\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        keep_path = tmpdir / "keep.tsv"
+        keep_path.write_text("SNP\nrs2\n", encoding="utf-8")
 
-            with self.assertRaisesRegex(
-                ldsc.LDSCInputError,
-                "munge-sumstats no SNPs remain after SNP keep-list restriction.*"
-                "snp_identifier=rsid.*keep-list identifiers=1.*"
-                "docs/user-guide/troubleshooting.md#munge-sumstats-no-snps-remain-after-filtering",
-            ):
-                self._munge(
-                    tmpdir, "SNP A1 A2 P BETA N\n"
-                            "rs1 A G 0.05 0.1 1000\n",
-                    trait_name="trait", output_dir=tmpdir / "munged", sumstats_snps_file=keep_path,
-                )
+        with self.assertRaisesRegex(
+            ldsc.LDSCInputError,
+            "munge-sumstats no SNPs remain after SNP keep-list restriction.*"
+            "snp_identifier=rsid.*keep-list identifiers=1.*"
+            "docs/user-guide/troubleshooting.md#munge-sumstats-no-snps-remain-after-filtering",
+        ):
+            self._munge(
+                tmpdir, "SNP A1 A2 P BETA N\n"
+                        "rs1 A G 0.05 0.1 1000\n",
+                trait_name="trait", output_dir=tmpdir / "munged", sumstats_snps_file=keep_path,
+            )
 
     def test_run_rejects_empty_sumstats_snps_file_before_chunk_parsing(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            keep_path = tmpdir / "keep.tsv"
-            keep_path.write_text("SNP\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        keep_path = tmpdir / "keep.tsv"
+        keep_path.write_text("SNP\n", encoding="utf-8")
 
-            with mock.patch.object(kernel_munge, "parse_dat", side_effect=AssertionError("raw chunks parsed")):
-                with self.assertRaisesRegex(ldsc.LDSCInputError, "keep-list identifiers=0"):
-                    self._munge(
-                        tmpdir, "SNP A1 A2 P BETA N\nrs1 A G 0.05 0.1 1000\n",
-                        trait_name="trait", output_dir=tmpdir / "munged", sumstats_snps_file=keep_path,
-                    )
+        with mock.patch.object(kernel_munge, "parse_dat", side_effect=AssertionError("raw chunks parsed")):
+            with self.assertRaisesRegex(ldsc.LDSCInputError, "keep-list identifiers=0"):
+                self._munge(
+                    tmpdir, "SNP A1 A2 P BETA N\nrs1 A G 0.05 0.1 1000\n",
+                    trait_name="trait", output_dir=tmpdir / "munged", sumstats_snps_file=keep_path,
+                )
 
     def test_run_restricts_sumstats_snps_file_by_build_specific_chr_pos_column(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            keep_path = tmpdir / "keep.tsv"
-            keep_path.write_text("CHR\thg19_POS\thg38_POS\n1\t200\t999\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        keep_path = tmpdir / "keep.tsv"
+        keep_path.write_text("CHR\thg19_POS\thg38_POS\n1\t200\t999\n", encoding="utf-8")
 
-            table = self._munge(
-                tmpdir, "CHR POS SNP A1 A2 P BETA N\n"
-                        "1 100 rs1 A G 0.05 0.1 1000\n"
-                        "1 200 rs2 C T 0.10 -0.1 1000\n",
-                trait_name="trait", output_dir=tmpdir / "munged", sumstats_snps_file=keep_path,
-                source_genome_build="hg19", output_genome_build="hg19", snp_identifier="chr_pos", genome_build="hg19",
-            )
+        table = self._munge(
+            tmpdir, "CHR POS SNP A1 A2 P BETA N\n"
+                    "1 100 rs1 A G 0.05 0.1 1000\n"
+                    "1 200 rs2 C T 0.10 -0.1 1000\n",
+            trait_name="trait", output_dir=tmpdir / "munged", sumstats_snps_file=keep_path,
+            source_genome_build="hg19", output_genome_build="hg19", snp_identifier="chr_pos", genome_build="hg19",
+        )
 
-            self.assertEqual(table.data["SNP"].tolist(), ["rs2"])
+        self.assertEqual(table.data["SNP"].tolist(), ["rs2"])
 
     def test_run_restricts_sumstats_snps_file_after_auto_coordinate_normalization(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            keep_path = tmpdir / "keep.tsv"
-            keep_path.write_text("CHR\thg19_POS\n1\t200\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        keep_path = tmpdir / "keep.tsv"
+        keep_path.write_text("CHR\thg19_POS\n1\t200\n", encoding="utf-8")
 
-            inference = mock.Mock(
-                genome_build="hg19",
-                coordinate_basis="0-based",
-                inspected_snp_count=2,
-                match_counts={},
-                match_fractions={},
-                summary_message="mock inferred hg19 0-based",
+        inference = mock.Mock(
+            genome_build="hg19",
+            coordinate_basis="0-based",
+            inspected_snp_count=2,
+            match_counts={},
+            match_fractions={},
+            summary_message="mock inferred hg19 0-based",
+        )
+
+
+        with mock.patch("ldsc._genome.build_policy.infer_chr_pos_build", return_value=inference):
+            table = self._munge(
+                tmpdir, "CHR POS SNP A1 A2 P BETA N\n"
+                        "1 99 rs1 A G 0.05 0.1 1000\n"
+                        "1 199 rs2 C T 0.10 -0.1 1000\n",
+                trait_name="trait", output_dir=tmpdir / "munged", sumstats_snps_file=keep_path,
+                source_genome_build="auto", output_genome_build="hg19", snp_identifier="chr_pos",
+                genome_build="auto",
             )
 
-
-            with mock.patch("ldsc._genome.build_policy.infer_chr_pos_build", return_value=inference):
-                table = self._munge(
-                    tmpdir, "CHR POS SNP A1 A2 P BETA N\n"
-                            "1 99 rs1 A G 0.05 0.1 1000\n"
-                            "1 199 rs2 C T 0.10 -0.1 1000\n",
-                    trait_name="trait", output_dir=tmpdir / "munged", sumstats_snps_file=keep_path,
-                    source_genome_build="auto", output_genome_build="hg19", snp_identifier="chr_pos",
-                    genome_build="auto",
-                )
-
-            self.assertEqual(table.data["SNP"].tolist(), ["rs2"])
-            self.assertEqual(table.data["POS"].tolist(), [200])
-            self.assertEqual(table.config_snapshot.genome_build, "hg19")
+        self.assertEqual(table.data["SNP"].tolist(), ["rs2"])
+        self.assertEqual(table.data["POS"].tolist(), [200])
+        self.assertEqual(table.config_snapshot.genome_build, "hg19")
 
     def test_run_treats_sumstats_snps_file_with_alleles_as_keep_list_only(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            keep_path = tmpdir / "keep.tsv"
-            keep_path.write_text("SNP\tA1\tA2\nrs1\tT\tC\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        keep_path = tmpdir / "keep.tsv"
+        keep_path.write_text("SNP\tA1\tA2\nrs1\tT\tC\n", encoding="utf-8")
 
-            table = self._munge(
-                tmpdir, "SNP A1 A2 P BETA N\n"
-                        "rs1 A G 0.05 0.1 1000\n"
-                        "rs2 C T 0.10 -0.1 1000\n",
-                trait_name="trait", output_dir=tmpdir / "munged", sumstats_snps_file=keep_path,
-            )
+        table = self._munge(
+            tmpdir, "SNP A1 A2 P BETA N\n"
+                    "rs1 A G 0.05 0.1 1000\n"
+                    "rs2 C T 0.10 -0.1 1000\n",
+            trait_name="trait", output_dir=tmpdir / "munged", sumstats_snps_file=keep_path,
+        )
 
-            self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
-            self.assertEqual(table.data["A1"].tolist(), ["A"])
-            self.assertEqual(table.data["A2"].tolist(), ["G"])
+        self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
+        self.assertEqual(table.data["A1"].tolist(), ["A"])
+        self.assertEqual(table.data["A2"].tolist(), ["G"])
 
     def test_run_accepts_id_and_ncas_ncon_header_aliases(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        tmpdir = self.tmp_path
 
-            table = self._munge(
-                tmpdir, "#CHROM\tPOS\tID\tEA\tNEA\tBETA\tSE\tPVAL\tFCAS\tFCON\tIMPINFO\tNEFF\tNCAS\tNCON\tHETI\tHETDF\tHETPVAL\n"
-                        "1\t123\trs1\tA\tG\t0.1\t0.01\t0.05\t0.2\t0.8\t0.95\t1000\t400\t600\t0\t1\t0.9\n",
-                trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged",
-            )
+        table = self._munge(
+            tmpdir, "#CHROM\tPOS\tID\tEA\tNEA\tBETA\tSE\tPVAL\tFCAS\tFCON\tIMPINFO\tNEFF\tNCAS\tNCON\tHETI\tHETDF\tHETPVAL\n"
+                    "1\t123\trs1\tA\tG\t0.1\t0.01\t0.05\t0.2\t0.8\t0.95\t1000\t400\t600\t0\t1\t0.9\n",
+            trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged",
+        )
 
-            self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
-            self.assertEqual(table.data["N"].tolist(), [1000.0])
-            self.assertEqual(table.data["CHR"].tolist(), ["1"])
-            self.assertEqual(table.data["POS"].tolist(), [123])
+        self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
+        self.assertEqual(table.data["N"].tolist(), [1000.0])
+        self.assertEqual(table.data["CHR"].tolist(), ["1"])
+        self.assertEqual(table.data["POS"].tolist(), [123])
 
     def test_explicit_n_col_suppresses_inferred_case_control_columns(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            (tmpdir / "munged").mkdir()
+        tmpdir = self.tmp_path
+        (tmpdir / "munged").mkdir()
 
-            with self.assertWarnsRegex(UserWarning, "--N-col NEFF.*ignored automatically inferred.*NCAS.*NCON"):
-                table = self._munge(
-                    tmpdir, "SNP A1 A2 P BETA NEFF NCAS NCON\n"
-                            "rs1 A G 0.05 0.1 777 400 600\n"
-                            "rs2 C T 0.10 -0.1 888 400 600\n",
-                    column_hints={"N_col": "NEFF"}, no_snp_restriction=True, output_dir=tmpdir / "munged",
-                )
+        with self.assertWarnsRegex(UserWarning, "--N-col NEFF.*ignored automatically inferred.*NCAS.*NCON"):
+            table = self._munge(
+                tmpdir, "SNP A1 A2 P BETA NEFF NCAS NCON\n"
+                        "rs1 A G 0.05 0.1 777 400 600\n"
+                        "rs2 C T 0.10 -0.1 888 400 600\n",
+                column_hints={"N_col": "NEFF"}, no_snp_restriction=True, output_dir=tmpdir / "munged",
+            )
 
-            self.assertEqual(table.data["N"].tolist(), [777.0, 888.0])
+        self.assertEqual(table.data["N"].tolist(), [777.0, 888.0])
 
     def test_explicit_case_control_columns_suppress_inferred_direct_n(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            (tmpdir / "munged").mkdir()
+        tmpdir = self.tmp_path
+        (tmpdir / "munged").mkdir()
 
-            with self.assertWarnsRegex(
-                UserWarning,
-                "--N-cas-col CASES.*--N-con-col CONTROLS.*ignored automatically inferred.*N",
-            ):
-                table = self._munge(
-                    tmpdir, "SNP A1 A2 P BETA N CASES CONTROLS\n"
-                            "rs1 A G 0.05 0.1 777 400 600\n",
-                    column_hints={"N_cas_col": "CASES", "N_con_col": "CONTROLS"}, no_snp_restriction=True,
-                    output_dir=tmpdir / "munged",
-                )
+        with self.assertWarnsRegex(
+            UserWarning,
+            "--N-cas-col CASES.*--N-con-col CONTROLS.*ignored automatically inferred.*N",
+        ):
+            table = self._munge(
+                tmpdir, "SNP A1 A2 P BETA N CASES CONTROLS\n"
+                        "rs1 A G 0.05 0.1 777 400 600\n",
+                column_hints={"N_cas_col": "CASES", "N_con_col": "CONTROLS"}, no_snp_restriction=True,
+                output_dir=tmpdir / "munged",
+            )
 
-            self.assertEqual(table.data["N"].tolist(), [1000.0])
+        self.assertEqual(table.data["N"].tolist(), [1000.0])
 
     def test_explicit_direct_and_case_control_column_strategies_conflict(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        tmpdir = self.tmp_path
 
-            with self.assertRaisesRegex(
-                ldsc.LDSCUsageError,
-                "--N-col.*cannot be combined with --N-cas-col and --N-con-col.*Choose one sample-size strategy",
-            ):
-                self._munge(
-                    tmpdir, "SNP A1 A2 P BETA NEFF NCAS NCON\n"
-                            "rs1 A G 0.05 0.1 777 400 600\n",
-                    column_hints={"N_col": "NEFF", "N_cas_col": "NCAS", "N_con_col": "NCON"}, no_snp_restriction=True,
-                    output_dir=tmpdir / "munged",
-                )
+        with self.assertRaisesRegex(
+            ldsc.LDSCUsageError,
+            "--N-col.*cannot be combined with --N-cas-col and --N-con-col.*Choose one sample-size strategy",
+        ):
+            self._munge(
+                tmpdir, "SNP A1 A2 P BETA NEFF NCAS NCON\n"
+                        "rs1 A G 0.05 0.1 777 400 600\n",
+                column_hints={"N_col": "NEFF", "N_cas_col": "NCAS", "N_con_col": "NCON"}, no_snp_restriction=True,
+                output_dir=tmpdir / "munged",
+            )
 
     def test_explicit_case_control_column_hints_must_be_a_pair(self):
         incomplete_hints = (
@@ -1887,18 +1808,17 @@ class SumstatsMungerTest(unittest.TestCase):
                     )
 
     def test_automatic_direct_and_case_control_inference_is_ambiguous(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        tmpdir = self.tmp_path
 
-            with self.assertRaisesRegex(
-                ldsc.LDSCInputError,
-                "multiple sample-size strategies.*--N-col N.*--N-cas-col NCAS --N-con-col NCON",
-            ):
-                self._munge(
-                    tmpdir, "SNP A1 A2 P BETA N NCAS NCON\n"
-                            "rs1 A G 0.05 0.1 777 400 600\n",
-                    no_snp_restriction=True, output_dir=tmpdir / "munged",
-                )
+        with self.assertRaisesRegex(
+            ldsc.LDSCInputError,
+            "multiple sample-size strategies.*--N-col N.*--N-cas-col NCAS --N-con-col NCON",
+        ):
+            self._munge(
+                tmpdir, "SNP A1 A2 P BETA N NCAS NCON\n"
+                        "rs1 A G 0.05 0.1 777 400 600\n",
+                no_snp_restriction=True, output_dir=tmpdir / "munged",
+            )
 
     def test_unambiguous_direct_and_case_control_sample_size_workflows(self):
         fixtures = (
@@ -1914,39 +1834,37 @@ class SumstatsMungerTest(unittest.TestCase):
                 self.assertEqual(table.data["N"].tolist(), [expected_n])
 
     def test_run_auto_detects_old_daner_sample_sizes(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "daner.tsv"
-            raw_path.write_text(
-                "CHR SNP BP A1 A2 FRQ_A_40 FRQ_U_60 INFO OR SE P\n"
-                "1 rs1 100 A G 0.2 0.3 0.99 1.02 0.1 0.05\n",
-                encoding="utf-8",
-            )
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "daner.tsv"
+        raw_path.write_text(
+            "CHR SNP BP A1 A2 FRQ_A_40 FRQ_U_60 INFO OR SE P\n"
+            "1 rs1 100 A G 0.2 0.3 0.99 1.02 0.1 0.05\n",
+            encoding="utf-8",
+        )
 
-            table = SumstatsMunger().run(
-                MungeConfig(raw_sumstats_file=raw_path, trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged", source_genome_build="hg38", output_genome_build="hg38"),
-                global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-            )
+        table = SumstatsMunger().run(
+            MungeConfig(raw_sumstats_file=raw_path, trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged", source_genome_build="hg38", output_genome_build="hg38"),
+            global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+        )
 
-            self.assertEqual(table.data["N"].tolist(), [100.0])
+        self.assertEqual(table.data["N"].tolist(), [100.0])
 
     def test_run_reads_lowercase_old_daner_sample_size_headers(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "daner.tsv"
-            raw_path.write_text(
-                "snp a1 a2 frq_a_40 frq_u_60 or p\n"
-                "rs1 A G 0.2 0.3 1.02 0.05\n",
-                encoding="utf-8",
-            )
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "daner.tsv"
+        raw_path.write_text(
+            "snp a1 a2 frq_a_40 frq_u_60 or p\n"
+            "rs1 A G 0.2 0.3 1.02 0.05\n",
+            encoding="utf-8",
+        )
 
-            table = SumstatsMunger().run(
-                MungeConfig(raw_sumstats_file=raw_path, trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged"),
-                global_config=GlobalConfig(snp_identifier="rsid"),
-            )
+        table = SumstatsMunger().run(
+            MungeConfig(raw_sumstats_file=raw_path, trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged"),
+            global_config=GlobalConfig(snp_identifier="rsid"),
+        )
 
-            self.assertEqual(table.data["N"].tolist(), [100.0])
-            self.assertEqual(table.data["FRQ"].tolist(), [0.3])
+        self.assertEqual(table.data["N"].tolist(), [100.0])
+        self.assertEqual(table.data["FRQ"].tolist(), [0.3])
 
     def test_old_daner_format_requires_count_named_frequency_columns(self):
         cases = {
@@ -1968,97 +1886,92 @@ class SumstatsMungerTest(unittest.TestCase):
                     )
 
     def test_run_auto_detects_new_daner_frequency_and_sample_sizes(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "daner_new.tsv"
-            raw_path.write_text(
-                "SNP A1 A2 FRQ_U_60 P OR Nca Nco\n"
-                "rs1 A G 0.3 0.05 1.02 40 60\n",
-                encoding="utf-8",
-            )
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "daner_new.tsv"
+        raw_path.write_text(
+            "SNP A1 A2 FRQ_U_60 P OR Nca Nco\n"
+            "rs1 A G 0.3 0.05 1.02 40 60\n",
+            encoding="utf-8",
+        )
 
-            table = SumstatsMunger().run(
-                MungeConfig(raw_sumstats_file=raw_path, trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged"),
-                global_config=GlobalConfig(snp_identifier="rsid"),
-            )
+        table = SumstatsMunger().run(
+            MungeConfig(raw_sumstats_file=raw_path, trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged"),
+            global_config=GlobalConfig(snp_identifier="rsid"),
+        )
 
-            self.assertEqual(table.data["N"].tolist(), [100])
-            self.assertEqual(table.data["FRQ"].tolist(), [0.3])
+        self.assertEqual(table.data["N"].tolist(), [100])
+        self.assertEqual(table.data["FRQ"].tolist(), [0.3])
 
     def test_run_auto_treats_comma_separated_impinfo_as_info_list(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        tmpdir = self.tmp_path
 
-            table = self._munge(
-                tmpdir, "#CHROM\tPOS\tID\tEA\tNEA\tBETA\tPVAL\tIMPINFO\tN\n"
-                        "1\t123\trs1\tA\tG\t0.1\t0.05\t0.95,0.91,NA\t1000\n",
-                trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged", source_genome_build="hg38",
-                output_genome_build="hg38", snp_identifier="chr_pos", genome_build="hg38",
-            )
+        table = self._munge(
+            tmpdir, "#CHROM\tPOS\tID\tEA\tNEA\tBETA\tPVAL\tIMPINFO\tN\n"
+                    "1\t123\trs1\tA\tG\t0.1\t0.05\t0.95,0.91,NA\t1000\n",
+            trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged", source_genome_build="hg38",
+            output_genome_build="hg38", snp_identifier="chr_pos", genome_build="hg38",
+        )
 
-            self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
+        self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
 
     def test_run_invalid_comma_separated_impinfo_identifies_value_and_filtering_consequence(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        tmpdir = self.tmp_path
 
-            with self.assertRaises(ldsc.LDSCInputError) as failure:
-                self._munge(
-                    tmpdir, "#CHROM\tPOS\tID\tEA\tNEA\tBETA\tPVAL\tIMPINFO\tN\n"
-                            "1\t123\trs1\tA\tG\t0.1\t0.05\t0.95,LOW,0.85\t1000\n",
-                    trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged",
-                    source_genome_build="hg38", output_genome_build="hg38", snp_identifier="chr_pos",
-                    genome_build="hg38",
-                )
-            message = str(failure.exception)
-            self.assertIn("IMPINFO", message)
-            self.assertIn("LOW", message)
-            self.assertIn("--info-list", message)
-            self.assertIn("--ignore IMPINFO", message)
-            self.assertIn("omitting this quality field", message)
-            self.assertIsInstance(failure.exception.__cause__, ValueError)
+        with self.assertRaises(ldsc.LDSCInputError) as failure:
+            self._munge(
+                tmpdir, "#CHROM\tPOS\tID\tEA\tNEA\tBETA\tPVAL\tIMPINFO\tN\n"
+                        "1\t123\trs1\tA\tG\t0.1\t0.05\t0.95,LOW,0.85\t1000\n",
+                trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged",
+                source_genome_build="hg38", output_genome_build="hg38", snp_identifier="chr_pos",
+                genome_build="hg38",
+            )
+        message = str(failure.exception)
+        self.assertIn("IMPINFO", message)
+        self.assertIn("LOW", message)
+        self.assertIn("--info-list", message)
+        self.assertIn("--ignore IMPINFO", message)
+        self.assertIn("omitting this quality field", message)
+        self.assertIsInstance(failure.exception.__cause__, ValueError)
 
     def test_run_skips_leading_double_hash_sumstats_metadata_lines(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text(
-                '##EA="SNP effect allele for ln(OR))"\n'
-                '##NEA="SNP non-effect allele"\n'
-                '##BETA="ln(Odds Ratio) effect of EA"\n'
-                '##PVAL="P-value, uncorrected"\n'
-                "## \n"
-                "#CHROM\tPOS\tID\tEA\tNEA\tBETA\tPVAL\tNCAS\tNCON\n"
-                "1\t753541\trs2073813\tA\tG\t0.004\t0.4614\t310128\t1035355\n",
-                encoding="utf-8",
-            )
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        raw_path.write_text(
+            '##EA="SNP effect allele for ln(OR))"\n'
+            '##NEA="SNP non-effect allele"\n'
+            '##BETA="ln(Odds Ratio) effect of EA"\n'
+            '##PVAL="P-value, uncorrected"\n'
+            "## \n"
+            "#CHROM\tPOS\tID\tEA\tNEA\tBETA\tPVAL\tNCAS\tNCON\n"
+            "1\t753541\trs2073813\tA\tG\t0.004\t0.4614\t310128\t1035355\n",
+            encoding="utf-8",
+        )
 
-            munger = SumstatsMunger()
-            table = munger.run(
-                MungeConfig(raw_sumstats_file=raw_path, trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged", source_genome_build="hg38", output_genome_build="hg38"),
-                global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-            )
+        munger = SumstatsMunger()
+        table = munger.run(
+            MungeConfig(raw_sumstats_file=raw_path, trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged", source_genome_build="hg38", output_genome_build="hg38"),
+            global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+        )
 
-            self.assertEqual(table.data["SNP"].tolist(), ["rs2073813"])
-            self.assertEqual(table.data["CHR"].tolist(), ["1"])
-            self.assertEqual(table.data["POS"].tolist(), [753541])
-            self.assertEqual(munger.build_run_summary().n_input_rows, 1)
+        self.assertEqual(table.data["SNP"].tolist(), ["rs2073813"])
+        self.assertEqual(table.data["CHR"].tolist(), ["1"])
+        self.assertEqual(table.data["POS"].tolist(), [753541])
+        self.assertEqual(munger.build_run_summary().n_input_rows, 1)
 
     def test_run_accepts_chrom_and_bp_aliases_for_coordinates(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        tmpdir = self.tmp_path
 
-            table = self._munge(
-                tmpdir, "CHROM\tBP\tID\tEA\tNEA\tPVAL\tOR\tN\n"
-                        "chr1\t123\trs1\tA\tG\t0.05\t1.0\t1000\n",
-                trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged", source_genome_build="hg38",
-                output_genome_build="hg38", snp_identifier="chr_pos", genome_build="hg38",
-            )
+        table = self._munge(
+            tmpdir, "CHROM\tBP\tID\tEA\tNEA\tPVAL\tOR\tN\n"
+                    "chr1\t123\trs1\tA\tG\t0.05\t1.0\t1000\n",
+            trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged", source_genome_build="hg38",
+            output_genome_build="hg38", snp_identifier="chr_pos", genome_build="hg38",
+        )
 
-            self.assertEqual(table.data["CHR"].tolist(), ["1"])
-            self.assertEqual(table.data["POS"].tolist(), [123])
-            output = pd.read_parquet(tmpdir / "munged" / "trait.parquet")
-            self.assertEqual(output.columns.tolist(), ["SNP", "CHR", "POS", "A1", "A2", "Z", "N"])
+        self.assertEqual(table.data["CHR"].tolist(), ["1"])
+        self.assertEqual(table.data["POS"].tolist(), [123])
+        output = pd.read_parquet(tmpdir / "munged" / "trait.parquet")
+        self.assertEqual(output.columns.tolist(), ["SNP", "CHR", "POS", "A1", "A2", "Z", "N"])
 
     def test_a1_a2_descriptions_explain_signed_statistic_orientation(self):
         self.assertIn("effect allele: the allele the signed statistic refers to", munge_input.describe_cname["A1"])
@@ -2067,68 +1980,36 @@ class SumstatsMungerTest(unittest.TestCase):
         self.assertNotIn("non-ref allele", munge_input.describe_cname["A2"].lower())
 
     def test_signed_statistic_orients_output_z_relative_to_a1(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        tmpdir = self.tmp_path
 
-            table = self._munge(
-                tmpdir, "SNP A1 A2 P BETA N\n"
-                        "rs_positive A G 0.05 0.2 1000\n"
-                        "rs_negative C T 0.05 -0.2 1000\n",
-                trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged",
-            )
+        table = self._munge(
+            tmpdir, "SNP A1 A2 P BETA N\n"
+                    "rs_positive A G 0.05 0.2 1000\n"
+                    "rs_negative C T 0.05 -0.2 1000\n",
+            trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged",
+        )
 
-            z_by_snp = dict(zip(table.data["SNP"], table.data["Z"]))
-            self.assertGreater(z_by_snp["rs_positive"], 0)
-            self.assertLess(z_by_snp["rs_negative"], 0)
+        z_by_snp = dict(zip(table.data["SNP"], table.data["Z"]))
+        self.assertGreater(z_by_snp["rs_positive"], 0)
+        self.assertLess(z_by_snp["rs_negative"], 0)
 
     def test_infer_only_reports_detected_format_and_suggested_command(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text(
-                "CHR SNP BP A1 A2 FRQ_A_40 FRQ_U_60 INFO OR SE P\n"
-                "1 rs1 100 A G 0.2 0.3 0.99 1.2 0.1 0.05\n",
-                encoding="utf-8",
-            )
-            stdout = io.StringIO()
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        raw_path.write_text(
+            "CHR SNP BP A1 A2 FRQ_A_40 FRQ_U_60 INFO OR SE P\n"
+            "1 rs1 100 A G 0.2 0.3 0.99 1.2 0.1 0.05\n",
+            encoding="utf-8",
+        )
+        stdout = io.StringIO()
 
-            with contextlib.redirect_stdout(stdout):
-                result = sumstats_workflow.main(
-                    ["--no-snp-restriction",
-                        "--raw-sumstats-file",
-                        str(raw_path),
-                        "--output-dir",
-                        str(tmpdir / "unused"),
-                        "--infer-only",
-                        "--source-genome-build",
-                        "hg38",
-                        "--output-genome-build",
-                        "hg38",
-                    ]
-                )
-
-            output = stdout.getvalue()
-            self.assertEqual(result.detected_format, "daner-old")
-            self.assertIn("Detected format: daner-old", output)
-            self.assertIn("Runnable: yes", output)
-            self.assertIn("--input-format daner-old", output)
-            self.assertIn("--output-genome-build hg38", output)
-
-    def test_infer_only_reads_gzip_raw_sumstats(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            raw_path = Path(tmpdir) / "raw.tsv.gz"
-            with gzip.open(raw_path, "wt", encoding="utf-8") as handle:
-                handle.write(
-                    "CHR POS SNP A1 A2 P BETA N\n"
-                    "1 100 rs1 A G 0.05 0.1 1000\n"
-                )
-
+        with contextlib.redirect_stdout(stdout):
             result = sumstats_workflow.main(
                 ["--no-snp-restriction",
                     "--raw-sumstats-file",
                     str(raw_path),
                     "--output-dir",
-                    str(Path(tmpdir) / "unused"),
+                    str(tmpdir / "unused"),
                     "--infer-only",
                     "--source-genome-build",
                     "hg38",
@@ -2137,391 +2018,407 @@ class SumstatsMungerTest(unittest.TestCase):
                 ]
             )
 
-            self.assertEqual(result.detected_format, "plain")
-            self.assertTrue(result.runnable)
+        output = stdout.getvalue()
+        self.assertEqual(result.detected_format, "daner-old")
+        self.assertIn("Detected format: daner-old", output)
+        self.assertIn("Runnable: yes", output)
+        self.assertIn("--input-format daner-old", output)
+        self.assertIn("--output-genome-build hg38", output)
+
+    def test_infer_only_reads_gzip_raw_sumstats(self):
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv.gz"
+        with gzip.open(raw_path, "wt", encoding="utf-8") as handle:
+            handle.write(
+                "CHR POS SNP A1 A2 P BETA N\n"
+                "1 100 rs1 A G 0.05 0.1 1000\n"
+            )
+
+        result = sumstats_workflow.main(
+            ["--no-snp-restriction",
+                "--raw-sumstats-file",
+                str(raw_path),
+                "--output-dir",
+                str(tmpdir / "unused"),
+                "--infer-only",
+                "--source-genome-build",
+                "hg38",
+                "--output-genome-build",
+                "hg38",
+            ]
+        )
+
+        self.assertEqual(result.detected_format, "plain")
+        self.assertTrue(result.runnable)
 
     def test_infer_only_requires_chain_for_unrestricted_cross_build_run(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw = tmpdir / "raw.tsv"
-            raw.write_text("CHR POS SNP A1 A2 P BETA N\n1 100 rs1 A G 0.05 0.1 1000\n")
-            stdout = io.StringIO()
-            with contextlib.redirect_stdout(stdout):
-                report = sumstats_workflow.main([
-                    "--raw-sumstats-file", str(raw), "--output-dir", str(tmpdir / "unused"),
-                    "--infer-only", "--source-genome-build", "hg19", "--output-genome-build", "hg38",
-                    "--no-snp-restriction",
-                ])
-            self.assertFalse(report.runnable)
-            self.assertIn("liftover_method", report.missing_fields)
-            self.assertEqual(report.liftover_method, "missing; chain file required")
-            self.assertIn("--no-snp-restriction", report.suggested_args)
-            self.assertIn("--liftover-chain-file <hg19ToHg38.over.chain>", stdout.getvalue())
-            self.assertFalse((tmpdir / "unused").exists())
+        tmpdir = self.tmp_path
+        raw = tmpdir / "raw.tsv"
+        raw.write_text("CHR POS SNP A1 A2 P BETA N\n1 100 rs1 A G 0.05 0.1 1000\n")
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            report = sumstats_workflow.main([
+                "--raw-sumstats-file", str(raw), "--output-dir", str(tmpdir / "unused"),
+                "--infer-only", "--source-genome-build", "hg19", "--output-genome-build", "hg38",
+                "--no-snp-restriction",
+            ])
+        self.assertFalse(report.runnable)
+        self.assertIn("liftover_method", report.missing_fields)
+        self.assertEqual(report.liftover_method, "missing; chain file required")
+        self.assertIn("--no-snp-restriction", report.suggested_args)
+        self.assertIn("--liftover-chain-file <hg19ToHg38.over.chain>", stdout.getvalue())
+        self.assertFalse((tmpdir / "unused").exists())
 
     def test_infer_only_reports_source_build_inference_failure_as_non_runnable(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text(
-                "CHR POS SNP A1 A2 P BETA N\n"
-                "1 100 rs1 A G 0.05 0.1 1000\n",
-                encoding="utf-8",
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        raw_path.write_text(
+            "CHR POS SNP A1 A2 P BETA N\n"
+            "1 100 rs1 A G 0.05 0.1 1000\n",
+            encoding="utf-8",
+        )
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            result = sumstats_workflow.main(
+                ["--no-snp-restriction",
+                    "--raw-sumstats-file",
+                    str(raw_path),
+                    "--output-dir",
+                    str(tmpdir / "unused"),
+                    "--infer-only",
+                    "--output-genome-build",
+                    "hg38",
+                ]
             )
-            stdout = io.StringIO()
 
-            with contextlib.redirect_stdout(stdout):
-                result = sumstats_workflow.main(
-                    ["--no-snp-restriction",
-                        "--raw-sumstats-file",
-                        str(raw_path),
-                        "--output-dir",
-                        str(tmpdir / "unused"),
-                        "--infer-only",
-                        "--output-genome-build",
-                        "hg38",
-                    ]
-                )
-
-            output = stdout.getvalue()
-            self.assertFalse(result.runnable)
-            self.assertIn("source_genome_build", result.missing_fields)
-            self.assertIn("Unable to resolve a consistent source genome build", output)
-            self.assertIn("--source-genome-build hg19", output)
-            self.assertIn("--source-genome-build hg38", output)
+        output = stdout.getvalue()
+        self.assertFalse(result.runnable)
+        self.assertIn("source_genome_build", result.missing_fields)
+        self.assertIn("Unable to resolve a consistent source genome build", output)
+        self.assertIn("--source-genome-build hg19", output)
+        self.assertIn("--source-genome-build hg38", output)
 
     def test_infer_only_checks_later_chromosomes_without_output(self):
         from ldsc._genome.build_inference import load_packaged_reference_table
         reference = load_packaged_reference_table()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            raw_path = Path(tmpdir) / "raw.tsv"
-            with raw_path.open("w", encoding="utf-8") as handle:
-                handle.write("CHR POS SNP A1 A2 P BETA N\n")
-                for row in reference.loc[reference.CHR.astype(str).eq("1")].head(300).itertuples(index=False):
-                    handle.write(f"1 {row.hg19_POS} rs{row.hg19_POS} A G 0.05 0.1 1000\n")
-                for idx in range(50_000):
-                    handle.write(f"1 {900_000_000 + idx} tail{idx} A G 0.05 0.1 1000\n")
-                for row in reference.loc[reference.CHR.astype(str).eq("2")].head(300).itertuples(index=False):
-                    handle.write(f"2 {row.hg38_POS} rs{row.hg38_POS} A G 0.05 0.1 1000\n")
-            with contextlib.redirect_stdout(io.StringIO()):
-                report = sumstats_workflow.main([
-                    "--raw-sumstats-file", str(raw_path), "--output-dir", str(Path(tmpdir) / "unused"),
-                    "--infer-only", "--output-genome-build", "hg19", "--no-snp-restriction"])
-            self.assertFalse(report.runnable)
-            self.assertIn("Conflicting genome-build evidence", " ".join(report.notes))
-            self.assertFalse((Path(tmpdir) / "unused").exists())
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        with raw_path.open("w", encoding="utf-8") as handle:
+            handle.write("CHR POS SNP A1 A2 P BETA N\n")
+            for row in reference.loc[reference.CHR.astype(str).eq("1")].head(300).itertuples(index=False):
+                handle.write(f"1 {row.hg19_POS} rs{row.hg19_POS} A G 0.05 0.1 1000\n")
+            for idx in range(50_000):
+                handle.write(f"1 {900_000_000 + idx} tail{idx} A G 0.05 0.1 1000\n")
+            for row in reference.loc[reference.CHR.astype(str).eq("2")].head(300).itertuples(index=False):
+                handle.write(f"2 {row.hg38_POS} rs{row.hg38_POS} A G 0.05 0.1 1000\n")
+        with contextlib.redirect_stdout(io.StringIO()):
+            report = sumstats_workflow.main([
+                "--raw-sumstats-file", str(raw_path), "--output-dir", str(tmpdir / "unused"),
+                "--infer-only", "--output-genome-build", "hg19", "--no-snp-restriction"])
+        self.assertFalse(report.runnable)
+        self.assertIn("Conflicting genome-build evidence", " ".join(report.notes))
+        self.assertFalse((tmpdir / "unused").exists())
 
 
     def test_infer_only_checks_liftover_chain_path_and_reports_direction(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text(
-                "CHR POS SNP A1 A2 P BETA N\n"
-                "1 100 rs1 A G 0.05 0.1 1000\n",
-                encoding="utf-8",
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        raw_path.write_text(
+            "CHR POS SNP A1 A2 P BETA N\n"
+            "1 100 rs1 A G 0.05 0.1 1000\n",
+            encoding="utf-8",
+        )
+        chain_path = tmpdir / "custom.over.chain"
+        chain_path.write_text("", encoding="utf-8")
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            result = sumstats_workflow.main(
+                ["--no-snp-restriction",
+                    "--raw-sumstats-file",
+                    str(raw_path),
+                    "--output-dir",
+                    str(tmpdir / "unused"),
+                    "--infer-only", "--source-genome-build", "hg19",
+                    "--output-genome-build",
+                    "hg38",
+                    "--liftover-chain-file",
+                    str(chain_path),
+                ]
             )
-            chain_path = tmpdir / "custom.over.chain"
-            chain_path.write_text("", encoding="utf-8")
-            stdout = io.StringIO()
 
-            with contextlib.redirect_stdout(stdout):
-                result = sumstats_workflow.main(
-                    ["--no-snp-restriction",
-                        "--raw-sumstats-file",
-                        str(raw_path),
-                        "--output-dir",
-                        str(tmpdir / "unused"),
-                        "--infer-only", "--source-genome-build", "hg19",
-                        "--output-genome-build",
-                        "hg38",
-                        "--liftover-chain-file",
-                        str(chain_path),
-                    ]
-                )
-
-            output = stdout.getvalue()
-            self.assertTrue(result.runnable)
-            self.assertIn("Liftover required: yes (method: chain file)", output)
-            self.assertIn("Expected chain direction: hg19 -> hg38", output)
+        output = stdout.getvalue()
+        self.assertTrue(result.runnable)
+        self.assertIn("Liftover required: yes (method: chain file)", output)
+        self.assertIn("Expected chain direction: hg19 -> hg38", output)
 
     def test_infer_only_reports_missing_liftover_chain_path_with_fix(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text(
-                "CHR POS SNP A1 A2 P BETA N\n"
-                "1 100 rs1 A G 0.05 0.1 1000\n",
-                encoding="utf-8",
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        raw_path.write_text(
+            "CHR POS SNP A1 A2 P BETA N\n"
+            "1 100 rs1 A G 0.05 0.1 1000\n",
+            encoding="utf-8",
+        )
+        missing_chain_path = tmpdir / "missing.over.chain"
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            result = sumstats_workflow.main(
+                ["--no-snp-restriction",
+                    "--raw-sumstats-file",
+                    str(raw_path),
+                    "--output-dir",
+                    str(tmpdir / "unused"),
+                    "--infer-only", "--source-genome-build", "hg19",
+                    "--output-genome-build",
+                    "hg38",
+                    "--liftover-chain-file",
+                    str(missing_chain_path),
+                ]
             )
-            missing_chain_path = tmpdir / "missing.over.chain"
-            stdout = io.StringIO()
 
-            with contextlib.redirect_stdout(stdout):
-                result = sumstats_workflow.main(
-                    ["--no-snp-restriction",
-                        "--raw-sumstats-file",
-                        str(raw_path),
-                        "--output-dir",
-                        str(tmpdir / "unused"),
-                        "--infer-only", "--source-genome-build", "hg19",
-                        "--output-genome-build",
-                        "hg38",
-                        "--liftover-chain-file",
-                        str(missing_chain_path),
-                    ]
-                )
-
-            output = stdout.getvalue()
-            self.assertFalse(result.runnable)
-            self.assertIn("liftover_chain_file", result.missing_fields)
-            self.assertIn("Could not resolve liftover chain file path from token", output)
-            self.assertIn("matched 0 files", output)
-            self.assertIn("Most likely the path is misspelled", output)
-            self.assertIn("pass one existing chain file for the expected direction (hg19ToHg38.over.chain)", output)
-            self.assertIn("Expected chain direction: hg19 -> hg38", output)
+        output = stdout.getvalue()
+        self.assertFalse(result.runnable)
+        self.assertIn("liftover_chain_file", result.missing_fields)
+        self.assertIn("Could not resolve liftover chain file path from token", output)
+        self.assertIn("matched 0 files", output)
+        self.assertIn("Most likely the path is misspelled", output)
+        self.assertIn("pass one existing chain file for the expected direction (hg19ToHg38.over.chain)", output)
+        self.assertIn("Expected chain direction: hg19 -> hg38", output)
 
     def test_infer_only_reports_hm3_quick_liftover_method(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text(
-                "CHR POS SNP A1 A2 P BETA N\n"
-                "1 100 rs1 A G 0.05 0.1 1000\n",
-                encoding="utf-8",
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        raw_path.write_text(
+            "CHR POS SNP A1 A2 P BETA N\n"
+            "1 100 rs1 A G 0.05 0.1 1000\n",
+            encoding="utf-8",
+        )
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            result = sumstats_workflow.main(
+                [
+                    "--raw-sumstats-file",
+                    str(raw_path),
+                    "--output-dir",
+                    str(tmpdir / "unused"),
+                    "--infer-only", "--source-genome-build", "hg19",
+                    "--output-genome-build",
+                    "hg38",
+                ]
             )
-            stdout = io.StringIO()
 
-            with contextlib.redirect_stdout(stdout):
-                result = sumstats_workflow.main(
-                    [
-                        "--raw-sumstats-file",
-                        str(raw_path),
-                        "--output-dir",
-                        str(tmpdir / "unused"),
-                        "--infer-only", "--source-genome-build", "hg19",
-                        "--output-genome-build",
-                        "hg38",
-                    ]
-                )
-
-            output = stdout.getvalue()
-            self.assertTrue(result.runnable)
-            self.assertIn("Liftover required: yes (method: hm3 quick)", output)
+        output = stdout.getvalue()
+        self.assertTrue(result.runnable)
+        self.assertIn("Liftover required: yes (method: hm3 quick)", output)
 
     def test_infer_only_ignores_liftover_method_when_source_matches_output(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text(
-                "CHR POS SNP A1 A2 P BETA N\n"
-                "1 100 rs1 A G 0.05 0.1 1000\n",
-                encoding="utf-8",
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        raw_path.write_text(
+            "CHR POS SNP A1 A2 P BETA N\n"
+            "1 100 rs1 A G 0.05 0.1 1000\n",
+            encoding="utf-8",
+        )
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            result = sumstats_workflow.main(
+                ["--no-snp-restriction",
+                    "--raw-sumstats-file",
+                    str(raw_path),
+                    "--output-dir",
+                    str(tmpdir / "unused"),
+                    "--infer-only",
+                    "--source-genome-build",
+                    "hg38",
+                    "--output-genome-build",
+                    "hg38",
+                    "--liftover-chain-file",
+                    str(tmpdir / "missing.over.chain"),
+                ]
             )
-            stdout = io.StringIO()
 
-            with contextlib.redirect_stdout(stdout):
-                result = sumstats_workflow.main(
-                    ["--no-snp-restriction",
-                        "--raw-sumstats-file",
-                        str(raw_path),
-                        "--output-dir",
-                        str(tmpdir / "unused"),
-                        "--infer-only",
-                        "--source-genome-build",
-                        "hg38",
-                        "--output-genome-build",
-                        "hg38",
-                        "--liftover-chain-file",
-                        str(tmpdir / "missing.over.chain"),
-                    ]
-                )
-
-            output = stdout.getvalue()
-            self.assertTrue(result.runnable)
-            self.assertFalse(result.liftover_required)
-            self.assertIn("Liftover required: no (method: none)", output)
-            self.assertIn("supplied liftover method will be ignored", output)
-            self.assertNotIn("liftover_chain_file", result.missing_fields)
+        output = stdout.getvalue()
+        self.assertTrue(result.runnable)
+        self.assertFalse(result.liftover_required)
+        self.assertIn("Liftover required: no (method: none)", output)
+        self.assertIn("supplied liftover method will be ignored", output)
+        self.assertNotIn("liftover_chain_file", result.missing_fields)
 
     def test_infer_auto_detects_new_daner_case_control_columns(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "daner_new.tsv"
-            raw_path.write_text(
-                "SNP A1 A2 P OR Nca Nco\n"
-                "rs1 A G 0.05 1.02 40 60\n",
-                encoding="utf-8",
-            )
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "daner_new.tsv"
+        raw_path.write_text(
+            "SNP A1 A2 P OR Nca Nco\n"
+            "rs1 A G 0.05 1.02 40 60\n",
+            encoding="utf-8",
+        )
 
-            result = sumstats_workflow.infer_raw_sumstats(MungeConfig(raw_sumstats_file=raw_path), global_config=GlobalConfig(snp_identifier="rsid"))
+        result = sumstats_workflow.infer_raw_sumstats(MungeConfig(raw_sumstats_file=raw_path), global_config=GlobalConfig(snp_identifier="rsid"))
 
-            self.assertEqual(result.detected_format, "daner-new")
-            self.assertFalse(result.column_hints)
-            self.assertTrue(result.runnable)
+        self.assertEqual(result.detected_format, "daner-new")
+        self.assertFalse(result.column_hints)
+        self.assertTrue(result.runnable)
 
     def test_infer_auto_treats_vcf_style_header_as_plain_without_allele_hints(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "plain_vcf_style.tsv"
-            raw_path.write_text(
-                "##fileformat=VCFv4.2\n"
-                "#CHROM POS ID REF ALT BETA PVAL N\n"
-                "1 123 rs1 A G 0.1 0.05 1000\n",
-                encoding="utf-8",
-            )
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "plain_vcf_style.tsv"
+        raw_path.write_text(
+            "##fileformat=VCFv4.2\n"
+            "#CHROM POS ID REF ALT BETA PVAL N\n"
+            "1 123 rs1 A G 0.1 0.05 1000\n",
+            encoding="utf-8",
+        )
 
-            result = sumstats_workflow.infer_raw_sumstats(MungeConfig(raw_sumstats_file=raw_path), global_config=GlobalConfig(snp_identifier="rsid"))
+        result = sumstats_workflow.infer_raw_sumstats(MungeConfig(raw_sumstats_file=raw_path), global_config=GlobalConfig(snp_identifier="rsid"))
 
-            self.assertEqual(result.detected_format, "plain")
-            self.assertIn("--input-format", result.suggested_args)
-            self.assertIn("plain", result.suggested_args)
-            self.assertEqual(result.column_hints, {})
-            self.assertIn("A1/A2 orientation", result.missing_fields)
+        self.assertEqual(result.detected_format, "plain")
+        self.assertIn("--input-format", result.suggested_args)
+        self.assertIn("plain", result.suggested_args)
+        self.assertEqual(result.column_hints, {})
+        self.assertIn("A1/A2 orientation", result.missing_fields)
 
     def test_infer_only_suggests_likely_signed_sumstats_flag(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text(
-                "SNP A1 A2 P EFFECT_SIZE N\n"
-                "rs1 A G 0.05 0.2 1000\n",
-                encoding="utf-8",
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        raw_path.write_text(
+            "SNP A1 A2 P EFFECT_SIZE N\n"
+            "rs1 A G 0.05 0.2 1000\n",
+            encoding="utf-8",
+        )
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            result = sumstats_workflow.main(
+                ["--no-snp-restriction",
+                    "--raw-sumstats-file",
+                    str(raw_path),
+                    "--output-dir",
+                    str(tmpdir / "unused"),
+                    "--infer-only",
+                    "--source-genome-build",
+                    "auto",
+                    "--output-genome-build",
+                    "hg38",
+                ]
             )
-            stdout = io.StringIO()
 
-            with contextlib.redirect_stdout(stdout):
-                result = sumstats_workflow.main(
-                    ["--no-snp-restriction",
-                        "--raw-sumstats-file",
-                        str(raw_path),
-                        "--output-dir",
-                        str(tmpdir / "unused"),
-                        "--infer-only",
-                        "--source-genome-build",
-                        "auto",
-                        "--output-genome-build",
-                        "hg38",
-                    ]
-                )
-
-            output = stdout.getvalue()
-            self.assertEqual(result.signed_sumstats_spec, "EFFECT_SIZE,0")
-            self.assertIn("Signed statistic hint: EFFECT_SIZE,0", output)
-            self.assertIn("--signed-sumstats EFFECT_SIZE,0", output)
+        output = stdout.getvalue()
+        self.assertEqual(result.signed_sumstats_spec, "EFFECT_SIZE,0")
+        self.assertIn("Signed statistic hint: EFFECT_SIZE,0", output)
+        self.assertIn("--signed-sumstats EFFECT_SIZE,0", output)
 
     def test_infer_only_reports_neff_as_missing_n_not_inferred(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text(
-                "#CHROM\tPOS\tID\tEA\tNEA\tBETA\tPVAL\tNEFF\n"
-                "1\t123\trs1\tA\tG\t0.1\t0.05\t1000\n",
-                encoding="utf-8",
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        raw_path.write_text(
+            "#CHROM\tPOS\tID\tEA\tNEA\tBETA\tPVAL\tNEFF\n"
+            "1\t123\trs1\tA\tG\t0.1\t0.05\t1000\n",
+            encoding="utf-8",
+        )
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            result = sumstats_workflow.main(
+                ["--no-snp-restriction",
+                    "--raw-sumstats-file",
+                    str(raw_path),
+                    "--output-dir",
+                    str(tmpdir / "unused"),
+                    "--infer-only",
+                    "--source-genome-build",
+                    "auto",
+                    "--output-genome-build",
+                    "hg38",
+                ]
             )
-            stdout = io.StringIO()
 
-            with contextlib.redirect_stdout(stdout):
-                result = sumstats_workflow.main(
-                    ["--no-snp-restriction",
-                        "--raw-sumstats-file",
-                        str(raw_path),
-                        "--output-dir",
-                        str(tmpdir / "unused"),
-                        "--infer-only",
-                        "--source-genome-build",
-                        "auto",
-                        "--output-genome-build",
-                        "hg38",
-                    ]
-                )
-
-            output = stdout.getvalue()
-            self.assertFalse(result.runnable)
-            self.assertIn("Missing fields: N", output)
-            self.assertIn("NEFF is not treated as N", output)
+        output = stdout.getvalue()
+        self.assertFalse(result.runnable)
+        self.assertIn("Missing fields: N", output)
+        self.assertIn("NEFF is not treated as N", output)
 
     def test_infer_only_base_mode_does_not_report_missing_alleles(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text("CHR POS SNP P BETA N\n1 100 rs1 0.05 0.1 1000\n", encoding="utf-8")
-            stdout = io.StringIO()
+        tmpdir = self.tmp_path
+        raw_path = tmpdir / "raw.tsv"
+        raw_path.write_text("CHR POS SNP P BETA N\n1 100 rs1 0.05 0.1 1000\n", encoding="utf-8")
+        stdout = io.StringIO()
 
-            with contextlib.redirect_stdout(stdout):
-                result = sumstats_workflow.main(
-                    ["--no-snp-restriction",
-                        "--raw-sumstats-file",
-                        str(raw_path),
-                        "--output-dir",
-                        str(tmpdir / "unused"),
-                        "--infer-only",
-                        "--snp-identifier",
-                        "chr_pos",
-                        "--source-genome-build",
-                        "hg38",
-                        "--output-genome-build",
-                        "hg38",
-                    ]
-                )
+        with contextlib.redirect_stdout(stdout):
+            result = sumstats_workflow.main(
+                ["--no-snp-restriction",
+                    "--raw-sumstats-file",
+                    str(raw_path),
+                    "--output-dir",
+                    str(tmpdir / "unused"),
+                    "--infer-only",
+                    "--snp-identifier",
+                    "chr_pos",
+                    "--source-genome-build",
+                    "hg38",
+                    "--output-genome-build",
+                    "hg38",
+                ]
+            )
 
-            self.assertTrue(result.runnable)
-            self.assertNotIn("A1/A2", result.missing_fields)
-            self.assertNotIn("A1/A2", stdout.getvalue())
+        self.assertTrue(result.runnable)
+        self.assertNotIn("A1/A2", result.missing_fields)
+        self.assertNotIn("A1/A2", stdout.getvalue())
 
     def test_run_accepts_explicit_chr_and_pos_column_hints(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        tmpdir = self.tmp_path
 
-            table = self._munge(
-                tmpdir, "chromosome_name\tbase_pair\tvariant\tA1\tA2\tP\tOR\tN\n"
-                        "2\t200\trs2\tC\tT\t0.05\t1.0\t1000\n",
-                trait_name="trait", column_hints={"chr": "chromosome_name", "pos": "base_pair", "snp": "variant"},
-                no_snp_restriction=True, output_dir=tmpdir / "munged", source_genome_build="hg38",
-                output_genome_build="hg38", snp_identifier="chr_pos", genome_build="hg38",
-            )
+        table = self._munge(
+            tmpdir, "chromosome_name\tbase_pair\tvariant\tA1\tA2\tP\tOR\tN\n"
+                    "2\t200\trs2\tC\tT\t0.05\t1.0\t1000\n",
+            trait_name="trait", column_hints={"chr": "chromosome_name", "pos": "base_pair", "snp": "variant"},
+            no_snp_restriction=True, output_dir=tmpdir / "munged", source_genome_build="hg38",
+            output_genome_build="hg38", snp_identifier="chr_pos", genome_build="hg38",
+        )
 
-            self.assertEqual(table.data["SNP"].tolist(), ["rs2"])
-            self.assertEqual(table.data["CHR"].tolist(), ["2"])
-            self.assertEqual(table.data["POS"].tolist(), [200])
+        self.assertEqual(table.data["SNP"].tolist(), ["rs2"])
+        self.assertEqual(table.data["CHR"].tolist(), ["2"])
+        self.assertEqual(table.data["POS"].tolist(), [200])
 
     def test_run_rejects_ambiguous_chromosome_aliases(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        tmpdir = self.tmp_path
 
-            with self.assertRaisesRegex(ldsc.LDSCInputError, "CHR"):
-                self._munge(
-                    tmpdir, "#CHROM\tCHROM\tPOS\tID\tEA\tNEA\tPVAL\tOR\tN\n"
-                            "1\t1\t123\trs1\tA\tG\t0.05\t1.1\t1000\n",
-                    trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged",
-                    source_genome_build="hg38", output_genome_build="hg38", snp_identifier="chr_pos",
-                    genome_build="hg38",
-                )
-
-    def test_munge_then_load_roundtrips_identity_through_parquet_footer(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            output_dir = tmpdir / "munged"
-
+        with self.assertRaisesRegex(ldsc.LDSCInputError, "CHR"):
             self._munge(
-                tmpdir, "#CHROM\tPOS\tID\tEA\tNEA\tPVAL\tOR\tN\n"
-                        "1\t123\trs1\tA\tG\t0.05\t1.0\t1000\n",
-                trait_name="trait", no_snp_restriction=True, output_dir=output_dir, source_genome_build="hg38",
-                output_genome_build="hg38", snp_identifier="chr_pos", genome_build="hg38",
+                tmpdir, "#CHROM\tCHROM\tPOS\tID\tEA\tNEA\tPVAL\tOR\tN\n"
+                        "1\t1\t123\trs1\tA\tG\t0.05\t1.1\t1000\n",
+                trait_name="trait", no_snp_restriction=True, output_dir=tmpdir / "munged",
+                source_genome_build="hg38", output_genome_build="hg38", snp_identifier="chr_pos",
+                genome_build="hg38",
             )
 
-            import pyarrow.parquet as pq
+    def test_munge_then_load_roundtrips_identity_through_parquet_footer(self):
+        tmpdir = self.tmp_path
+        output_dir = tmpdir / "munged"
 
-            self.assertFalse((output_dir / "metadata.json").exists())
-            footer = pq.read_schema(str(output_dir / "trait.parquet")).metadata
-            self.assertEqual(footer[b"ldsc:artifact_type"], b"sumstats")
-            self.assertEqual(footer[b"ldsc:snp_identifier"], b"chr_pos")
-            self.assertEqual(footer[b"ldsc:genome_build"], b"hg38")
-            with warnings.catch_warnings(record=True) as caught:
-                warnings.simplefilter("always")
-                table = ldsc.load_sumstats(output_dir / "trait.parquet", trait_name="trait")
-            self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
-            self.assertFalse(any("cannot recover the GlobalConfig" in str(item.message) for item in caught))
+        self._munge(
+            tmpdir, "#CHROM\tPOS\tID\tEA\tNEA\tPVAL\tOR\tN\n"
+                    "1\t123\trs1\tA\tG\t0.05\t1.0\t1000\n",
+            trait_name="trait", no_snp_restriction=True, output_dir=output_dir, source_genome_build="hg38",
+            output_genome_build="hg38", snp_identifier="chr_pos", genome_build="hg38",
+        )
+
+        import pyarrow.parquet as pq
+
+        self.assertFalse((output_dir / "metadata.json").exists())
+        footer = pq.read_schema(str(output_dir / "trait.parquet")).metadata
+        self.assertEqual(footer[b"ldsc:artifact_type"], b"sumstats")
+        self.assertEqual(footer[b"ldsc:snp_identifier"], b"chr_pos")
+        self.assertEqual(footer[b"ldsc:genome_build"], b"hg38")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            table = ldsc.load_sumstats(output_dir / "trait.parquet", trait_name="trait")
+        self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+        self.assertFalse(any("cannot recover the GlobalConfig" in str(item.message) for item in caught))
 
 
 class SumstatsParquetFooterTest(unittest.TestCase):
@@ -2543,10 +2440,10 @@ class SumstatsParquetFooterTest(unittest.TestCase):
 
         snapshot = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19")
         footer = sumstats_table.encode_sumstats_footer(snapshot, trait_name="height")
-        with tempfile.TemporaryDirectory() as tmp:
-            out = str(Path(tmp) / "sumstats.parquet")
-            sumstats_outputs.write_sumstats_parquet(sumstats_outputs.curated_sumstats_frame(self._frame()), out, footer)
-            raw = pq.read_schema(out).metadata
+        tmp = self.tmp_path
+        out = str(tmp / "sumstats.parquet")
+        sumstats_outputs.write_sumstats_parquet(sumstats_outputs.curated_sumstats_frame(self._frame()), out, footer)
+        raw = pq.read_schema(out).metadata
         self.assertEqual(raw[b"ldsc:artifact_type"], b"sumstats")
         self.assertEqual(raw[b"ldsc:snp_identifier"], b"chr_pos_allele_aware")
         self.assertEqual(raw[b"ldsc:genome_build"], b"hg19")

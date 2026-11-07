@@ -1,6 +1,6 @@
 # R² Matrix Pair Query
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-06
 
 Query the unbiased R² stored in an R² matrix built by `ldsc build-r2-matrix` for a list of SNP pairs, and convert it to a signed Pearson correlation `r`.
 This is the random-access counterpart to the LD-score read path: the LD-score workflow streams every stored pair once, while this tool looks up specific pairs by SNP identity.
@@ -9,41 +9,10 @@ See the [R² matrix format](formats/r2-matrices.md) and the [query wiki guide](.
 
 ## Python API
 
-Three public objects are exported from `ldsc`:
-
-- `R2Matrix.open(...)` — a reusable handle. Open once, query many times.
-  `open()` validates every chromosome's parquet footer up front; each chromosome's sidecar, sidecar-binding check, identity-key map, and parquet handle are loaded lazily on first touch and cached.
-- `query_r2_matrix(pairs, ...)` — a one-shot wrapper that opens an R² matrix, queries, and
-  returns the result.
-- `unbiased_r2_to_pearson_r(r2_adj, n, sign=None)` — a pure converter.
-
-```python
-import pandas as pd
-from ldsc import query_r2_matrix, unbiased_r2_to_pearson_r
-
-pairs = pd.DataFrame({
-    "CHR_1": [1, 1], "POS_1": [752721, 776546], "A1_1": ["A", "G"], "A2_1": ["G", "A"],
-    "CHR_2": [1, 1], "POS_2": [777122, 798959], "A1_2": ["A", "T"], "A2_2": ["C", "G"],
-})
-result = query_r2_matrix(pairs, r2_matrix_dir="r2_matrix", genome_build="hg38")
-print(result[["r2", "sign_r", "r", "status"]])
-```
-
-The signed Pearson `r` column is always included (it is all-NaN in base modes).
-
-For repeated queries against the same R² matrix, keep the handle:
-
-```python
-from ldsc import R2Matrix
-
-matrix = R2Matrix.open("r2_matrix", genome_build="hg38")
-out1 = matrix.query_pairs(pairs_a)
-out2 = matrix.query_pairs(pairs_b)
-print(matrix.chromosomes, matrix.snp_identifier, matrix.n_samples)
-```
-
-A `build-r2-matrix` output directory is the only R² matrix input mode; omitting
-`r2_matrix_dir` is a usage error.
+Three public objects are exported from `ldsc`: `R2Matrix.open(...)`, a reusable handle; `query_r2_matrix(pairs, ...)`, a one-shot wrapper; and `unbiased_r2_to_pearson_r(r2_adj, n, sign=None)`, a pure converter.
+`R2Matrix.open()` validates every chromosome's Parquet footer up front and loads each chromosome's sidecar, sidecar-binding check, identity-key map and Parquet handle lazily on first use, then caches them.
+A `build-r2-matrix` output directory is the only R² matrix input; omitting `r2_matrix_dir` is a usage error.
+Usage examples are in [Python usage, query pairs](../user-guide/python-usage.md#query-pairs).
 
 ## Pair input format
 

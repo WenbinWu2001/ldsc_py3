@@ -806,7 +806,7 @@ print(matrix.chromosomes, matrix.snp_identifier, matrix.n_samples)
 
 `unbiased_r2_to_pearson_r(r2_adj, n, sign=None)` converts unbiased R² values to Pearson r for reference sample size `n`; without `sign` it returns $|r|$.
 `query_r2_matrix()` and `R2Matrix.query_pairs()` apply it with the R² matrix's `ldsc:n_samples` and the aligned `sign_r`.
-See the [query reference](../reference/query-r2-matrix.md#python-api).
+The pair format, output schema and sign convention are in the [query reference](../reference/query-r2-matrix.md).
 
 ## SNP heritability
 

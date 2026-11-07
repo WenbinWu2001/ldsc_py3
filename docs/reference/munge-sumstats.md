@@ -422,57 +422,7 @@ Mapping counts cover only rows that reach the liftover stage, after keep-list fi
 
 ## Common Commands
 
-Diagnose first:
-
-```bash
-ldsc munge-sumstats \
-  --output-genome-build hg38 \
-  --raw-sumstats-file data/trait.tsv.gz \
-  --output-dir outputs/trait_hg38 \
-  --infer-only
-```
-
-Run with inferred source build and no liftover if the raw file is already hg38:
-
-```bash
-ldsc munge-sumstats \
-  --source-genome-build auto \
-  --output-genome-build hg38 \
-  --raw-sumstats-file data/trait.tsv.gz \
-  --output-dir outputs/trait_hg38
-```
-
-Run HM3-filtered quick liftover:
-
-```bash
-ldsc munge-sumstats \
-  --source-genome-build auto \
-  --output-genome-build hg38 \
-  --raw-sumstats-file data/trait.tsv.gz \
-  --output-dir outputs/trait_hg38
-```
-
-Run chain-file liftover:
-
-```bash
-ldsc munge-sumstats \
-  --source-genome-build hg19 \
-  --output-genome-build hg38 \
-  --liftover-chain-file resources/liftover/hg19ToHg38.over.chain \
-  --raw-sumstats-file data/trait.tsv.gz \
-  --output-dir outputs/trait_hg38
-```
-
-Run rsID identity:
-
-```bash
-ldsc munge-sumstats \
-  --snp-identifier rsid \
-  --raw-sumstats-file data/trait.tsv.gz \
-  --output-dir outputs/trait_rsid
-```
-
-Do not pass source/output/liftover flags in rsID-family modes.
+Worked commands (preview, run, chain-file liftover and rsID identity) are on the [munge-sumstats workflow page](../user-guide/workflows/munge-sumstats.md).
 
 ## Python API
 

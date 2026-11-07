@@ -1,6 +1,6 @@
 # Munge summary statistics
 
-Last updated on: 2026-11-04
+Last updated on: 2026-11-06
 
 `ldsc munge-sumstats` converts raw summary statistics into munged summary statistics for LDSC3.
 See the [`munge-sumstats` reference](../../reference/munge-sumstats.md) for the full workflow and output contract.
@@ -81,7 +81,25 @@ Always choose `--output-genome-build` explicitly for coordinate-based identity. 
 | Builds differ, custom list or unrestricted SNPs, no chain supplied | Stop and require a chain file, even if the custom list contains only HM3 SNPs |
 | Source build cannot be resolved | Stop and request `--source-genome-build hg19` or `hg38` |
 
-To opt out of automatic quick liftover, add `--liftover-chain-file /path/to/sourceToOutput.over.chain` in the source-to-output direction. This changes the mapping method; use `--no-snp-restriction` separately if you also want to disable the HM3 keep-list. rsID-based identity rejects build and liftover options. See the [current liftover contract](../../reference/munge-sumstats.md#liftover-rules).
+To opt out of automatic quick liftover, add `--liftover-chain-file /path/to/sourceToOutput.over.chain` in the source-to-output direction. This changes the mapping method; use `--no-snp-restriction` separately if you also want to disable the HM3 keep-list. See the [current liftover contract](../../reference/munge-sumstats.md#liftover-rules).
+
+```bash
+ldsc munge-sumstats \
+  --source-genome-build hg19 \
+  --output-genome-build hg38 \
+  --liftover-chain-file resources/liftover/hg19ToHg38.over.chain \
+  --raw-sumstats-file data/trait.tsv.gz \
+  --output-dir outputs/trait_hg38
+```
+
+rsID-based identity rejects build and liftover options, so an rsID run passes none of them:
+
+```bash
+ldsc munge-sumstats \
+  --snp-identifier rsid \
+  --raw-sumstats-file data/trait.tsv.gz \
+  --output-dir outputs/trait_rsid
+```
 
 ## Outputs and run summary
 

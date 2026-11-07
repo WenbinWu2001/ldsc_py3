@@ -1,6 +1,6 @@
 # LDSC3 - Guided Analysis Tutorial
 
-Last updated on: 2026-11-05
+Last updated on: 2026-11-06
 
 This tutorial walks through how to use the `ldsc` package for a series of LD score-based heritability analyses.
 
@@ -71,7 +71,7 @@ OUTPUT_ROOT="${INPUT_ROOT}/tutorial_output"
 
 - `snp_identifier=chr_pos`: use `chr` + `pos` as the unique identifier for a SNP.
 - Use `hg19` consistently for the coordinate-based examples below. Choose the output build explicitly during munging and provide matching baseline, BED, and reference-panel coordinates.
-- These examples explicitly select base `chr_pos`; the general package default is `chr_pos_allele_aware`. Use the same SNP identifier mode across materialized inputs. See [global configuration](concepts/snp-identity-and-genome-build.md).
+- These examples explicitly select base `chr_pos`; the general package default is `chr_pos_allele_aware`. Use the same SNP identifier mode across materialized inputs. See [SNP identity and genome build](concepts/snp-identity-and-genome-build.md).
 
 ## Munge summary statistics
 
@@ -515,4 +515,4 @@ Dedicated [summary-statistics tests](../../tests/regression/test_legacy_sumstats
 
 - [LD-score calculation](workflows/ld-scores.md), [heritability](workflows/heritability.md), and [partitioned heritability](workflows/partitioned-heritability.md).
 - [BED preparation](workflows/annotations.md), [reusable annotations](workflows/annotations.md), and [resource navigation](reference-data.md).
-- [Global configuration](concepts/snp-identity-and-genome-build.md) and [interface changes](workflows/migrating-from-legacy-ldsc.md).
+- [SNP identity and genome build](concepts/snp-identity-and-genome-build.md) and [interface changes](workflows/migrating-from-legacy-ldsc.md).

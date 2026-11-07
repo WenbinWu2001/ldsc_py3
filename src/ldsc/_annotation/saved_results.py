@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .bundle import AnnotationBundle, ShardDimensions
+from .bundle import AnnotationBundle, _ShardDimensions
 from .gene_query_storage import GeneListDiagnostics, persistent_gene_diagnostics
 from .sources import prepare_annotation_sources
 from .._runtime.scratch import ScratchWorkspace, TsvDiagnostics
@@ -42,7 +42,7 @@ class AnnotationOutputSources:
 
 
 @dataclass(frozen=True)
-class AnnotationResult(ShardDimensions):
+class AnnotationResult(_ShardDimensions):
     """Files a completed ``run_annotate`` wrote; values are read after explicit preparation.
 
     The result owns no files and needs no closing. It records the exported

@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from .in_memory import MemoryOwner
 
 
-class ShardDimensions:
+class _ShardDimensions:
     """Dimensions and provenance shared by ``AnnotationBundle`` and ``AnnotationResult``.
 
     Both carry ``shards`` (chromosome to an object with ``n_rows``), the
@@ -41,7 +41,7 @@ class ShardDimensions:
 
 
 @dataclass(frozen=True)
-class AnnotationBundle(ShardDimensions):
+class AnnotationBundle(_ShardDimensions):
     """Complete annotation dataset represented by on-demand chromosome shards.
 
     File-backed ``shards`` contain descriptors. ``from_frames`` instead owns

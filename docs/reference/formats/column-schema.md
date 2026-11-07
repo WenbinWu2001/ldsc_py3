@@ -84,6 +84,11 @@ Signed statistics:
 | `LOG_ODDS` | `LOG_ODDS` |
 | `SIGNED_SUMSTAT` | `SIGNED_SUMSTAT` |
 
+The raw reader first cleans each header with the legacy LDSC munging rules (`clean_header()`: uppercase, surrounding whitespace removed, `.` and `-` replaced by `_`), so `p.value` matches `P_VALUE`.
+`SIGNED_SUMSTAT` is recognized, but its null value is not inferred: pass `--signed-sumstats SIGNED_SUMSTAT,NULL`.
+Names such as `EFFECT_SIZE`, `LOGOR` and `BETA_HAT` produce suggestions rather than mappings; check their meaning and pass `--signed-sumstats COLUMN,NULL`.
+DANER inputs additionally carry case/control counts in format-specific headers ([raw format profiles](../munge-sumstats.md#raw-format-profiles)), which this table does not list.
+A frequency alias does not establish allele orientation: a source column named `MAF` is still a folded minor-allele frequency, not necessarily the frequency of `A1`.
 In raw summary statistics, `A1` is the effect allele, so only names that say which allele the signed statistic refers to are aliases; `REF`, `ALT`, `REFERENCE_ALLELE`, `ALLELE0`, `ALLELE1` and `ALLELE2` never map to `A1` or `A2` (see [What A1 means in each file type](#what-a1-means-in-each-file-type)).
 `NEFF` is not an alias for `N`.
 Sample-size selection, INFO-list columns and `--infer-only` are described in the [`munge-sumstats` reference](../munge-sumstats.md).

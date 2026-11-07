@@ -195,40 +195,10 @@ Sources: `resolve_raw_schema` in [_sumstats/munge_input.py](../../../src/ldsc/_s
 
 ## Automatically inferred column aliases
 
-*<u>[Clean up this section.]</u>*
-
-The table lists the column-name registry for raw summary statistics, including canonical spellings.
-Matching is case-insensitive; leading/trailing whitespace is stripped, and periods and hyphens are converted to underscores.
-For example, `p.value` matches `P_VALUE`. This reader uses cleaned exact aliases, not arbitrary substring or suffix matching. If multiple columns map to one field, choose the intended column explicitly or exclude the extra columns with `--ignore`.
-
-| Canonical field | Recognized headers | Explicit override / role |
-| --- | --- | --- |
-| `SNP` | `SNP`, `MARKERNAME`, `MARKERID`, `SNPID`, `SNP_ID`, `RS`, `RSID`, `RS_ID`, `ID`, `RS_NUMBER`, `RS_NUMBERS`, `MARKER` | `--snp COLUMN` |
-| `CHR` | `CHR`, `#CHROM`, `CHROM`, `CHROMOSOME` | `--chr COLUMN` |
-| `POS` | `POS`, `BP`, `POSITION`, `BASE_PAIR`, `BASEPAIR` | `--pos COLUMN` |
-| `NSTUDY` | `NSTUDY`, `N_STUDY`, `NSTUDIES`, `N_STUDIES` | `--nstudy COLUMN`; optional study-count filtering |
-| `P` | `P`, `PVALUE`, `P_VALUE`, `PVAL`, `P_VAL`, `GC_PVALUE` | `--p COLUMN` |
-| `A1` | `A1`, `EFFECT_ALLELE`, `INC_ALLELE`, `EA` | `--a1 COLUMN`; the effect allele, the allele the signed statistic refers to |
-| `A2` | `A2`, `OTHER_ALLELE`, `NON_EFFECT_ALLELE`, `DEC_ALLELE`, `NEA` | `--a2 COLUMN`; the other allele |
-| `N` | `N`, `WEIGHT` | `--N-col COLUMN` |
-| `N_CAS` | `N_CAS`, `NCASE`, `CASES_N`, `N_CASE`, `N_CASES`, `NCAS`, `Nca` | `--N-cas-col COLUMN`; pair with control count |
-| `N_CON` | `N_CON`, `N_CONTROLS`, `NCONTROL`, `CONTROLS_N`, `N_CONTROL`, `N_CTRL`, `NCON`, `Nco` | `--N-con-col COLUMN`; pair with case count |
-| `INFO` | `INFO`, `IMPINFO` | `--info COLUMN`; optional imputation-quality filter |
-| `FRQ` | `FRQ`, `EAF`, `MAF`, `FRQ_U`, `F_U` | `--frq COLUMN`; optional frequency/MAF filtering; selected values are preserved |
-| `Z` | `Z`, `ZSCORE`, `Z-SCORE`, `GC_ZSCORE` | `--signed-sumstats COLUMN,0` |
-| `OR` | `OR` | `--signed-sumstats COLUMN,1` |
-| `BETA` | `BETA`, `B`, `EFFECTS`, `EFFECT` | `--signed-sumstats COLUMN,0` |
-| `LOG_ODDS` | `LOG_ODDS` | `--signed-sumstats COLUMN,0` |
-| `SIGNED_SUMSTAT` | `SIGNED_SUMSTAT` | Recognized field name, but its null is not inferred; specify `--signed-sumstats SIGNED_SUMSTAT,NULL` |
-
-`NEFF` is deliberately not an automatic alias for N. Use `--N-col NEFF` only when its scientific meaning matches the intended sample-size input.
-`REF`, `ALT`, `REFERENCE_ALLELE`, `ALLELE0`, `ALLELE1` and `ALLELE2` are never mapped to A1 or A2, because which of them the signed statistic refers to depends on the program that wrote the file.
-If they are the only allele columns, the run stops; check the source of the summary statistics and name the effect allele with `--a1` and the other allele with `--a2` (see [allele columns](../../reference/munge-sumstats.md#allele-columns)).
-Names such as `EFFECT_SIZE`, `LOGOR`, and `BETA_HAT` can produce suggestions rather than automatic mappings; supply `--signed-sumstats COLUMN,NULL` after checking their meaning. Frequency aliases do not establish allele orientation: a source field named `MAF` remains folded minor-allele frequency, not necessarily A1 frequency.
-
-For DANER inputs, format-specific header handling additionally recognizes encoded count/frequency fields. The table describes ordinary raw-column aliases, not every DANER header convention. `--infer-only` reads the header as the run does and reports every header problem the run would stop on; it does not replace the run's QC checks, which need the data.
-
-Source: `RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS`, `RAW_SUMSTATS_SIGNED_STAT_SPECS`, and `clean_header` in [_core/columns.py](../../../src/ldsc/_core/columns.py); `get_cname_map` in [_sumstats/munge_input.py](../../../src/ldsc/_sumstats/munge_input.py); `infer_raw_sumstats` in [_sumstats/munger.py](../../../src/ldsc/_sumstats/munger.py).
+The recognized header names for each raw field are listed in [column schema, raw summary statistics](../../reference/formats/column-schema.md#raw-summary-statistics); the column flags below override them.
+If several columns map to one field, choose the intended column explicitly or exclude the others with `--ignore`.
+`NEFF` is deliberately not an alias for N; use `--N-col NEFF` only when its meaning matches the intended sample size.
+`REF`, `ALT`, `ALLELE1` and similar names are never mapped to A1 or A2, so a file with only those allele columns stops the run; name the effect allele with `--a1` and the other allele with `--a2` (see [allele columns](../../reference/munge-sumstats.md#allele-columns)).
 
 ## Flags for specifying input fields and sample sizes
 

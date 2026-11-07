@@ -316,8 +316,6 @@ class LD_Score_Regression(object):
         self.prop, self.prop_cov, self.prop_se =\
             self._prop(jknife, M, Nbar, self.cat, self.tot)
 
-        self.enrichment, self.M_prop = self._enrichment(
-            M, M_tot, self.cat, self.tot)
         if not self.constrain_intercept:
             self.intercept, self.intercept_se = self._intercept(jknife)
 
@@ -387,12 +385,6 @@ class LD_Score_Regression(object):
         prop = jk.RatioJackknife(
             cat / tot, numer_delete_vals, denom_delete_vals)
         return prop.est, prop.jknife_cov, prop.jknife_se
-
-    def _enrichment(self, M, M_tot, cat, tot):
-        '''Compute proportion of SNPs and per-annotation enrichment for SNP heritability or genetic covariance.'''
-        M_prop = M / M_tot
-        enrichment = np.divide(cat, M) / (tot / M_tot)
-        return enrichment, M_prop
 
     def _intercept(self, jknife):
         '''Extract intercept and intercept SE from block jackknife.'''

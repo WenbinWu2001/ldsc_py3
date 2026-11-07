@@ -19,7 +19,7 @@ from ldsc._regression import fitting
 from ldsc._regression.outputs import H2_REGRESSION_BIN_COLUMNS, PARTITIONED_H2_COLUMNS
 from ldsc._regression.results import RegressionDataset
 from ldsc._regression.runner import RegressionRunner
-from tests.regression_fixtures import RegressionFixtures, stub_h2_kernel
+from tests.regression_fixtures import RegressionFixtures, fake_partitioned_hsq, fake_total_h2_hsq, stub_h2_kernel
 
 
 class FittingTest(RegressionFixtures, unittest.TestCase):
@@ -73,30 +73,12 @@ class FittingTest(RegressionFixtures, unittest.TestCase):
     def test_summarize_total_h2_reports_post_filter_count(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         dataset = runner.build_dataset(self._high_chisq_sumstats(), self.make_ldscore_result())
-        hsq = mock.Mock(
-            tot=np.array([0.1]),
-            tot_se=np.array([0.01]),
-            intercept=np.array([1.0]),
-            intercept_se=0.01,
-            mean_chisq=np.array([1.1]),
-            lambda_gc=np.array([1.0]),
-            ratio=0.0,
-            ratio_se=0.0,
-        )
+        hsq = fake_total_h2_hsq()
         summary = fitting.summarize_total_h2(hsq, dataset, trait_name="trait", n_snps_used=2)
         self.assertEqual(int(summary.loc[0, "n_snps"]), 2)
 
     def _fake_total_h2_hsq(self, tot=0.2, tot_se=0.03):
-        return mock.Mock(
-            tot=np.array([tot]),
-            tot_se=np.array([tot_se]),
-            intercept=np.array([1.0]),
-            intercept_se=0.01,
-            mean_chisq=np.array([1.1]),
-            lambda_gc=np.array([1.0]),
-            ratio=0.0,
-            ratio_se=0.0,
-        )
+        return fake_total_h2_hsq(tot=np.array([tot]), tot_se=np.array([tot_se]))
 
     def test_summarize_total_h2_observed_when_no_prevalence(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
@@ -134,21 +116,7 @@ class FittingTest(RegressionFixtures, unittest.TestCase):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig(chisq_max=100.0))
         ldscore_result = self.make_ldscore_result()
         annotation_bundle = self.make_annotation_bundle()
-        fake_hsq = mock.Mock(
-            tot=np.array([0.3]),
-            tot_se=np.array([0.03]),
-            coef=np.array([0.0, 1.0]),
-            coef_cov=np.diag([0.01, 0.04]),
-            coef_se=np.array([0.1, 0.2]),
-            cat=np.array([0.0, 0.3]),
-            cat_se=np.array([0.01, 0.03]),
-            prop=np.array([0.0, 0.4]),
-            prop_cov=np.diag([0.0001, 0.0016]),
-            prop_se=np.array([0.01, 0.04]),
-            enrichment=np.array([0.0, 2.0]),
-            n_blocks=200,
-            n_annot=2,
-        )
+        fake_hsq = fake_partitioned_hsq()
         # The toy LD columns are collinear; exercise selection independently.
         with mock.patch.object(fitting, "_raise_on_model_collinearity"), stub_h2_kernel(fake_hsq):
             result = runner.estimate_partitioned_h2_batch(self._high_chisq_sumstats(), ldscore_result, query_columns=annotation_bundle.query_columns, output_dir=self.temporary_output_dir(), summary_sort_by='category')
@@ -218,26 +186,14 @@ class FittingTest(RegressionFixtures, unittest.TestCase):
                 ["base"], [],
             ),
         )
-        hsq = mock.Mock(
-            tot=np.array([0.25]),
-            tot_se=np.array([0.03]),
+        hsq = fake_partitioned_hsq(
+            n_annot=1,
             intercept=np.array([1.01]),
             intercept_se=0.02,
             mean_chisq=np.array([1.2]),
             lambda_gc=np.array([1.1]),
             ratio=0.05,
             ratio_se=0.01,
-            coef=np.array([0.025]),
-            coef_cov=np.array([[0.000009]]),
-            coef_se=np.array([0.003]),
-            cat=np.array([0.25]),
-            cat_se=np.array([0.03]),
-            prop=np.array([1.0]),
-            prop_cov=np.array([[0.0]]),
-            prop_se=np.array([0.0]),
-            enrichment=np.array([1.0]),
-            n_blocks=200,
-            n_annot=1,
         )
         return dataset, hsq
 

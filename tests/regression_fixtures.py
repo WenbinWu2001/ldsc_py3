@@ -38,6 +38,35 @@ def stub_h2_kernel(estimator):
         yield kernel
 
 
+def fake_total_h2_hsq(**overrides):
+    """A fitted-estimator stub carrying the total-h2 summary fields; ``overrides`` replace or add fields."""
+    return mock.Mock(**{
+        "tot": np.array([0.1]), "tot_se": np.array([0.01]), "intercept": np.array([1.0]), "intercept_se": 0.01,
+        "mean_chisq": np.array([1.1]), "lambda_gc": np.array([1.0]), "ratio": 0.0, "ratio_se": 0.0, **overrides,
+    })
+
+
+def fake_partitioned_hsq(n_annot=2, **overrides):
+    """A fitted partitioned-estimator stub over one (baseline only) or two (baseline + query) annotations."""
+    if n_annot == 1:
+        fields = {
+            "tot": np.array([0.25]), "tot_se": np.array([0.03]),
+            "coef": np.array([0.025]), "coef_cov": np.array([[9e-6]]), "coef_se": np.array([0.003]),
+            "cat": np.array([0.25]), "cat_se": np.array([0.03]),
+            "prop": np.array([1.0]), "prop_cov": np.array([[0.0]]), "prop_se": np.array([0.0]),
+            "enrichment": np.array([1.0]),
+        }
+    else:
+        fields = {
+            "tot": np.array([0.3]), "tot_se": np.array([0.03]),
+            "coef": np.array([0.0, 1.0]), "coef_cov": np.diag([0.01, 0.04]), "coef_se": np.array([0.1, 0.2]),
+            "cat": np.array([0.0, 0.3]), "cat_se": np.array([0.01, 0.03]),
+            "prop": np.array([0.0, 0.4]), "prop_cov": np.diag([0.0001, 0.0016]), "prop_se": np.array([0.01, 0.04]),
+            "enrichment": np.array([0.0, 2.0]),
+        }
+    return mock.Mock(**{**fields, "n_blocks": 200, "n_annot": n_annot, **overrides})
+
+
 def parsed_regression_args(command, options):
     """Parse ``options`` (option dest to value) with the ``ldsc <command>`` parser, so the others take its defaults.
 

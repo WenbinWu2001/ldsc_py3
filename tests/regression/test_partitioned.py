@@ -16,7 +16,7 @@ from ldsc._regression import fitting, partitioned
 from ldsc._regression.outputs import PARTITIONED_H2_COLUMNS
 from ldsc._regression.results import PartitionedH2BatchResult
 from ldsc._regression.runner import RegressionRunner
-from tests.regression_fixtures import RegressionFixtures, stub_h2_kernel
+from tests.regression_fixtures import RegressionFixtures, fake_partitioned_hsq, stub_h2_kernel
 
 
 class PartitionedTest(RegressionFixtures, unittest.TestCase):
@@ -25,13 +25,7 @@ class PartitionedTest(RegressionFixtures, unittest.TestCase):
         # post-filter count and effective cap in the aggregate metadata.
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig(chisq_max=4.0))
         ldscore_result = self._baseline_only_ldscore_result()
-        fake_hsq = mock.Mock(
-            tot=np.array([0.25]), tot_se=np.array([0.03]),
-            coef=np.array([0.025]), coef_cov=np.array([[9e-6]]), coef_se=np.array([0.003]),
-            cat=np.array([0.25]), cat_se=np.array([0.03]),
-            prop=np.array([1.0]), prop_cov=np.array([[0.0]]), prop_se=np.array([0.0]),
-            enrichment=np.array([1.0]), n_blocks=200, n_annot=1,
-        )
+        fake_hsq = fake_partitioned_hsq(n_annot=1)
         with stub_h2_kernel(fake_hsq):
             result = runner.estimate_partitioned_h2_batch(self._high_chisq_sumstats(), ldscore_result, query_columns=replace(self.make_annotation_bundle(), query_columns=[]).query_columns, output_dir=self.temporary_output_dir(), summary_sort_by='category')
         self.assertEqual(json.loads(Path(result.output_paths["metadata"]).read_text())["n_snps"], 1)
@@ -41,13 +35,7 @@ class PartitionedTest(RegressionFixtures, unittest.TestCase):
         # A functional fit over a single baseline annotation is degenerate; warn.
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         ldscore_result = self._baseline_only_ldscore_result()
-        fake_hsq = mock.Mock(
-            tot=np.array([0.25]), tot_se=np.array([0.03]),
-            coef=np.array([0.025]), coef_cov=np.array([[9e-6]]), coef_se=np.array([0.003]),
-            cat=np.array([0.25]), cat_se=np.array([0.03]),
-            prop=np.array([1.0]), prop_cov=np.array([[0.0]]), prop_se=np.array([0.0]),
-            enrichment=np.array([1.0]), n_blocks=200, n_annot=1,
-        )
+        fake_hsq = fake_partitioned_hsq(n_annot=1)
         with stub_h2_kernel(fake_hsq), self.assertLogs(
             "LDSC.regression_runner", level="WARNING"
         ) as logs:
@@ -57,13 +45,7 @@ class PartitionedTest(RegressionFixtures, unittest.TestCase):
     def test_partitioned_cell_type_regime_does_not_warn_degenerate(self):
         # Cell-type models always fit baseline + one query (n_annot >= 2); no warning.
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        fake_hsq = mock.Mock(
-            tot=np.array([0.3]), tot_se=np.array([0.03]),
-            coef=np.array([0.0, 1.0]), coef_cov=np.diag([0.01, 0.04]), coef_se=np.array([0.1, 0.2]),
-            cat=np.array([0.0, 0.3]), cat_se=np.array([0.01, 0.03]),
-            prop=np.array([0.0, 0.4]), prop_cov=np.diag([0.0001, 0.0016]), prop_se=np.array([0.01, 0.04]),
-            enrichment=np.array([0.0, 2.0]), n_blocks=200, n_annot=2,
-        )
+        fake_hsq = fake_partitioned_hsq()
         # The toy LD columns are collinear; exercise selection independently.
         with (
             mock.patch.object(fitting, "_raise_on_model_collinearity"),
@@ -112,21 +94,7 @@ class PartitionedTest(RegressionFixtures, unittest.TestCase):
 
     def test_estimate_partitioned_h2_batch_fits_only_requested_query(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        fake_hsq = mock.Mock(
-            tot=np.array([0.3]),
-            tot_se=np.array([0.03]),
-            coef=np.array([0.0, 1.0]),
-            coef_cov=np.diag([0.01, 0.04]),
-            coef_se=np.array([0.1, 0.2]),
-            cat=np.array([0.0, 0.3]),
-            cat_se=np.array([0.01, 0.03]),
-            prop=np.array([0.0, 0.4]),
-            prop_cov=np.diag([0.0001, 0.0016]),
-            prop_se=np.array([0.01, 0.04]),
-            enrichment=np.array([0.0, 2.0]),
-            n_blocks=200,
-            n_annot=2,
-        )
+        fake_hsq = fake_partitioned_hsq()
 
         # The toy LD columns are collinear; exercise selection independently.
         with mock.patch.object(fitting, "_raise_on_model_collinearity"), stub_h2_kernel(fake_hsq) as patched:
@@ -157,21 +125,7 @@ class PartitionedTest(RegressionFixtures, unittest.TestCase):
         table = self.make_sumstats_table()
         ldscore_result = self.make_ldscore_result()
         annotation_bundle = self.make_annotation_bundle()
-        fake_hsq = mock.Mock(
-            tot=np.array([0.3]),
-            tot_se=np.array([0.03]),
-            coef=np.array([0.0, 1.0]),
-            coef_cov=np.diag([0.01, 0.04]),
-            coef_se=np.array([0.1, 0.2]),
-            cat=np.array([0.0, 0.3]),
-            cat_se=np.array([0.01, 0.03]),
-            prop=np.array([0.0, 0.4]),
-            prop_cov=np.diag([0.0001, 0.0016]),
-            prop_se=np.array([0.01, 0.04]),
-            enrichment=np.array([0.0, 2.0]),
-            n_blocks=200,
-            n_annot=2,
-        )
+        fake_hsq = fake_partitioned_hsq()
         # The toy LD columns are collinear; exercise selection independently.
         with (
             mock.patch.object(fitting, "_raise_on_model_collinearity"),
@@ -196,21 +150,7 @@ class PartitionedTest(RegressionFixtures, unittest.TestCase):
         table = self.make_sumstats_table()
         ldscore_result = self.make_ldscore_result()
         annotation_bundle = self.make_annotation_bundle()
-        fake_hsq = mock.Mock(
-            tot=np.array([0.3]),
-            tot_se=np.array([0.03]),
-            coef=np.array([0.0, 1.0]),
-            coef_cov=np.diag([0.01, 0.04]),
-            coef_se=np.array([0.1, 0.2]),
-            cat=np.array([0.0, 0.3]),
-            cat_se=np.array([0.01, 0.03]),
-            prop=np.array([0.0, 0.4]),
-            prop_cov=np.diag([0.0001, 0.0016]),
-            prop_se=np.array([0.01, 0.04]),
-            enrichment=np.array([0.0, 2.0]),
-            n_blocks=200,
-            n_annot=2,
-        )
+        fake_hsq = fake_partitioned_hsq()
         # The toy LD columns are collinear; exercise selection independently.
         with mock.patch.object(fitting, "_raise_on_model_collinearity"), stub_h2_kernel(fake_hsq):
             result = runner.estimate_partitioned_h2_batch(table, ldscore_result, query_columns=annotation_bundle.query_columns, output_dir=self.temporary_output_dir(), summary_sort_by='category')

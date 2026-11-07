@@ -22,7 +22,7 @@ from ldsc import cli
 from ldsc._regression import commands, partitioned, rg
 from ldsc._regression.outputs import LEGACY_SUMSTATS_DROP_COLUMNS, RgDirectoryWriter
 from ldsc._regression.results import RgResultFamily
-from tests.regression_fixtures import RegressionFixtures, parsed_regression_args, stub_h2_kernel
+from tests.regression_fixtures import RegressionFixtures, fake_total_h2_hsq, parsed_regression_args, stub_h2_kernel
 
 
 class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
@@ -42,12 +42,6 @@ class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "common",
                     "output_dir": "$LDSC_REGRESSION_OUT/h2_out",
-                    "overwrite": False,
-                    "log_level": "INFO",
-                    "num_blocks": 200,
-                    "intercept_h2": None,
-                    "two_step_cutoff": None,
-                    "chisq_max": None,
                     "log_level": "INFO",
                 },
             )
@@ -56,17 +50,7 @@ class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
             marker.parent.mkdir()
             marker.write_text("earlier failed overwrite")
             with mock.patch.dict("os.environ", {"LDSC_REGRESSION_OUT": str(tmpdir)}), contextlib.chdir(tmpdir), stub_h2_kernel(
-                mock.Mock(
-                    tot=np.array([0.1]),
-                    tot_se=np.array([0.01]),
-                    intercept=np.array([1.0]),
-                    intercept_se=0.01,
-                    mean_chisq=np.array([1.1]),
-                    lambda_gc=np.array([1.0]),
-                    ratio=0.0,
-                    ratio_se=0.0,
-                    coef=np.array([0.001]),
-                ),
+                fake_total_h2_hsq(coef=np.array([0.001])),
             ) as patched:
                 result = commands.run_h2_from_args(args)
 
@@ -131,12 +115,7 @@ class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
                 "ldscore_dir": str(ldscore_dir),
                 "count_kind": "common",
                 "output_dir": str(tmpdir / "h2_out"),
-                "overwrite": False,
                 "log_level": "INFO",
-                "num_blocks": 200,
-                "intercept_h2": None,
-                "two_step_cutoff": None,
-                "chisq_max": None,
                 "samp_prev": samp_prev,
                 "pop_prev": pop_prev,
             },
@@ -151,17 +130,7 @@ class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
 
     def _patched_h2(self):
         return stub_h2_kernel(
-            mock.Mock(
-                tot=np.array([0.2]),
-                tot_se=np.array([0.03]),
-                intercept=np.array([1.0]),
-                intercept_se=0.01,
-                mean_chisq=np.array([1.1]),
-                lambda_gc=np.array([1.0]),
-                ratio=0.0,
-                ratio_se=0.0,
-                coef=np.array([0.001]),
-            ),
+            fake_total_h2_hsq(tot=np.array([0.2]), tot_se=np.array([0.03]), coef=np.array([0.001])),
         )
 
     def test_run_h2_from_args_liability_scale(self):
@@ -204,12 +173,7 @@ class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "common",
                     "output_dir": None,
-                    "overwrite": False,
                     "log_level": "INFO",
-                    "num_blocks": 200,
-                    "intercept_h2": None,
-                    "two_step_cutoff": None,
-                    "chisq_max": None,
                 },
             )
 
@@ -235,31 +199,15 @@ class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
                 "h2",
                 {
                     "sumstats_file": str(tmpdir / "trait.parquet"),
-                    "trait_name": None,
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "common",
                     "output_dir": str(tmpdir / "h2_out"),
-                    "overwrite": False,
                     "log_level": "INFO",
-                    "num_blocks": 200,
-                    "intercept_h2": None,
-                    "two_step_cutoff": None,
-                    "chisq_max": None,
                 },
             )
 
             with stub_h2_kernel(
-                mock.Mock(
-                    tot=np.array([0.1]),
-                    tot_se=np.array([0.01]),
-                    intercept=np.array([1.0]),
-                    intercept_se=0.01,
-                    mean_chisq=np.array([1.1]),
-                    lambda_gc=np.array([1.0]),
-                    ratio=0.0,
-                    ratio_se=0.0,
-                    coef=np.array([0.001]),
-                ),
+                fake_total_h2_hsq(coef=np.array([0.001])),
             ):
                 summary = commands.run_h2_from_args(args).summary
 
@@ -415,17 +363,10 @@ class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
             "rg",
             {
                 "sumstats_sources": ["a.sumstats.gz", "b.sumstats.gz"],
-                "anchor_trait": None,
                 "ldscore_dir": "ldscores",
                 "count_kind": "common",
                 "output_dir": None,
-                "overwrite": False,
                 "write_per_pair_detail": True,
-                "num_blocks": 200,
-                "intercept_h2": None,
-                "intercept_gencov": None,
-                "two_step_cutoff": None,
-                "chisq_max": None,
                 "log_level": "INFO",
             },
         )
@@ -464,17 +405,9 @@ class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
                 "rg",
                 {
                     "sumstats_sources": sumstats_sources,
-                    "anchor_trait": None,
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "common",
                     "output_dir": "$LDSC_REGRESSION_OUT/out",
-                    "overwrite": False,
-                    "write_per_pair_detail": False,
-                    "num_blocks": 200,
-                    "intercept_h2": None,
-                    "intercept_gencov": None,
-                    "two_step_cutoff": None,
-                    "chisq_max": None,
                     "log_level": "INFO",
                 },
             )
@@ -529,13 +462,6 @@ class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "common",
                     "output_dir": str(tmpdir / "out"),
-                    "overwrite": False,
-                    "write_per_pair_detail": False,
-                    "num_blocks": 200,
-                    "intercept_h2": None,
-                    "intercept_gencov": None,
-                    "two_step_cutoff": None,
-                    "chisq_max": None,
                     "log_level": "INFO",
                 },
             )
@@ -577,13 +503,6 @@ class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "common",
                     "output_dir": str(tmpdir / "out"),
-                    "overwrite": False,
-                    "write_per_pair_detail": False,
-                    "num_blocks": 200,
-                    "intercept_h2": None,
-                    "intercept_gencov": None,
-                    "two_step_cutoff": None,
-                    "chisq_max": None,
                     "log_level": "INFO",
                 },
             )
@@ -711,11 +630,6 @@ class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
                     "ldscore_dir": str(tmpdir / "ldscores"),
                     "count_kind": "common",
                     "output_dir": str(output_dir),
-                    "overwrite": False,
-                    "num_blocks": 200,
-                    "intercept_h2": None,
-                    "two_step_cutoff": None,
-                    "chisq_max": None,
                 },
             )
 
@@ -752,26 +666,11 @@ class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "common",
                     "output_dir": str(output_dir),
-                    "overwrite": False,
-                    "num_blocks": 200,
-                    "intercept_h2": None,
-                    "two_step_cutoff": None,
-                    "chisq_max": None,
                 },
             )
 
             with stub_h2_kernel(
-                mock.Mock(
-                    tot=np.array([0.1]),
-                    tot_se=np.array([0.01]),
-                    intercept=np.array([1.0]),
-                    intercept_se=0.01,
-                    mean_chisq=np.array([1.1]),
-                    lambda_gc=np.array([1.0]),
-                    ratio=0.0,
-                    ratio_se=0.0,
-                    coef=np.array([0.001]),
-                ),
+                fake_total_h2_hsq(coef=np.array([0.001])),
             ):
                 with self.assertRaisesRegex(FileExistsError, "overwrite"):
                     commands.run_h2_from_args(args)
@@ -795,11 +694,6 @@ class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
                     "ldscore_dir": str(tmpdir / "missing_ldscores"),
                     "count_kind": "common",
                     "output_dir": str(output_dir),
-                    "overwrite": False,
-                    "num_blocks": 200,
-                    "intercept_h2": None,
-                    "two_step_cutoff": None,
-                    "chisq_max": None,
                 },
             )
 
@@ -840,25 +734,11 @@ class RegressionCommandsTest(RegressionFixtures, unittest.TestCase):
                     "count_kind": "common",
                     "output_dir": str(output_dir),
                     "overwrite": True,
-                    "num_blocks": 200,
-                    "intercept_h2": None,
-                    "two_step_cutoff": None,
-                    "chisq_max": None,
                 },
             )
 
             with stub_h2_kernel(
-                mock.Mock(
-                    tot=np.array([0.1]),
-                    tot_se=np.array([0.01]),
-                    intercept=np.array([1.0]),
-                    intercept_se=0.01,
-                    mean_chisq=np.array([1.1]),
-                    lambda_gc=np.array([1.0]),
-                    ratio=0.0,
-                    ratio_se=0.0,
-                    coef=np.array([0.001]),
-                ),
+                fake_total_h2_hsq(coef=np.array([0.001])),
             ):
                 commands.run_h2_from_args(args)
 

@@ -615,10 +615,28 @@ def test_rg_pair_fit_stops_on_a_collinear_design_when_overlap_is_stored(tmp_path
         runner.estimate_rg(runner.build_rg_dataset(first, second, source))
 
 
-def test_rg_pair_fit_skips_the_collinearity_check_without_stored_overlap(tmp_path):
+def test_rg_pair_fit_stops_on_a_collinear_design_without_stored_overlap(tmp_path):
     (first, second), source = _near_collinear_rg_inputs(tmp_path, with_overlap=False)
     runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(num_blocks=6))
-    assert isinstance(runner.estimate_rg(runner.build_rg_dataset(first, second, source)), workflow.RegressionFit)
+    with pytest.raises(LDSCInputError, match="design matrix is collinear") as failure:
+        runner.estimate_rg(runner.build_rg_dataset(first, second, source))
+    assert "LD scores of annotations 'base' and 'dup' are almost proportional" in str(failure.value)
+
+
+def test_collinearity_check_runs_when_the_overlap_lacks_a_model_column():
+    from types import SimpleNamespace
+    from ldsc._regression import fitting
+
+    overlap = LDScoreOverlap.from_contribution(
+        OverlapContribution(np.eye(1), np.eye(1), np.array([]), np.array([]), 10, 10),
+        baseline_columns=["base"], query_columns=[],
+    )
+    dataset = SimpleNamespace(ldscore_overlap=overlap, retained_ld_columns=["base", "dup"],
+                              count_key_used_for_regression="common_reference_snp_counts")
+    base = np.linspace(1., 50., 40)
+    x = np.column_stack([base, 2 * base + 1e-9 * np.sin(base)])
+    with pytest.raises(LDSCInputError, match="LD scores of annotations 'base' and 'dup' are almost proportional"):
+        fitting._raise_on_model_collinearity(dataset, x)
 
 
 def test_rg_pairs_record_a_pair_collinear_only_on_shared_snps_as_failed(tmp_path, caplog):

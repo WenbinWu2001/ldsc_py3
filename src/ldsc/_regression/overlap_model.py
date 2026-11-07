@@ -120,12 +120,14 @@ def _first_missing_overlap_label(block, qdiag, columns, baseline_index):
     return None
 
 
-def model_collinearity_error(X, columns, overlap_matrix, threshold: float = 1e5) -> str | None:
+def model_collinearity_error(X, columns, overlap_matrix=None, threshold: float = 1e5) -> str | None:
     """Return a fatal-error message when the LD-score design matrix is near-collinear.
 
     Uses the legacy condition-number threshold on the design matrix itself, and
     names the most correlated annotation pair (from the overlap Gram matrix) as
-    the likely culprit. Returns ``None`` when well conditioned or under-sized.
+    the likely culprit. Without ``overlap_matrix`` the pair comes from the Gram
+    matrix of the LD-score columns instead. Returns ``None`` when well
+    conditioned or under-sized.
     The caller raises on a non-``None`` message: collinear annotations cannot be
     separated, so the partition would be untrustworthy and the run must abort
     rather than emit results the user has to second-guess.
@@ -138,14 +140,16 @@ def model_collinearity_error(X, columns, overlap_matrix, threshold: float = 1e5)
     condition_number = float(np.sqrt(np.linalg.cond(X.T @ X)))
     if condition_number <= threshold:
         return None
-    O = np.asarray(overlap_matrix, dtype=np.float64)
+    O = X.T @ X if overlap_matrix is None else np.asarray(overlap_matrix, dtype=np.float64)
     scale = np.sqrt(np.clip(np.diag(O), 1e-300, None))
     corr = O / np.outer(scale, scale)
     np.fill_diagonal(corr, 0.0)
     i, j = np.unravel_index(int(np.argmax(np.abs(corr))), corr.shape)
+    pair = (f"The LD scores of annotations '{columns[i]}' and '{columns[j]}' are almost proportional"
+            if overlap_matrix is None else
+            f"Annotations '{columns[i]}' and '{columns[j]}' overlap almost entirely")
     return (
         f"LD score regression aborted: the design matrix is collinear (condition number "
-        f"{int(condition_number)} > {int(threshold)}). Annotations '{columns[i]}' and "
-        f"'{columns[j]}' overlap almost entirely (r={corr[i, j]:.3f}); their coefficients "
+        f"{int(condition_number)} > {int(threshold)}). {pair} (r={corr[i, j]:.3f}); their coefficients "
         f"cannot be separated. Drop one of them or coarsen the annotation, then re-run."
     )

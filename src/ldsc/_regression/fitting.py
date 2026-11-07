@@ -892,24 +892,28 @@ def _raise_on_model_collinearity(dataset: RegressionDataset, x: np.ndarray) -> N
     """Abort the fit when the LD-score design matrix is near-collinear.
 
     Uses the threshold of legacy LDSC's ``_check_ld_condnum``, which legacy
-    LDSC applies to rg pairs but, in h2 and --h2-cts runs, calls on the
-    column names, so it never runs there. Rather than warn and emit a partition the user must second-guess,
-    collinear annotations raise ``LDSCInputError`` so the only results
-    produced are trustworthy ones. h2 fits and each rg trait pair apply it on
-    their own regression rows. It is skipped when the model has fewer than two
-    LD-score columns, when the dataset carries no overlap, and when the
-    overlap lacks the needed common-SNP block or a model column.
+    LDSC applies to rg pairs but, in h2 and --h2-cts runs, calls on the column
+    names, so it never runs there. Rather than warn and emit a partition the
+    user must second-guess, collinear annotations raise ``LDSCInputError`` so
+    the only results produced are trustworthy ones. h2 fits and each rg trait
+    pair apply it on their own regression rows whenever the model has two or
+    more LD-score columns. The condition number needs only ``x``; the stored
+    annotation overlap, when it covers the model, names the overlapping pair,
+    and otherwise the LD-score columns themselves do.
     """
+    columns = list(dataset.retained_ld_columns)
+    if len(columns) < 2:
+        return
     overlap = getattr(dataset, "ldscore_overlap", None)
-    if overlap is None or len(dataset.retained_ld_columns) < 2:
-        return
-
-    use_common = dataset.count_key_used_for_regression == COMMON_COUNT_KEY
-    try:
-        model_overlap = assemble_model_overlap(overlap, list(dataset.retained_ld_columns), use_common)
-    except (ValueError, KeyError):
-        return
-    message = model_collinearity_error(x, list(dataset.retained_ld_columns), model_overlap)
+    model_overlap = None
+    if overlap is not None:
+        try:
+            model_overlap = assemble_model_overlap(
+                overlap, columns, dataset.count_key_used_for_regression == COMMON_COUNT_KEY)
+        except (ValueError, KeyError):
+            # The overlap only names the pair; the check itself still runs.
+            model_overlap = None
+    message = model_collinearity_error(x, columns, model_overlap)
     if message:
         raise LDSCInputError(message)
 

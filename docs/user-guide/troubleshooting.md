@@ -1287,9 +1287,9 @@ such a directory cannot be partitioned.
    `ldsc ldscore`.
 3. Keep `metadata.json`, the baseline/query parquet, and `ldscore.overlap.parquet`
    from the same run together.
-4. `h2` and `rg` do not require the overlap matrix (their collinearity
-   check, for `h2` and for each `rg` trait pair, uses it only when present),
-   so they run on unpartitioned or older directories.
+4. `h2` and `rg` do not require the overlap matrix: their collinearity
+   check runs without it and uses it, when present, only to name the
+   overlapping annotations, so they run on unpartitioned or older directories.
 
 **Developer reference:** `_regression.partitioned.estimate_partitioned_h2_batch()` / `_regression.fitting.summarize_partitioned_h2()` · **Exception:** `LDSCInputError`
 

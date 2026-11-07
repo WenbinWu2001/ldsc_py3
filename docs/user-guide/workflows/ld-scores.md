@@ -1,6 +1,6 @@
 # Calculate LD scores
 
-Last updated on: 2026-11-05
+Last updated on: 2026-11-06
 
 `ldsc ldscore` computes LD scores from a reference panel and writes them to an LD-score directory.
 The regression commands `h2`, `rg` and `partitioned-h2` read that directory through `--ldscore-dir` and never recompute LD scores, so one LD-score directory serves every trait you analyze with the same reference panel and annotations.
@@ -126,6 +126,7 @@ For prebuilt query files written by `ldsc annotate`, pass the exported baseline 
 ```bash
 ldsc ldscore \
   --snp-identifier rsid \
+  --genome-build hg19 \
   --baseline-annot-sources "annotations/pathways/baseline.@.annot.gz" \
   --query-annot-sources "annotations/pathways/query.@.annot.gz" \
   --plink-prefix /path/to/plink/1000G.EUR.QC. \

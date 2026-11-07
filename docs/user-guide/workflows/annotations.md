@@ -1,6 +1,6 @@
 # Create reusable SNP annotations
 
-Last updated on: 2026-10-28
+Last updated on: 2026-11-06
 
 `ldsc annotate` projects BED intervals or gene lists onto an annotation SNP grid and writes reusable annotation files (`.annot.gz`), one query annotation per BED file or gene list.
 `ldsc ldscore` reads BED files and gene lists itself, so this step is optional for query annotations; use it when you want annotation files on disk to inspect, share or reuse across LD-score runs.
@@ -105,6 +105,7 @@ Pass the exported pair together to `ldscore`:
 ```bash
 ldsc ldscore \
   --snp-identifier rsid \
+  --genome-build hg19 \
   --baseline-annot-sources "annotations/pathways/baseline.@.annot.gz" \
   --query-annot-sources "annotations/pathways/query.@.annot.gz" \
   --plink-prefix "/path/to/plink/1000G.EUR.QC.@" \

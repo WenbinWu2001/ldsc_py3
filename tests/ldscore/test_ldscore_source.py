@@ -67,35 +67,19 @@ class LoadLDScoreFromDirTest(unittest.TestCase):
             with self.assertRaisesRegex(LDSCInputError, "snp_identifier=.*invalid"):
                 load_ldscore_from_dir(str(tmpdir))
 
-    def test_load_ldscore_from_dir_rejects_allele_aware_baseline_without_alleles(self):
+    def test_load_ldscore_from_dir_rejects_allele_aware_tables_without_alleles(self):
         from ldsc import load_ldscore_from_dir
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            write_one_snp_ldscore_dir(tmpdir, include_query=True)
-            pd.read_parquet(tmpdir / "ldscore.baseline.parquet").drop(columns=["A1", "A2"]).to_parquet(
-                tmpdir / "ldscore.baseline.parquet",
-                index=False,
-            )
-            edit_json(tmpdir / "metadata.json", lambda metadata: metadata.update(snp_identifier="rsid_allele_aware"))
+        for table in ("baseline", "query"):
+            with self.subTest(table=table), tempfile.TemporaryDirectory() as tmpdir:
+                tmpdir = Path(tmpdir)
+                write_one_snp_ldscore_dir(tmpdir, include_query=True)
+                path = tmpdir / f"ldscore.{table}.parquet"
+                pd.read_parquet(path).drop(columns=["A1", "A2"]).to_parquet(path, index=False)
+                edit_json(tmpdir / "metadata.json", lambda metadata: metadata.update(snp_identifier="rsid_allele_aware"))
 
-            with self.assertRaisesRegex(LDSCInputError, "baseline_table.*allele columns are missing"):
-                load_ldscore_from_dir(str(tmpdir))
-
-    def test_load_ldscore_from_dir_rejects_allele_aware_query_without_alleles(self):
-        from ldsc import load_ldscore_from_dir
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            write_one_snp_ldscore_dir(tmpdir, include_query=True)
-            pd.read_parquet(tmpdir / "ldscore.query.parquet").drop(columns=["A1", "A2"]).to_parquet(
-                tmpdir / "ldscore.query.parquet",
-                index=False,
-            )
-            edit_json(tmpdir / "metadata.json", lambda metadata: metadata.update(snp_identifier="rsid_allele_aware"))
-
-            with self.assertRaisesRegex(LDSCInputError, "query_table.*allele columns are missing"):
-                load_ldscore_from_dir(str(tmpdir))
+                with self.assertRaisesRegex(LDSCInputError, f"{table}_table.*allele columns are missing"):
+                    load_ldscore_from_dir(str(tmpdir))
 
     def test_load_ldscore_from_dir_rejects_snp_identifier_override_mismatch(self):
         from ldsc import load_ldscore_from_dir

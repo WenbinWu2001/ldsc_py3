@@ -502,8 +502,7 @@ class _DiscoveredFamily:
 
 @materializing_overwrite_guard(
     lambda **kwargs: (kwargs["output_dir"], kwargs.get("overwrite", False)) if kwargs.get("output_dir") else None,
-    # The failure marker keeps the command text it has always recorded.
-    command="LegacyLDScoreConverter.convert(...)",
+    command="convert_legacy_ldscores(...)",
 )
 def convert_legacy_ldscores(
     *,

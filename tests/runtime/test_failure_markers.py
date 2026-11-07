@@ -129,6 +129,9 @@ FAILING_PYTHON_CALLS = {
         ),
         overwrite=True,
     ),
+    "convert_legacy_ldscores": lambda root: ldsc.convert_legacy_ldscores(
+        legacy_reference_dir="nope", legacy_weight_dir="nope", output_dir=str(root), overwrite=True,
+    ),
 }
 
 

@@ -134,58 +134,30 @@ class GenomeBuildInferenceTest(unittest.TestCase):
 
 
 class TestResolveGenomeBuild(unittest.TestCase):
-    def _make_hg38_frame(self, n=500):
-        """Return a synthetic CHR/POS frame in hg38 coordinates."""
-        module = _load_module(self)
-        ref = module.load_packaged_reference_table()
-        sample = ref.head(n).copy()
-        return pd.DataFrame({"CHR": sample["CHR"], "POS": sample["hg38_POS"]})
-
-    def _make_hg19_frame(self, n=500):
-        module = _load_module(self)
-        ref = module.load_packaged_reference_table()
-        sample = ref.head(n).copy()
-        return pd.DataFrame({"CHR": sample["CHR"], "POS": sample["hg19_POS"]})
+    def _frame(self, build, n=500):
+        """Return a synthetic CHR/POS frame of packaged reference SNPs in ``build`` coordinates."""
+        sample = _load_module(self).load_packaged_reference_table().head(n)
+        return pd.DataFrame({"CHR": sample["CHR"], "POS": sample[f"{build}_POS"]})
 
     def _make_tiny_frame(self, n=5):
         """Frame too small to reach MIN_INSPECTED_REFERENCE_SNPS."""
         return pd.DataFrame({"CHR": ["1"] * n, "POS": list(range(n))})
 
-    def test_rsid_auto_hint_returns_none(self):
+    def test_hint_without_sample(self):
+        # rsID modes carry no build; coordinate modes take the hint, with hg37 an alias of hg19.
         module = _load_module(self)
-        self.assertIsNone(module.resolve_genome_build("auto", "rsid", None, context="test"))
+        for hint, mode, expected in [
+            ("auto", "rsid", None), ("hg38", "rsid", None), (None, "rsid", None),
+            ("hg38", "chr_pos", "hg38"), ("hg19", "chr_pos", "hg19"), ("hg37", "chr_pos", "hg19"),
+        ]:
+            with self.subTest(hint=hint, mode=mode):
+                self.assertEqual(module.resolve_genome_build(hint, mode, None, context="test"), expected)
 
-    def test_rsid_hg38_hint_returns_none(self):
+    def test_auto_sample_infers_its_build(self):
         module = _load_module(self)
-        self.assertIsNone(module.resolve_genome_build("hg38", "rsid", None, context="test"))
-
-    def test_rsid_none_hint_returns_none(self):
-        module = _load_module(self)
-        self.assertIsNone(module.resolve_genome_build(None, "rsid", None, context="test"))
-
-    def test_chr_pos_hg38_hint_returns_hg38(self):
-        module = _load_module(self)
-        self.assertEqual(module.resolve_genome_build("hg38", "chr_pos", None, context="test"), "hg38")
-
-    def test_chr_pos_hg19_hint_returns_hg19(self):
-        module = _load_module(self)
-        self.assertEqual(module.resolve_genome_build("hg19", "chr_pos", None, context="test"), "hg19")
-
-    def test_chr_pos_alias_hg37_returns_hg19(self):
-        module = _load_module(self)
-        self.assertEqual(module.resolve_genome_build("hg37", "chr_pos", None, context="test"), "hg19")
-
-    def test_auto_hg38_sample_infers_hg38(self):
-        module = _load_module(self)
-        frame = self._make_hg38_frame()
-        result = module.resolve_genome_build("auto", "chr_pos", frame, context="test")
-        self.assertEqual(result, "hg38")
-
-    def test_auto_hg19_sample_infers_hg19(self):
-        module = _load_module(self)
-        frame = self._make_hg19_frame()
-        result = module.resolve_genome_build("auto", "chr_pos", frame, context="test")
-        self.assertEqual(result, "hg19")
+        for build in ("hg38", "hg19"):
+            with self.subTest(build=build):
+                self.assertEqual(module.resolve_genome_build("auto", "chr_pos", self._frame(build), context="test"), build)
 
     def test_auto_none_sample_frame_raises(self):
         module = _load_module(self)
@@ -204,7 +176,7 @@ class TestResolveGenomeBuild(unittest.TestCase):
 
     def test_auto_logs_inference_summary(self):
         module = _load_module(self)
-        frame = self._make_hg38_frame()
+        frame = self._frame("hg38")
         with self.assertLogs(level="INFO") as log:
             module.resolve_genome_build(
                 "auto",

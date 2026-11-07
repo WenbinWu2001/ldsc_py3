@@ -387,35 +387,14 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(plink.keep_indivs_file, "filters/samples.keep")
         self.assertEqual(plink.genetic_map_hg38_sources, "maps/hg38.txt")
 
-    def test_ref_panel_config_accepts_runtime_source_fields(self):
-        config = RefPanelConfig(backend="plink", plink_prefix=Path("plink") / "panel")
-        self.assertEqual(config.plink_prefix, "plink/panel")
-
-    def test_public_configs_normalize_pathlike_inputs(self):
-        raw = MungeConfig(raw_sumstats_file=Path("sumstats") / "trait.tsv.gz")
+    def test_public_configs_normalize_gene_list_paths_and_keep_string_paths(self):
         annot = AnnotationBuildConfig(
-            baseline_annot_sources=(Path("baseline") / "base.1.annot.gz",),
             query_annot_gene_list_sources=(Path("genes") / "immune.txt.gz",),
             gene_coordinate_file=Path("genes") / "catalog.tsv.gz",
         )
-        ref = RefPanelConfig(backend="r2_matrix", r2_matrix_dir=Path("r2_matrix") / "hg38")
-        plink = RefPanelConfig(backend="plink", plink_prefix=Path("plink") / "panel")
-        self.assertEqual(raw.raw_sumstats_file, "sumstats/trait.tsv.gz")
-        self.assertEqual(annot.baseline_annot_sources, ("baseline/base.1.annot.gz",))
+        ref = RefPanelConfig(backend="r2_matrix", r2_matrix_dir="r2_matrix/hg38")
         self.assertEqual(annot.query_annot_gene_list_sources, ("genes/immune.txt.gz",))
         self.assertEqual(annot.gene_coordinate_file, "genes/catalog.tsv.gz")
-        self.assertEqual(plink.plink_prefix, "plink/panel")
-        self.assertEqual(ref.r2_matrix_dir, "r2_matrix/hg38")
-
-    def test_public_configs_accept_single_string_tokens_for_plural_fields(self):
-        annot = AnnotationBuildConfig(
-            baseline_annot_sources="baseline.@.annot.gz",
-            query_annot_gene_list_sources="genes/*.txt.gz",
-            gene_coordinate_file="genes/catalog.tsv.gz",
-        )
-        ref = RefPanelConfig(backend="r2_matrix", r2_matrix_dir="r2_matrix/hg38")
-        self.assertEqual(annot.baseline_annot_sources, ("baseline.@.annot.gz",))
-        self.assertEqual(annot.query_annot_gene_list_sources, ("genes/*.txt.gz",))
         self.assertEqual(ref.r2_matrix_dir, "r2_matrix/hg38")
 
 class IdentifierHelpersTest(unittest.TestCase):

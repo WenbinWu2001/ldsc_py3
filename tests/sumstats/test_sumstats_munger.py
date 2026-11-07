@@ -12,7 +12,7 @@ from unittest import mock
 import numpy as np
 import pandas as pd
 from pandas.testing import assert_series_equal
-
+import pytest
 
 import ldsc
 from ldsc.config import GlobalConfig, MungeConfig
@@ -23,6 +23,49 @@ from ldsc._sumstats import munge_kernel as kernel_munge
 from ldsc._sumstats import munge_input
 from ldsc._core.snp_identity import IDENTITY_DROP_COLUMNS
 from ldsc._sumstats.munger import SumstatsMunger
+
+
+_PARSER_BASE = ["--raw-sumstats-file", "raw.tsv", "--output-dir", "out"]
+_CHAIN = ["--output-genome-build", "hg38", "--liftover-chain-file", "hg19ToHg38.over.chain"]
+
+
+@pytest.mark.parametrize(("extra", "attribute", "expected"), [
+    ([], "raw_sumstats_file", "raw.tsv"),
+    ([], "output_dir", "out"),
+    ([], "chunksize", 1_000_000),
+    ([], "output_format", "parquet"),
+    ([], "source_genome_build", "auto"),
+    ([], "log_level", "INFO"),
+    ([], "sumstats_format", "auto"),
+    ([], "no_snp_restriction", False),
+    (["--log-level", "DEBUG"], "log_level", "DEBUG"),
+    (["--trait-name", "MDD"], "trait_name", "MDD"),
+    (_CHAIN, "output_genome_build", "hg38"),
+    (_CHAIN, "liftover_chain_file", "hg19ToHg38.over.chain"),
+    (_CHAIN, "no_snp_restriction", False),
+    (["--no-snp-restriction"], "no_snp_restriction", True),
+    (["--input-format", "plain"], "sumstats_format", "plain"),
+    (["--input-format", "daner-old"], "sumstats_format", "daner-old"),
+    (["--input-format", "daner-new"], "sumstats_format", "daner-new"),
+    (["--infer-only"], "infer_only", True),
+])
+def test_munge_parser_defaults_and_values(extra, attribute, expected):
+    args = sumstats_workflow.build_parser().parse_args([*_PARSER_BASE, *extra])
+    assert getattr(args, attribute) == expected
+
+
+@pytest.mark.parametrize("argv", [
+    [*_PARSER_BASE, "--output-format", "csv"],
+    # --infer-only still requires --output-dir.
+    ["--raw-sumstats-file", "raw.tsv", "--infer-only"],
+    # Legacy LDSC's DANER flags are gone; --input-format is the only selector.
+    [*_PARSER_BASE, "--daner"],
+    [*_PARSER_BASE, "--daner-n"],
+])
+def test_munge_parser_rejects(argv):
+    with pytest.raises(SystemExit) as error:
+        sumstats_workflow.build_parser().parse_args(argv)
+    assert error.value.code == 2
 
 
 class SumstatsMungerTest(unittest.TestCase):
@@ -67,100 +110,6 @@ class SumstatsMungerTest(unittest.TestCase):
             GlobalConfig(snp_identifier=snp_identifier, genome_build=genome_build), trait_name
         )
         sumstats_outputs.write_sumstats_parquet(sumstats_outputs.curated_sumstats_frame(frame), str(path), footer)
-
-    def test_build_parser_defaults_chunksize_to_one_million_rows(self):
-        parser = sumstats_workflow.build_parser()
-        self.assertEqual(parser.get_default("chunksize"), 1_000_000)
-
-    def test_build_parser_defaults_output_format_to_parquet(self):
-        parser = sumstats_workflow.build_parser()
-        self.assertEqual(parser.get_default("output_format"), "parquet")
-        with self.assertRaises(SystemExit):
-            parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--output-format", "csv"])
-
-    def test_build_parser_defaults_source_genome_build_to_auto(self):
-        parser = sumstats_workflow.build_parser()
-        self.assertEqual(parser.get_default("source_genome_build"), "auto")
-
-        args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out"])
-
-        self.assertEqual(args.source_genome_build, "auto")
-
-    def test_build_parser_defaults_log_level_to_info(self):
-        parser = sumstats_workflow.build_parser()
-        self.assertEqual(parser.get_default("log_level"), "INFO")
-        args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--log-level", "DEBUG"])
-        self.assertEqual(args.log_level, "DEBUG")
-
-    def test_build_parser_accepts_trait_name(self):
-        parser = sumstats_workflow.build_parser()
-
-        args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--trait-name", "MDD"])
-
-        self.assertEqual(args.trait_name, "MDD")
-
-    def test_build_parser_accepts_chain_override_and_defaults_to_hm3(self):
-        args = sumstats_workflow.build_parser().parse_args([
-            "--raw-sumstats-file", "raw.tsv", "--output-dir", "out",
-            "--output-genome-build", "hg38", "--liftover-chain-file", "hg19ToHg38.over.chain",
-        ])
-        self.assertEqual(args.output_genome_build, "hg38")
-        self.assertEqual(args.liftover_chain_file, "hg19ToHg38.over.chain")
-        self.assertFalse(args.no_snp_restriction)
-
-    def test_build_parser_accepts_no_snp_restriction(self):
-        args = sumstats_workflow.build_parser().parse_args([
-            "--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--no-snp-restriction",
-        ])
-        self.assertTrue(args.no_snp_restriction)
-
-    def test_build_parser_defaults_sumstats_format_to_auto(self):
-        parser = sumstats_workflow.build_parser()
-
-        args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out"])
-
-        self.assertEqual(args.sumstats_format, "auto")
-
-    def test_build_parser_accepts_plain_input_format(self):
-        parser = sumstats_workflow.build_parser()
-
-        args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--input-format", "plain"])
-
-        self.assertEqual(args.sumstats_format, "plain")
-
-    def test_build_parser_requires_output_dir_for_infer_only(self):
-        parser = sumstats_workflow.build_parser()
-
-        with self.assertRaises(SystemExit):
-            parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--infer-only"])
-        args = parser.parse_args(
-            ["--raw-sumstats-file", "raw.tsv", "--output-dir", "unused", "--infer-only"]
-        )
-
-        self.assertTrue(args.infer_only)
-        self.assertEqual(args.output_dir, "unused")
-
-    def test_build_parser_selects_daner_via_format_and_rejects_legacy_flags(self):
-        parser = sumstats_workflow.build_parser()
-
-        format_old_args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--input-format", "daner-old"])
-        format_new_args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--input-format", "daner-new"])
-
-        self.assertEqual(format_old_args.sumstats_format, "daner-old")
-        self.assertEqual(format_new_args.sumstats_format, "daner-new")
-        # Legacy LDSC's DANER flags are gone; --input-format is the only selector.
-        for legacy in ("--daner", "--daner-n"):
-            with self.assertRaises(SystemExit):
-                parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", legacy])
-
-    def test_build_parser_uses_raw_sumstats_file_for_raw_input(self):
-        parser = sumstats_workflow.build_parser()
-
-        args = parser.parse_args(
-            ["--raw-sumstats-file", "raw.tsv", "--output-dir", "out"]
-        )
-
-        self.assertEqual(args.raw_sumstats_file, "raw.tsv")
 
     def test_run_munge_sumstats_from_args_delegates_to_service_with_one_config(self):
         args = sumstats_workflow.build_parser().parse_args(

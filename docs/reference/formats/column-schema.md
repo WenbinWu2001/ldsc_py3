@@ -15,6 +15,7 @@ Aliases are accepted only when reading input headers and are never written.
 The alias registry is `src/ldsc/_core/columns.py`; the tables below list its contents.
 
 Headers are compared after lowercasing and removing punctuation, so `p-value`, `P_VALUE` and `pvalue` are the same header.
+Raw summary statistics are the exception: their headers are cleaned with the legacy LDSC rule described in [Raw summary statistics](#raw-summary-statistics) and then looked up exactly.
 A header matches a field only when it equals the field's canonical name or one of its listed aliases; a header that only ends in one, such as `EUR_MAF`, `eQTL_POS` or `my_hg19_pos`, matches nothing.
 The canonical name is preferred to an alias, and two headers that match at the same level stop the run with an error instead of a guess.
 When a required column is missing, the error names the headers that end in one of its names after a separator, such as `EUR_MAF` or `start_bp`, as columns to rename; such a header is never read as the field.

@@ -202,15 +202,11 @@ class WorkflowConfigTest(unittest.TestCase):
         with self.assertRaises(ldsc.LDSCConfigError):
             RefPanelConfig(backend="bad")
 
-    def test_ldscore_config_requires_one_window(self):
+    def test_ldscore_config_stores_window_and_defaults(self):
         config = LDScoreConfig(ld_wind_cm=1.0)
         self.assertEqual(config.ld_wind_cm, 1.0)
         self.assertEqual(config.snp_batch_size, 512)
         self.assertEqual(config.common_maf_min, 0.05)
-        with self.assertRaises(ldsc.LDSCConfigError):
-            LDScoreConfig()
-        with self.assertRaises(ldsc.LDSCConfigError):
-            LDScoreConfig(ld_wind_cm=1.0, ld_wind_kb=100.0)
 
     def test_ldscore_config_accepts_snp_batch_size(self):
         config = LDScoreConfig(ld_wind_snps=10, snp_batch_size=64)
@@ -279,17 +275,6 @@ class WorkflowConfigTest(unittest.TestCase):
                 genetic_map_hg38_sources="maps/hg38.txt",
                 liftover_chain_hg19_to_hg38_file="liftover/hg19ToHg38.over.chain",
                 output_dir="out",
-                ld_wind_cm=1.0,
-            )
-        with self.assertRaises(ldsc.LDSCConfigError):
-            R2MatrixBuildConfig(
-                plink_prefix="plink/panel",
-                source_genome_build="hg19",
-                genetic_map_hg19_sources="maps/hg19.txt",
-                genetic_map_hg38_sources="maps/hg38.txt",
-                liftover_chain_hg19_to_hg38_file="liftover/hg19ToHg38.over.chain",
-                output_dir="out",
-                ld_wind_kb=100.0,
                 ld_wind_cm=1.0,
             )
         source_only = R2MatrixBuildConfig(

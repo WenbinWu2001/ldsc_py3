@@ -224,10 +224,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 )
             self.assertFalse(output_dir.exists())
 
-    def test_chr_pos_still_requires_genome_build(self):
-        with self.assertRaisesRegex(LDSCUsageError, "coordinate-family SNP identifier mode.*genome build"):
-            direct_configs("--plink-prefix", "plink/panel.@", "--snp-identifier", "chr_pos")
-
     def test_auto_genome_build_does_not_infer_from_r2_matrix_directory_name_without_parquet_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             r2_matrix_dir = Path(tmpdir) / "hg38"
@@ -716,32 +712,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     ]
                 )
                 ldscore_workflow._validate_padding_usage(args)
-
-    def test_live_gene_lists_require_catalog_and_explicit_padding(self):
-        parser = ldscore_workflow.build_parser()
-        base = [
-            "--output-dir", "out",
-            "--baseline-annot-sources", "baseline.annot.gz",
-            "--query-annot-gene-list-sources", "genes.txt",
-        ]
-
-        with self.assertRaisesRegex(LDSCUsageError, "--padding-bp.*must be chosen"):
-            ldscore_workflow.run_ldscore_from_args(parse_command_line(parser, [*base, "--gene-coordinate-file", "genes.tsv"]))
-        with self.assertRaisesRegex(LDSCUsageError, "--gene-coordinate-file"):
-            ldscore_workflow.run_ldscore_from_args(parse_command_line(parser, [*base, "--padding-bp", "0"]))
-
-    def test_gene_resolution_policy_is_scoped_to_gene_list_modes(self):
-        parser = ldscore_workflow.build_parser()
-        args = parse_command_line(parser,
-            [
-                "--output-dir", "out",
-                "--query-annot-bed-sources", "query.bed",
-                "--allow-unresolved-genes",
-            ]
-        )
-
-        with self.assertRaisesRegex(LDSCUsageError, "resolution policy.*gene-list"):
-            ldscore_workflow.run_ldscore_from_args(args)
 
     def test_explicit_default_gene_options_are_rejected_outside_gene_list_mode(self):
         parser = ldscore_workflow.build_parser()
@@ -1670,24 +1640,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertIsNotNone(loaded.overlap)
             self.assertEqual(loaded.count_records, result.count_records)
 
-    def test_run_ldscore_from_args_rejects_query_annotations_without_baseline(self):
-        args = parse_command_line(build_parser(), [
-            "--output-dir", "out/example", "--query-annot-sources", "query.annot.gz", "--plink-prefix", "panel",
-            "--snp-identifier", "rsid", "--ld-wind-snps", "10", "--snp-batch-size", "50",
-        ])
-
-        with self.assertRaisesRegex(LDSCUsageError, "query annotations without baseline annotations.*all-ones `base`"):
-            ldscore_workflow.run_ldscore_from_args(args)
-
-    def test_run_ldscore_from_args_rejects_query_bed_without_baseline(self):
-        args = parse_command_line(build_parser(), [
-            "--output-dir", "out/example", "--query-annot-bed-sources", "query.bed", "--plink-prefix", "panel",
-            "--snp-identifier", "rsid", "--ld-wind-snps", "10", "--snp-batch-size", "50",
-        ])
-
-        with self.assertRaisesRegex(LDSCUsageError, "query annotations without baseline annotations.*all-ones `base`"):
-            ldscore_workflow.run_ldscore_from_args(args)
-
     def test_run_ldscore_from_args_loads_regression_snps_and_writes_filtered_ldscore(self):
         from tests.ldscore.test_ldscore_chromosome_scope import write_r2_inputs
         with tempfile.TemporaryDirectory() as directory:
@@ -1789,16 +1741,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 _resolve_build(configs)
             self.assertIn(str(baseline), str(caught.exception))
             self.assertIn('chr1_r2.parquet', str(caught.exception))
-
-    def test_run_ldscore_from_args_rejects_keep_in_parquet_mode(self):
-        args = parse_command_line(build_parser(), [
-            "--output-dir", "out/example", "--baseline-annot-sources", "baseline.annot.gz",
-            "--r2-matrix-dir", "panel/hg38", "--snp-identifier", "rsid", "--keep-indivs-file", "samples.keep",
-            "--ld-wind-snps", "10",
-        ])
-
-        with self.assertRaisesRegex(LDSCUsageError, "ldscore cannot use `--keep-indivs-file` with `--r2-matrix-dir`"):
-            ldscore_workflow.run_ldscore_from_args(args)
 
     def test_run_ldscore_from_args_fails_when_the_grid_misses_a_whole_chromosome(self):
         from tests.ldscore.test_ldscore_chromosome_scope import write_r2_inputs

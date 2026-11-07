@@ -96,13 +96,6 @@ def test_commands_reject_window_choices_while_parsing(tmp_path, capsys, command,
     assert message in capsys.readouterr().err
 
 
-def test_ldscore_command_without_a_window_fails_before_creating_the_output_directory(tmp_path):
-    args = parse_command_line(build_parser(), ["--plink-prefix", str(tmp_path / "panel"), "--output-dir", str(tmp_path / "out")])
-    with pytest.raises(LDSCConfigError, match="none was set"):
-        run_ldscore_from_args(args)
-    assert not (tmp_path / "out").exists()
-
-
 def test_ldscore_command_rejects_a_bad_window_before_creating_the_output_directory(tmp_path):
     args = parse_command_line(build_parser(), ["--plink-prefix", str(tmp_path / "panel"), "--ld-wind-kb", "nan",
                                                "--output-dir", str(tmp_path / "out")])

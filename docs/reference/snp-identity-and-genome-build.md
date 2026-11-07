@@ -296,10 +296,6 @@ GlobalConfig()
 ```
 
 The process-wide registry and `reset_global_config()` both return `GlobalConfig()`.
-Earlier designs used `GlobalConfig(snp_identifier="rsid")` or
-`GlobalConfig(snp_identifier="chr_pos", genome_build="auto")` as defaults.
-The current class default is valid and allele-aware, so the registry no longer
-needs an override.
 
 ---
 
@@ -399,24 +395,3 @@ directory use different SNP identifiers or genome builds. ...
 ```
 
 The message does not print the registered `GlobalConfig`, which is only the fallback for in-memory objects without provenance.
-
----
-
-## Call Sites Affected By The Coordinate-Family `None` Invariant
-
-Any `GlobalConfig` construction that omits `genome_build` while
-`snp_identifier` is in the `chr_pos` family (explicitly or by class default)
-must supply `genome_build="auto"` or a concrete build.
-
-| File | Site | Change |
-|---|---|---|
-| `config.py` | field defaults | `genome_build = "auto"` |
-| `config.py` | `__post_init__` | Raise for coordinate-family `genome_build=None` with fix-it message |
-| `config.py` | `_GLOBAL_CONFIG` and `reset_global_config()` | `GlobalConfig()` — no explicit args needed |
-| `_refpanel/builder.py` | `_global_config_from_args` | Add `genome_build="auto"` (satisfies invariant; value is ignored by the workflow) |
-| `_sumstats/munger.py` | `_effective_sumstats_config` | Guard: `genome_build = coordinate_metadata.get("genome_build") or config.genome_build` so the effective in-memory snapshot uses inferred or lifted coordinates when available; new sidecars serialize only minimal identity provenance used to reconstruct that snapshot on reload |
-| `_ldscore/source.py` | LD-score metadata loading | Current root metadata must carry minimal identity provenance; old package-written artifacts should be regenerated |
-
-Call sites in `_ldscore/workflow.py` already resolve `genome_build` to a
-concrete value or `"auto"` before constructing `GlobalConfig`. They are not
-affected.

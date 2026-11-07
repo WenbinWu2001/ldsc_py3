@@ -4,7 +4,7 @@ Last updated on: 2026-11-06
 
 This is the authoritative contributor entry for LDSC3.
 Start here to locate a change.
-[Architecture](architecture.md) explains execution boundaries, [data flow](data-flow.md) explains artifact streams, and the [ownership matrix](architecture.md#ownership-by-layer-and-workflow) shows which layer owns each object.
+[Architecture](architecture.md) explains execution boundaries and how modules hand work to one another, and [data flow](data-flow.md) explains artifact streams.
 These domain references supplement this entry rather than defining competing navigation maps.
 
 For resource-sensitive changes, start with the [memory and CPU efficiency design guide](design/memory-and-cpu.md).

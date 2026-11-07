@@ -73,6 +73,28 @@ def test_permission_failure_reports_errno_and_preserves_exception(tmp_path):
     assert gate.issues[0]["reason"] == "unreadable_required_input"
 
 
+def test_wrapped_os_error_keeps_the_wrapping_message(tmp_path):
+    from ldsc._runtime.preflight import InputGate
+
+    path = tmp_path / "synthetic.tsv"
+
+    def reject_access():
+        try:
+            raise PermissionError(13, "Permission denied", str(path))
+        except PermissionError as exc:
+            raise LDSCInputError("Could not read the synthetic table header; ask the data owner for read access.") from exc
+
+    gate = InputGate("Input validation")
+    gate.check("raw summary statistics", path, reject_access)
+    with pytest.raises(LDSCInputError) as failure:
+        gate.finish()
+    details = gate.issues[0]["details"]
+    assert "PermissionError (errno 13): Permission denied" in details
+    assert "ask the data owner for read access" in details
+    assert gate.issues[0]["reason"] == "unreadable_required_input"
+    assert "ask the data owner for read access" in str(failure.value)
+
+
 def test_missing_file_during_open_is_not_mislabeled_as_path_resolution(tmp_path):
     from ldsc._runtime.preflight import InputGate
 

@@ -66,6 +66,10 @@ class InputGate:
                     reason = 'unreadable_required_input'
                     details = f'{type(cause).__name__} (errno {cause.errno}): {cause.strerror}'
                     repair = 'Check the named input and its access permissions from the compute node.'
+                # A wrapper raised from an OS error carries its own explanation; keep it.
+                if cause is not exc and reason != 'invalid_required_input' and not (
+                        isinstance(cause, FileNotFoundError) and isinstance(exc, LDSCInputError)):
+                    details += f' {type(exc).__name__}: {exc}'
                 self.issues.append(input_issue(role, source, chrom, reason, details, repair=repair))
             return None
 

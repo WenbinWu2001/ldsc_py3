@@ -1,5 +1,6 @@
 """Aligning summary statistics with LD scores into h2 and rg regression datasets."""
 
+import contextlib
 from dataclasses import replace
 from types import SimpleNamespace
 import unittest
@@ -496,70 +497,29 @@ class AlignmentTest(RegressionFixtures, unittest.TestCase):
         self.assertIn("sumstats.gz", log_text)
 
     def test_build_dataset_chr_pos_mode_ignores_query_snp_label_mismatch(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RegressionConfig())
-        ldscore_result = replace(
-            self.make_ldscore_result(),
-            baseline_table=self.make_ldscore_result().baseline_table.assign(SNP=["base1", "base2", "base3"]),
-            query_table=self.make_ldscore_result().query_table.assign(SNP=["query1", "query2", "query3"]),
-            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-        )
-        sumstats = SumstatsTable(
-            data=pd.DataFrame(
-                {
-                    "SNP": ["trait1", "trait2", "trait3"],
-                    "CHR": ["1", "1", "1"],
-                    "POS": [10, 20, 30],
-                    "Z": [2.0, 1.0, 0.5],
-                    "N": [1000.0, 1000.0, 1000.0],
-                    "A1": ["A", "C", "G"],
-                    "A2": ["G", "T", "A"],
-                }
-            ),
-            has_alleles=True,
-            source_path="sumstats.gz",
-            trait_name="trait",
-            provenance={},
-            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-        )
+        # An LD-score directory without an identity snapshot defaults query alignment to chr_pos too.
+        build = SimpleNamespace(genome_build="hg38", coordinate_basis="1-based", inspected_snp_count=500)
+        for snapshot in (GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), None):
+            with self.subTest(snapshot=snapshot):
+                runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RegressionConfig())
+                ldscore_result = replace(
+                    self.make_ldscore_result(),
+                    baseline_table=self.make_ldscore_result().baseline_table.assign(SNP=["base1", "base2", "base3"]),
+                    query_table=self.make_ldscore_result().query_table.assign(SNP=["query1", "query2", "query3"]),
+                    config_snapshot=snapshot,
+                )
+                sumstats = self.make_sumstats_table_from_frame(pd.DataFrame({
+                    "SNP": ["trait1", "trait2", "trait3"], "CHR": ["1", "1", "1"], "POS": [10, 20, 30],
+                    "Z": [2.0, 1.0, 0.5], "N": [1000.0, 1000.0, 1000.0], "A1": ["A", "C", "G"], "A2": ["G", "T", "A"],
+                }), snp_identifier="chr_pos")
 
-        dataset = runner.build_dataset(sumstats, ldscore_result, query_columns=["query1"])
+                inference = (contextlib.nullcontext() if snapshot is not None
+                             else mock.patch("ldsc._genome.build_policy.infer_chr_pos_build", return_value=build))
+                with inference:
+                    dataset = runner.build_dataset(sumstats, ldscore_result, query_columns=["query1"])
 
-        self.assertEqual(dataset.merged["SNP"].tolist(), ["trait1", "trait2", "trait3"])
-        self.assertEqual(dataset.retained_ld_columns, ["base", "query1"])
-
-    def test_build_dataset_unknown_ldscore_snapshot_defaults_query_alignment_to_chr_pos(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RegressionConfig())
-        ldscore_result = replace(
-            self.make_ldscore_result(),
-            baseline_table=self.make_ldscore_result().baseline_table.assign(SNP=["base1", "base2", "base3"]),
-            query_table=self.make_ldscore_result().query_table.assign(SNP=["query1", "query2", "query3"]),
-            config_snapshot=None,
-        )
-        sumstats = SumstatsTable(
-            data=pd.DataFrame(
-                {
-                    "SNP": ["trait1", "trait2", "trait3"],
-                    "CHR": ["1", "1", "1"],
-                    "POS": [10, 20, 30],
-                    "Z": [2.0, 1.0, 0.5],
-                    "N": [1000.0, 1000.0, 1000.0],
-                    "A1": ["A", "C", "G"],
-                    "A2": ["G", "T", "A"],
-                }
-            ),
-            has_alleles=True,
-            source_path="sumstats.gz",
-            trait_name="trait",
-            provenance={},
-            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-        )
-
-        with mock.patch('ldsc._genome.build_policy.infer_chr_pos_build',
-                        return_value=SimpleNamespace(genome_build='hg38', coordinate_basis='1-based', inspected_snp_count=500)):
-            dataset = runner.build_dataset(sumstats, ldscore_result, query_columns=["query1"])
-
-        self.assertEqual(dataset.merged["SNP"].tolist(), ["trait1", "trait2", "trait3"])
-        self.assertEqual(dataset.retained_ld_columns, ["base", "query1"])
+                self.assertEqual(dataset.merged["SNP"].tolist(), ["trait1", "trait2", "trait3"])
+                self.assertEqual(dataset.retained_ld_columns, ["base", "query1"])
 
     def test_build_rg_dataset_uses_final_three_way_snp_intersection(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())

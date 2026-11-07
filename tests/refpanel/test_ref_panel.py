@@ -63,41 +63,41 @@ class RefPanelLoaderTest(unittest.TestCase):
         self.assertEqual(spec.r2_matrix_dir, "/path/to/panel/hg38")
 
     def test_loader_selects_parquet_backend(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_dir = Path(tmpdir) / "panel" / "hg38"
-            _write_r2(build_dir)
-            loader = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
-            panel = loader.load(RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)))
+        tmpdir = self.tmp_path
+        build_dir = tmpdir / "panel" / "hg38"
+        _write_r2(build_dir)
+        loader = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+        panel = loader.load(RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)))
         self.assertIsInstance(panel, R2MatrixRefPanel)
 
     def test_loader_checks_declarations_against_a_concrete_build(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            restriction = Path(tmpdir) / "snps.tsv"
-            restriction.write_text("CHR\tHG19_POS\n22\t16406147\n", encoding="utf-8")
-            loader = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"))
-            with self.assertRaisesRegex(LDSCInputError, "Conflicting genome-build evidence"):
-                loader.load(RefPanelConfig(backend="plink", plink_prefix=str(PLINK_PREFIX),
-                                           ref_panel_snps_file=str(restriction)))
+        tmpdir = self.tmp_path
+        restriction = tmpdir / "snps.tsv"
+        restriction.write_text("CHR\tHG19_POS\n22\t16406147\n", encoding="utf-8")
+        loader = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"))
+        with self.assertRaisesRegex(LDSCInputError, "Conflicting genome-build evidence"):
+            loader.load(RefPanelConfig(backend="plink", plink_prefix=str(PLINK_PREFIX),
+                                       ref_panel_snps_file=str(restriction)))
 
-            build_dir = Path(tmpdir) / "panel" / "hg19"
-            _write_r2(build_dir, genome_build="hg19")
-            with self.assertRaisesRegex(LDSCInputError, "Conflicting genome-build evidence"):
-                loader.load(RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)))
+        build_dir = tmpdir / "panel" / "hg19"
+        _write_r2(build_dir, genome_build="hg19")
+        with self.assertRaisesRegex(LDSCInputError, "Conflicting genome-build evidence"):
+            loader.load(RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(build_dir)))
 
     def test_auto_build_resolution_uses_coordinate_family(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            restriction = Path(tmpdir) / "snps.tsv"
-            restriction.write_text("CHR\tHG38_POS\n1\t10\n", encoding="utf-8")
-            panel = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "A1": ["A"], "A2": ["C"], "MAF": [0.2]})
-            write_r2_matrix_chromosome(Path(tmpdir) / "r2", panel, snp_identifier="chr_pos_allele_aware",
-                                       genome_build="hg38")
-            loader = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="auto"))
+        tmpdir = self.tmp_path
+        restriction = tmpdir / "snps.tsv"
+        restriction.write_text("CHR\tHG38_POS\n1\t10\n", encoding="utf-8")
+        panel = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "A1": ["A"], "A2": ["C"], "MAF": [0.2]})
+        write_r2_matrix_chromosome(tmpdir / "r2", panel, snp_identifier="chr_pos_allele_aware",
+                                   genome_build="hg38")
+        loader = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="auto"))
 
-            loaded = loader.load(RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(Path(tmpdir) / "r2"),
-                                                ref_panel_snps_file=str(restriction)))
+        loaded = loader.load(RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(tmpdir / "r2"),
+                                            ref_panel_snps_file=str(restriction)))
 
-            self.assertEqual(loaded.global_config.snp_identifier, "chr_pos_allele_aware")
-            self.assertEqual(loaded.global_config.genome_build, "hg38")
+        self.assertEqual(loaded.global_config.snp_identifier, "chr_pos_allele_aware")
+        self.assertEqual(loaded.global_config.genome_build, "hg38")
 
 
 class PlinkRefPanelTest(unittest.TestCase):
@@ -112,48 +112,48 @@ class PlinkRefPanelTest(unittest.TestCase):
         self.assertGreater(len(metadata), 0)
 
     def test_ref_panel_restriction_uses_allele_aware_identity_keys(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            restrict_path = Path(tmpdir) / "restrict.tsv"
-            restrict_path.write_text("SNP\tA1\tA2\nrs1\tA\tC\n", encoding="utf-8")
-            sidecar = pd.DataFrame(
-                {
-                    "CHR": ["1", "1"],
-                    "POS": [10, 10],
-                    "SNP": ["rs1", "rs1"],
-                    "A1": ["A", "A"],
-                    "A2": ["C", "G"],
-                    "MAF": [0.2, 0.3],
-                }
-            )
-            write_r2_matrix_chromosome(Path(tmpdir) / "r2", sidecar, snp_identifier="rsid_allele_aware")
-            panel = R2MatrixRefPanel(
-                GlobalConfig(snp_identifier="rsid_allele_aware"),
-                RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(Path(tmpdir) / "r2"),
-                               ref_panel_snps_file=str(restrict_path)),
-            )
+        tmpdir = self.tmp_path
+        restrict_path = tmpdir / "restrict.tsv"
+        restrict_path.write_text("SNP\tA1\tA2\nrs1\tA\tC\n", encoding="utf-8")
+        sidecar = pd.DataFrame(
+            {
+                "CHR": ["1", "1"],
+                "POS": [10, 10],
+                "SNP": ["rs1", "rs1"],
+                "A1": ["A", "A"],
+                "A2": ["C", "G"],
+                "MAF": [0.2, 0.3],
+            }
+        )
+        write_r2_matrix_chromosome(tmpdir / "r2", sidecar, snp_identifier="rsid_allele_aware")
+        panel = R2MatrixRefPanel(
+            GlobalConfig(snp_identifier="rsid_allele_aware"),
+            RefPanelConfig(backend="r2_matrix", r2_matrix_dir=str(tmpdir / "r2"),
+                           ref_panel_snps_file=str(restrict_path)),
+        )
 
-            filtered = panel.load_metadata("1")
+        filtered = panel.load_metadata("1")
 
-            self.assertEqual(filtered["A2"].tolist(), ["C"])
+        self.assertEqual(filtered["A2"].tolist(), ["C"])
 
     def test_plink_ref_panel_restriction_uses_bim_alleles(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            restrict_path = Path(tmpdir) / "restrict.tsv"
-            restrict_path.write_text(f"SNP\tA1\tA2\n{PLINK_SNPS[0]}\tG\tA\n", encoding="utf-8")
-            panel = PlinkRefPanel(
-                GlobalConfig(snp_identifier="rsid_allele_aware"),
-                RefPanelConfig(
-                    backend="plink",
-                    plink_prefix=str(PLINK_PREFIX),
-                    ref_panel_snps_file=str(restrict_path),
-                ),
-            )
+        tmpdir = self.tmp_path
+        restrict_path = tmpdir / "restrict.tsv"
+        restrict_path.write_text(f"SNP\tA1\tA2\n{PLINK_SNPS[0]}\tG\tA\n", encoding="utf-8")
+        panel = PlinkRefPanel(
+            GlobalConfig(snp_identifier="rsid_allele_aware"),
+            RefPanelConfig(
+                backend="plink",
+                plink_prefix=str(PLINK_PREFIX),
+                ref_panel_snps_file=str(restrict_path),
+            ),
+        )
 
-            metadata = panel.load_metadata("22")
+        metadata = panel.load_metadata("22")
 
-            self.assertEqual(metadata["SNP"].tolist(), [PLINK_SNPS[0]])
-            self.assertEqual(metadata["A1"].tolist(), ["G"])
-            self.assertEqual(metadata["A2"].tolist(), ["A"])
+        self.assertEqual(metadata["SNP"].tolist(), [PLINK_SNPS[0]])
+        self.assertEqual(metadata["A1"].tolist(), ["G"])
+        self.assertEqual(metadata["A2"].tolist(), ["A"])
 
     def test_plink_panel_reads_restriction_and_keep_list_once_for_every_chromosome_call(self):
         import pickle
@@ -161,85 +161,85 @@ class PlinkRefPanelTest(unittest.TestCase):
         from ldsc._core import plink_files
         from ldsc._refpanel import adapters
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            restrict_path = Path(tmpdir) / "restrict.tsv"
-            restrict_path.write_text("SNP\n" + "\n".join(PLINK_SNPS) + "\n", encoding="utf-8")
-            keep_path = Path(tmpdir) / "keep.txt"
-            fam = pd.read_csv(str(PLINK_PREFIX) + ".fam", sep=r"\s+", header=None)
-            keep_path.write_text("\n".join(fam[1].astype(str).head(100)) + "\n", encoding="utf-8")
-            panel = PlinkRefPanel(
-                GlobalConfig(snp_identifier="rsid"),
-                RefPanelConfig(backend="plink", plink_prefix=str(PLINK_PREFIX),
-                               ref_panel_snps_file=str(restrict_path), keep_indivs_file=str(keep_path)),
-            )
-            with mock.patch.object(adapters, "read_snp_restriction_keys", wraps=adapters.read_snp_restriction_keys) as keys, \
-                    mock.patch.object(plink_files, "FilterFile", wraps=plink_files.FilterFile) as keep:
-                panel._resolve_run_inputs()
-                # A copy sent to a worker carries the parsed inputs.
-                copies = [pickle.loads(pickle.dumps(panel)) for _ in range(2)]
-                frames = [copy.load_metadata("22") for copy in copies] + [panel.load_metadata("22")]
+        tmpdir = self.tmp_path
+        restrict_path = tmpdir / "restrict.tsv"
+        restrict_path.write_text("SNP\n" + "\n".join(PLINK_SNPS) + "\n", encoding="utf-8")
+        keep_path = tmpdir / "keep.txt"
+        fam = pd.read_csv(str(PLINK_PREFIX) + ".fam", sep=r"\s+", header=None)
+        keep_path.write_text("\n".join(fam[1].astype(str).head(100)) + "\n", encoding="utf-8")
+        panel = PlinkRefPanel(
+            GlobalConfig(snp_identifier="rsid"),
+            RefPanelConfig(backend="plink", plink_prefix=str(PLINK_PREFIX),
+                           ref_panel_snps_file=str(restrict_path), keep_indivs_file=str(keep_path)),
+        )
+        with mock.patch.object(adapters, "read_snp_restriction_keys", wraps=adapters.read_snp_restriction_keys) as keys, \
+                mock.patch.object(plink_files, "FilterFile", wraps=plink_files.FilterFile) as keep:
+            panel._resolve_run_inputs()
+            # A copy sent to a worker carries the parsed inputs.
+            copies = [pickle.loads(pickle.dumps(panel)) for _ in range(2)]
+            frames = [copy.load_metadata("22") for copy in copies] + [panel.load_metadata("22")]
 
-            self.assertEqual((keys.call_count, keep.call_count), (1, 1))
-            for metadata in frames:
-                self.assertEqual(sorted(metadata["SNP"]), sorted(PLINK_SNPS))
+        self.assertEqual((keys.call_count, keep.call_count), (1, 1))
+        for metadata in frames:
+            self.assertEqual(sorted(metadata["SNP"]), sorted(PLINK_SNPS))
 
     def test_duplicate_rsid_raises(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            prefix = Path(tmpdir) / "dup"
-            prefix.with_suffix(".bed").write_bytes(b"\x6c\x1b\x01\x02\x02")
-            prefix.with_suffix(".fam").write_text("fam iid 0 0 0 -9\n", encoding="utf-8")
-            prefix.with_suffix(".bim").write_text(
-                "1 rs_dup 0.0 10 A G\n"
-                "1 rs_dup 0.0 20 A G\n",
-                encoding="utf-8",
-            )
-            panel = PlinkRefPanel(
-                GlobalConfig(snp_identifier="rsid"),
-                RefPanelConfig(backend="plink", plink_prefix=str(prefix)),
-            )
-            with self.assertRaisesRegex(LDSCInputError, "after SNP identity cleanup") as caught:
-                panel.load_metadata("1")
-            # The run stops before writing diagnostics, so the message itself names the drops.
-            self.assertIn("duplicate_identity=2", str(caught.exception))
-            self.assertNotIn("dropped_snps", str(caught.exception))
-            # The causes are several, so the message links its troubleshooting section.
-            anchor = "ldscore-a-plink-chromosome-has-no-usable-snp-identity"
-            self.assertIn(f"docs/user-guide/troubleshooting.md#{anchor}", str(caught.exception))
-            guide = (Path(__file__).resolve().parents[2] / "docs/user-guide/troubleshooting.md").read_text()
-            self.assertIn("### `ldscore`: a PLINK chromosome has no usable SNP identity\n", guide)
+        tmpdir = self.tmp_path
+        prefix = tmpdir / "dup"
+        prefix.with_suffix(".bed").write_bytes(b"\x6c\x1b\x01\x02\x02")
+        prefix.with_suffix(".fam").write_text("fam iid 0 0 0 -9\n", encoding="utf-8")
+        prefix.with_suffix(".bim").write_text(
+            "1 rs_dup 0.0 10 A G\n"
+            "1 rs_dup 0.0 20 A G\n",
+            encoding="utf-8",
+        )
+        panel = PlinkRefPanel(
+            GlobalConfig(snp_identifier="rsid"),
+            RefPanelConfig(backend="plink", plink_prefix=str(prefix)),
+        )
+        with self.assertRaisesRegex(LDSCInputError, "after SNP identity cleanup") as caught:
+            panel.load_metadata("1")
+        # The run stops before writing diagnostics, so the message itself names the drops.
+        self.assertIn("duplicate_identity=2", str(caught.exception))
+        self.assertNotIn("dropped_snps", str(caught.exception))
+        # The causes are several, so the message links its troubleshooting section.
+        anchor = "ldscore-a-plink-chromosome-has-no-usable-snp-identity"
+        self.assertIn(f"docs/user-guide/troubleshooting.md#{anchor}", str(caught.exception))
+        guide = (Path(__file__).resolve().parents[2] / "docs/user-guide/troubleshooting.md").read_text()
+        self.assertIn("### `ldscore`: a PLINK chromosome has no usable SNP identity\n", guide)
 
     def test_global_restriction_applies(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            restrict = Path(tmpdir) / "restrict.txt"
-            restrict.write_text(f"SNP\n{PLINK_SNPS[0]}\n", encoding="utf-8")
-            panel = PlinkRefPanel(
-                GlobalConfig(snp_identifier="rsid"),
-                RefPanelConfig(backend="plink", plink_prefix=str(PLINK_PREFIX), ref_panel_snps_file=str(restrict)),
-            )
-            metadata = panel.load_metadata("22")
-            self.assertEqual(set(metadata["SNP"]), {PLINK_SNPS[0]})
+        tmpdir = self.tmp_path
+        restrict = tmpdir / "restrict.txt"
+        restrict.write_text(f"SNP\n{PLINK_SNPS[0]}\n", encoding="utf-8")
+        panel = PlinkRefPanel(
+            GlobalConfig(snp_identifier="rsid"),
+            RefPanelConfig(backend="plink", plink_prefix=str(PLINK_PREFIX), ref_panel_snps_file=str(restrict)),
+        )
+        metadata = panel.load_metadata("22")
+        self.assertEqual(set(metadata["SNP"]), {PLINK_SNPS[0]})
 
     def test_small_panel_needs_override_even_with_declared_keep_list(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            restrict = Path(tmpdir) / "restrict.tsv"
-            restrict.write_text(
-                "CHR\thg38_POS\n"
-                "22\t16406147\n"
-                "22\t16805059\n",
-                encoding="utf-8",
+        tmpdir = self.tmp_path
+        restrict = tmpdir / "restrict.tsv"
+        restrict.write_text(
+            "CHR\thg38_POS\n"
+            "22\t16406147\n"
+            "22\t16805059\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(LDSCInputError, 'unresolved:'):
+            RefPanelLoader(GlobalConfig(snp_identifier='chr_pos')).load(
+                RefPanelConfig(backend='plink', plink_prefix=str(PLINK_PREFIX), ref_panel_snps_file=str(restrict)))
+        panel = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")).load(
+            RefPanelConfig(
+                backend="plink",
+                plink_prefix=str(PLINK_PREFIX),
+                ref_panel_snps_file=str(restrict),
             )
-            with self.assertRaisesRegex(LDSCInputError, 'unresolved:'):
-                RefPanelLoader(GlobalConfig(snp_identifier='chr_pos')).load(
-                    RefPanelConfig(backend='plink', plink_prefix=str(PLINK_PREFIX), ref_panel_snps_file=str(restrict)))
-            panel = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")).load(
-                RefPanelConfig(
-                    backend="plink",
-                    plink_prefix=str(PLINK_PREFIX),
-                    ref_panel_snps_file=str(restrict),
-                )
-            )
+        )
 
-            metadata = panel.load_metadata("22")
+        metadata = panel.load_metadata("22")
 
         self.assertEqual(set(metadata["SNP"]), set(PLINK_SNPS))
         self.assertEqual(panel.global_config.genome_build, "hg38")
@@ -292,14 +292,14 @@ class PlinkAlleleOrientationTest(unittest.TestCase):
         np.testing.assert_allclose(metadata["MAF"], [1 / 4, 1 / 4], rtol=1e-12)
 
     def test_metadata_without_usable_genotypes_is_an_error_not_bim_rows(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            prefix = write_counted_plink(Path(tmpdir) / "panel", [("rs1", "A", "G", (2, 2, 2, 2)),
-                                                                  ("rs2", "C", "T", (0, 0, 0, 0))])
-            panel = PlinkRefPanel(GlobalConfig(snp_identifier="rsid"),
-                                  RefPanelConfig(backend="plink", plink_prefix=str(prefix)))
+        tmpdir = self.tmp_path
+        prefix = write_counted_plink(tmpdir / "panel", [("rs1", "A", "G", (2, 2, 2, 2)),
+                                                              ("rs2", "C", "T", (0, 0, 0, 0))])
+        panel = PlinkRefPanel(GlobalConfig(snp_identifier="rsid"),
+                              RefPanelConfig(backend="plink", plink_prefix=str(prefix)))
 
-            with self.assertRaises(EmptyReferenceSNPs):
-                panel.load_metadata("1")
+        with self.assertRaises(EmptyReferenceSNPs):
+            panel.load_metadata("1")
 
 
 def _r2_panel(chrom="1", positions=(10, 20), maf=None, cm=None, snps=None):
@@ -336,146 +336,146 @@ def _r2_ref_panel(build_dir, snp_identifier="chr_pos", genome_build="hg38", **sp
 
 class ParquetRefPanelTest(unittest.TestCase):
     def test_missing_sidecar_is_a_hard_error(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_dir = Path(tmpdir) / "panel" / "hg38"
-            _write_r2(build_dir)[1].unlink()
-            with self.assertRaisesRegex(LDSCInputError, "the sidecar .*chr1_meta.tsv.gz' is missing"):
-                _r2_ref_panel(build_dir).load_metadata("1")
+        tmpdir = self.tmp_path
+        build_dir = tmpdir / "panel" / "hg38"
+        _write_r2(build_dir)[1].unlink()
+        with self.assertRaisesRegex(LDSCInputError, "the sidecar .*chr1_meta.tsv.gz' is missing"):
+            _r2_ref_panel(build_dir).load_metadata("1")
 
     def test_r2_matrix_dir_loads_sidecar_metadata(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_dir = Path(tmpdir) / "panel" / "hg38"
-            _write_r2(build_dir, _r2_panel(cm=(0.1, 0.2)), snp_identifier="chr_pos_allele_aware")
-            panel = _r2_ref_panel(build_dir, snp_identifier="chr_pos_allele_aware")
+        tmpdir = self.tmp_path
+        build_dir = tmpdir / "panel" / "hg38"
+        _write_r2(build_dir, _r2_panel(cm=(0.1, 0.2)), snp_identifier="chr_pos_allele_aware")
+        panel = _r2_ref_panel(build_dir, snp_identifier="chr_pos_allele_aware")
 
-            self.assertEqual(panel.available_chromosomes(), ["1"])
-            metadata = panel.load_metadata("1")
-            self.assertEqual(metadata["SNP"].tolist(), ["rs1", "rs2"])
-            self.assertEqual(metadata["CM"].round(3).tolist(), [0.1, 0.2])
-            self.assertEqual(metadata["A1"].tolist(), ["A", "A"])
-            self.assertEqual(metadata["A2"].tolist(), ["G", "C"])
+        self.assertEqual(panel.available_chromosomes(), ["1"])
+        metadata = panel.load_metadata("1")
+        self.assertEqual(metadata["SNP"].tolist(), ["rs1", "rs2"])
+        self.assertEqual(metadata["CM"].round(3).tolist(), [0.1, 0.2])
+        self.assertEqual(metadata["A1"].tolist(), ["A", "A"])
+        self.assertEqual(metadata["A2"].tolist(), ["G", "C"])
 
     def test_package_canonical_r2_rejects_missing_identity_schema_metadata(self):
         import pyarrow.parquet as pq
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_dir = Path(tmpdir) / "panel" / "hg38"
-            parquet_path, _ = _write_r2(build_dir)
-            table = pq.read_table(parquet_path)
-            stripped = {key: value for key, value in table.schema.metadata.items()
-                        if key not in {b"ldsc:artifact_type", b"ldsc:snp_identifier", b"ldsc:genome_build"}}
-            pq.write_table(table.replace_schema_metadata(stripped), parquet_path)
+        tmpdir = self.tmp_path
+        build_dir = tmpdir / "panel" / "hg38"
+        parquet_path, _ = _write_r2(build_dir)
+        table = pq.read_table(parquet_path)
+        stripped = {key: value for key, value in table.schema.metadata.items()
+                    if key not in {b"ldsc:artifact_type", b"ldsc:snp_identifier", b"ldsc:genome_build"}}
+        pq.write_table(table.replace_schema_metadata(stripped), parquet_path)
 
-            with self.assertRaisesRegex(LDSCInputError, "ldsc:artifact_type is missing"):
-                _r2_ref_panel(build_dir).check_chromosome("1")
+        with self.assertRaisesRegex(LDSCInputError, "ldsc:artifact_type is missing"):
+            _r2_ref_panel(build_dir).check_chromosome("1")
 
     def test_package_metadata_sidecar_rejects_missing_identity_metadata(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_dir = Path(tmpdir) / "panel" / "hg38"
-            _edit_sidecar(_write_r2(build_dir)[1],
-                          lambda text: "".join(line for line in text.splitlines(keepends=True) if not line.startswith("#")))
+        tmpdir = self.tmp_path
+        build_dir = tmpdir / "panel" / "hg38"
+        _edit_sidecar(_write_r2(build_dir)[1],
+                      lambda text: "".join(line for line in text.splitlines(keepends=True) if not line.startswith("#")))
 
-            with self.assertRaisesRegex(LDSCInputError, "records ldsc:artifact_type=None"):
-                _r2_ref_panel(build_dir).load_metadata("1")
+        with self.assertRaisesRegex(LDSCInputError, "records ldsc:artifact_type=None"):
+            _r2_ref_panel(build_dir).load_metadata("1")
 
     def test_package_metadata_sidecar_rejects_identity_differing_from_its_r2_parquet_file(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_dir = Path(tmpdir) / "panel" / "hg38"
-            _edit_sidecar(_write_r2(build_dir)[1], lambda text: text.replace(
-                "# ldsc:snp_identifier=chr_pos\n", "# ldsc:snp_identifier=chr_pos_allele_aware\n"))
+        tmpdir = self.tmp_path
+        build_dir = tmpdir / "panel" / "hg38"
+        _edit_sidecar(_write_r2(build_dir)[1], lambda text: text.replace(
+            "# ldsc:snp_identifier=chr_pos\n", "# ldsc:snp_identifier=chr_pos_allele_aware\n"))
 
-            with self.assertRaisesRegex(LDSCInputError, "come from different `build-r2-matrix` runs"):
-                _r2_ref_panel(build_dir).load_metadata("1")
+        with self.assertRaisesRegex(LDSCInputError, "come from different `build-r2-matrix` runs"):
+            _r2_ref_panel(build_dir).load_metadata("1")
 
     def test_package_canonical_r2_rejects_snp_identifier_mismatch(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_dir = Path(tmpdir) / "panel" / "hg38"
-            _write_r2(build_dir, snp_identifier="chr_pos")
-            with self.assertRaisesRegex(ValueError, "snp_identifier mismatch"):
-                _r2_ref_panel(build_dir, snp_identifier="rsid", genome_build=None).check_chromosome("1")
+        tmpdir = self.tmp_path
+        build_dir = tmpdir / "panel" / "hg38"
+        _write_r2(build_dir, snp_identifier="chr_pos")
+        with self.assertRaisesRegex(ValueError, "snp_identifier mismatch"):
+            _r2_ref_panel(build_dir, snp_identifier="rsid", genome_build=None).check_chromosome("1")
 
     def test_concrete_build_rejects_conflicting_r2_declaration(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_dir = Path(tmpdir) / "panel" / "hg38"
-            _write_r2(build_dir, genome_build="hg38")
-            with self.assertRaisesRegex(LDSCInputError, "Conflicting genome-build evidence"):
-                _r2_ref_panel(build_dir, genome_build="hg19").check_chromosome("1")
+        tmpdir = self.tmp_path
+        build_dir = tmpdir / "panel" / "hg38"
+        _write_r2(build_dir, genome_build="hg38")
+        with self.assertRaisesRegex(LDSCInputError, "Conflicting genome-build evidence"):
+            _r2_ref_panel(build_dir, genome_build="hg19").check_chromosome("1")
 
     def test_r2_matrix_dir_requires_r2_for_requested_chromosome(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_dir = Path(tmpdir) / "panel" / "hg38"
-            build_dir.mkdir(parents=True)
-            with self.assertRaisesRegex(LDSCInputError, "chr1_r2.parquet"):
-                _r2_ref_panel(build_dir).load_metadata("1")
+        tmpdir = self.tmp_path
+        build_dir = tmpdir / "panel" / "hg38"
+        build_dir.mkdir(parents=True)
+        with self.assertRaisesRegex(LDSCInputError, "chr1_r2.parquet"):
+            _r2_ref_panel(build_dir).load_metadata("1")
 
     def test_r2_matrix_dir_top_level_root_descends_by_genome_build(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir) / "panel"
-            _write_r2(root / "hg38")
-            self.assertEqual(_r2_ref_panel(root).available_chromosomes(), ["1"])
+        tmpdir = self.tmp_path
+        root = tmpdir / "panel"
+        _write_r2(root / "hg38")
+        self.assertEqual(_r2_ref_panel(root).available_chromosomes(), ["1"])
 
     def test_r2_matrix_dir_top_level_root_rejects_ambiguous_build(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir) / "panel"
-            _write_r2(root / "hg19", genome_build="hg19")
-            _write_r2(root / "hg38")
-            with self.assertRaisesRegex(LDSCInputError, "ambiguous"):
-                _r2_ref_panel(root, snp_identifier="rsid", genome_build=None).available_chromosomes()
+        tmpdir = self.tmp_path
+        root = tmpdir / "panel"
+        _write_r2(root / "hg19", genome_build="hg19")
+        _write_r2(root / "hg38")
+        with self.assertRaisesRegex(LDSCInputError, "ambiguous"):
+            _r2_ref_panel(root, snp_identifier="rsid", genome_build=None).available_chromosomes()
 
     def test_r2_matrix_dir_top_level_root_rejects_build_dirs_even_when_only_one_has_r2(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir) / "panel"
-            (root / "hg19").mkdir(parents=True)
-            _write_r2(root / "hg38")
-            with self.assertRaisesRegex(LDSCInputError, "ambiguous"):
-                _r2_ref_panel(root, snp_identifier="rsid", genome_build=None).available_chromosomes()
+        tmpdir = self.tmp_path
+        root = tmpdir / "panel"
+        (root / "hg19").mkdir(parents=True)
+        _write_r2(root / "hg38")
+        with self.assertRaisesRegex(LDSCInputError, "ambiguous"):
+            _r2_ref_panel(root, snp_identifier="rsid", genome_build=None).available_chromosomes()
 
     def test_sidecar_metadata_loading_by_chromosome(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_dir = Path(tmpdir) / "panel" / "hg38"
-            _write_r2(build_dir, _r2_panel(maf=(0.2, 0.25)))
-            _write_r2(build_dir, _r2_panel(chrom="2", positions=(30,), maf=(0.4,), snps=("rs3",)))
-            panel = _r2_ref_panel(build_dir)
+        tmpdir = self.tmp_path
+        build_dir = tmpdir / "panel" / "hg38"
+        _write_r2(build_dir, _r2_panel(maf=(0.2, 0.25)))
+        _write_r2(build_dir, _r2_panel(chrom="2", positions=(30,), maf=(0.4,), snps=("rs3",)))
+        panel = _r2_ref_panel(build_dir)
 
-            self.assertEqual(panel.available_chromosomes(), ["1", "2"])
-            metadata = panel.load_metadata("1")
-            self.assertEqual(metadata["CHR"].tolist(), ["1", "1"])
-            self.assertEqual(metadata["MAF"].tolist(), [0.2, 0.25])
-            self.assertEqual(panel.load_metadata("2")["POS"].tolist(), [30])
+        self.assertEqual(panel.available_chromosomes(), ["1", "2"])
+        metadata = panel.load_metadata("1")
+        self.assertEqual(metadata["CHR"].tolist(), ["1", "1"])
+        self.assertEqual(metadata["MAF"].tolist(), [0.2, 0.25])
+        self.assertEqual(panel.load_metadata("2")["POS"].tolist(), [30])
 
     def test_sidecar_listing_another_chromosome_is_rejected(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_dir = Path(tmpdir) / "panel" / "hg38"
-            _write_r2(build_dir, pd.concat([_r2_panel(), _r2_panel(chrom="2", positions=(30,))], ignore_index=True))
-            with self.assertRaisesRegex(LDSCInputError, r"lists chromosome\(s\) 1, 2, but it belongs to chromosome 1"):
-                _r2_ref_panel(build_dir).load_metadata("1")
+        tmpdir = self.tmp_path
+        build_dir = tmpdir / "panel" / "hg38"
+        _write_r2(build_dir, pd.concat([_r2_panel(), _r2_panel(chrom="2", positions=(30,))], ignore_index=True))
+        with self.assertRaisesRegex(LDSCInputError, r"lists chromosome\(s\) 1, 2, but it belongs to chromosome 1"):
+            _r2_ref_panel(build_dir).load_metadata("1")
 
     def test_sidecar_row_without_a_chromosome_is_rejected(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_dir = Path(tmpdir) / "panel" / "hg38"
-            _edit_sidecar(_write_r2(build_dir)[1], lambda text: text.replace("\n1\t10\t", "\n\t10\t", 1))
-            with self.assertRaisesRegex(LDSCInputError, r"lists chromosome\(s\) 1, nan, but it belongs to chromosome 1"):
-                _r2_ref_panel(build_dir).load_metadata("1")
+        tmpdir = self.tmp_path
+        build_dir = tmpdir / "panel" / "hg38"
+        _edit_sidecar(_write_r2(build_dir)[1], lambda text: text.replace("\n1\t10\t", "\n\t10\t", 1))
+        with self.assertRaisesRegex(LDSCInputError, r"lists chromosome\(s\) 1, nan, but it belongs to chromosome 1"):
+            _r2_ref_panel(build_dir).load_metadata("1")
 
     def test_sidecar_metadata_applies_maf_min_filter(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_dir = Path(tmpdir) / "panel" / "hg38"
-            _write_r2(build_dir, _r2_panel(positions=(10, 20, 30), maf=(0.2, 0.3, 0.4)))
+        tmpdir = self.tmp_path
+        build_dir = tmpdir / "panel" / "hg38"
+        _write_r2(build_dir, _r2_panel(positions=(10, 20, 30), maf=(0.2, 0.3, 0.4)))
 
-            metadata = _r2_ref_panel(build_dir, maf_min=0.25).load_metadata("1")
+        metadata = _r2_ref_panel(build_dir, maf_min=0.25).load_metadata("1")
 
-            self.assertEqual(metadata["SNP"].tolist(), ["rs2", "rs3"])
-            self.assertTrue((metadata["MAF"] > 0.25).all())
+        self.assertEqual(metadata["SNP"].tolist(), ["rs2", "rs3"])
+        self.assertTrue((metadata["MAF"] > 0.25).all())
 
     def test_sidecar_metadata_maf_min_is_inclusive_at_threshold(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_dir = Path(tmpdir) / "panel" / "hg38"
-            _write_r2(build_dir, _r2_panel(positions=(10, 20, 30), maf=(0.24, 0.25, 0.4)))
+        tmpdir = self.tmp_path
+        build_dir = tmpdir / "panel" / "hg38"
+        _write_r2(build_dir, _r2_panel(positions=(10, 20, 30), maf=(0.24, 0.25, 0.4)))
 
-            metadata = _r2_ref_panel(build_dir, maf_min=0.25).load_metadata("1")
+        metadata = _r2_ref_panel(build_dir, maf_min=0.25).load_metadata("1")
 
-            # MAF == 0.25 is retained (inclusive >=); 0.24 dropped.
-            self.assertEqual(metadata["SNP"].tolist(), ["rs2", "rs3"])
+        # MAF == 0.25 is retained (inclusive >=); 0.24 dropped.
+        self.assertEqual(metadata["SNP"].tolist(), ["rs2", "rs3"])
 
     def test_sidecar_metadata_rejects_invalid_maf_values(self):
         # build-r2-matrix records MAF = freq(A1) <= 0.5 from genotypes for every
@@ -501,13 +501,13 @@ class ParquetRefPanelTest(unittest.TestCase):
 
     def test_sidecar_metadata_keeps_boundary_maf_values_unchanged(self):
         # 0 (monomorphic) and 0.5 are the closed ends of the canonical MAF range.
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_dir = Path(tmpdir) / "panel" / "hg38"
-            _write_r2(build_dir, _r2_panel(positions=(10, 20, 30), maf=(0, 0.5, 0.25)))
+        tmpdir = self.tmp_path
+        build_dir = tmpdir / "panel" / "hg38"
+        _write_r2(build_dir, _r2_panel(positions=(10, 20, 30), maf=(0, 0.5, 0.25)))
 
-            metadata = _r2_ref_panel(build_dir).load_metadata("1")
+        metadata = _r2_ref_panel(build_dir).load_metadata("1")
 
-            self.assertEqual(metadata["MAF"].tolist(), [0.0, 0.5, 0.25])
+        self.assertEqual(metadata["MAF"].tolist(), [0.0, 0.5, 0.25])
 
     def test_sidecar_metadata_reads_back_the_values_the_builder_used(self):
         # build-r2-matrix windows on round_to_sidecar_precision(CM); the reader must
@@ -516,38 +516,37 @@ class ParquetRefPanelTest(unittest.TestCase):
 
         cm = np.array([12.3456789012345, 123.456789012345, 0.000123456789012])
         maf = np.array([0.0123456789012, 0.333333333333, 1.23456789012e-05])
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_dir = Path(tmpdir) / "panel" / "hg38"
-            _write_r2(build_dir, _r2_panel(positions=(10, 20, 30), maf=maf, cm=cm))
+        tmpdir = self.tmp_path
+        build_dir = tmpdir / "panel" / "hg38"
+        _write_r2(build_dir, _r2_panel(positions=(10, 20, 30), maf=maf, cm=cm))
 
-            metadata = _r2_ref_panel(build_dir).load_metadata("1")
+        metadata = _r2_ref_panel(build_dir).load_metadata("1")
 
-            np.testing.assert_array_equal(metadata["CM"].to_numpy(dtype=float), round_to_sidecar_precision(cm))
-            np.testing.assert_array_equal(metadata["MAF"].to_numpy(dtype=float), round_to_sidecar_precision(maf))
+        np.testing.assert_array_equal(metadata["CM"].to_numpy(dtype=float), round_to_sidecar_precision(cm))
+        np.testing.assert_array_equal(metadata["MAF"].to_numpy(dtype=float), round_to_sidecar_precision(maf))
 
     def test_sidecar_metadata_loading_rejects_auto_genome_build_at_kernel_boundary(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_dir = Path(tmpdir) / "panel" / "hg38"
-            _write_r2(build_dir)
-            with self.assertRaisesRegex(AssertionError, "workflow entry"):
-                _r2_ref_panel(build_dir, genome_build="auto").load_metadata("1")
+        tmpdir = self.tmp_path
+        build_dir = tmpdir / "panel" / "hg38"
+        _write_r2(build_dir)
+        with self.assertRaisesRegex(AssertionError, "workflow entry"):
+            _r2_ref_panel(build_dir, genome_build="auto").load_metadata("1")
 
     def test_opening_a_chromosome_requires_the_r2_parquet_file(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_dir = Path(tmpdir) / "panel" / "hg38"
-            _write_r2(build_dir)[0].unlink()
-            with self.assertRaisesRegex(LDSCInputError, "the R2 Parquet file .*chr1_r2.parquet' is missing"):
-                _r2_ref_panel(build_dir).check_chromosome("1")
+        tmpdir = self.tmp_path
+        build_dir = tmpdir / "panel" / "hg38"
+        _write_r2(build_dir)[0].unlink()
+        with self.assertRaisesRegex(LDSCInputError, "the R2 Parquet file .*chr1_r2.parquet' is missing"):
+            _r2_ref_panel(build_dir).check_chromosome("1")
 
     def test_plink_prefix_accepts_suite_token(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            write_counted_plink(tmpdir / "panel.1", [("rs1", "A", "G", (2, 0))])
-            panel = PlinkRefPanel(
-                GlobalConfig(snp_identifier="rsid"),
-                RefPanelConfig(backend="plink", plink_prefix=str(tmpdir / "panel.@")),
-            )
+        tmpdir = self.tmp_path
+        write_counted_plink(tmpdir / "panel.1", [("rs1", "A", "G", (2, 0))])
+        panel = PlinkRefPanel(
+            GlobalConfig(snp_identifier="rsid"),
+            RefPanelConfig(backend="plink", plink_prefix=str(tmpdir / "panel.@")),
+        )
 
-            self.assertEqual(panel.available_chromosomes(), ["1"])
-            metadata = panel.load_metadata("1")
-            self.assertEqual(metadata["SNP"].tolist(), ["rs1"])
+        self.assertEqual(panel.available_chromosomes(), ["1"])
+        metadata = panel.load_metadata("1")
+        self.assertEqual(metadata["SNP"].tolist(), ["rs1"])

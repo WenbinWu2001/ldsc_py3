@@ -87,75 +87,75 @@ def _find_resources_root() -> Optional[Path]:
 
 class GeneticMapParserTest(unittest.TestCase):
     def test_load_genetic_map_accepts_alkes_headers_and_normalizes_chr23_to_x(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "map.txt"
-            path.write_text(
-                "chr position COMBINED_rate(cM/Mb) Genetic_Map(cM)\n"
-                "23 10 0.0 0.1\n"
-                "23 20 0.0 0.2\n",
-                encoding="utf-8",
-            )
+        tmpdir = self.tmp_path
+        path = tmpdir / "map.txt"
+        path.write_text(
+            "chr position COMBINED_rate(cM/Mb) Genetic_Map(cM)\n"
+            "23 10 0.0 0.1\n"
+            "23 20 0.0 0.2\n",
+            encoding="utf-8",
+        )
 
-            genetic_map = genetic_maps.load_genetic_map(path, command="build-r2-matrix")
+        genetic_map = genetic_maps.load_genetic_map(path, command="build-r2-matrix")
 
-            self.assertEqual(genetic_map.columns.tolist(), ["CHR", "POS", "CM"])
-            self.assertEqual(genetic_map["CHR"].tolist(), ["X", "X"])
-            self.assertEqual(genetic_map["POS"].tolist(), [10, 20])
-            self.assertEqual(genetic_map["CM"].tolist(), [0.1, 0.2])
+        self.assertEqual(genetic_map.columns.tolist(), ["CHR", "POS", "CM"])
+        self.assertEqual(genetic_map["CHR"].tolist(), ["X", "X"])
+        self.assertEqual(genetic_map["POS"].tolist(), [10, 20])
+        self.assertEqual(genetic_map["CM"].tolist(), [0.1, 0.2])
 
     def test_load_genetic_map_accepts_basic_alias_family(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "map.tsv"
-            path.write_text(
-                "chromosome bp genetic_map_cm\n"
-                "1 100 0.0\n"
-                "1 200 1.0\n",
-                encoding="utf-8",
-            )
+        tmpdir = self.tmp_path
+        path = tmpdir / "map.tsv"
+        path.write_text(
+            "chromosome bp genetic_map_cm\n"
+            "1 100 0.0\n"
+            "1 200 1.0\n",
+            encoding="utf-8",
+        )
 
-            genetic_map = genetic_maps.load_genetic_map(path, command="build-r2-matrix")
+        genetic_map = genetic_maps.load_genetic_map(path, command="build-r2-matrix")
 
-            self.assertEqual(genetic_map["CHR"].tolist(), ["1", "1"])
-            self.assertEqual(genetic_map["POS"].tolist(), [100, 200])
-            self.assertEqual(genetic_map["CM"].tolist(), [0.0, 1.0])
+        self.assertEqual(genetic_map["CHR"].tolist(), ["1", "1"])
+        self.assertEqual(genetic_map["POS"].tolist(), [100, 200])
+        self.assertEqual(genetic_map["CM"].tolist(), [0.0, 1.0])
 
     def test_load_genetic_map_rejects_numeric_mitochondrial_codes(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "map.tsv"
-            path.write_text(
-                "chromosome bp genetic_map_cm\n"
-                "25 100 0.0\n",
-                encoding="utf-8",
-            )
+        tmpdir = self.tmp_path
+        path = tmpdir / "map.tsv"
+        path.write_text(
+            "chromosome bp genetic_map_cm\n"
+            "25 100 0.0\n",
+            encoding="utf-8",
+        )
 
-            with self.assertRaisesRegex(LDSCInputError, "M' or 'MT"):
-                genetic_maps.load_genetic_map(path, command="build-r2-matrix")
+        with self.assertRaisesRegex(LDSCInputError, "M' or 'MT"):
+            genetic_maps.load_genetic_map(path, command="build-r2-matrix")
 
     def test_load_genetic_map_rejects_unsorted_rows(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "map.txt"
-            path.write_text(
-                "chr position Genetic_Map(cM)\n"
-                "1 200 1.0\n"
-                "1 100 0.0\n",
-                encoding="utf-8",
-            )
+        tmpdir = self.tmp_path
+        path = tmpdir / "map.txt"
+        path.write_text(
+            "chr position Genetic_Map(cM)\n"
+            "1 200 1.0\n"
+            "1 100 0.0\n",
+            encoding="utf-8",
+        )
 
-            with self.assertRaises(LDSCInputError):
-                genetic_maps.load_genetic_map(path, command="build-r2-matrix")
+        with self.assertRaises(LDSCInputError):
+            genetic_maps.load_genetic_map(path, command="build-r2-matrix")
 
     def test_load_genetic_map_rejects_duplicate_positions(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "map.txt"
-            path.write_text(
-                "chr position Genetic_Map(cM)\n"
-                "1 100 0.0\n"
-                "1 100 0.1\n",
-                encoding="utf-8",
-            )
+        tmpdir = self.tmp_path
+        path = tmpdir / "map.txt"
+        path.write_text(
+            "chr position Genetic_Map(cM)\n"
+            "1 100 0.0\n"
+            "1 100 0.1\n",
+            encoding="utf-8",
+        )
 
-            with self.assertRaises(LDSCInputError):
-                genetic_maps.load_genetic_map(path, command="build-r2-matrix")
+        with self.assertRaises(LDSCInputError):
+            genetic_maps.load_genetic_map(path, command="build-r2-matrix")
 
 
 class GeneticMapInterpolationTest(unittest.TestCase):
@@ -421,62 +421,62 @@ class StandardTableFormattingTest(unittest.TestCase):
         import pyarrow.parquet as pq
 
         rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "hg19" / "chr1_r2.parquet"
-            r2_format.write_r2_parquet(
-                pair_chunks=dict_chunks(rows), path=path, genome_build="hg19", n_samples=42,
-                snp_identifier="rsid_allele_aware", row_group_size=50_000,
-                n_snps=2, sidecar_identity_sha256="ab" * 32,
-                ld_window=LDWindow("kb", 1000.0),
-            )
-            meta = pq.read_schema(str(path)).metadata
-            self.assertEqual(meta[b"ldsc:sorted_by_build"], b"hg19")
-            self.assertEqual(meta[b"ldsc:row_group_size"], b"50000")
-            self.assertEqual(meta[b"ldsc:artifact_type"], b"r2_matrix")
-            self.assertEqual(meta[b"ldsc:snp_identifier"], b"rsid_allele_aware")
-            self.assertEqual(meta[b"ldsc:genome_build"], b"hg19")
-            self.assertEqual(meta[b"ldsc:n_samples"], b"42")
-            self.assertEqual(meta[b"ldsc:r2_bias"], b"unbiased")
+        tmpdir = self.tmp_path
+        path = tmpdir / "hg19" / "chr1_r2.parquet"
+        r2_format.write_r2_parquet(
+            pair_chunks=dict_chunks(rows), path=path, genome_build="hg19", n_samples=42,
+            snp_identifier="rsid_allele_aware", row_group_size=50_000,
+            n_snps=2, sidecar_identity_sha256="ab" * 32,
+            ld_window=LDWindow("kb", 1000.0),
+        )
+        meta = pq.read_schema(str(path)).metadata
+        self.assertEqual(meta[b"ldsc:sorted_by_build"], b"hg19")
+        self.assertEqual(meta[b"ldsc:row_group_size"], b"50000")
+        self.assertEqual(meta[b"ldsc:artifact_type"], b"r2_matrix")
+        self.assertEqual(meta[b"ldsc:snp_identifier"], b"rsid_allele_aware")
+        self.assertEqual(meta[b"ldsc:genome_build"], b"hg19")
+        self.assertEqual(meta[b"ldsc:n_samples"], b"42")
+        self.assertEqual(meta[b"ldsc:r2_bias"], b"unbiased")
 
     def test_write_r2_parquet_records_min_r2_metadata(self):
         import pyarrow.parquet as pq
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            default_path = Path(tmpdir) / "default.parquet"
-            r2_format.write_r2_parquet(
-                pair_chunks=dict_chunks([]), path=default_path, genome_build="hg19", n_samples=10,
-                snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
-                ld_window=LDWindow("kb", 1000.0),
-            )
-            self.assertEqual(pq.read_schema(str(default_path)).metadata[b"ldsc:r2_min"], b"0.0")
+        tmpdir = self.tmp_path
+        default_path = tmpdir / "default.parquet"
+        r2_format.write_r2_parquet(
+            pair_chunks=dict_chunks([]), path=default_path, genome_build="hg19", n_samples=10,
+            snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
+            ld_window=LDWindow("kb", 1000.0),
+        )
+        self.assertEqual(pq.read_schema(str(default_path)).metadata[b"ldsc:r2_min"], b"0.0")
 
-            filtered_path = Path(tmpdir) / "filtered.parquet"
-            r2_format.write_r2_parquet(
-                pair_chunks=dict_chunks([]), path=filtered_path, genome_build="hg19", n_samples=10,
-                snp_identifier="chr_pos", r2_min=0.3, n_snps=2, sidecar_identity_sha256="0" * 64,
-                ld_window=LDWindow("kb", 1000.0),
-            )
-            self.assertEqual(pq.read_schema(str(filtered_path)).metadata[b"ldsc:r2_min"], b"0.3")
+        filtered_path = tmpdir / "filtered.parquet"
+        r2_format.write_r2_parquet(
+            pair_chunks=dict_chunks([]), path=filtered_path, genome_build="hg19", n_samples=10,
+            snp_identifier="chr_pos", r2_min=0.3, n_snps=2, sidecar_identity_sha256="0" * 64,
+            ld_window=LDWindow("kb", 1000.0),
+        )
+        self.assertEqual(pq.read_schema(str(filtered_path)).metadata[b"ldsc:r2_min"], b"0.3")
 
     def test_write_r2_parquet_records_ld_window_metadata(self):
         import pyarrow.parquet as pq
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "panel.parquet"
-            r2_format.write_r2_parquet(
-                pair_chunks=dict_chunks([]),
-                path=path,
-                genome_build="hg19",
-                n_samples=10,
-                snp_identifier="chr_pos",
-                n_snps=2,
-                sidecar_identity_sha256="0" * 64,
-                ld_window=LDWindow("kb", 1000.0),
-            )
+        tmpdir = self.tmp_path
+        path = tmpdir / "panel.parquet"
+        r2_format.write_r2_parquet(
+            pair_chunks=dict_chunks([]),
+            path=path,
+            genome_build="hg19",
+            n_samples=10,
+            snp_identifier="chr_pos",
+            n_snps=2,
+            sidecar_identity_sha256="0" * 64,
+            ld_window=LDWindow("kb", 1000.0),
+        )
 
-            metadata = pq.read_schema(str(path)).metadata
-            self.assertEqual(metadata[b"ldsc:ld_window_mode"], b"kb")
-            self.assertEqual(metadata[b"ldsc:ld_window_value"], b"1000.0")
+        metadata = pq.read_schema(str(path)).metadata
+        self.assertEqual(metadata[b"ldsc:ld_window_mode"], b"kb")
+        self.assertEqual(metadata[b"ldsc:ld_window_value"], b"1000.0")
 
     def test_write_r2_parquet_uses_zstd_level_9(self):
         import pyarrow as pa
@@ -495,43 +495,43 @@ class StandardTableFormattingTest(unittest.TestCase):
             captured.update(kwargs)
             return real_writer(*args, **kwargs)
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "chr1.parquet"
-            with mock.patch.object(pq, "ParquetWriter", spy_writer):
-                r2_format.write_r2_parquet(
-                    pair_chunks=dict_chunks(rows), path=path, genome_build="hg19", n_samples=10,
-                    snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
-                    ld_window=LDWindow("kb", 1000.0),
-                )
-            self.assertEqual(captured.get("compression"), "zstd")
-            self.assertEqual(captured.get("compression_level"), 9)
-            row_group = pq.ParquetFile(str(path)).metadata.row_group(0)
-            codecs = {row_group.column(c).compression for c in range(row_group.num_columns)}
-            self.assertEqual(codecs, {"ZSTD"})
+        tmpdir = self.tmp_path
+        path = tmpdir / "chr1.parquet"
+        with mock.patch.object(pq, "ParquetWriter", spy_writer):
+            r2_format.write_r2_parquet(
+                pair_chunks=dict_chunks(rows), path=path, genome_build="hg19", n_samples=10,
+                snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
+                ld_window=LDWindow("kb", 1000.0),
+            )
+        self.assertEqual(captured.get("compression"), "zstd")
+        self.assertEqual(captured.get("compression_level"), 9)
+        row_group = pq.ParquetFile(str(path)).metadata.row_group(0)
+        codecs = {row_group.column(c).compression for c in range(row_group.num_columns)}
+        self.assertEqual(codecs, {"ZSTD"})
 
     def test_write_r2_parquet_warns_when_falling_back_to_snappy(self):
         import pyarrow.parquet as pq
 
         rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "chr1.parquet"
-            # pa.Codec is a C extension whose methods cannot be patched via
-            # mock.patch.object.  Patch the whole pa.Codec name with a plain
-            # Python stand-in whose is_available always returns False so the
-            # snappy fallback path is exercised.
-            class _NoZstdCodec:
-                @staticmethod
-                def is_available(codec):
-                    return False
+        tmpdir = self.tmp_path
+        path = tmpdir / "chr1.parquet"
+        # pa.Codec is a C extension whose methods cannot be patched via
+        # mock.patch.object.  Patch the whole pa.Codec name with a plain
+        # Python stand-in whose is_available always returns False so the
+        # snappy fallback path is exercised.
+        class _NoZstdCodec:
+            @staticmethod
+            def is_available(codec):
+                return False
 
-            with mock.patch("pyarrow.Codec", _NoZstdCodec):
-                with self.assertWarns(UserWarning) as cm:
-                    r2_format.write_r2_parquet(
-                        pair_chunks=dict_chunks(rows), path=path, genome_build="hg19", n_samples=10,
-                        snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
-                        ld_window=LDWindow("kb", 1000.0),
-                    )
-            self.assertIn("snappy", str(cm.warning).lower())
+        with mock.patch("pyarrow.Codec", _NoZstdCodec):
+            with self.assertWarns(UserWarning) as cm:
+                r2_format.write_r2_parquet(
+                    pair_chunks=dict_chunks(rows), path=path, genome_build="hg19", n_samples=10,
+                    snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
+                    ld_window=LDWindow("kb", 1000.0),
+                )
+        self.assertIn("snappy", str(cm.warning).lower())
 
     def test_write_r2_parquet_uses_delta_encoding_for_idx2(self):
         import pyarrow as pa
@@ -545,19 +545,19 @@ class StandardTableFormattingTest(unittest.TestCase):
             {"i": 0, "j": 2, "R2": 0.2, "sign": "+"},
             {"i": 1, "j": 2, "R2": 0.6, "sign": "+"},
         ]
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "chr1_r2.parquet"
-            r2_format.write_r2_parquet(
-                pair_chunks=dict_chunks(rows), path=path, genome_build="hg19", n_samples=10,
-                snp_identifier="chr_pos", n_snps=3, sidecar_identity_sha256="0" * 64,
-                ld_window=LDWindow("kb", 1000.0),
-            )
-            md = pq.ParquetFile(path).metadata
-            rg = md.row_group(0)
-            col_encs = {
-                rg.column(c).path_in_schema: rg.column(c).encodings
-                for c in range(rg.num_columns)
-            }
+        tmpdir = self.tmp_path
+        path = tmpdir / "chr1_r2.parquet"
+        r2_format.write_r2_parquet(
+            pair_chunks=dict_chunks(rows), path=path, genome_build="hg19", n_samples=10,
+            snp_identifier="chr_pos", n_snps=3, sidecar_identity_sha256="0" * 64,
+            ld_window=LDWindow("kb", 1000.0),
+        )
+        md = pq.ParquetFile(path).metadata
+        rg = md.row_group(0)
+        col_encs = {
+            rg.column(c).path_in_schema: rg.column(c).encodings
+            for c in range(rg.num_columns)
+        }
         # IDX_2 must use DELTA_BINARY_PACKED (the only encoding that exploits
         # sorted right-neighbors); R2 encoding is intentionally left to PyArrow defaults
         self.assertIn("DELTA_BINARY_PACKED", col_encs.get("IDX_2", ()),
@@ -1020,124 +1020,122 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
         )
 
     def test_drop_all_policy_writes_sidecar_under_dropped_snps(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self._write_plink_prefix_rows(
-                tmpdir,
-                "panel.1",
-                [
-                    ("1", "rs1", 100),
-                    ("1", "rs2", 100),
-                    ("1", "rs3", 200),
-                ],
-            )
-            config = R2MatrixBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg19",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-            )
-            builder = r2_matrix_builder.R2MatrixBuilder(
-                global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
-            )
+        tmpdir = self.tmp_path
+        self._write_plink_prefix_rows(
+            tmpdir,
+            "panel.1",
+            [
+                ("1", "rs1", 100),
+                ("1", "rs2", 100),
+                ("1", "rs3", 200),
+            ],
+        )
+        config = R2MatrixBuildConfig(
+            plink_prefix=tmpdir / "panel.@",
+            source_genome_build="hg19",
+            output_dir=tmpdir / "out",
+            ld_wind_kb=1.0,
+        )
+        builder = r2_matrix_builder.R2MatrixBuilder(
+            global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
+        )
 
-            def fake_resolve(*, rows, keep_snps, **_kwargs):
-                keep = np.asarray(keep_snps, dtype=int)
-                hg19 = {int(idx): int(rows.loc[idx, "POS"]) for idx in keep}
-                return keep, hg19, {}, empty_identity_drop_frame()
+        def fake_resolve(*, rows, keep_snps, **_kwargs):
+            keep = np.asarray(keep_snps, dtype=int)
+            hg19 = {int(idx): int(rows.loc[idx, "POS"]) for idx in keep}
+            return keep, hg19, {}, empty_identity_drop_frame()
 
-            with mock.patch.object(
-                builder,
-                "_resolve_mappable_snp_positions",
-                side_effect=fake_resolve,
-            ), mock.patch(
-                "ldsc._refpanel.builder.write_r2_parquet"
-            ), mock.patch(
-                "ldsc._refpanel.builder.write_runtime_metadata_sidecar"
-            ), mock.patch(
-                "ldsc._refpanel.builder.PlinkBEDFile"
-            ) as mock_bed:
-                mock_bed.return_value.kept_snps = [2]
-                mock_bed.return_value.maf = np.array([0.3])
-                mock_bed.return_value.freq = 1 - np.array([0.3])
-                mock_bed.return_value.m = 1
-                mock_bed.return_value.n = 1
-                mock_bed.return_value.nextSNPs = lambda: iter([np.array([0.0])])
+        with mock.patch.object(
+            builder,
+            "_resolve_mappable_snp_positions",
+            side_effect=fake_resolve,
+        ), mock.patch(
+            "ldsc._refpanel.builder.write_r2_parquet"
+        ), mock.patch(
+            "ldsc._refpanel.builder.write_runtime_metadata_sidecar"
+        ), mock.patch(
+            "ldsc._refpanel.builder.PlinkBEDFile"
+        ) as mock_bed:
+            mock_bed.return_value.kept_snps = [2]
+            mock_bed.return_value.maf = np.array([0.3])
+            mock_bed.return_value.freq = 1 - np.array([0.3])
+            mock_bed.return_value.m = 1
+            mock_bed.return_value.n = 1
+            mock_bed.return_value.nextSNPs = lambda: iter([np.array([0.0])])
 
-                with self.assertLogs("LDSC.r2_matrix_builder", level="INFO") as log_ctx:
-                    builder.run(config)
+            with self.assertLogs("LDSC.r2_matrix_builder", level="INFO") as log_ctx:
+                builder.run(config)
 
-            sidecar = tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz"
-            self.assertTrue(sidecar.exists(), "sidecar must be written under dropped_snps")
-            with gzip.open(sidecar, "rt") as fh:
-                dropped_df = pd.read_csv(fh, sep="\t")
-            self.assertEqual(len(dropped_df), 2)
-            self.assertTrue((dropped_df["reason"] == "duplicate_identity").all())
-            self.assertTrue((dropped_df["stage"] == "ref_panel_source_identity_cleanup").all())
-            self.assertTrue(any("chr1_dropped.tsv.gz" in line for line in log_ctx.output))
+        sidecar = tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz"
+        self.assertTrue(sidecar.exists(), "sidecar must be written under dropped_snps")
+        with gzip.open(sidecar, "rt") as fh:
+            dropped_df = pd.read_csv(fh, sep="\t")
+        self.assertEqual(len(dropped_df), 2)
+        self.assertTrue((dropped_df["reason"] == "duplicate_identity").all())
+        self.assertTrue((dropped_df["stage"] == "ref_panel_source_identity_cleanup").all())
+        self.assertTrue(any("chr1_dropped.tsv.gz" in line for line in log_ctx.output))
 
     def test_drop_all_policy_logs_examples_only_at_debug(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self._write_plink_prefix_rows(
-                tmpdir,
-                "panel.1",
-                [
-                    ("1", "rs1", 100),
-                    ("1", "rs2", 100),
-                    ("1", "rs3", 200),
-                ],
+        tmpdir = self.tmp_path
+        self._write_plink_prefix_rows(
+            tmpdir,
+            "panel.1",
+            [
+                ("1", "rs1", 100),
+                ("1", "rs2", 100),
+                ("1", "rs3", 200),
+            ],
+        )
+        config = R2MatrixBuildConfig(
+            plink_prefix=tmpdir / "panel.@",
+            source_genome_build="hg19",
+            output_dir=tmpdir / "out",
+            ld_wind_kb=1.0,
+        )
+        builder = r2_matrix_builder.R2MatrixBuilder(
+            global_config=GlobalConfig(
+                snp_identifier="chr_pos",
+                genome_build="hg19",
+                log_level="DEBUG",
             )
-            config = R2MatrixBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg19",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-            )
-            builder = r2_matrix_builder.R2MatrixBuilder(
-                global_config=GlobalConfig(
-                    snp_identifier="chr_pos",
-                    genome_build="hg19",
-                    log_level="DEBUG",
-                )
-            )
+        )
 
-            def fake_resolve(*, rows, keep_snps, **_kwargs):
-                keep = np.asarray(keep_snps, dtype=int)
-                hg19 = {int(idx): int(rows.loc[idx, "POS"]) for idx in keep}
-                return keep, hg19, {}, empty_identity_drop_frame()
+        def fake_resolve(*, rows, keep_snps, **_kwargs):
+            keep = np.asarray(keep_snps, dtype=int)
+            hg19 = {int(idx): int(rows.loc[idx, "POS"]) for idx in keep}
+            return keep, hg19, {}, empty_identity_drop_frame()
 
-            with mock.patch.object(
-                builder,
-                "_resolve_mappable_snp_positions",
-                side_effect=fake_resolve,
-            ), mock.patch(
-                "ldsc._refpanel.builder.write_r2_parquet"
-            ), mock.patch(
-                "ldsc._refpanel.builder.write_runtime_metadata_sidecar"
-            ), mock.patch(
-                "ldsc._refpanel.builder.PlinkBEDFile"
-            ) as mock_bed:
-                mock_bed.return_value.kept_snps = [2]
-                mock_bed.return_value.maf = np.array([0.3])
-                mock_bed.return_value.freq = 1 - np.array([0.3])
-                mock_bed.return_value.m = 1
-                mock_bed.return_value.n = 1
-                mock_bed.return_value.nextSNPs = lambda: iter([np.array([0.0])])
+        with mock.patch.object(
+            builder,
+            "_resolve_mappable_snp_positions",
+            side_effect=fake_resolve,
+        ), mock.patch(
+            "ldsc._refpanel.builder.write_r2_parquet"
+        ), mock.patch(
+            "ldsc._refpanel.builder.write_runtime_metadata_sidecar"
+        ), mock.patch(
+            "ldsc._refpanel.builder.PlinkBEDFile"
+        ) as mock_bed:
+            mock_bed.return_value.kept_snps = [2]
+            mock_bed.return_value.maf = np.array([0.3])
+            mock_bed.return_value.freq = 1 - np.array([0.3])
+            mock_bed.return_value.m = 1
+            mock_bed.return_value.n = 1
+            mock_bed.return_value.nextSNPs = lambda: iter([np.array([0.0])])
 
-                with self.assertLogs("LDSC.r2_matrix_builder", level="DEBUG") as log_ctx:
-                    builder.run(config)
+            with self.assertLogs("LDSC.r2_matrix_builder", level="DEBUG") as log_ctx:
+                builder.run(config)
 
-            info_text = "\n".join(
-                record.getMessage() for record in log_ctx.records if record.levelno == logging.INFO
-            )
-            debug_text = "\n".join(
-                record.getMessage() for record in log_ctx.records if record.levelno == logging.DEBUG
-            )
-            self.assertIn("duplicate_identity", info_text)
-            self.assertNotIn("rs1", info_text)
-            self.assertIn("duplicate_identity", debug_text)
-            self.assertIn("rs1", debug_text)
+        info_text = "\n".join(
+            record.getMessage() for record in log_ctx.records if record.levelno == logging.INFO
+        )
+        debug_text = "\n".join(
+            record.getMessage() for record in log_ctx.records if record.levelno == logging.DEBUG
+        )
+        self.assertIn("duplicate_identity", info_text)
+        self.assertNotIn("rs1", info_text)
+        self.assertIn("duplicate_identity", debug_text)
+        self.assertIn("rs1", debug_text)
 
     def test_resolve_mappable_snp_positions_returns_unmapped_and_cross_chromosome_drop_frame(self):
         builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos"))
@@ -1172,247 +1170,239 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
         self.assertEqual({column: str(dtype) for column, dtype in drop_frame.dtypes.items()}, self.DROPPED_SNP_DTYPES)
 
     def test_dropped_snps_sidecar_written_as_header_only_when_no_drops(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100)])
-            config = R2MatrixBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg19",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-            )
-            builder = r2_matrix_builder.R2MatrixBuilder(
-                global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
-            )
+        tmpdir = self.tmp_path
+        self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100)])
+        config = R2MatrixBuildConfig(
+            plink_prefix=tmpdir / "panel.@",
+            source_genome_build="hg19",
+            output_dir=tmpdir / "out",
+            ld_wind_kb=1.0,
+        )
+        builder = r2_matrix_builder.R2MatrixBuilder(
+            global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
+        )
 
-            with mock.patch("ldsc._refpanel.builder.write_r2_parquet"), mock.patch(
-                "ldsc._refpanel.builder.write_runtime_metadata_sidecar"
-            ), mock.patch("ldsc._refpanel.builder.PlinkBEDFile") as mock_bed:
-                mock_bed.return_value.kept_snps = [0]
-                mock_bed.return_value.maf = np.array([0.3])
-                mock_bed.return_value.freq = 1 - np.array([0.3])
-                mock_bed.return_value.m = 1
-                mock_bed.return_value.n = 1
-                mock_bed.return_value.nextSNPs = lambda: iter([np.zeros((1, 1))])
+        with mock.patch("ldsc._refpanel.builder.write_r2_parquet"), mock.patch(
+            "ldsc._refpanel.builder.write_runtime_metadata_sidecar"
+        ), mock.patch("ldsc._refpanel.builder.PlinkBEDFile") as mock_bed:
+            mock_bed.return_value.kept_snps = [0]
+            mock_bed.return_value.maf = np.array([0.3])
+            mock_bed.return_value.freq = 1 - np.array([0.3])
+            mock_bed.return_value.m = 1
+            mock_bed.return_value.n = 1
+            mock_bed.return_value.nextSNPs = lambda: iter([np.zeros((1, 1))])
 
-                builder.run(config)
+            builder.run(config)
 
-            sidecar = tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz"
-            self.assertTrue(sidecar.exists())
-            dropped = self._read_dropped_sidecar(sidecar)
-            self.assertEqual(len(dropped), 0)
-            self.assertEqual(dropped.columns.tolist(), IDENTITY_DROP_COLUMNS)
-            self.assertEqual({column: str(dtype) for column, dtype in dropped.dtypes.items()}, self.DROPPED_SNP_DTYPES)
+        sidecar = tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz"
+        self.assertTrue(sidecar.exists())
+        dropped = self._read_dropped_sidecar(sidecar)
+        self.assertEqual(len(dropped), 0)
+        self.assertEqual(dropped.columns.tolist(), IDENTITY_DROP_COLUMNS)
+        self.assertEqual({column: str(dtype) for column, dtype in dropped.dtypes.items()}, self.DROPPED_SNP_DTYPES)
 
     def test_dropped_snps_sidecar_overwritten_in_place_on_rerun(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100)])
-            sidecar = tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz"
-            sidecar.parent.mkdir(parents=True)
-            sidecar.write_text("stale\n", encoding="utf-8")
-            config = R2MatrixBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg19",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-                overwrite=True,
-            )
-            builder = r2_matrix_builder.R2MatrixBuilder(
-                global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
-            )
+        tmpdir = self.tmp_path
+        self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100)])
+        sidecar = tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz"
+        sidecar.parent.mkdir(parents=True)
+        sidecar.write_text("stale\n", encoding="utf-8")
+        config = R2MatrixBuildConfig(
+            plink_prefix=tmpdir / "panel.@",
+            source_genome_build="hg19",
+            output_dir=tmpdir / "out",
+            ld_wind_kb=1.0,
+            overwrite=True,
+        )
+        builder = r2_matrix_builder.R2MatrixBuilder(
+            global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
+        )
 
-            with mock.patch("ldsc._refpanel.builder.write_r2_parquet"), mock.patch(
-                "ldsc._refpanel.builder.write_runtime_metadata_sidecar"
-            ), mock.patch("ldsc._refpanel.builder.PlinkBEDFile") as mock_bed:
-                mock_bed.return_value.kept_snps = [0]
-                mock_bed.return_value.maf = np.array([0.3])
-                mock_bed.return_value.freq = 1 - np.array([0.3])
-                mock_bed.return_value.m = 1
-                mock_bed.return_value.n = 1
-                mock_bed.return_value.nextSNPs = lambda: iter([np.zeros((1, 1))])
+        with mock.patch("ldsc._refpanel.builder.write_r2_parquet"), mock.patch(
+            "ldsc._refpanel.builder.write_runtime_metadata_sidecar"
+        ), mock.patch("ldsc._refpanel.builder.PlinkBEDFile") as mock_bed:
+            mock_bed.return_value.kept_snps = [0]
+            mock_bed.return_value.maf = np.array([0.3])
+            mock_bed.return_value.freq = 1 - np.array([0.3])
+            mock_bed.return_value.m = 1
+            mock_bed.return_value.n = 1
+            mock_bed.return_value.nextSNPs = lambda: iter([np.zeros((1, 1))])
 
-                builder.run(config)
+            builder.run(config)
 
-            dropped = self._read_dropped_sidecar(sidecar)
-            self.assertEqual(len(dropped), 0)
+        dropped = self._read_dropped_sidecar(sidecar)
+        self.assertEqual(len(dropped), 0)
 
     def test_dropped_snps_sidecar_written_header_only_on_restriction_empty_chromosome(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            prefix = self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100)])
-            restriction = tmpdir / "restrict.tsv"
-            restriction.write_text("SNP\nrs_not_present\n", encoding="utf-8")
-            config = R2MatrixBuildConfig(
-                plink_prefix=prefix,
-                source_genome_build="hg19",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-                ref_panel_snps_file=restriction,
-            )
-            builder = r2_matrix_builder.R2MatrixBuilder(
-                global_config=GlobalConfig(snp_identifier="rsid")
-            )
+        tmpdir = self.tmp_path
+        prefix = self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100)])
+        restriction = tmpdir / "restrict.tsv"
+        restriction.write_text("SNP\nrs_not_present\n", encoding="utf-8")
+        config = R2MatrixBuildConfig(
+            plink_prefix=prefix,
+            source_genome_build="hg19",
+            output_dir=tmpdir / "out",
+            ld_wind_kb=1.0,
+            ref_panel_snps_file=restriction,
+        )
+        builder = r2_matrix_builder.R2MatrixBuilder(
+            global_config=GlobalConfig(snp_identifier="rsid")
+        )
 
-            with self.assertRaisesRegex(LDSCInputError, r"\(chromosome 1\): all 1 SNPs were removed at SNP restriction"):
-                builder.run(config)
+        with self.assertRaisesRegex(LDSCInputError, r"\(chromosome 1\): all 1 SNPs were removed at SNP restriction"):
+            builder.run(config)
 
-            sidecar = tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz"
-            self.assertTrue(sidecar.exists())
-            self.assertEqual(len(self._read_dropped_sidecar(sidecar)), 0)
+        sidecar = tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz"
+        self.assertTrue(sidecar.exists())
+        self.assertEqual(len(self._read_dropped_sidecar(sidecar)), 0)
 
     def test_rsid_source_only_build_logs_coordinate_duplicate_filtering_skipped_once(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self._write_plink_prefix_rows(
-                tmpdir,
-                "panel.1",
-                [
-                    ("1", "rs1", 100),
-                    ("1", "rs2", 100),
-                    ("1", "rs3", 200),
-                ],
-            )
-            config = R2MatrixBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg19",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-            )
-            builder = r2_matrix_builder.R2MatrixBuilder(
-                global_config=GlobalConfig(snp_identifier="rsid", genome_build="hg38")
-            )
+        tmpdir = self.tmp_path
+        self._write_plink_prefix_rows(
+            tmpdir,
+            "panel.1",
+            [
+                ("1", "rs1", 100),
+                ("1", "rs2", 100),
+                ("1", "rs3", 200),
+            ],
+        )
+        config = R2MatrixBuildConfig(
+            plink_prefix=tmpdir / "panel.@",
+            source_genome_build="hg19",
+            output_dir=tmpdir / "out",
+            ld_wind_kb=1.0,
+        )
+        builder = r2_matrix_builder.R2MatrixBuilder(
+            global_config=GlobalConfig(snp_identifier="rsid", genome_build="hg38")
+        )
 
-            def fake_resolve(*, rows, keep_snps, **_kwargs):
-                keep = np.asarray(keep_snps, dtype=int)
-                hg19 = {int(idx): int(rows.loc[idx, "POS"]) for idx in keep}
-                return keep, hg19, {}, empty_identity_drop_frame()
+        def fake_resolve(*, rows, keep_snps, **_kwargs):
+            keep = np.asarray(keep_snps, dtype=int)
+            hg19 = {int(idx): int(rows.loc[idx, "POS"]) for idx in keep}
+            return keep, hg19, {}, empty_identity_drop_frame()
 
-            with mock.patch.object(
-                builder,
-                "_resolve_mappable_snp_positions",
-                side_effect=fake_resolve,
-            ), mock.patch(
-                "ldsc._refpanel.builder.write_r2_parquet"
-            ), mock.patch(
-                "ldsc._refpanel.builder.write_runtime_metadata_sidecar"
-            ), mock.patch(
-                "ldsc._refpanel.builder.PlinkBEDFile"
-            ) as mock_bed:
-                mock_bed.return_value.kept_snps = [0, 1, 2]
-                mock_bed.return_value.maf = np.array([0.2, 0.2, 0.3])
-                mock_bed.return_value.freq = 1 - np.array([0.2, 0.2, 0.3])
-                mock_bed.return_value.m = 3
-                mock_bed.return_value.n = 1
-                mock_bed.return_value.nextSNPs = lambda: iter([np.zeros((1, 3))])
+        with mock.patch.object(
+            builder,
+            "_resolve_mappable_snp_positions",
+            side_effect=fake_resolve,
+        ), mock.patch(
+            "ldsc._refpanel.builder.write_r2_parquet"
+        ), mock.patch(
+            "ldsc._refpanel.builder.write_runtime_metadata_sidecar"
+        ), mock.patch(
+            "ldsc._refpanel.builder.PlinkBEDFile"
+        ) as mock_bed:
+            mock_bed.return_value.kept_snps = [0, 1, 2]
+            mock_bed.return_value.maf = np.array([0.2, 0.2, 0.3])
+            mock_bed.return_value.freq = 1 - np.array([0.2, 0.2, 0.3])
+            mock_bed.return_value.m = 3
+            mock_bed.return_value.n = 1
+            mock_bed.return_value.nextSNPs = lambda: iter([np.zeros((1, 3))])
 
-                with self.assertLogs("LDSC.r2_matrix_builder", level="INFO") as log_ctx:
-                    result = builder.run(config)
+            with self.assertLogs("LDSC.r2_matrix_builder", level="INFO") as log_ctx:
+                result = builder.run(config)
 
-            self.assertEqual(result.chromosomes, ["1"])
-            self.assertTrue((tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz").exists())
-            self.assertEqual(len(self._read_dropped_sidecar(tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz")), 0)
-            self.assertEqual(mock_bed.call_args.kwargs["keep_snps"], [0, 1, 2])
-            messages = "\n".join(log_ctx.output)
-            self.assertEqual(messages.count("Coordinate duplicate filtering applies only for chr_pos-family snp_identifier modes"), 1)
+        self.assertEqual(result.chromosomes, ["1"])
+        self.assertTrue((tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz").exists())
+        self.assertEqual(len(self._read_dropped_sidecar(tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz")), 0)
+        self.assertEqual(mock_bed.call_args.kwargs["keep_snps"], [0, 1, 2])
+        messages = "\n".join(log_ctx.output)
+        self.assertEqual(messages.count("Coordinate duplicate filtering applies only for chr_pos-family snp_identifier modes"), 1)
 
     def test_builder_run_rejects_matching_chain_in_rsid_mode(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
-            config = R2MatrixBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg19",
-                liftover_chain_hg19_to_hg38_file=tmpdir / "hg19ToHg38.over.chain",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-            )
-            builder = r2_matrix_builder.R2MatrixBuilder(
-                global_config=GlobalConfig(snp_identifier="rsid", genome_build="hg38")
-            )
+        tmpdir = self.tmp_path
+        self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+        config = R2MatrixBuildConfig(
+            plink_prefix=tmpdir / "panel.@",
+            source_genome_build="hg19",
+            liftover_chain_hg19_to_hg38_file=tmpdir / "hg19ToHg38.over.chain",
+            output_dir=tmpdir / "out",
+            ld_wind_kb=1.0,
+        )
+        builder = r2_matrix_builder.R2MatrixBuilder(
+            global_config=GlobalConfig(snp_identifier="rsid", genome_build="hg38")
+        )
 
-            with self._skip_selection_pre_pass(), mock.patch.object(
-                r2_matrix_builder.R2MatrixBuilder,
-                "_build_chromosome",
-                side_effect=AssertionError("chromosome build should not run"),
-            ):
-                with self.assertRaisesRegex(LDSCUsageError, "chain liftover.*chr_pos-family"):
-                    builder.run(config)
+        with self._skip_selection_pre_pass(), mock.patch.object(
+            r2_matrix_builder.R2MatrixBuilder,
+            "_build_chromosome",
+            side_effect=AssertionError("chromosome build should not run"),
+        ):
+            with self.assertRaisesRegex(LDSCUsageError, "chain liftover.*chr_pos-family"):
+                builder.run(config)
 
     def test_builder_run_rejects_matching_chain_in_rsid_allele_aware_mode(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
-            config = R2MatrixBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg19",
-                liftover_chain_hg19_to_hg38_file=tmpdir / "hg19ToHg38.over.chain",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-            )
-            builder = r2_matrix_builder.R2MatrixBuilder(
-                global_config=GlobalConfig(snp_identifier="rsid_allele_aware")
-            )
+        tmpdir = self.tmp_path
+        self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+        config = R2MatrixBuildConfig(
+            plink_prefix=tmpdir / "panel.@",
+            source_genome_build="hg19",
+            liftover_chain_hg19_to_hg38_file=tmpdir / "hg19ToHg38.over.chain",
+            output_dir=tmpdir / "out",
+            ld_wind_kb=1.0,
+        )
+        builder = r2_matrix_builder.R2MatrixBuilder(
+            global_config=GlobalConfig(snp_identifier="rsid_allele_aware")
+        )
 
-            with self.assertRaisesRegex(
-                LDSCUsageError,
-                "chain liftover.*rsID-family",
-            ):
-                builder.run(config)
+        with self.assertRaisesRegex(
+            LDSCUsageError,
+            "chain liftover.*rsID-family",
+        ):
+            builder.run(config)
 
     def test_allele_aware_mode_requires_bim_allele_columns(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            prefix = tmpdir / "panel.1"
-            Path(str(prefix) + ".bed").write_bytes(b"")
-            Path(str(prefix) + ".fam").write_text("fam iid 0 0 0 -9\n", encoding="utf-8")
-            Path(str(prefix) + ".bim").write_text("1 rs1 0.0 100\n", encoding="utf-8")
-            config = R2MatrixBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg19",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-            )
-            builder = r2_matrix_builder.R2MatrixBuilder(
-                global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware")
-            )
+        tmpdir = self.tmp_path
+        prefix = tmpdir / "panel.1"
+        Path(str(prefix) + ".bed").write_bytes(b"")
+        Path(str(prefix) + ".fam").write_text("fam iid 0 0 0 -9\n", encoding="utf-8")
+        Path(str(prefix) + ".bim").write_text("1 rs1 0.0 100\n", encoding="utf-8")
+        config = R2MatrixBuildConfig(
+            plink_prefix=tmpdir / "panel.@",
+            source_genome_build="hg19",
+            output_dir=tmpdir / "out",
+            ld_wind_kb=1.0,
+        )
+        builder = r2_matrix_builder.R2MatrixBuilder(
+            global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware")
+        )
 
-            with self.assertRaisesRegex(LDSCInputError, "A1.*A2|columns do not match"):
-                builder.run(config)
+        with self.assertRaisesRegex(LDSCInputError, "A1.*A2|columns do not match"):
+            builder.run(config)
 
     def test_chr_pos_allele_aware_drops_invalid_allele_rows_before_genotype_loading(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            prefix = self._write_plink_prefix_rows(
-                tmpdir,
-                "panel.1",
-                [
-                    ("1", "rs1", 100, "A", "C"),
-                    ("1", "rs_bad", 200, "A", "N"),
-                    ("1", "rs2", 300, "A", "G"),
-                ],
-            )
-            config = R2MatrixBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg19",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-            )
-            build_state = r2_matrix_builder._BuildState(genetic_map_hg19=None, genetic_map_hg38=None)
-            builder = r2_matrix_builder.R2MatrixBuilder(
-                global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware")
-            )
-            captured = {}
+        tmpdir = self.tmp_path
+        prefix = self._write_plink_prefix_rows(
+            tmpdir,
+            "panel.1",
+            [
+                ("1", "rs1", 100, "A", "C"),
+                ("1", "rs_bad", 200, "A", "N"),
+                ("1", "rs2", 300, "A", "G"),
+            ],
+        )
+        config = R2MatrixBuildConfig(
+            plink_prefix=tmpdir / "panel.@",
+            source_genome_build="hg19",
+            output_dir=tmpdir / "out",
+            ld_wind_kb=1.0,
+        )
+        build_state = r2_matrix_builder._BuildState(genetic_map_hg19=None, genetic_map_hg38=None)
+        builder = r2_matrix_builder.R2MatrixBuilder(
+            global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware")
+        )
+        captured = {}
 
-            def stop_after_identity_cleanup(*, keep_snps, **_kwargs):
-                captured["keep_snps"] = list(map(int, keep_snps))
-                raise RuntimeError("stop after identity cleanup")
+        def stop_after_identity_cleanup(*, keep_snps, **_kwargs):
+            captured["keep_snps"] = list(map(int, keep_snps))
+            raise RuntimeError("stop after identity cleanup")
 
-            with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=stop_after_identity_cleanup):
-                with self.assertRaisesRegex(RuntimeError, "stop after identity cleanup"):
-                    builder._build_chromosome(str(prefix), "1", config, build_state)
+        with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=stop_after_identity_cleanup):
+            with self.assertRaisesRegex(RuntimeError, "stop after identity cleanup"):
+                builder._build_chromosome(str(prefix), "1", config, build_state)
 
-            self.assertEqual(captured["keep_snps"], [0, 2])
+        self.assertEqual(captured["keep_snps"], [0, 2])
 
     def test_allele_aware_modes_drop_multiallelic_base_key_clusters(self):
         cases = [
@@ -1445,32 +1435,31 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
                     self.assertEqual(captured["keep_snps"], [2])
 
     def test_rsid_base_mode_drops_duplicate_effective_keys_with_identity_reason(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            prefix = self._write_plink_prefix_rows(
-                tmpdir,
-                "panel.1",
-                [("1", "rs1", 100, "A", "C"), ("1", "rs1", 200, "N", "N"), ("1", "rs2", 300, "A", "C")],
-            )
-            config = R2MatrixBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg19",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-            )
-            build_state = r2_matrix_builder._BuildState(genetic_map_hg19=None, genetic_map_hg38=None)
-            builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="rsid"))
-            captured = {}
+        tmpdir = self.tmp_path
+        prefix = self._write_plink_prefix_rows(
+            tmpdir,
+            "panel.1",
+            [("1", "rs1", 100, "A", "C"), ("1", "rs1", 200, "N", "N"), ("1", "rs2", 300, "A", "C")],
+        )
+        config = R2MatrixBuildConfig(
+            plink_prefix=tmpdir / "panel.@",
+            source_genome_build="hg19",
+            output_dir=tmpdir / "out",
+            ld_wind_kb=1.0,
+        )
+        build_state = r2_matrix_builder._BuildState(genetic_map_hg19=None, genetic_map_hg38=None)
+        builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="rsid"))
+        captured = {}
 
-            def stop_after_identity_cleanup(*, keep_snps, **_kwargs):
-                captured["keep_snps"] = list(map(int, keep_snps))
-                raise RuntimeError("stop after identity cleanup")
+        def stop_after_identity_cleanup(*, keep_snps, **_kwargs):
+            captured["keep_snps"] = list(map(int, keep_snps))
+            raise RuntimeError("stop after identity cleanup")
 
-            with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=stop_after_identity_cleanup):
-                with self.assertRaisesRegex(RuntimeError, "stop after identity cleanup"):
-                    builder._build_chromosome(str(prefix), "1", config, build_state)
+        with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=stop_after_identity_cleanup):
+            with self.assertRaisesRegex(RuntimeError, "stop after identity cleanup"):
+                builder._build_chromosome(str(prefix), "1", config, build_state)
 
-            self.assertEqual(captured["keep_snps"], [2])
+        self.assertEqual(captured["keep_snps"], [2])
 
     def _run_chr_pos_build(self, tmpdir: Path, *, kept_snps=(0,), plink_prefix="panel.@"):
         """Run builder.run() with liftover and genotype/R2 work replaced by stubs."""
@@ -1513,115 +1502,110 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
                 raise
 
     def test_emptied_autosomes_fail_together_before_genotype_reading(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            # Shared positions make chr_pos identities duplicate, removing every SNP.
-            self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100), ("1", "rs2", 100)])
-            self._write_plink_prefix_rows(tmpdir, "panel.2", [("2", "rs3", 200)])
-            self._write_plink_prefix_rows(tmpdir, "panel.3", [("3", "rs4", 300), ("3", "rs5", 300)])
+        tmpdir = self.tmp_path
+        # Shared positions make chr_pos identities duplicate, removing every SNP.
+        self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100), ("1", "rs2", 100)])
+        self._write_plink_prefix_rows(tmpdir, "panel.2", [("2", "rs3", 200)])
+        self._write_plink_prefix_rows(tmpdir, "panel.3", [("3", "rs4", 300), ("3", "rs5", 300)])
 
-            with self.assertRaises(LDSCInputError) as caught:
-                self._run_chr_pos_build(tmpdir)
+        with self.assertRaises(LDSCInputError) as caught:
+            self._run_chr_pos_build(tmpdir)
 
-            message = str(caught.exception)
-            self.assertIn("(chromosome 1): all 2 SNPs were removed at identity cleanup", message)
-            self.assertIn("(chromosome 3): all 2 SNPs were removed at identity cleanup", message)
-            self.assertNotIn("chromosome 2)", message)
-            self.assertIn("build-r2-matrix-no-reference-panel-artifacts-were-produced", message)
-            caught.exception.mock_bed.assert_not_called()
-            issues = pd.read_csv(tmpdir / "out" / "diagnostics" / "input_issues.tsv", sep="\t", dtype=str)
-            self.assertEqual(issues.chrom.tolist(), ["1", "3"])
-            dropped = tmpdir / "out" / "diagnostics" / "dropped_snps"
-            self.assertEqual(len(self._read_dropped_sidecar(dropped / "chr1_dropped.tsv.gz")), 2)
-            self.assertFalse(list((tmpdir / "out").glob("hg19/chr*_r2.parquet")))
+        message = str(caught.exception)
+        self.assertIn("(chromosome 1): all 2 SNPs were removed at identity cleanup", message)
+        self.assertIn("(chromosome 3): all 2 SNPs were removed at identity cleanup", message)
+        self.assertNotIn("chromosome 2)", message)
+        self.assertIn("build-r2-matrix-no-reference-panel-artifacts-were-produced", message)
+        caught.exception.mock_bed.assert_not_called()
+        issues = pd.read_csv(tmpdir / "out" / "diagnostics" / "input_issues.tsv", sep="\t", dtype=str)
+        self.assertEqual(issues.chrom.tolist(), ["1", "3"])
+        dropped = tmpdir / "out" / "diagnostics" / "dropped_snps"
+        self.assertEqual(len(self._read_dropped_sidecar(dropped / "chr1_dropped.tsv.gz")), 2)
+        self.assertFalse(list((tmpdir / "out").glob("hg19/chr*_r2.parquet")))
 
     def test_emptied_sex_chromosome_is_skipped_with_a_warning(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            # '@' suites cover autosomes; X reaches the builder inside a whole-genome trio.
-            self._write_plink_prefix_rows(tmpdir, "panel", [("2", "rs3", 200), ("X", "rsx1", 100), ("X", "rsx2", 100)])
+        tmpdir = self.tmp_path
+        # '@' suites cover autosomes; X reaches the builder inside a whole-genome trio.
+        self._write_plink_prefix_rows(tmpdir, "panel", [("2", "rs3", 200), ("X", "rsx1", 100), ("X", "rsx2", 100)])
 
-            with self.assertLogs("LDSC", level="WARNING") as logs:
-                result, _ = self._run_chr_pos_build(tmpdir, plink_prefix="panel")
+        with self.assertLogs("LDSC", level="WARNING") as logs:
+            result, _ = self._run_chr_pos_build(tmpdir, plink_prefix="panel")
 
-            self.assertEqual(result.chromosomes, ["2"])
-            self.assertTrue(any("Skipping chromosome X: all 2 SNPs were removed at identity cleanup" in line
-                                for line in logs.output))
+        self.assertEqual(result.chromosomes, ["2"])
+        self.assertTrue(any("Skipping chromosome X: all 2 SNPs were removed at identity cleanup" in line
+                            for line in logs.output))
 
     def test_autosome_emptied_by_genotype_filtering_fails_when_reached(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100)])
-            self._write_plink_prefix_rows(tmpdir, "panel.2", [("2", "rs3", 200)])
+        tmpdir = self.tmp_path
+        self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100)])
+        self._write_plink_prefix_rows(tmpdir, "panel.2", [("2", "rs3", 200)])
 
-            with self.assertRaisesRegex(LDSCInputError, "chromosome 1.*genotype filtering removed all 1 SNPs") as caught:
-                self._run_chr_pos_build(tmpdir, kept_snps=())
+        with self.assertRaisesRegex(LDSCInputError, "chromosome 1.*genotype filtering removed all 1 SNPs") as caught:
+            self._run_chr_pos_build(tmpdir, kept_snps=())
 
-            self.assertEqual(caught.exception.mock_bed.call_count, 1)
+        self.assertEqual(caught.exception.mock_bed.call_count, 1)
 
     def test_builder_run_collects_artifact_paths_from_resolved_suite(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
-            self._write_dummy_plink_prefix(tmpdir, "panel.2", "2")
-            config = self._build_config(tmpdir)
-            builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+        tmpdir = self.tmp_path
+        self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+        self._write_dummy_plink_prefix(tmpdir, "panel.2", "2")
+        config = self._build_config(tmpdir)
+        builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
-            with self._stub_chromosome_builds(("hg19", "hg38")) as patched:
-                result = builder.run(config)
+        with self._stub_chromosome_builds(("hg19", "hg38")) as patched:
+            result = builder.run(config)
 
-            self.assertEqual(result.matrix_name, "out")
-            self.assertEqual(result.chromosomes, ["1", "2"])
-            self.assertEqual(patched.call_count, 2)
-            self.assertNotIn("ann", result.output_paths)
-            self.assertNotIn("ld", result.output_paths)
-            self.assertEqual(result.output_paths["metadata"], [str(tmpdir / "out" / "diagnostics" / "metadata.json")])
-            self.assertFalse((tmpdir / "out" / "metadata.json").exists())
-            metadata = json.loads((tmpdir / "out" / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(metadata["artifact_type"], "r2_matrix_build")
-            self.assertEqual(metadata["snp_identifier"], "chr_pos")
-            self.assertEqual(metadata["genome_build"], "hg38")
-            self.assertEqual(metadata["chromosomes"], ["1", "2"])
-            self.assertEqual(metadata["files"]["r2_hg19"], ["hg19/chr1_r2.parquet", "hg19/chr2_r2.parquet"])
-            self.assertEqual(metadata["files"]["meta_hg38"], ["hg38/chr1_meta.tsv.gz", "hg38/chr2_meta.tsv.gz"])
-            self.assertEqual(
-                result.output_paths["r2_hg19"],
-                [
-                    str(tmpdir / "out" / "hg19" / "chr1_r2.parquet"),
-                    str(tmpdir / "out" / "hg19" / "chr2_r2.parquet"),
-                ],
-            )
-            self.assertEqual(
-                result.output_paths["meta_hg38"],
-                [
-                    str(tmpdir / "out" / "hg38" / "chr1_meta.tsv.gz"),
-                    str(tmpdir / "out" / "hg38" / "chr2_meta.tsv.gz"),
-                ],
-            )
+        self.assertEqual(result.matrix_name, "out")
+        self.assertEqual(result.chromosomes, ["1", "2"])
+        self.assertEqual(patched.call_count, 2)
+        self.assertNotIn("ann", result.output_paths)
+        self.assertNotIn("ld", result.output_paths)
+        self.assertEqual(result.output_paths["metadata"], [str(tmpdir / "out" / "diagnostics" / "metadata.json")])
+        self.assertFalse((tmpdir / "out" / "metadata.json").exists())
+        metadata = json.loads((tmpdir / "out" / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
+        self.assertEqual(metadata["artifact_type"], "r2_matrix_build")
+        self.assertEqual(metadata["snp_identifier"], "chr_pos")
+        self.assertEqual(metadata["genome_build"], "hg38")
+        self.assertEqual(metadata["chromosomes"], ["1", "2"])
+        self.assertEqual(metadata["files"]["r2_hg19"], ["hg19/chr1_r2.parquet", "hg19/chr2_r2.parquet"])
+        self.assertEqual(metadata["files"]["meta_hg38"], ["hg38/chr1_meta.tsv.gz", "hg38/chr2_meta.tsv.gz"])
+        self.assertEqual(
+            result.output_paths["r2_hg19"],
+            [
+                str(tmpdir / "out" / "hg19" / "chr1_r2.parquet"),
+                str(tmpdir / "out" / "hg19" / "chr2_r2.parquet"),
+            ],
+        )
+        self.assertEqual(
+            result.output_paths["meta_hg38"],
+            [
+                str(tmpdir / "out" / "hg38" / "chr1_meta.tsv.gz"),
+                str(tmpdir / "out" / "hg38" / "chr2_meta.tsv.gz"),
+            ],
+        )
 
     def test_run_build_r2_matrix_from_args_writes_workflow_log(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
-            parser = r2_matrix_builder.build_parser()
-            args = parser.parse_args(
-                [
-                    "--plink-prefix",
-                    str(tmpdir / "panel.@"),
-                    "--source-genome-build",
-                    "hg19",
-                    "--output-dir",
-                    str(tmpdir / "out"),
-                    "--ld-wind-kb",
-                    "1",
-                ]
-            )
+        tmpdir = self.tmp_path
+        self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+        parser = r2_matrix_builder.build_parser()
+        args = parser.parse_args(
+            [
+                "--plink-prefix",
+                str(tmpdir / "panel.@"),
+                "--source-genome-build",
+                "hg19",
+                "--output-dir",
+                str(tmpdir / "out"),
+                "--ld-wind-kb",
+                "1",
+            ]
+        )
 
-            with self._stub_chromosome_builds():
-                result = r2_matrix_builder.run_build_r2_matrix_from_args(args)
+        with self._stub_chromosome_builds():
+            result = r2_matrix_builder.run_build_r2_matrix_from_args(args)
 
-            self.assertTrue((tmpdir / "out" / "diagnostics" / "build-r2-matrix.log").exists())
-            self.assertNotIn("log", result.output_paths)
+        self.assertTrue((tmpdir / "out" / "diagnostics" / "build-r2-matrix.log").exists())
+        self.assertNotIn("log", result.output_paths)
 
     def test_run_build_r2_matrix_from_args_single_concrete_prefix_writes_chromosome_scoped_log_and_metadata(self):
         for overwrite in ([], ["--overwrite"]):
@@ -1645,216 +1629,208 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
                 self.assertFalse((tmpdir / "out" / "diagnostics" / "metadata.json").exists())
 
     def test_builder_run_allows_source_only_output_paths_when_no_chain_is_available(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
-            map_hg19 = tmpdir / "hg19.map"
-            map_hg19.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n", encoding="utf-8")
-            config = R2MatrixBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg19",
-                genetic_map_hg19_sources=map_hg19,
-                genetic_map_hg38_sources=None,
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-            )
-            builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+        tmpdir = self.tmp_path
+        self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+        map_hg19 = tmpdir / "hg19.map"
+        map_hg19.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n", encoding="utf-8")
+        config = R2MatrixBuildConfig(
+            plink_prefix=tmpdir / "panel.@",
+            source_genome_build="hg19",
+            genetic_map_hg19_sources=map_hg19,
+            genetic_map_hg38_sources=None,
+            output_dir=tmpdir / "out",
+            ld_wind_kb=1.0,
+        )
+        builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
-            with self.assertLogs("LDSC.r2_matrix_builder", level="INFO") as logs:
-                with self._stub_chromosome_builds():
-                    result = builder.run(config)
+        with self.assertLogs("LDSC.r2_matrix_builder", level="INFO") as logs:
+            with self._stub_chromosome_builds():
+                result = builder.run(config)
 
-            self.assertIn("meta_hg19", result.output_paths)
-            self.assertIn("r2_hg19", result.output_paths)
-            self.assertNotIn("ann", result.output_paths)
-            self.assertNotIn("ld", result.output_paths)
-            self.assertNotIn("meta_hg38", result.output_paths)
-            self.assertNotIn("r2_hg38", result.output_paths)
-            self.assertTrue(any("source-build-only" in message for message in logs.output))
+        self.assertIn("meta_hg19", result.output_paths)
+        self.assertIn("r2_hg19", result.output_paths)
+        self.assertNotIn("ann", result.output_paths)
+        self.assertNotIn("ld", result.output_paths)
+        self.assertNotIn("meta_hg38", result.output_paths)
+        self.assertNotIn("r2_hg38", result.output_paths)
+        self.assertTrue(any("source-build-only" in message for message in logs.output))
 
     def test_builder_run_refuses_existing_candidate_artifact_before_chromosome_build(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
-            config = self._build_config(tmpdir)
-            existing = tmpdir / "out" / "hg19" / "chr1_r2.parquet"
-            existing.parent.mkdir(parents=True)
-            existing.write_text("existing\n", encoding="utf-8")
-            builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+        tmpdir = self.tmp_path
+        self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+        config = self._build_config(tmpdir)
+        existing = tmpdir / "out" / "hg19" / "chr1_r2.parquet"
+        existing.parent.mkdir(parents=True)
+        existing.write_text("existing\n", encoding="utf-8")
+        builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
-            with self._skip_selection_pre_pass(), mock.patch.object(
-                r2_matrix_builder.R2MatrixBuilder,
-                "_build_chromosome",
-                side_effect=AssertionError("chromosome build should not run"),
-            ):
-                with self.assertRaisesRegex(FileExistsError, "overwrite"):
-                    builder.run(config)
+        with self._skip_selection_pre_pass(), mock.patch.object(
+            r2_matrix_builder.R2MatrixBuilder,
+            "_build_chromosome",
+            side_effect=AssertionError("chromosome build should not run"),
+        ):
+            with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                builder.run(config)
 
-            self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
+        self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
 
     def test_builder_run_allows_existing_candidate_artifact_with_overwrite(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
-            config = dataclass_replace(self._build_config(tmpdir), overwrite=True)
-            existing = tmpdir / "out" / "hg19" / "chr1_r2.parquet"
-            existing.parent.mkdir(parents=True)
-            existing.write_text("existing\n", encoding="utf-8")
-            builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+        tmpdir = self.tmp_path
+        self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+        config = dataclass_replace(self._build_config(tmpdir), overwrite=True)
+        existing = tmpdir / "out" / "hg19" / "chr1_r2.parquet"
+        existing.parent.mkdir(parents=True)
+        existing.write_text("existing\n", encoding="utf-8")
+        builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
-            with self._skip_selection_pre_pass(), mock.patch.object(
-                r2_matrix_builder.R2MatrixBuilder,
-                "_build_chromosome",
-                return_value={"r2_hg19": str(existing), "r2_hg38": "r2", "meta_hg19": "m19", "meta_hg38": "m38"},
-            ) as patched:
-                result = builder.run(config)
+        with self._skip_selection_pre_pass(), mock.patch.object(
+            r2_matrix_builder.R2MatrixBuilder,
+            "_build_chromosome",
+            return_value={"r2_hg19": str(existing), "r2_hg38": "r2", "meta_hg19": "m19", "meta_hg38": "m38"},
+        ) as patched:
+            result = builder.run(config)
 
-            patched.assert_called_once()
-            self.assertEqual(result.chromosomes, ["1"])
+        patched.assert_called_once()
+        self.assertEqual(result.chromosomes, ["1"])
 
     def test_builder_run_preserves_unrelated_files_without_overwrite(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
-            config = self._build_config(tmpdir)
-            output_dir = tmpdir / "out"
-            output_dir.mkdir()
-            (output_dir / "notes.txt").write_text("user notes\n", encoding="utf-8")
-            builder = r2_matrix_builder.R2MatrixBuilder(
-                global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")
+        tmpdir = self.tmp_path
+        self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+        config = self._build_config(tmpdir)
+        output_dir = tmpdir / "out"
+        output_dir.mkdir()
+        (output_dir / "notes.txt").write_text("user notes\n", encoding="utf-8")
+        builder = r2_matrix_builder.R2MatrixBuilder(
+            global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")
+        )
+
+        with self._skip_selection_pre_pass(), mock.patch.object(
+            r2_matrix_builder.R2MatrixBuilder,
+            "_build_chromosome",
+            return_value={
+                "r2_hg19": str(output_dir / "hg19" / "chr1_r2.parquet"),
+                "r2_hg38": str(output_dir / "hg38" / "chr1_r2.parquet"),
+                "meta_hg19": str(output_dir / "hg19" / "chr1_meta.tsv.gz"),
+                "meta_hg38": str(output_dir / "hg38" / "chr1_meta.tsv.gz"),
+            },
+        ):
+            # The parsed workflow's path: inspected inputs plus a workflow log.
+            result = builder._run(
+                config, *builder._inspect_inputs(config),
+                workflow_log_path=output_dir / "diagnostics" / "build-r2-matrix.log",
             )
 
-            with self._skip_selection_pre_pass(), mock.patch.object(
-                r2_matrix_builder.R2MatrixBuilder,
-                "_build_chromosome",
-                return_value={
-                    "r2_hg19": str(output_dir / "hg19" / "chr1_r2.parquet"),
-                    "r2_hg38": str(output_dir / "hg38" / "chr1_r2.parquet"),
-                    "meta_hg19": str(output_dir / "hg19" / "chr1_meta.tsv.gz"),
-                    "meta_hg38": str(output_dir / "hg38" / "chr1_meta.tsv.gz"),
-                },
-            ):
-                # The parsed workflow's path: inspected inputs plus a workflow log.
-                result = builder._run(
-                    config, *builder._inspect_inputs(config),
-                    workflow_log_path=output_dir / "diagnostics" / "build-r2-matrix.log",
-                )
-
-            self.assertEqual((output_dir / "notes.txt").read_text(encoding="utf-8"), "user notes\n")
-            self.assertEqual(result.chromosomes, ["1"])
-            self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
-            self.assertTrue((output_dir / "diagnostics" / "build-r2-matrix.log").exists())
+        self.assertEqual((output_dir / "notes.txt").read_text(encoding="utf-8"), "user notes\n")
+        self.assertEqual(result.chromosomes, ["1"])
+        self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
+        self.assertTrue((output_dir / "diagnostics" / "build-r2-matrix.log").exists())
 
     def test_builder_run_refuses_stale_owned_artifact_before_chromosome_build(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
-            config = self._build_config(tmpdir)
-            stale = tmpdir / "out" / "hg38" / "chr2_r2.parquet"
-            stale.parent.mkdir(parents=True)
-            stale.write_text("stale\n", encoding="utf-8")
-            builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+        tmpdir = self.tmp_path
+        self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+        config = self._build_config(tmpdir)
+        stale = tmpdir / "out" / "hg38" / "chr2_r2.parquet"
+        stale.parent.mkdir(parents=True)
+        stale.write_text("stale\n", encoding="utf-8")
+        builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
-            with self._skip_selection_pre_pass(), mock.patch.object(
-                r2_matrix_builder.R2MatrixBuilder,
-                "_build_chromosome",
-                side_effect=AssertionError("chromosome build should not run"),
-            ):
-                with self.assertRaisesRegex(FileExistsError, "overwrite"):
-                    builder.run(config)
+        with self._skip_selection_pre_pass(), mock.patch.object(
+            r2_matrix_builder.R2MatrixBuilder,
+            "_build_chromosome",
+            side_effect=AssertionError("chromosome build should not run"),
+        ):
+            with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                builder.run(config)
 
-            self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
+        self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
 
     def test_builder_run_overwrite_removes_stale_owned_artifact_after_success(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
-            config = dataclass_replace(self._build_config(tmpdir), overwrite=True)
-            stale_r2 = tmpdir / "out" / "hg38" / "chr2_r2.parquet"
-            stale_drop = tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr2_dropped.tsv.gz"
-            stale_r2.parent.mkdir(parents=True)
-            stale_drop.parent.mkdir(parents=True)
-            stale_r2.write_text("stale\n", encoding="utf-8")
-            stale_drop.write_text("stale\n", encoding="utf-8")
-            builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+        tmpdir = self.tmp_path
+        self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+        config = dataclass_replace(self._build_config(tmpdir), overwrite=True)
+        stale_r2 = tmpdir / "out" / "hg38" / "chr2_r2.parquet"
+        stale_drop = tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr2_dropped.tsv.gz"
+        stale_r2.parent.mkdir(parents=True)
+        stale_drop.parent.mkdir(parents=True)
+        stale_r2.write_text("stale\n", encoding="utf-8")
+        stale_drop.write_text("stale\n", encoding="utf-8")
+        builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
-            with self._skip_selection_pre_pass(), mock.patch.object(
-                r2_matrix_builder.R2MatrixBuilder,
-                "_build_chromosome",
-                return_value={
-                    "r2_hg19": str(tmpdir / "out" / "hg19" / "chr1_r2.parquet"),
-                    "r2_hg38": str(tmpdir / "out" / "hg38" / "chr1_r2.parquet"),
-                    "meta_hg19": str(tmpdir / "out" / "hg19" / "chr1_meta.tsv.gz"),
-                    "meta_hg38": str(tmpdir / "out" / "hg38" / "chr1_meta.tsv.gz"),
-                },
-            ):
-                result = builder.run(config)
+        with self._skip_selection_pre_pass(), mock.patch.object(
+            r2_matrix_builder.R2MatrixBuilder,
+            "_build_chromosome",
+            return_value={
+                "r2_hg19": str(tmpdir / "out" / "hg19" / "chr1_r2.parquet"),
+                "r2_hg38": str(tmpdir / "out" / "hg38" / "chr1_r2.parquet"),
+                "meta_hg19": str(tmpdir / "out" / "hg19" / "chr1_meta.tsv.gz"),
+                "meta_hg38": str(tmpdir / "out" / "hg38" / "chr1_meta.tsv.gz"),
+            },
+        ):
+            result = builder.run(config)
 
-            self.assertEqual(result.chromosomes, ["1"])
-            self.assertFalse(stale_r2.exists())
-            self.assertFalse(stale_drop.exists())
+        self.assertEqual(result.chromosomes, ["1"])
+        self.assertFalse(stale_r2.exists())
+        self.assertFalse(stale_drop.exists())
 
     def test_builder_run_concrete_chromosome_overwrite_preserves_sibling_artifacts(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
-            config = dataclass_replace(
-                self._build_config(tmpdir),
-                plink_prefix=tmpdir / "panel.1",
-                overwrite=True,
-            )
-            sibling_r2 = tmpdir / "out" / "hg38" / "chr2_r2.parquet"
-            sibling_drop = tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr2_dropped.tsv.gz"
-            sibling_r2.parent.mkdir(parents=True)
-            sibling_drop.parent.mkdir(parents=True)
-            sibling_r2.write_text("sibling\n", encoding="utf-8")
-            sibling_drop.write_text("sibling\n", encoding="utf-8")
-            builder = r2_matrix_builder.R2MatrixBuilder(
-                global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")
-            )
+        tmpdir = self.tmp_path
+        self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+        config = dataclass_replace(
+            self._build_config(tmpdir),
+            plink_prefix=tmpdir / "panel.1",
+            overwrite=True,
+        )
+        sibling_r2 = tmpdir / "out" / "hg38" / "chr2_r2.parquet"
+        sibling_drop = tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr2_dropped.tsv.gz"
+        sibling_r2.parent.mkdir(parents=True)
+        sibling_drop.parent.mkdir(parents=True)
+        sibling_r2.write_text("sibling\n", encoding="utf-8")
+        sibling_drop.write_text("sibling\n", encoding="utf-8")
+        builder = r2_matrix_builder.R2MatrixBuilder(
+            global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")
+        )
 
+        with self._skip_selection_pre_pass(), mock.patch.object(
+            r2_matrix_builder.R2MatrixBuilder,
+            "_build_chromosome",
+            return_value={
+                "r2_hg19": str(tmpdir / "out" / "hg19" / "chr1_r2.parquet"),
+                "r2_hg38": str(tmpdir / "out" / "hg38" / "chr1_r2.parquet"),
+                "meta_hg19": str(tmpdir / "out" / "hg19" / "chr1_meta.tsv.gz"),
+                "meta_hg38": str(tmpdir / "out" / "hg38" / "chr1_meta.tsv.gz"),
+            },
+        ):
+            result = builder.run(config)
+
+        self.assertEqual(result.chromosomes, ["1"])
+        self.assertEqual(sibling_r2.read_text(encoding="utf-8"), "sibling\n")
+        self.assertEqual(sibling_drop.read_text(encoding="utf-8"), "sibling\n")
+
+    def test_builder_run_warns_when_only_non_matching_chain_is_available(self):
+        tmpdir = self.tmp_path
+        self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+        map_hg19 = tmpdir / "hg19.map"
+        map_hg19.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n", encoding="utf-8")
+        config = R2MatrixBuildConfig(
+            plink_prefix=tmpdir / "panel.@",
+            source_genome_build="hg19",
+            genetic_map_hg19_sources=map_hg19,
+            genetic_map_hg38_sources=None,
+            liftover_chain_hg38_to_hg19_file=tmpdir / "hg38ToHg19.over.chain",
+            output_dir=tmpdir / "out",
+            ld_wind_kb=1.0,
+        )
+        builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+
+        with self.assertLogs("LDSC.r2_matrix_builder", level="INFO") as logs:
             with self._skip_selection_pre_pass(), mock.patch.object(
                 r2_matrix_builder.R2MatrixBuilder,
                 "_build_chromosome",
-                return_value={
-                    "r2_hg19": str(tmpdir / "out" / "hg19" / "chr1_r2.parquet"),
-                    "r2_hg38": str(tmpdir / "out" / "hg38" / "chr1_r2.parquet"),
-                    "meta_hg19": str(tmpdir / "out" / "hg19" / "chr1_meta.tsv.gz"),
-                    "meta_hg38": str(tmpdir / "out" / "hg38" / "chr1_meta.tsv.gz"),
-                },
+                return_value={"r2_hg19": "r2", "meta_hg19": "m19"},
             ):
-                result = builder.run(config)
+                builder.run(config)
 
-            self.assertEqual(result.chromosomes, ["1"])
-            self.assertEqual(sibling_r2.read_text(encoding="utf-8"), "sibling\n")
-            self.assertEqual(sibling_drop.read_text(encoding="utf-8"), "sibling\n")
-
-    def test_builder_run_warns_when_only_non_matching_chain_is_available(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
-            map_hg19 = tmpdir / "hg19.map"
-            map_hg19.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n", encoding="utf-8")
-            config = R2MatrixBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg19",
-                genetic_map_hg19_sources=map_hg19,
-                genetic_map_hg38_sources=None,
-                liftover_chain_hg38_to_hg19_file=tmpdir / "hg38ToHg19.over.chain",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-            )
-            builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
-
-            with self.assertLogs("LDSC.r2_matrix_builder", level="INFO") as logs:
-                with self._skip_selection_pre_pass(), mock.patch.object(
-                    r2_matrix_builder.R2MatrixBuilder,
-                    "_build_chromosome",
-                    return_value={"r2_hg19": "r2", "meta_hg19": "m19"},
-                ):
-                    builder.run(config)
-
-            self.assertTrue(any("ignoring the opposite-direction chain" in message for message in logs.output))
+        self.assertTrue(any("ignoring the opposite-direction chain" in message for message in logs.output))
 
     def test_resolve_mappable_snp_positions_skips_liftover_without_matching_chain(self):
         builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
@@ -1938,146 +1914,141 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
         )
 
     def test_liftover_target_collision_removes_variant_from_all_emitted_builds(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            prefix = self._write_plink_prefix_rows(
-                tmpdir,
-                "panel.1",
-                [("1", "rs1", 100), ("1", "rs2", 200), ("1", "rs3", 300)],
-            )
-            config = R2MatrixBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg19",
-                liftover_chain_hg19_to_hg38_file=tmpdir / "hg19ToHg38.over.chain",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-            )
-            build_state = r2_matrix_builder._BuildState(
-                genetic_map_hg19=None,
-                genetic_map_hg38=None,
-                liftover_chain_paths={("hg19", "hg38"): str(tmpdir / "hg19ToHg38.over.chain")},
-            )
-            builder = r2_matrix_builder.R2MatrixBuilder(
-                global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
-            )
+        tmpdir = self.tmp_path
+        prefix = self._write_plink_prefix_rows(
+            tmpdir,
+            "panel.1",
+            [("1", "rs1", 100), ("1", "rs2", 200), ("1", "rs3", 300)],
+        )
+        config = R2MatrixBuildConfig(
+            plink_prefix=tmpdir / "panel.@",
+            source_genome_build="hg19",
+            liftover_chain_hg19_to_hg38_file=tmpdir / "hg19ToHg38.over.chain",
+            output_dir=tmpdir / "out",
+            ld_wind_kb=1.0,
+        )
+        build_state = r2_matrix_builder._BuildState(
+            genetic_map_hg19=None,
+            genetic_map_hg38=None,
+            liftover_chain_paths={("hg19", "hg38"): str(tmpdir / "hg19ToHg38.over.chain")},
+        )
+        builder = r2_matrix_builder.R2MatrixBuilder(
+            global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
+        )
 
-            def fake_mappable(*, keep_snps, **_kwargs):
-                keep = np.asarray(keep_snps, dtype=int)
-                return keep, {0: 100, 1: 200, 2: 300}, {0: 1000, 1: 1000, 2: 3000}, empty_identity_drop_frame()
+        def fake_mappable(*, keep_snps, **_kwargs):
+            keep = np.asarray(keep_snps, dtype=int)
+            return keep, {0: 100, 1: 200, 2: 300}, {0: 1000, 1: 1000, 2: 3000}, empty_identity_drop_frame()
 
-            bed_instances = []
-            for _ in range(2):
-                bed = mock.Mock()
-                bed.kept_snps = [2]
-                bed.maf = np.array([0.3])
-                bed.freq = 1 - np.array([0.3])
-                bed.m = 1
-                bed.n = 1
-                bed.nextSNPs = lambda _width: np.zeros((1, 1))
-                bed_instances.append(bed)
+        bed_instances = []
+        for _ in range(2):
+            bed = mock.Mock()
+            bed.kept_snps = [2]
+            bed.maf = np.array([0.3])
+            bed.freq = 1 - np.array([0.3])
+            bed.m = 1
+            bed.n = 1
+            bed.nextSNPs = lambda _width: np.zeros((1, 1))
+            bed_instances.append(bed)
 
-            with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=fake_mappable), mock.patch(
-                "ldsc._refpanel.builder.write_r2_parquet"
-            ), mock.patch(
-                "ldsc._refpanel.builder.write_runtime_metadata_sidecar"
-            ), mock.patch(
-                "ldsc._refpanel.builder.PlinkBEDFile",
-                side_effect=bed_instances,
-            ) as mock_bed:
-                with self.assertLogs("LDSC.r2_matrix_builder", level="INFO") as logs:
-                    builder._build_chromosome(str(prefix), "1", config, build_state)
+        with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=fake_mappable), mock.patch(
+            "ldsc._refpanel.builder.write_r2_parquet"
+        ), mock.patch(
+            "ldsc._refpanel.builder.write_runtime_metadata_sidecar"
+        ), mock.patch(
+            "ldsc._refpanel.builder.PlinkBEDFile",
+            side_effect=bed_instances,
+        ) as mock_bed:
+            with self.assertLogs("LDSC.r2_matrix_builder", level="INFO") as logs:
+                builder._build_chromosome(str(prefix), "1", config, build_state)
 
-            self.assertEqual([call.kwargs["keep_snps"] for call in mock_bed.call_args_list], [[2], [2]])
-            dropped = self._read_dropped_sidecar(tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz")
-            self.assertEqual(dropped["reason"].tolist(), ["target_collision", "target_collision"])
-            self.assertTrue(any("synchronized cross-build drops" in message for message in logs.output))
+        self.assertEqual([call.kwargs["keep_snps"] for call in mock_bed.call_args_list], [[2], [2]])
+        dropped = self._read_dropped_sidecar(tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz")
+        self.assertEqual(dropped["reason"].tolist(), ["target_collision", "target_collision"])
+        self.assertTrue(any("synchronized cross-build drops" in message for message in logs.output))
 
     def test_builder_run_infers_source_genome_build_before_build_state_preparation(self):
         from ldsc._genome.build_inference import load_packaged_reference_table
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            rows = load_packaged_reference_table().head(500)
-            self._write_plink_prefix_rows(root, 'panel.1', [(str(row.CHR), f'rs{i}', int(row.hg19_POS)) for i, row in enumerate(rows.itertuples())])
-            config = R2MatrixBuildConfig(plink_prefix=root / 'panel.@', output_dir=root / 'out', ld_wind_kb=1.)
-            builder = r2_matrix_builder.R2MatrixBuilder(GlobalConfig(snp_identifier='rsid'))
-            captured = []
-            def fake_build(prefix, chrom, config, build_state):
-                captured.append(config.source_genome_build)
-                return {'r2_hg19': str(Path(config.output_dir) / 'hg19' / f'chr{chrom}_r2.parquet'),
-                        'meta_hg19': str(Path(config.output_dir) / 'hg19' / f'chr{chrom}_meta.tsv.gz')}
-            with mock.patch.object(r2_matrix_builder.R2MatrixBuilder, '_build_chromosome', side_effect=fake_build):
-                builder.run(config)
-            self.assertEqual(captured, ['hg19'])
+        root = self.tmp_path
+        rows = load_packaged_reference_table().head(500)
+        self._write_plink_prefix_rows(root, 'panel.1', [(str(row.CHR), f'rs{i}', int(row.hg19_POS)) for i, row in enumerate(rows.itertuples())])
+        config = R2MatrixBuildConfig(plink_prefix=root / 'panel.@', output_dir=root / 'out', ld_wind_kb=1.)
+        builder = r2_matrix_builder.R2MatrixBuilder(GlobalConfig(snp_identifier='rsid'))
+        captured = []
+        def fake_build(prefix, chrom, config, build_state):
+            captured.append(config.source_genome_build)
+            return {'r2_hg19': str(Path(config.output_dir) / 'hg19' / f'chr{chrom}_r2.parquet'),
+                    'meta_hg19': str(Path(config.output_dir) / 'hg19' / f'chr{chrom}_meta.tsv.gz')}
+        with mock.patch.object(r2_matrix_builder.R2MatrixBuilder, '_build_chromosome', side_effect=fake_build):
+            builder.run(config)
+        self.assertEqual(captured, ['hg19'])
 
     def test_prepare_build_state_reads_source_build_specific_restriction_column(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            restriction = tmpdir / "restrict.tsv"
-            restriction.write_text("CHR\thg19_POS\thg38_POS\n1\t100\t110\n", encoding="utf-8")
-            config = R2MatrixBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg19",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-                ref_panel_snps_file=restriction,
-            )
-            builder = r2_matrix_builder.R2MatrixBuilder(
-                global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")
-            )
+        tmpdir = self.tmp_path
+        restriction = tmpdir / "restrict.tsv"
+        restriction.write_text("CHR\thg19_POS\thg38_POS\n1\t100\t110\n", encoding="utf-8")
+        config = R2MatrixBuildConfig(
+            plink_prefix=tmpdir / "panel.@",
+            source_genome_build="hg19",
+            output_dir=tmpdir / "out",
+            ld_wind_kb=1.0,
+            ref_panel_snps_file=restriction,
+        )
+        builder = r2_matrix_builder.R2MatrixBuilder(
+            global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")
+        )
 
-            with self.assertLogs("LDSC.r2_matrix_builder", level="INFO") as logs:
-                build_state = builder._prepare_build_state(config)
+        with self.assertLogs("LDSC.r2_matrix_builder", level="INFO") as logs:
+            build_state = builder._prepare_build_state(config)
 
         self.assertEqual(build_state.restriction_keys.keys, {"1:100"})
         self.assertTrue(any("source_genome_build='hg19'" in message for message in logs.output))
 
     def test_prepare_build_state_uses_resolved_build_and_drops_invalid_restriction_rows(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            restriction = tmpdir / "restrict.tsv"
-            restriction.write_text(
-                "CHR\tPOS\tSNP\n"
-                "1\t100\trs1\n"
-                "chrUn\t200\tbad_chr\n"
-                "1\tbad\tbad_pos\n",
-                encoding="utf-8",
-            )
-            config = R2MatrixBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg19",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-                ref_panel_snps_file=restriction,
-            )
-            builder = r2_matrix_builder.R2MatrixBuilder(
-                global_config=GlobalConfig(snp_identifier="chr_pos")
-            )
+        tmpdir = self.tmp_path
+        restriction = tmpdir / "restrict.tsv"
+        restriction.write_text(
+            "CHR\tPOS\tSNP\n"
+            "1\t100\trs1\n"
+            "chrUn\t200\tbad_chr\n"
+            "1\tbad\tbad_pos\n",
+            encoding="utf-8",
+        )
+        config = R2MatrixBuildConfig(
+            plink_prefix=tmpdir / "panel.@",
+            source_genome_build="hg19",
+            output_dir=tmpdir / "out",
+            ld_wind_kb=1.0,
+            ref_panel_snps_file=restriction,
+        )
+        builder = r2_matrix_builder.R2MatrixBuilder(
+            global_config=GlobalConfig(snp_identifier="chr_pos")
+        )
 
-            with self.assertLogs("LDSC.r2_matrix_builder", level="WARNING") as logs:
-                build_state = builder._prepare_build_state(config)
+        with self.assertLogs("LDSC.r2_matrix_builder", level="WARNING") as logs:
+            build_state = builder._prepare_build_state(config)
 
         self.assertEqual(build_state.restriction_keys.keys, {"1:100"})
         self.assertEqual(build_state.restriction_keys.n_input_rows, 3)
         self.assertEqual(build_state.restriction_keys.n_retained_keys, 1)
 
     def test_prepare_build_state_honors_explicit_source_build_for_small_list(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            restriction = tmpdir / "restrict.tsv"
-            restriction.write_text("CHR\tPOS\n1\t110\n", encoding="utf-8")
-            config = R2MatrixBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg19",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-                ref_panel_snps_file=restriction,
-            )
-            builder = r2_matrix_builder.R2MatrixBuilder(
-                global_config=GlobalConfig(snp_identifier="chr_pos")
-            )
+        tmpdir = self.tmp_path
+        restriction = tmpdir / "restrict.tsv"
+        restriction.write_text("CHR\tPOS\n1\t110\n", encoding="utf-8")
+        config = R2MatrixBuildConfig(
+            plink_prefix=tmpdir / "panel.@",
+            source_genome_build="hg19",
+            output_dir=tmpdir / "out",
+            ld_wind_kb=1.0,
+            ref_panel_snps_file=restriction,
+        )
+        builder = r2_matrix_builder.R2MatrixBuilder(
+            global_config=GlobalConfig(snp_identifier="chr_pos")
+        )
 
-            state = builder._prepare_build_state(config)
-            self.assertEqual(state.restriction_keys.keys, {'1:110'})
+        state = builder._prepare_build_state(config)
+        self.assertEqual(state.restriction_keys.keys, {'1:110'})
 
     def _keep_snps_reaching_liftover(self, rows, global_config, restriction=None):
         """Return the PLINK row indices an hg19 chromosome build with a chain passes to liftover mapping."""
@@ -2148,157 +2119,154 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
         self.assertEqual(mask.tolist(), [True, False, True])
 
     def test_allele_aware_restriction_filters_unrelated_invalid_panel_alleles_before_cleanup(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            prefix = self._write_plink_prefix_rows(
-                tmpdir,
-                "panel.1",
-                [
-                    ("1", "rs_valid", 100, "A", "C"),
-                    ("1", "rs_invalid_unrelated", 200, "A", "N"),
-                ],
-            )
-            restriction = RestrictionIdentityKeys(
-                keys={"1:100:A:C"},
-                match_kind="identity",
-                dropped=empty_identity_drop_frame(),
-                n_input_rows=1,
-                n_retained_keys=1,
-            )
-            config = R2MatrixBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg19",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-            )
-            build_state = r2_matrix_builder._BuildState(
-                genetic_map_hg19=None,
-                genetic_map_hg38=None,
-                liftover_chain_paths={},
-                restriction_keys=restriction,
-            )
-            builder = r2_matrix_builder.R2MatrixBuilder(
-                global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware")
-            )
-            captured = {}
+        tmpdir = self.tmp_path
+        prefix = self._write_plink_prefix_rows(
+            tmpdir,
+            "panel.1",
+            [
+                ("1", "rs_valid", 100, "A", "C"),
+                ("1", "rs_invalid_unrelated", 200, "A", "N"),
+            ],
+        )
+        restriction = RestrictionIdentityKeys(
+            keys={"1:100:A:C"},
+            match_kind="identity",
+            dropped=empty_identity_drop_frame(),
+            n_input_rows=1,
+            n_retained_keys=1,
+        )
+        config = R2MatrixBuildConfig(
+            plink_prefix=tmpdir / "panel.@",
+            source_genome_build="hg19",
+            output_dir=tmpdir / "out",
+            ld_wind_kb=1.0,
+        )
+        build_state = r2_matrix_builder._BuildState(
+            genetic_map_hg19=None,
+            genetic_map_hg38=None,
+            liftover_chain_paths={},
+            restriction_keys=restriction,
+        )
+        builder = r2_matrix_builder.R2MatrixBuilder(
+            global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware")
+        )
+        captured = {}
 
-            def stop_after_cleanup(*, keep_snps, **_kwargs):
-                captured["keep_snps"] = list(map(int, keep_snps))
-                raise RuntimeError("stop after cleanup")
+        def stop_after_cleanup(*, keep_snps, **_kwargs):
+            captured["keep_snps"] = list(map(int, keep_snps))
+            raise RuntimeError("stop after cleanup")
 
-            with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=stop_after_cleanup):
-                with self.assertRaisesRegex(RuntimeError, "stop after cleanup"):
-                    builder._build_chromosome(str(prefix), "1", config, build_state)
+        with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=stop_after_cleanup):
+            with self.assertRaisesRegex(RuntimeError, "stop after cleanup"):
+                builder._build_chromosome(str(prefix), "1", config, build_state)
 
         self.assertEqual(captured["keep_snps"], [0])
 
     def test_allele_aware_restriction_selected_invalid_panel_allele_reaches_cleanup_sidecar(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            prefix = self._write_plink_prefix_rows(
-                tmpdir,
-                "panel.1",
-                [
-                    ("1", "rs_valid", 100, "A", "C"),
-                    ("1", "rs_bad", 200, "A", "N"),
-                ],
-            )
-            restriction = RestrictionIdentityKeys(
-                keys={"1:100:A:C", "1:200:A:C"},
-                match_kind="identity",
-                dropped=empty_identity_drop_frame(),
-                n_input_rows=2,
-                n_retained_keys=2,
-            )
-            config = R2MatrixBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg19",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-            )
-            build_state = r2_matrix_builder._BuildState(
-                genetic_map_hg19=None,
-                genetic_map_hg38=None,
-                liftover_chain_paths={},
-                restriction_keys=restriction,
-            )
-            builder = r2_matrix_builder.R2MatrixBuilder(
-                global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware")
+        tmpdir = self.tmp_path
+        prefix = self._write_plink_prefix_rows(
+            tmpdir,
+            "panel.1",
+            [
+                ("1", "rs_valid", 100, "A", "C"),
+                ("1", "rs_bad", 200, "A", "N"),
+            ],
+        )
+        restriction = RestrictionIdentityKeys(
+            keys={"1:100:A:C", "1:200:A:C"},
+            match_kind="identity",
+            dropped=empty_identity_drop_frame(),
+            n_input_rows=2,
+            n_retained_keys=2,
+        )
+        config = R2MatrixBuildConfig(
+            plink_prefix=tmpdir / "panel.@",
+            source_genome_build="hg19",
+            output_dir=tmpdir / "out",
+            ld_wind_kb=1.0,
+        )
+        build_state = r2_matrix_builder._BuildState(
+            genetic_map_hg19=None,
+            genetic_map_hg38=None,
+            liftover_chain_paths={},
+            restriction_keys=restriction,
+        )
+        builder = r2_matrix_builder.R2MatrixBuilder(
+            global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware")
+        )
+
+        def fake_resolve(*, rows, keep_snps, **_kwargs):
+            keep = np.asarray(keep_snps, dtype=int)
+            return (
+                keep,
+                {int(idx): int(rows.loc[idx, "POS"]) for idx in keep},
+                {},
+                empty_identity_drop_frame(),
             )
 
-            def fake_resolve(*, rows, keep_snps, **_kwargs):
-                keep = np.asarray(keep_snps, dtype=int)
-                return (
-                    keep,
-                    {int(idx): int(rows.loc[idx, "POS"]) for idx in keep},
-                    {},
-                    empty_identity_drop_frame(),
-                )
+        with mock.patch.object(
+            builder,
+            "_resolve_mappable_snp_positions",
+            side_effect=fake_resolve,
+        ), mock.patch(
+            "ldsc._refpanel.builder.write_r2_parquet"
+        ), mock.patch(
+            "ldsc._refpanel.builder.write_runtime_metadata_sidecar"
+        ), mock.patch(
+            "ldsc._refpanel.builder.PlinkBEDFile"
+        ) as mock_bed:
+            mock_bed.return_value.kept_snps = [0]
+            mock_bed.return_value.maf = np.array([0.3])
+            mock_bed.return_value.freq = 1 - np.array([0.3])
+            mock_bed.return_value.m = 1
+            mock_bed.return_value.n = 1
+            mock_bed.return_value.nextSNPs = lambda: iter([np.zeros((1, 1))])
 
-            with mock.patch.object(
-                builder,
-                "_resolve_mappable_snp_positions",
-                side_effect=fake_resolve,
-            ), mock.patch(
-                "ldsc._refpanel.builder.write_r2_parquet"
-            ), mock.patch(
-                "ldsc._refpanel.builder.write_runtime_metadata_sidecar"
-            ), mock.patch(
-                "ldsc._refpanel.builder.PlinkBEDFile"
-            ) as mock_bed:
-                mock_bed.return_value.kept_snps = [0]
-                mock_bed.return_value.maf = np.array([0.3])
-                mock_bed.return_value.freq = 1 - np.array([0.3])
-                mock_bed.return_value.m = 1
-                mock_bed.return_value.n = 1
-                mock_bed.return_value.nextSNPs = lambda: iter([np.zeros((1, 1))])
+            result = builder._build_chromosome(str(prefix), "1", config, build_state)
 
-                result = builder._build_chromosome(str(prefix), "1", config, build_state)
-
-            dropped = self._read_dropped_sidecar(tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz")
-            self.assertIsNotNone(result)
-            self.assertEqual(dropped["SNP"].tolist(), ["rs_bad"])
-            self.assertEqual(dropped["reason"].tolist(), ["invalid_allele"])
-            self.assertEqual(dropped["stage"].tolist(), ["ref_panel_source_identity_cleanup"])
-            self.assertEqual(mock_bed.call_args.kwargs["keep_snps"], [0])
+        dropped = self._read_dropped_sidecar(tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz")
+        self.assertIsNotNone(result)
+        self.assertEqual(dropped["SNP"].tolist(), ["rs_bad"])
+        self.assertEqual(dropped["reason"].tolist(), ["invalid_allele"])
+        self.assertEqual(dropped["stage"].tolist(), ["ref_panel_source_identity_cleanup"])
+        self.assertEqual(mock_bed.call_args.kwargs["keep_snps"], [0])
 
     def test_base_chr_pos_restriction_ignores_single_allele_like_column(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "restrict.tsv"
-            path.write_text("CHR\thg19_POS\tREF\n1\t100\tA\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        path = tmpdir / "restrict.tsv"
+        path.write_text("CHR\thg19_POS\tREF\n1\t100\tA\n", encoding="utf-8")
 
-            restriction = read_snp_restriction_keys(path, "chr_pos", genome_build="hg19")
+        restriction = read_snp_restriction_keys(path, "chr_pos", genome_build="hg19")
 
-            self.assertEqual(restriction.match_kind, "base")
-            self.assertEqual(restriction.keys, {"1:100"})
+        self.assertEqual(restriction.match_kind, "base")
+        self.assertEqual(restriction.keys, {"1:100"})
 
     def test_builder_run_rejects_duplicate_chromosome_across_inputs(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self._write_dummy_plink_prefix(tmpdir, "panel_a", "1")
-            self._write_dummy_plink_prefix(tmpdir, "panel_b", "1")
-            map_hg19 = tmpdir / "hg19.map"
-            map_hg38 = tmpdir / "hg38.map"
-            map_hg19.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n", encoding="utf-8")
-            map_hg38.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n", encoding="utf-8")
-            config = R2MatrixBuildConfig(
-                plink_prefix=str(tmpdir / "panel_*"),
-                source_genome_build="hg19",
-                genetic_map_hg19_sources=map_hg19,
-                genetic_map_hg38_sources=map_hg38,
-                liftover_chain_hg19_to_hg38_file=tmpdir / "hg19ToHg38.over.chain",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-            )
-            builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+        tmpdir = self.tmp_path
+        self._write_dummy_plink_prefix(tmpdir, "panel_a", "1")
+        self._write_dummy_plink_prefix(tmpdir, "panel_b", "1")
+        map_hg19 = tmpdir / "hg19.map"
+        map_hg38 = tmpdir / "hg38.map"
+        map_hg19.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n", encoding="utf-8")
+        map_hg38.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n", encoding="utf-8")
+        config = R2MatrixBuildConfig(
+            plink_prefix=str(tmpdir / "panel_*"),
+            source_genome_build="hg19",
+            genetic_map_hg19_sources=map_hg19,
+            genetic_map_hg38_sources=map_hg38,
+            liftover_chain_hg19_to_hg38_file=tmpdir / "hg19ToHg38.over.chain",
+            output_dir=tmpdir / "out",
+            ld_wind_kb=1.0,
+        )
+        builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
-            with self._skip_selection_pre_pass(), mock.patch.object(
-                r2_matrix_builder.R2MatrixBuilder,
-                "_build_chromosome",
-                return_value={"r2_hg19": "r2-19", "r2_hg38": "r2-38", "meta_hg19": "m19", "meta_hg38": "m38"},
-            ):
-                with self.assertRaises(LDSCInputError):
-                    builder.run(config)
+        with self._skip_selection_pre_pass(), mock.patch.object(
+            r2_matrix_builder.R2MatrixBuilder,
+            "_build_chromosome",
+            return_value={"r2_hg19": "r2-19", "r2_hg38": "r2-38", "meta_hg19": "m19", "meta_hg38": "m38"},
+        ):
+            with self.assertRaises(LDSCInputError):
+                builder.run(config)
 
     def test_map_positions_passes_explicit_chain_path_to_translator(self):
         builder = r2_matrix_builder.R2MatrixBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
@@ -2338,110 +2306,110 @@ class R2MatrixBuilderWorkflowTest(unittest.TestCase):
 
 class RefPanelOutputFamilyTest(unittest.TestCase):
     def test_output_family_includes_existing_owned_artifacts_and_current_run_paths(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            out = Path(tmpdir) / "out"
-            existing_r2 = out / "hg19" / "chr1_r2.parquet"
-            existing_meta = out / "hg38" / "chr2_meta.tsv.gz"
-            existing_drop = out / "diagnostics" / "dropped_snps" / "chr2_dropped.tsv.gz"
-            existing_log = out / "diagnostics" / "build-r2-matrix.chr2.log"
-            produced = out / "hg19" / "chr6_r2.parquet"
-            existing_r2.parent.mkdir(parents=True)
-            existing_meta.parent.mkdir(parents=True)
-            existing_drop.parent.mkdir(parents=True)
-            existing_r2.write_text("r2\n", encoding="utf-8")
-            existing_meta.write_text("meta\n", encoding="utf-8")
-            existing_drop.write_text("drop\n", encoding="utf-8")
-            existing_log.write_text("log\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        out = tmpdir / "out"
+        existing_r2 = out / "hg19" / "chr1_r2.parquet"
+        existing_meta = out / "hg38" / "chr2_meta.tsv.gz"
+        existing_drop = out / "diagnostics" / "dropped_snps" / "chr2_dropped.tsv.gz"
+        existing_log = out / "diagnostics" / "build-r2-matrix.chr2.log"
+        produced = out / "hg19" / "chr6_r2.parquet"
+        existing_r2.parent.mkdir(parents=True)
+        existing_meta.parent.mkdir(parents=True)
+        existing_drop.parent.mkdir(parents=True)
+        existing_r2.write_text("r2\n", encoding="utf-8")
+        existing_meta.write_text("meta\n", encoding="utf-8")
+        existing_drop.write_text("drop\n", encoding="utf-8")
+        existing_log.write_text("log\n", encoding="utf-8")
 
-            family = R2MatrixBuildDirectoryWriter.artifact_family(
-                out, scope=None, builds=["hg19"], chromosomes=["6"]).owned_paths
+        family = R2MatrixBuildDirectoryWriter.artifact_family(
+            out, scope=None, builds=["hg19"], chromosomes=["6"]).owned_paths
 
-            self.assertIn(existing_r2, family)
-            self.assertIn(existing_meta, family)
-            self.assertIn(existing_drop, family)
-            self.assertIn(existing_log, family)
-            self.assertIn(produced, family)
+        self.assertIn(existing_r2, family)
+        self.assertIn(existing_meta, family)
+        self.assertIn(existing_drop, family)
+        self.assertIn(existing_log, family)
+        self.assertIn(produced, family)
 
     def test_output_family_ignores_unknown_subdirectories(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            out = Path(tmpdir) / "out"
-            scratch = out / "scratch" / "chr1_r2.parquet"
-            scratch.parent.mkdir(parents=True)
-            scratch.write_text("unknown\n", encoding="utf-8")
+        tmpdir = self.tmp_path
+        out = tmpdir / "out"
+        scratch = out / "scratch" / "chr1_r2.parquet"
+        scratch.parent.mkdir(parents=True)
+        scratch.write_text("unknown\n", encoding="utf-8")
 
-            family = R2MatrixBuildDirectoryWriter.artifact_family(out, scope=None).owned_paths
+        family = R2MatrixBuildDirectoryWriter.artifact_family(out, scope=None).owned_paths
 
-            self.assertNotIn(scratch, family)
+        self.assertNotIn(scratch, family)
 
     def test_chromosome_scoped_family_owns_only_its_chromosome(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            out = Path(tmpdir) / "out"
-            sibling = out / "hg38" / "chr2_r2.parquet"
-            sibling.parent.mkdir(parents=True)
-            sibling.write_text("r2\n", encoding="utf-8")
-            writer = R2MatrixBuildDirectoryWriter
-            scope = writer.chromosome_scope("panel.1", ["1"])
+        tmpdir = self.tmp_path
+        out = tmpdir / "out"
+        sibling = out / "hg38" / "chr2_r2.parquet"
+        sibling.parent.mkdir(parents=True)
+        sibling.write_text("r2\n", encoding="utf-8")
+        writer = R2MatrixBuildDirectoryWriter
+        scope = writer.chromosome_scope("panel.1", ["1"])
 
-            family = writer.artifact_family(out, scope=scope, builds=["hg38"], chromosomes=["1"])
+        family = writer.artifact_family(out, scope=scope, builds=["hg38"], chromosomes=["1"])
 
-            self.assertEqual(scope, "1")
-            self.assertIsNone(writer.chromosome_scope("panel.@", ["1"]))
-            self.assertEqual(family.paths["metadata"], out / "diagnostics" / "metadata.chr1.json")
-            self.assertIn(out / "diagnostics" / "build-r2-matrix.chr1.log", family.owned_paths)
-            self.assertNotIn(sibling, family.owned_paths)
-            self.assertEqual(writer.failure_marker(scope), "RUN_FAILED.chr1.txt")
-            self.assertEqual(writer.log_path(out / "diagnostics" / "build-r2-matrix.log", scope).name,
-                             "build-r2-matrix.chr1.log")
+        self.assertEqual(scope, "1")
+        self.assertIsNone(writer.chromosome_scope("panel.@", ["1"]))
+        self.assertEqual(family.paths["metadata"], out / "diagnostics" / "metadata.chr1.json")
+        self.assertIn(out / "diagnostics" / "build-r2-matrix.chr1.log", family.owned_paths)
+        self.assertNotIn(sibling, family.owned_paths)
+        self.assertEqual(writer.failure_marker(scope), "RUN_FAILED.chr1.txt")
+        self.assertEqual(writer.log_path(out / "diagnostics" / "build-r2-matrix.log", scope).name,
+                         "build-r2-matrix.chr1.log")
 
 
 class R2MatrixBuilderSourceOnlySmokeTest(unittest.TestCase):
     def test_hm3_chr22_subset_builds_source_only_without_liftover_chain_or_map(self):
         prefix = MINIMAL_EXTERNAL_FIXTURES / "plink" / "hm3_chr22_subset"
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_result = r2_matrix_builder.run_build_r2_matrix(
-                plink_prefix=str(prefix),
-                source_genome_build="hg38",
-                genetic_map_hg19_sources=None,
-                genetic_map_hg38_sources=None,
-                output_dir=str(Path(tmpdir) / "panel"),
-                ld_wind_snps=10,
-                ld_wind_kb=None,
-                snp_batch_size=64,
-            )
+        tmpdir = self.tmp_path
+        build_result = r2_matrix_builder.run_build_r2_matrix(
+            plink_prefix=str(prefix),
+            source_genome_build="hg38",
+            genetic_map_hg19_sources=None,
+            genetic_map_hg38_sources=None,
+            output_dir=str(tmpdir / "panel"),
+            ld_wind_snps=10,
+            ld_wind_kb=None,
+            snp_batch_size=64,
+        )
 
-            self.assertEqual(build_result.chromosomes, ["22"])
-            self.assertIn("meta_hg38", build_result.output_paths)
-            self.assertIn("r2_hg38", build_result.output_paths)
-            self.assertNotIn("meta_hg19", build_result.output_paths)
-            self.assertNotIn("r2_hg19", build_result.output_paths)
-            self.assertNotIn("ann", build_result.output_paths)
-            self.assertNotIn("ld", build_result.output_paths)
-            self.assertFalse((Path(tmpdir) / "panel" / "parquet").exists())
-            self.assertTrue(Path(build_result.output_paths["r2_hg38"][0]).exists())
-            self.assertTrue(Path(build_result.output_paths["meta_hg38"][0]).exists())
+        self.assertEqual(build_result.chromosomes, ["22"])
+        self.assertIn("meta_hg38", build_result.output_paths)
+        self.assertIn("r2_hg38", build_result.output_paths)
+        self.assertNotIn("meta_hg19", build_result.output_paths)
+        self.assertNotIn("r2_hg19", build_result.output_paths)
+        self.assertNotIn("ann", build_result.output_paths)
+        self.assertNotIn("ld", build_result.output_paths)
+        self.assertFalse((tmpdir / "panel" / "parquet").exists())
+        self.assertTrue(Path(build_result.output_paths["r2_hg38"][0]).exists())
+        self.assertTrue(Path(build_result.output_paths["meta_hg38"][0]).exists())
 
-            meta_hg38 = pd.read_csv(build_result.output_paths["meta_hg38"][0], sep="\t", comment="#")
-            self.assertTrue(meta_hg38["CM"].isna().all())
+        meta_hg38 = pd.read_csv(build_result.output_paths["meta_hg38"][0], sep="\t", comment="#")
+        self.assertTrue(meta_hg38["CM"].isna().all())
 
     def test_hm3_chr22_subset_sidecar_is_canonical_a1_minor(self):
         prefix = MINIMAL_EXTERNAL_FIXTURES / "plink" / "hm3_chr22_subset"
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_result = r2_matrix_builder.run_build_r2_matrix(
-                plink_prefix=str(prefix),
-                source_genome_build="hg38",
-                genetic_map_hg19_sources=None,
-                genetic_map_hg38_sources=None,
-                output_dir=str(Path(tmpdir) / "panel"),
-                ld_wind_snps=10,
-                ld_wind_kb=None,
-                snp_batch_size=64,
-            )
-            meta = pd.read_csv(build_result.output_paths["meta_hg38"][0], sep="\t", comment="#")
-            # Canonical invariant: MAF = freq(A1) <= 0.5 and A1/A2 stay a valid biallelic pair.
-            self.assertTrue((meta["MAF"] <= 0.5 + 1e-12).all())
-            self.assertTrue((meta["A1"].astype(str) != meta["A2"].astype(str)).all())
+        tmpdir = self.tmp_path
+        build_result = r2_matrix_builder.run_build_r2_matrix(
+            plink_prefix=str(prefix),
+            source_genome_build="hg38",
+            genetic_map_hg19_sources=None,
+            genetic_map_hg38_sources=None,
+            output_dir=str(tmpdir / "panel"),
+            ld_wind_snps=10,
+            ld_wind_kb=None,
+            snp_batch_size=64,
+        )
+        meta = pd.read_csv(build_result.output_paths["meta_hg38"][0], sep="\t", comment="#")
+        # Canonical invariant: MAF = freq(A1) <= 0.5 and A1/A2 stay a valid biallelic pair.
+        self.assertTrue((meta["MAF"] <= 0.5 + 1e-12).all())
+        self.assertTrue((meta["A1"].astype(str) != meta["A2"].astype(str)).all())
 
     def test_built_parquet_records_binding_hash_matching_its_sidecar(self):
         import pyarrow.parquet as pq
@@ -2449,24 +2417,24 @@ class R2MatrixBuilderSourceOnlySmokeTest(unittest.TestCase):
 
         prefix = MINIMAL_EXTERNAL_FIXTURES / "plink" / "hm3_chr22_subset"
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_result = r2_matrix_builder.run_build_r2_matrix(
-                plink_prefix=str(prefix),
-                source_genome_build="hg38",
-                genetic_map_hg19_sources=None,
-                genetic_map_hg38_sources=None,
-                output_dir=str(Path(tmpdir) / "panel"),
-                ld_wind_snps=10,
-                ld_wind_kb=None,
-                snp_batch_size=64,
-            )
-            r2_path = build_result.output_paths["r2_hg38"][0]
-            meta_path = build_result.output_paths["meta_hg38"][0]
-            stored = {k.decode(): v.decode() for k, v in pq.ParquetFile(r2_path).schema_arrow.metadata.items()}
-            sidecar = pd.read_csv(meta_path, sep="\t", comment="#")
-            self.assertEqual(stored["ldsc:sidecar_identity_sha256"], sidecar_identity_sha256(sidecar))
-            self.assertEqual(int(stored["ldsc:n_snps"]), len(sidecar))
-            self.assertEqual(pq.ParquetFile(r2_path).schema_arrow.names, ["IDX_1", "IDX_2", "R2", "SIGN_R"])
+        tmpdir = self.tmp_path
+        build_result = r2_matrix_builder.run_build_r2_matrix(
+            plink_prefix=str(prefix),
+            source_genome_build="hg38",
+            genetic_map_hg19_sources=None,
+            genetic_map_hg38_sources=None,
+            output_dir=str(tmpdir / "panel"),
+            ld_wind_snps=10,
+            ld_wind_kb=None,
+            snp_batch_size=64,
+        )
+        r2_path = build_result.output_paths["r2_hg38"][0]
+        meta_path = build_result.output_paths["meta_hg38"][0]
+        stored = {k.decode(): v.decode() for k, v in pq.ParquetFile(r2_path).schema_arrow.metadata.items()}
+        sidecar = pd.read_csv(meta_path, sep="\t", comment="#")
+        self.assertEqual(stored["ldsc:sidecar_identity_sha256"], sidecar_identity_sha256(sidecar))
+        self.assertEqual(int(stored["ldsc:n_snps"]), len(sidecar))
+        self.assertEqual(pq.ParquetFile(r2_path).schema_arrow.names, ["IDX_1", "IDX_2", "R2", "SIGN_R"])
 
 
 @unittest.skipUnless(
@@ -2483,29 +2451,29 @@ class R2MatrixBuilderParityTest(unittest.TestCase):
 
         map_hg38 = MINIMAL_EXTERNAL_FIXTURES / "genetic_maps" / "genetic_map_hg38_chr22_subset.txt"
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_result = r2_matrix_builder.run_build_r2_matrix(
-                plink_prefix=str(prefix),
-                source_genome_build="hg38",
-                genetic_map_hg19_sources=None,
-                genetic_map_hg38_sources=str(map_hg38),
-                liftover_chain_hg38_to_hg19_file=str(resources / "liftover" / "hg38ToHg19.over.chain"),
-                output_dir=str(Path(tmpdir) / "panel"),
-                ld_wind_snps=10,
-                ld_wind_kb=None,
-                snp_batch_size=64,
-            )
+        tmpdir = self.tmp_path
+        build_result = r2_matrix_builder.run_build_r2_matrix(
+            plink_prefix=str(prefix),
+            source_genome_build="hg38",
+            genetic_map_hg19_sources=None,
+            genetic_map_hg38_sources=str(map_hg38),
+            liftover_chain_hg38_to_hg19_file=str(resources / "liftover" / "hg38ToHg19.over.chain"),
+            output_dir=str(tmpdir / "panel"),
+            ld_wind_snps=10,
+            ld_wind_kb=None,
+            snp_batch_size=64,
+        )
 
-            self.assertIn("meta_hg19", build_result.output_paths)
-            self.assertIn("meta_hg38", build_result.output_paths)
-            self.assertIn("r2_hg19", build_result.output_paths)
-            self.assertIn("r2_hg38", build_result.output_paths)
-            meta_hg19 = pd.read_csv(build_result.output_paths["meta_hg19"][0], sep="\t", comment="#")
-            meta_hg38 = pd.read_csv(build_result.output_paths["meta_hg38"][0], sep="\t", comment="#")
-            self.assertTrue(meta_hg19["CM"].isna().all())
-            self.assertFalse(meta_hg38["CM"].isna().any())
-            self.assertTrue(Path(build_result.output_paths["r2_hg19"][0]).exists())
-            self.assertTrue(Path(build_result.output_paths["r2_hg38"][0]).exists())
+        self.assertIn("meta_hg19", build_result.output_paths)
+        self.assertIn("meta_hg38", build_result.output_paths)
+        self.assertIn("r2_hg19", build_result.output_paths)
+        self.assertIn("r2_hg38", build_result.output_paths)
+        meta_hg19 = pd.read_csv(build_result.output_paths["meta_hg19"][0], sep="\t", comment="#")
+        meta_hg38 = pd.read_csv(build_result.output_paths["meta_hg38"][0], sep="\t", comment="#")
+        self.assertTrue(meta_hg19["CM"].isna().all())
+        self.assertFalse(meta_hg38["CM"].isna().any())
+        self.assertTrue(Path(build_result.output_paths["r2_hg19"][0]).exists())
+        self.assertTrue(Path(build_result.output_paths["r2_hg38"][0]).exists())
 
     def test_each_genome_build_releases_prior_bed_before_loading_next(self):
         # Inspect reader lifetime in the calculation body, independent of transport.
@@ -2530,22 +2498,22 @@ class R2MatrixBuilderParityTest(unittest.TestCase):
             live_refs.append(weakref.ref(instance))
             return instance
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with mock.patch(
-                "ldsc._refpanel.builder.PlinkBEDFile",
-                side_effect=tracking_bed,
-            ):
-                build_result = r2_matrix_builder.run_build_r2_matrix(
-                    plink_prefix=str(prefix),
-                    source_genome_build="hg38",
-                    genetic_map_hg19_sources=None,
-                    genetic_map_hg38_sources=str(map_hg38),
-                    liftover_chain_hg38_to_hg19_file=str(resources / "liftover" / "hg38ToHg19.over.chain"),
-                    output_dir=str(Path(tmpdir) / "panel"),
-                    ld_wind_snps=10,
-                    ld_wind_kb=None,
-                    snp_batch_size=64,
-                )
+        tmpdir = self.tmp_path
+        with mock.patch(
+            "ldsc._refpanel.builder.PlinkBEDFile",
+            side_effect=tracking_bed,
+        ):
+            build_result = r2_matrix_builder.run_build_r2_matrix(
+                plink_prefix=str(prefix),
+                source_genome_build="hg38",
+                genetic_map_hg19_sources=None,
+                genetic_map_hg38_sources=str(map_hg38),
+                liftover_chain_hg38_to_hg19_file=str(resources / "liftover" / "hg38ToHg19.over.chain"),
+                output_dir=str(tmpdir / "panel"),
+                ld_wind_snps=10,
+                ld_wind_kb=None,
+                snp_batch_size=64,
+            )
 
         self.assertIn("r2_hg19", build_result.output_paths)
         self.assertIn("r2_hg38", build_result.output_paths)
@@ -2565,19 +2533,19 @@ class R2MatrixBuilderParityTest(unittest.TestCase):
 
         map_hg38 = MINIMAL_EXTERNAL_FIXTURES / "genetic_maps" / "genetic_map_hg38_chr22_subset.txt"
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with self.assertRaisesRegex(LDSCUsageError, "cannot emit hg19.*hg19 genetic map was not supplied"):
-                r2_matrix_builder.run_build_r2_matrix(
-                    plink_prefix=str(prefix),
-                    source_genome_build="hg38",
-                    genetic_map_hg19_sources=None,
-                    genetic_map_hg38_sources=str(map_hg38),
-                    liftover_chain_hg38_to_hg19_file=str(resources / "liftover" / "hg38ToHg19.over.chain"),
-                    output_dir=str(Path(tmpdir) / "panel"),
-                    ld_wind_cm=1.0,
-                    ld_wind_kb=None,
-                    snp_batch_size=64,
-                )
+        tmpdir = self.tmp_path
+        with self.assertRaisesRegex(LDSCUsageError, "cannot emit hg19.*hg19 genetic map was not supplied"):
+            r2_matrix_builder.run_build_r2_matrix(
+                plink_prefix=str(prefix),
+                source_genome_build="hg38",
+                genetic_map_hg19_sources=None,
+                genetic_map_hg38_sources=str(map_hg38),
+                liftover_chain_hg38_to_hg19_file=str(resources / "liftover" / "hg38ToHg19.over.chain"),
+                output_dir=str(tmpdir / "panel"),
+                ld_wind_cm=1.0,
+                ld_wind_kb=None,
+                snp_batch_size=64,
+            )
 
     def test_hm3_chr22_subset_runs_direct_and_parquet_ldscore_paths(self):
         resources = _find_resources_root()
@@ -2589,65 +2557,64 @@ class R2MatrixBuilderParityTest(unittest.TestCase):
         map_hg19 = MINIMAL_EXTERNAL_FIXTURES / "genetic_maps" / "genetic_map_hg19_chr22_subset.txt"
         map_hg38 = MINIMAL_EXTERNAL_FIXTURES / "genetic_maps" / "genetic_map_hg38_chr22_subset.txt"
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            build_result = r2_matrix_builder.run_build_r2_matrix(
+        tmpdir = self.tmp_path
+        build_result = r2_matrix_builder.run_build_r2_matrix(
+            plink_prefix=str(prefix),
+            source_genome_build="hg38",
+            genetic_map_hg19_sources=str(map_hg19),
+            genetic_map_hg38_sources=str(map_hg38),
+            liftover_chain_hg38_to_hg19_file=str(resources / "liftover" / "hg38ToHg19.over.chain"),
+            output_dir=str(tmpdir / "panel"),
+            ld_wind_snps=10,
+            ld_wind_kb=None,
+            snp_batch_size=64,
+        )
+
+        self.assertEqual(build_result.chromosomes, ["22"])
+        r2_path = build_result.output_paths["r2_hg38"][0]
+        meta_hg38_path = build_result.output_paths["meta_hg38"][0]
+        self.assertTrue(Path(r2_path).exists())
+        self.assertTrue(Path(meta_hg38_path).exists())
+
+        with gzip.open(meta_hg38_path, "rt", encoding="utf-8") as handle:
+            meta = pd.read_csv(handle, sep="\t", comment="#")
+        baseline = tmpdir / "baseline.annot.gz"
+        baseline_df = meta.loc[:, ["CHR", "POS", "SNP", "CM"]].rename(columns={"POS": "BP"})
+        baseline_df["base"] = 1.0
+        with gzip.open(baseline, "wt", encoding="utf-8") as handle:
+            baseline_df.to_csv(handle, sep="\t", index=False)
+
+        set_global_config(GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"))
+        try:
+            direct = ldscore_workflow.run_ldscore(
+                output_dir=str(tmpdir / "direct"),
+                baseline_annot_sources=str(baseline),
                 plink_prefix=str(prefix),
-                source_genome_build="hg38",
-                genetic_map_hg19_sources=str(map_hg19),
-                genetic_map_hg38_sources=str(map_hg38),
-                liftover_chain_hg38_to_hg19_file=str(resources / "liftover" / "hg38ToHg19.over.chain"),
-                output_dir=str(tmpdir / "panel"),
                 ld_wind_snps=10,
-                ld_wind_kb=None,
                 snp_batch_size=64,
             )
-
-            self.assertEqual(build_result.chromosomes, ["22"])
-            r2_path = build_result.output_paths["r2_hg38"][0]
-            meta_hg38_path = build_result.output_paths["meta_hg38"][0]
-            self.assertTrue(Path(r2_path).exists())
-            self.assertTrue(Path(meta_hg38_path).exists())
-
-            with gzip.open(meta_hg38_path, "rt", encoding="utf-8") as handle:
-                meta = pd.read_csv(handle, sep="\t", comment="#")
-            baseline = tmpdir / "baseline.annot.gz"
-            baseline_df = meta.loc[:, ["CHR", "POS", "SNP", "CM"]].rename(columns={"POS": "BP"})
-            baseline_df["base"] = 1.0
-            with gzip.open(baseline, "wt", encoding="utf-8") as handle:
-                baseline_df.to_csv(handle, sep="\t", index=False)
-
-            set_global_config(GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"))
-            try:
-                direct = ldscore_workflow.run_ldscore(
-                    output_dir=str(tmpdir / "direct"),
-                    baseline_annot_sources=str(baseline),
-                    plink_prefix=str(prefix),
-                    ld_wind_snps=10,
-                    snp_batch_size=64,
-                )
-                parquet = ldscore_workflow.run_ldscore(
-                    output_dir=str(tmpdir / "parquet"),
-                    baseline_annot_sources=str(baseline),
-                    r2_matrix_dir=str(tmpdir / "panel" / "hg38"),
-                    ld_wind_snps=10,
-                    snp_batch_size=64,
-                )
-            finally:
-                reset_global_config()
-
-            self.assertEqual(
-                direct.baseline_table["SNP"].tolist(),
-                parquet.baseline_table["SNP"].tolist(),
+            parquet = ldscore_workflow.run_ldscore(
+                output_dir=str(tmpdir / "parquet"),
+                baseline_annot_sources=str(baseline),
+                r2_matrix_dir=str(tmpdir / "panel" / "hg38"),
+                ld_wind_snps=10,
+                snp_batch_size=64,
             )
-            # 31 (not 32): the default `centromeres` exclusion is the pericentromeric
-            # +/-3 cM region, which drops one extra chr22 SNP in the padded flank.
-            self.assertEqual(len(direct.baseline_table), 31)
-            self.assertEqual(len(parquet.baseline_table), 31)
-            self.assertTrue(np.all(np.isfinite(direct.baseline_table["base"].to_numpy(dtype=float))))
-            self.assertTrue(np.all(np.isfinite(parquet.baseline_table["base"].to_numpy(dtype=float))))
-            self.assertGreater(float(direct.baseline_table["base"].max()), 1.0)
-            self.assertGreater(float(parquet.baseline_table["base"].max()), 1.0)
+        finally:
+            reset_global_config()
+
+        self.assertEqual(
+            direct.baseline_table["SNP"].tolist(),
+            parquet.baseline_table["SNP"].tolist(),
+        )
+        # 31 (not 32): the default `centromeres` exclusion is the pericentromeric
+        # +/-3 cM region, which drops one extra chr22 SNP in the padded flank.
+        self.assertEqual(len(direct.baseline_table), 31)
+        self.assertEqual(len(parquet.baseline_table), 31)
+        self.assertTrue(np.all(np.isfinite(direct.baseline_table["base"].to_numpy(dtype=float))))
+        self.assertTrue(np.all(np.isfinite(parquet.baseline_table["base"].to_numpy(dtype=float))))
+        self.assertGreater(float(direct.baseline_table["base"].max()), 1.0)
+        self.assertGreater(float(parquet.baseline_table["base"].max()), 1.0)
 
 
     def test_build_ref_panel_explicit_reference_list_prunes_both_emitted_builds(self):
@@ -2662,55 +2629,54 @@ class R2MatrixBuilderParityTest(unittest.TestCase):
 
         chain = resources / "liftover" / "hg38ToHg19.over.chain"
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        tmpdir = self.tmp_path
 
-            # Baseline dual-build run (no exclusion).
-            base_result = r2_matrix_builder.run_build_r2_matrix(
-                plink_prefix=str(prefix),
-                source_genome_build="hg38",
-                genetic_map_hg19_sources=str(map_hg19),
-                genetic_map_hg38_sources=str(map_hg38),
-                liftover_chain_hg38_to_hg19_file=str(chain),
-                output_dir=str(tmpdir / "base"),
-                ld_wind_snps=10,
-                ld_wind_kb=None,
-                snp_batch_size=64,
-            )
+        # Baseline dual-build run (no exclusion).
+        base_result = r2_matrix_builder.run_build_r2_matrix(
+            plink_prefix=str(prefix),
+            source_genome_build="hg38",
+            genetic_map_hg19_sources=str(map_hg19),
+            genetic_map_hg38_sources=str(map_hg38),
+            liftover_chain_hg38_to_hg19_file=str(chain),
+            output_dir=str(tmpdir / "base"),
+            ld_wind_snps=10,
+            ld_wind_kb=None,
+            snp_batch_size=64,
+        )
 
-            with gzip.open(base_result.output_paths["meta_hg38"][0], "rt", encoding="utf-8") as handle:
-                base_meta_hg38 = pd.read_csv(handle, sep="\t", comment="#")
+        with gzip.open(base_result.output_paths["meta_hg38"][0], "rt", encoding="utf-8") as handle:
+            base_meta_hg38 = pd.read_csv(handle, sep="\t", comment="#")
 
-            first_row = base_meta_hg38.iloc[0]
-            pos = int(first_row["POS"])
-            snp_id = str(first_row["SNP"])
+        first_row = base_meta_hg38.iloc[0]
+        pos = int(first_row["POS"])
+        snp_id = str(first_row["SNP"])
 
-            # Intentional reference pruning must be explicit as a SNP list.
-            restriction_path = tmpdir / "reference_snps.tsv"
-            base_meta_hg38.iloc[1:][["CHR", "POS", "SNP", "A1", "A2"]].rename(
-                columns={"POS": "hg38_POS"}
-            ).to_csv(
-                restriction_path, sep="\t", index=False
-            )
+        # Intentional reference pruning must be explicit as a SNP list.
+        restriction_path = tmpdir / "reference_snps.tsv"
+        base_meta_hg38.iloc[1:][["CHR", "POS", "SNP", "A1", "A2"]].rename(
+            columns={"POS": "hg38_POS"}
+        ).to_csv(
+            restriction_path, sep="\t", index=False
+        )
 
-            # Explicitly restricted dual-build run.
-            excl_result = r2_matrix_builder.run_build_r2_matrix(
-                plink_prefix=str(prefix),
-                source_genome_build="hg38",
-                genetic_map_hg19_sources=str(map_hg19),
-                genetic_map_hg38_sources=str(map_hg38),
-                liftover_chain_hg38_to_hg19_file=str(chain),
-                output_dir=str(tmpdir / "excl"),
-                ld_wind_snps=10,
-                ld_wind_kb=None,
-                snp_batch_size=64,
-                ref_panel_snps_file=str(restriction_path),
-            )
+        # Explicitly restricted dual-build run.
+        excl_result = r2_matrix_builder.run_build_r2_matrix(
+            plink_prefix=str(prefix),
+            source_genome_build="hg38",
+            genetic_map_hg19_sources=str(map_hg19),
+            genetic_map_hg38_sources=str(map_hg38),
+            liftover_chain_hg38_to_hg19_file=str(chain),
+            output_dir=str(tmpdir / "excl"),
+            ld_wind_snps=10,
+            ld_wind_kb=None,
+            snp_batch_size=64,
+            ref_panel_snps_file=str(restriction_path),
+        )
 
-            with gzip.open(excl_result.output_paths["meta_hg38"][0], "rt", encoding="utf-8") as handle:
-                excl_meta_hg38 = pd.read_csv(handle, sep="\t", comment="#")
-            with gzip.open(excl_result.output_paths["meta_hg19"][0], "rt", encoding="utf-8") as handle:
-                excl_meta_hg19 = pd.read_csv(handle, sep="\t", comment="#")
+        with gzip.open(excl_result.output_paths["meta_hg38"][0], "rt", encoding="utf-8") as handle:
+            excl_meta_hg38 = pd.read_csv(handle, sep="\t", comment="#")
+        with gzip.open(excl_result.output_paths["meta_hg19"][0], "rt", encoding="utf-8") as handle:
+            excl_meta_hg19 = pd.read_csv(handle, sep="\t", comment="#")
 
         assert snp_id not in set(excl_meta_hg38["SNP"]), (
             f"SNP {snp_id!r} (hg38 POS={pos}) still present in hg38 sidecar after explicit restriction"
@@ -2746,20 +2712,20 @@ class R2QuantizationTest(unittest.TestCase):
             self.skipTest("zstd unavailable")
         rows = [{"i": 0, "j": 1, "R2": 1.0, "sign": "+"},
                 {"i": 0, "j": 2, "R2": -0.0003, "sign": "-"}]
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "chr1_r2.parquet"
-            r2_format.write_r2_parquet(pair_chunks=dict_chunks(rows), path=path, genome_build="hg19",
-                                n_samples=100, snp_identifier="chr_pos", n_snps=3,
-                                sidecar_identity_sha256="0" * 64, ld_window=LDWindow("kb", 1000.0))
-            pf = pq.ParquetFile(path)
-            self.assertEqual(pf.schema_arrow.field("R2").type, pa.int16())
-            meta = pf.schema_arrow.metadata
-            self.assertEqual(meta[b"ldsc:r2_encoding"], b"int16_symmetric")
-            self.assertEqual(meta[b"ldsc:r2_scale"], b"32767")
-            rg = pf.metadata.row_group(0)
-            encs = {rg.column(c).path_in_schema: rg.column(c).encodings
-                    for c in range(rg.num_columns)}
-            self.assertIn("BYTE_STREAM_SPLIT", encs.get("R2", ()))
+        tmp = self.tmp_path
+        path = tmp / "chr1_r2.parquet"
+        r2_format.write_r2_parquet(pair_chunks=dict_chunks(rows), path=path, genome_build="hg19",
+                            n_samples=100, snp_identifier="chr_pos", n_snps=3,
+                            sidecar_identity_sha256="0" * 64, ld_window=LDWindow("kb", 1000.0))
+        pf = pq.ParquetFile(path)
+        self.assertEqual(pf.schema_arrow.field("R2").type, pa.int16())
+        meta = pf.schema_arrow.metadata
+        self.assertEqual(meta[b"ldsc:r2_encoding"], b"int16_symmetric")
+        self.assertEqual(meta[b"ldsc:r2_scale"], b"32767")
+        rg = pf.metadata.row_group(0)
+        encs = {rg.column(c).path_in_schema: rg.column(c).encodings
+                for c in range(rg.num_columns)}
+        self.assertIn("BYTE_STREAM_SPLIT", encs.get("R2", ()))
 
 
 class IndexWriterTest(unittest.TestCase):
@@ -2774,35 +2740,35 @@ class IndexWriterTest(unittest.TestCase):
         import pyarrow.parquet as pq
         from ldsc._refpanel import r2_format
 
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "hg19" / "chr1_r2.parquet"
-            r2_format.write_r2_parquet(
-                pair_chunks=dict_chunks(self._rows()), path=path, genome_build="hg19",
-                n_samples=100, snp_identifier="chr_pos", r2_min=0.0,
-                n_snps=3, sidecar_identity_sha256="deadbeef" * 8,
-                ld_window=LDWindow("kb", 1000.0),
-            )
-            pf = pq.ParquetFile(path)
-            self.assertEqual(pf.schema_arrow.names, ["IDX_1", "IDX_2", "R2", "SIGN_R"])
-            meta = {k.decode(): v.decode() for k, v in pf.schema_arrow.metadata.items()}
-            self.assertEqual(meta["ldsc:n_snps"], "3")
-            self.assertEqual(meta["ldsc:sidecar_identity_sha256"], "deadbeef" * 8)
-            self.assertEqual(meta["ldsc:sorted_by_build"], "hg19")
+        tmp = self.tmp_path
+        path = tmp / "hg19" / "chr1_r2.parquet"
+        r2_format.write_r2_parquet(
+            pair_chunks=dict_chunks(self._rows()), path=path, genome_build="hg19",
+            n_samples=100, snp_identifier="chr_pos", r2_min=0.0,
+            n_snps=3, sidecar_identity_sha256="deadbeef" * 8,
+            ld_window=LDWindow("kb", 1000.0),
+        )
+        pf = pq.ParquetFile(path)
+        self.assertEqual(pf.schema_arrow.names, ["IDX_1", "IDX_2", "R2", "SIGN_R"])
+        meta = {k.decode(): v.decode() for k, v in pf.schema_arrow.metadata.items()}
+        self.assertEqual(meta["ldsc:n_snps"], "3")
+        self.assertEqual(meta["ldsc:sidecar_identity_sha256"], "deadbeef" * 8)
+        self.assertEqual(meta["ldsc:sorted_by_build"], "hg19")
 
     def test_asserts_idx1_sort_invariant(self):
         from ldsc._refpanel import r2_format
 
         bad = [{"i": 2, "j": 3, "R2": 0.5, "sign": "+"},
                {"i": 0, "j": 1, "R2": 0.5, "sign": "+"}]
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "chr1_r2.parquet"
-            with self.assertRaisesRegex(LDSCInternalError, "non-decreasing IDX_1"):
-                r2_format.write_r2_parquet(
-                    pair_chunks=dict_chunks(bad), path=path, genome_build="hg19", n_samples=100,
-                    snp_identifier="chr_pos", r2_min=0.0, n_snps=4,
-                    sidecar_identity_sha256="0" * 64,
-                    ld_window=LDWindow("kb", 1000.0),
-                )
+        tmp = self.tmp_path
+        path = tmp / "chr1_r2.parquet"
+        with self.assertRaisesRegex(LDSCInternalError, "non-decreasing IDX_1"):
+            r2_format.write_r2_parquet(
+                pair_chunks=dict_chunks(bad), path=path, genome_build="hg19", n_samples=100,
+                snp_identifier="chr_pos", r2_min=0.0, n_snps=4,
+                sidecar_identity_sha256="0" * 64,
+                ld_window=LDWindow("kb", 1000.0),
+            )
 
 
 class IndexArrowTableTest(unittest.TestCase):

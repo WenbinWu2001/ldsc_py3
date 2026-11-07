@@ -34,10 +34,10 @@ class LDScoreParquetNormalizationTest(unittest.TestCase):
     def test_sorted_r2_block_reader_rejects_auto_genome_build_at_kernel_boundary(self):
         panel = pd.DataFrame({"CHR": ["1", "1"], "POS": [100, 110], "SNP": ["rs0", "rs1"],
                               "A1": ["A", "A"], "A2": ["C", "C"], "MAF": [0.3, 0.3]})
-        with tempfile.TemporaryDirectory() as tmpdir:
-            chromosome = open_r2_matrix_chromosome(Path(tmpdir), panel)
-            with self.assertRaisesRegex(AssertionError, "concrete"):
-                chromosome.pair_reader(panel, "chr_pos", "auto")
+        tmpdir = self.tmp_path
+        chromosome = open_r2_matrix_chromosome(tmpdir, panel)
+        with self.assertRaisesRegex(AssertionError, "concrete"):
+            chromosome.pair_reader(panel, "chr_pos", "auto")
 
 
 class IndexBindingTest(unittest.TestCase):
@@ -46,26 +46,26 @@ class IndexBindingTest(unittest.TestCase):
                           "A2": ["G", "T", "A"], "CM": [0.0, 0.0, 0.0], "MAF": [0.2, 0.3, 0.4]})
 
     def test_sidecar_reads_canonical_columns_once(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            chromosome = open_r2_matrix_chromosome(Path(tmp), self.PANEL)
-            sidecar = chromosome.sidecar()
-            self.assertEqual(list(sidecar.columns), list(r2_format.SIDECAR_COLUMNS))
-            self.assertEqual(sidecar["CHR"].tolist(), ["1", "1", "1"])
-            self.assertEqual(sidecar["POS"].dtype, np.int64)
-            self.assertEqual(sidecar["POS"].tolist(), [10, 20, 30])
-            self.assertEqual(sidecar["MAF"].tolist(), [0.2, 0.3, 0.4])
-            self.assertIs(chromosome.sidecar(), sidecar)
+        tmp = self.tmp_path
+        chromosome = open_r2_matrix_chromosome(tmp, self.PANEL)
+        sidecar = chromosome.sidecar()
+        self.assertEqual(list(sidecar.columns), list(r2_format.SIDECAR_COLUMNS))
+        self.assertEqual(sidecar["CHR"].tolist(), ["1", "1", "1"])
+        self.assertEqual(sidecar["POS"].dtype, np.int64)
+        self.assertEqual(sidecar["POS"].tolist(), [10, 20, 30])
+        self.assertEqual(sidecar["MAF"].tolist(), [0.2, 0.3, 0.4])
+        self.assertIs(chromosome.sidecar(), sidecar)
 
     def test_sidecar_binding_rejects_hash_and_row_count_mismatch(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            chromosome = open_r2_matrix_chromosome(Path(tmp), self.PANEL)
-            chromosome.sidecar()  # matched pair: no raise
-            for values, reason in (({"sidecar_identity_sha256": "0" * 64}, "ldsc:sidecar_identity_sha256"),
-                                   ({"n_snps": 999}, "ldsc:n_snps=999")):
-                _set_footer_metadata(chromosome.parquet_path, **values)
-                reopened = r2_format.R2MatrixChromosome.open(Path(tmp), "1", command="ldscore")
-                with self.assertRaisesRegex(LDSCInputError, reason):
-                    reopened.sidecar()
+        tmp = self.tmp_path
+        chromosome = open_r2_matrix_chromosome(tmp, self.PANEL)
+        chromosome.sidecar()  # matched pair: no raise
+        for values, reason in (({"sidecar_identity_sha256": "0" * 64}, "ldsc:sidecar_identity_sha256"),
+                               ({"n_snps": 999}, "ldsc:n_snps=999")):
+            _set_footer_metadata(chromosome.parquet_path, **values)
+            reopened = r2_format.R2MatrixChromosome.open(tmp, "1", command="ldscore")
+            with self.assertRaisesRegex(LDSCInputError, reason):
+                reopened.sidecar()
 
 
 class IndexRemapTest(unittest.TestCase):
@@ -105,22 +105,22 @@ class IndexReaderDecodeTest(unittest.TestCase):
             {"i": 1, "j": 2, "R2": 0.4, "sign": "-"},
             {"i": 2, "j": 3, "R2": 0.9, "sign": "+"},
         ]
-        with tempfile.TemporaryDirectory() as tmp:
-            chromosome = open_r2_matrix_chromosome(Path(tmp), full, rows)
-            # retained = panel rows 0,1,2 (drop pos40); matrix order = [10,20,30]
-            retained = full.iloc[[0, 1, 2]].reset_index(drop=True)
-            reader = chromosome.pair_reader(retained, "chr_pos", "hg19")
-            seen = {}
-            for i, j, r2v in reader.iter_all_pairs():
-                for a, b, v in zip(i.tolist(), j.tolist(), r2v.tolist()):
-                    seen[(a, b)] = v
-            reader.close()
-            # pair (2,3) touches the dropped SNP (pos40) -> excluded by remap
-            self.assertEqual(sorted(seen), [(0, 1), (0, 2), (1, 2)])
-            # off-diagonal R2 is int16-quantized: tolerance is the half-step (1.5e-5)
-            self.assertAlmostEqual(seen[(0, 1)], 0.5, delta=2e-5)
-            self.assertAlmostEqual(seen[(0, 2)], 0.2, delta=2e-5)
-            self.assertAlmostEqual(seen[(1, 2)], 0.4, delta=2e-5)
+        tmp = self.tmp_path
+        chromosome = open_r2_matrix_chromosome(tmp, full, rows)
+        # retained = panel rows 0,1,2 (drop pos40); matrix order = [10,20,30]
+        retained = full.iloc[[0, 1, 2]].reset_index(drop=True)
+        reader = chromosome.pair_reader(retained, "chr_pos", "hg19")
+        seen = {}
+        for i, j, r2v in reader.iter_all_pairs():
+            for a, b, v in zip(i.tolist(), j.tolist(), r2v.tolist()):
+                seen[(a, b)] = v
+        reader.close()
+        # pair (2,3) touches the dropped SNP (pos40) -> excluded by remap
+        self.assertEqual(sorted(seen), [(0, 1), (0, 2), (1, 2)])
+        # off-diagonal R2 is int16-quantized: tolerance is the half-step (1.5e-5)
+        self.assertAlmostEqual(seen[(0, 1)], 0.5, delta=2e-5)
+        self.assertAlmostEqual(seen[(0, 2)], 0.2, delta=2e-5)
+        self.assertAlmostEqual(seen[(1, 2)], 0.4, delta=2e-5)
 
 
 class R2MatrixWindowValidationTest(unittest.TestCase):

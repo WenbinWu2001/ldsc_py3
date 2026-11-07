@@ -33,7 +33,7 @@ Every artifact-writing workflow writes a per-run log inside its output directory
 
 - **CLI Layer**: public command dispatch in `ldsc.cli`
 - **Workflow And Preprocessing Layer**: public services in `ldsc._annotation.builder`, `ldsc._refpanel.builder`, `ldsc._refpanel.query`, `ldsc._ldscore.workflow`, `ldsc._ldscore.calculator`, `ldsc._ldscore.legacy_converter`, `ldsc._ldscore.gene_index.build`, `ldsc._sumstats.munger`, the regression workflow modules (`ldsc._regression.commands`, the `RegressionRunner` facade in `ldsc._regression.runner`, and `ldsc._regression.alignment`, `ldsc._regression.fitting`, `ldsc._regression.partitioned` and `ldsc._regression.rg`), and `ldsc._regression.quantile_h2`, plus shared normalization in `ldsc.config`, `ldsc._runtime.paths`, `ldsc._core.columns`, `ldsc._core.chromosomes`, `ldsc._genome.build_inference`, `ldsc._annotation.semantics`, and the internal `ldsc._annotation.gene_lists`
-- **Computation**: private file-format and numerical code inside each domain package, such as `ldsc._ldscore.compute`, `ldsc._refpanel.r2_format`, `ldsc._refpanel.plink` and `ldsc._regression.estimators`
+- **Computation**: private file-format and numerical code kept with its domain rather than in one shared kernel layer: annotation value checks in `ldsc._annotation.parsing`, BED parsing in `ldsc._core.regions`, interval projection in `ldsc._annotation.interval_projection`, PLINK and R² matrix access in `ldsc._refpanel.plink` and `ldsc._refpanel.r2_format`, LD-score math in `ldsc._ldscore.compute`, legacy-compatible munging in `ldsc._sumstats.munge_kernel`, and the estimators in `ldsc._regression.estimators`
 - **Shared Artifact Access**: LD-score directory opening, schema/identity validation, and selected-query reads in `ldsc._ldscore.source`, consumed by generation and regression
 - **Output And Derived-Result Layer**: result writing in each domain's `outputs` module (`ldsc._annotation.outputs`, `ldsc._refpanel.outputs`, `ldsc._sumstats.outputs`, `ldsc._ldscore.outputs`, `ldsc._regression.outputs`) on the shared `ldsc._runtime.artifacts` base; metadata-driven plotting in
   `ldsc._plotting.dispatch`; post-fit scale conversion in `ldsc._regression.h2_scale`
@@ -198,93 +198,45 @@ Worker budgets, the one-BLAS-thread policy and failure handling are in [parallel
 
 ## Cross-Cutting Concerns
 
-- **Input token language**: public inputs accept exact paths, globs, and `@` chromosome suites.
-  PLINK inputs additionally accept plain suite stems through `_runtime.paths.resolve_plink_prefix_group()`; this exception does not apply to other input families.
-  Output paths are normalized but remain literal destinations.
-- **Column and identifier normalization**: `_core/columns.py` is the single source of truth for raw-input aliases, including `#CHROM`/`CHROM` as `CHR`, internal artifact headers, SNP identifier modes, and genome-build aliases.
-  The munging workflow owns higher-level raw-format inference and conservative repair suggestions before the kernel runs.
-  In summary statistics `A1` is the effect allele, the allele the signed statistic refers to, not necessarily the genome reference allele; it is never inferred from `REF`/`ALT` or `ALLELE0`/`ALLELE1`/`ALLELE2` names, and `NEFF` is not inferred as `N`.
-  `_genome/build_inference.py` owns automatic hg19/hg38 and zero-based/one-based inference for `chr_pos` tables.
-- **SNP identity policy**: public `snp_identifier` values are exactly `rsid`, `rsid_allele_aware`, `chr_pos`, and `chr_pos_allele_aware`; the default is `chr_pos_allele_aware`.
-  Mode names are exact, while column aliases such as `RSID`, `BP`, and `POSITION` apply only to input headers.
-  Base modes are fully allele-blind: `rsid` uses only `SNP`, and `chr_pos` uses only `CHR:POS`; allele columns may be preserved as passive data but never affect base-mode identity, duplicate filtering, retention, or drop reasons.
-  Allele-free munging is selected through a base identifier mode, not through a separate skip flag.
-  Allele-aware modes require usable `A1/A2` for summary statistics, the R²-matrix sidecar, and LD-score directories; they drop missing, invalid/non-SNP and identical allele pairs, multi-allelic base-key clusters, and duplicate effective-key clusters among the rows that pass any SNP restriction.
-  A/T and C/G pairs are valid identities (canonical allele sets `A:T`, `C:G`); only signed comparisons between files (`rg`, `query-r2-matrix` signs) treat their strand as unknown.
-  Reference-panel identity cleanup runs after `--ref-panel-snps-file` and before validation in every backend: for PLINK panels in `_refpanel.plink_source.select_plink_chromosome()`, which `PlinkRefPanel._load_source()` and `build-r2-matrix` share, so an R² matrix sidecar and `_align_annotations()` receive a reference with unique identities.
-  `select_plink_chromosome()` and the R² matrix adapter match the restriction with `_refpanel.plink_source.build_restriction_mask()`, which keeps a row without an allele-aware SNP identity at a restricted position for cleanup to drop and report, so `ldscore --plink-prefix` and an R² matrix built from the same panel and restriction select the same rows; `build-r2-matrix` liftover and duplicate-position filtering can still remove more SNPs.
-  `inspect_plink_inputs()` rejects a `.bim` row whose position is missing, non-numeric, nonpositive or not a whole number in every PLINK route, naming the rows, so no route truncates or drops such a position.
-  When cleanup removes every row the restriction keeps on a PLINK chromosome, `PlinkRefPanel._load_source()` raises `EmptyReferenceSNPs`, so the chromosome is skipped like one the restriction empties; without a restriction, a chromosome that cleanup empties raises `LDSCInputError`.
-  For artifact-like tables, the duplicate policy is always compute the active effective merge key, then drop all rows in duplicate-key clusters.
-- **Restrictions and annotations**: restriction files may omit alleles. Allele-free restrictions match by base key and can retain multiple candidate rows before later artifact cleanup. Allele-bearing restrictions, including packaged HM3 restrictions, match by the effective allele-aware key in allele-aware modes. Restriction files are identity-only filters: duplicate restriction keys collapse to one retained key, and non-identity columns such as `CM`, `MAF`, or other metadata are not carried into downstream artifacts. Annotation files may omit alleles even in allele-aware modes because annotations describe genomic membership, not variant alleles; if annotation files include alleles, those alleles participate in allele-aware matching.
-- **Artifact compatibility**: Public downstream chaining uses `.annot.gz`, self-describing Parquet munged summary statistics (identity in the footer) with optional `.sumstats.gz` compatibility output, package-built R² matrices, and LD-score directories with root `metadata.json`.
-  The forward format rule is parquet for internal artifacts and TSV for science-facing result tables.
-  The Parquet payloads of LD-score directories and munged summary statistics use chromosome-aligned row groups where useful, so full-file readers still work while chromosome-specific readers can skip unrelated row groups.
-  Legacy `.sumstats(.gz)` inputs are projected automatically onto the regression SNPs in the LD-score directory.
-  Legacy reference/weight `.l2.ldscore(.gz)`, `.l2.M`, and `.l2.M_5_50` families require explicit [LD-score conversion](../reference/formats/legacy-ldscores.md#compatibility-boundary); `.w.l2.ldscore(.gz)` suffixes are unsupported.
-  Private kernel legacy artifact emitters and regression readers have been removed.
-  Allele-free annotations remain supported even in allele-aware workflows, while converted LD-score suites use allele-unaware identity.
-- **Output collision handling**: output directories are literal destinations.
-  Most workflows create missing directories and reuse existing ones while
-  checking fixed output files, including workflow logs, before writing. The
-  gene LD-score index builder keeps its live state in the destination's hidden
-  `.build/` directory and publishes with root `metadata.json` last. By
-  default an existing artifact raises `FileExistsError`; `--overwrite` or
-  `overwrite=True` makes replacement explicit without deleting unrelated files
-  or cleaning the directory. Sharded workflows may narrow ownership to the
-  current shard; `build-r2-matrix` concrete chromosome runs own only their
-  chromosome package, while `@` suite runs own the full R² matrix package.
-- **Workflow logging**: `ldsc._runtime.workflow_logging.workflow_logging()` attaches file
-  handlers to the `LDSC` logger so workflow and kernel records are captured
-  together. The log file is the authoritative sink; the CLI console (stderr,
-  installed by `run_cli`) stays silent except for errors, and `stdout` is left
-  for deliverable command output. Logs are diagnostic files, not scientific outputs,
-  so result `output_paths` mappings exclude them. Lifecycle sections use a
-  multi-line `Call:` block, separated `Inputs:`/`Outputs:` audit blocks, and an
-  explicit elapsed-time footer such as `Elapsed time: 2.0min:12s`. Start/end
-  timestamps and elapsed duration are derived from paired entry/exit timepoints
-  so the footer reflects the interval covered by the log. A failed run also
-  records the full traceback in the failure footer. Gene LD-score index publication keeps
-  its open handler outside the replaceable tree, moves the closed successful
-  log into the published diagnostics, and treats cleanup after destination
-  reload validation as warning-only garbage collection.
-- **Dependency split**: base package dependencies cover core pandas/numpy/SciPy workflows and parquet I/O.
-  PLINK-backed LD computation requires the `plink` extra (`bitarray`), and cross-build reference-panel output requires the `liftover` extra (`pyliftover`).
-  BED/gene interval projection uses NumPy through `ChromosomeProjector` and requires only the base package.
-- **Chromosome ordering**: chromosome-sharded inputs are validated and reassembled in stable genomic order by the workflow layer.
-- **Testing approach**: tests under `tests/` cover file contracts, workflow behavior, and legacy compatibility expectations.
+- **Input token language**: public inputs accept exact paths, globs and `@` chromosome suites; PLINK inputs also accept plain suite stems through `_runtime.paths.resolve_plink_prefix_group()`, and output paths are literal destinations ([input paths](../reference/input-paths.md)).
+- **Column names and SNP identity**: `_core/columns.py` is the single source of truth for input header aliases, internal artifact headers, SNP identifier modes and genome-build aliases, and `_core.snp_identity` for identity keys and allele-aware cleanup.
+  The SNP identifier modes, the duplicate and restriction rules and the meaning of `A1` in each file type are in [column schema](../reference/formats/column-schema.md#snp-identifier-modes); why identity cleanup follows the SNP restriction is in [SNP identity and genome build](../reference/snp-identity-and-genome-build.md).
+- **Genome builds**: `_genome/build_inference.py` infers hg19/hg38 and the coordinate basis of `chr_pos` tables, and the build policy decides a workflow's build once ([genome build](../reference/snp-identity-and-genome-build.md#genome-build-policy)).
+- **Logging**: workflow and kernel records reach one per-run file through the `LDSC` logger; the CLI console shows errors only, and `stdout` carries deliverable command output ([logs and outputs](../reference/logs-and-outputs.md)).
+- **Dependencies**: PLINK-backed LD computation needs the `plink` extra and chain-file liftover the `liftover` extra, while BED and gene-list interval projection needs only the base installation ([installation](../user-guide/installation.md#python-versions-and-extras)).
+- **Chromosome ordering**: workflows validate chromosome-sharded inputs and reassemble them in stable genomic order.
 
 ## Architectural Invariants
 
-- Import from `ldsc`, not from the private `ldsc._*` packages, for supported public use.
-- Numerical projection must consume resolved, prepared inputs; user-token resolution belongs to workflows/shared helpers and the existing runtime adapters in `_refpanel.adapters`.
+These are the rules a change must keep; [code structure](code-structure.md) links here for them.
+
+- Import from `ldsc` for supported public use; every package whose name starts with an underscore is private, even when `ldsc` re-exports a name it defines.
+- `ldsc.cli` parses arguments and dispatches; numerical and plotting logic belongs to a workflow or kernel.
+- Numerical projection consumes resolved, prepared inputs: user-token resolution belongs to workflows, shared helpers and the runtime adapters in `_refpanel.adapters`, and computation modules such as `_ldscore.compute`, `_refpanel.r2_format` and `_regression.estimators` take concrete files, own no public output layout and carry no workflow diagnostics.
 - `_core/columns.py` owns alias families and internal artifact header strictness.
-- LD-score computation remains chromosome-wise, global query filtering uses the complete chromosome summaries, and publication follows the success of every required chromosome; regression consumes only the aggregated artifacts.
-- Public LD-score output layout is fixed by `LDScoreDirectoryWriter`;
-  `partitioned-h2` result tables use fixed compact/full schemas owned by
-  `PartitionedH2DirectoryWriter`.
-- Emitted Parquet schemas are part of the public file contract, and public output customization chooses the directory name and an explicit overwrite policy, not per-run filename prefixes.
+- LD-score computation remains chromosome-wise, global query filtering uses the complete chromosome summaries, and publication follows the success of every required chromosome.
+- Regression is file-driven: it rebuilds its state from written artifacts and never recomputes LD scores.
+  Plotting and scale conversion read saved results and never refit, and Matplotlib loads only on a figure-producing path.
+- Public file contracts stay stable unless a change is intentional and coordinated: `.annot(.gz)`, munged summary statistics (Parquet with its identity footer, optionally also `.sumstats.gz`), R² matrices, LD-score directories (flat Parquet files with one row group per chromosome, described by root `metadata.json`) and regression result directories.
+  Emitted Parquet schemas are part of that contract.
+- Headline results sit at the result root; logs, dropped-SNP tables and diagnostic metadata live under `diagnostics/`.
+- New internal or intermediate artifacts are Parquet and new science-facing result tables are TSV; compatibility text outputs are called out as legacy or sidecar exceptions.
+- Legacy reference and weight `.l2.ldscore(.gz)`, `.l2.M` and `.l2.M_5_50` families enter only through `convert-legacy-ldscores` ([compatibility boundary](../reference/formats/legacy-ldscores.md#compatibility-boundary)); the `.w.l2.ldscore(.gz)` suffix is unsupported, and no kernel emits and no regression reader reads legacy LD-score files.
+- Package-built R² matrices are the only public R² Parquet format for `ldscore --r2-matrix-dir` and `query-r2-matrix`: both depend on the paired `chr*_r2.parquet` and `chr*_meta.tsv.gz` files and their sidecar identity binding.
+- `LDScoreDirectoryWriter` fixes the public LD-score output layout, and `PartitionedH2DirectoryWriter` the compact and full `partitioned-h2` result schemas.
+  Public output customization chooses the directory name and an explicit overwrite policy, not per-run filename prefixes.
 - Public annotation reads and final LD-score Parquet values are float32; LD accumulation, annotation sums and overlap products use float64.
-- Package-built R² matrices are the only public R² Parquet format
-  for `ldsc ldscore` and `ldsc query-r2-matrix`; external R² Parquet layouts are not
-  supported as public inputs.
-- New internal or intermediate artifacts should be parquet by default; new
-  science-facing result tables should be TSV. Compatibility text outputs must
-  be called out as legacy or sidecar exceptions.
-- Query annotations are valid only with explicit baseline annotations; the
-  synthetic `base` path is for ordinary unpartitioned LD-score generation and
-  downstream `h2`/`rg`, not for `partitioned-h2`.
-- BED and gene-list queries use one partial-success contract. Only usable query
-  columns enter scientific artifacts; skipped inputs remain visible in
-  `diagnostics/query_annotation_status.tsv`.
-- BED projection uses input intervals as provided unless `padding_bp` /
-  `--padding-bp` is set. Padding expands both interval ends in base pairs
-  before projection and clips starts at zero; it should not be applied again to
-  BED files already expanded upstream. `ldscore` accepts this option only when
-  it is performing live BED or gene-list projection; prebuilt-annotation,
-  no-query, and indexed modes reject it.
-- Every workflow that writes fixed artifacts must precompute expected output
-  paths, including its log path, and call the shared output preflight before
-  the first write.
+- Query annotations are valid only with explicit baseline annotations; the LD-score workflow layer builds the synthetic all-ones `base` only for ordinary unpartitioned LD scores and downstream `h2`/`rg`, not for `partitioned-h2`.
+- BED and gene-list queries use one partial-success contract: only usable query columns enter scientific artifacts, a skipped query never becomes a placeholder column, and skipped inputs stay visible in `diagnostics/query_annotation_status.tsv`.
+- BED projection uses input intervals as provided unless `padding_bp` / `--padding-bp` is set.
+  Padding expands both interval ends in base pairs before projection and clips starts at zero; it should not be applied again to BED files already expanded upstream.
+  `ldscore` accepts this option only when it is performing live BED or gene-list projection; prebuilt-annotation, no-query and indexed modes reject it.
+- The `ldsc annotate` entry points stay in `_annotation.builder` (`build_parser()`, `run_annotate_from_args()`, `main()`), which the CLI dispatches to; `_annotation.parsing` owns no parser functions, result objects or public workflow aliases.
+- Every workflow that writes fixed artifacts precomputes its output paths, including its log, and calls the shared output preflight before the first write.
+  It creates a missing output directory, reuses an existing one, refuses existing owned artifacts unless `--overwrite` or `overwrite=True` is given, and never deletes unrelated files.
+  Coherent output families (`munge-sumstats`, `build-r2-matrix`, `ldscore`, `partitioned-h2`, `rg`, `annotate`) reject any owned sibling without overwrite and remove stale owned siblings after a successful overwrite; a `build-r2-matrix` run with a concrete chromosome prefix owns only that chromosome's files, and an `@` suite run owns the whole R² matrix ([output-family preflight](../reference/logs-and-outputs.md#output-family-preflight)).
+- Logs are diagnostic files: result `output_paths` mappings and metadata that downstream code reads as scientific data exclude them.
+  The gene LD-score index builder keeps its lock, open log and staged index in the index's hidden `.build/` directory, publishes root `metadata.json` last, and moves only the closed successful log into the published diagnostics.
 - Gene LD-score index construction and assembly preserve Boolean interval union, float64 unbiased-R² accumulation (including negative values), one diagonal contribution, and the split between the broad reference SNPs and the filtered regression SNPs.
 - Indexed scoring uses only the explicitly named complete gene LD-score index; it never discovers an index or falls back to live computation.
+- Extend a shared helper or the workflow-owned writer rather than duplicating local parsing or writing logic.

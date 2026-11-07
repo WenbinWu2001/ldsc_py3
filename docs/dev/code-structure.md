@@ -221,47 +221,9 @@ The lazily exported workflows in `ldsc/__init__.py` and the per-command modules 
 | change the `partitioned-h2` per-query layout, the `rg` result-family layout, or regression metadata payloads | `src/ldsc/_regression/outputs.py` |
 | change which module may import which, or defer an import | the tier table above and `tests/package/test_layering.py` (`DEFERRED_IMPORTS` for imports inside functions) |
 
-## Architectural Rules That Matter In Practice
+## Architectural Rules
 
-- Treat `src/ldsc/` as the only supported Python import surface.
-- Do not add user-facing path discovery to computation modules such as `_ldscore.compute`, `_refpanel.r2_format` or `_regression.estimators`; pass concrete files in.
-- Keep public file contracts for `.annot(.gz)`, self-describing Parquet munged summary statistics (footer identity metadata) plus optional `.sumstats.gz` compatibility output, LD-score directories, and regression summary directories stable unless the change is intentional and coordinated.
-  LD-score parquet files remain flat files, with chromosome-aligned row groups documented through root `metadata.json`; diagnostic logs, dropped-SNP reports, and diagnostic metadata live under `diagnostics/`.
-  Legacy reference/weight `.l2.ldscore(.gz)`, `.l2.M`, and `.l2.M_5_50` families enter through the explicit [LD-score converter](../reference/formats/legacy-ldscores.md#compatibility-boundary).
-  The `.w.l2.ldscore(.gz)` suffix is unsupported, and private kernel legacy artifact emitters and regression readers have been removed.
-- Treat package-built R² matrices as the only public R² Parquet
-  format. Both `ldsc ldscore --r2-matrix-dir` and `ldsc query-r2-matrix` depend on the paired
-  `chr*_r2.parquet` / `chr*_meta.tsv.gz` layout and sidecar identity binding.
-- Keep optional-baseline behavior in the public LD-score workflow layer: no baseline and no query means a synthetic all-ones `base`; prebuilt, BED, and gene-list queries require explicit baseline annotations. Skipped BED/gene queries never become placeholder scientific columns.
-- Keep `ldsc annotate` orchestration in `ldsc._annotation.builder`. The CLI
-  registers annotation flags from that module and dispatches parsed namespaces
-  to `run_annotate_from_args()`; `_annotation.parsing` must not own parser
-  functions, result objects, or public workflow aliases.
-- Use the shared output preflight helpers for fixed output files, including
-  workflow log files. Public workflows should create missing output
-  directories, reuse existing directories, fail on existing owned artifacts by
-  default, and require `--overwrite` or `overwrite=True` for replacement.
-- Keep coherent output families consistent. For `munge-sumstats`,
-  `build-r2-matrix`, `ldscore`, `partitioned-h2`, `rg`, and `annotate`,
-  no-overwrite mode rejects any current-contract owned sibling from the workflow family.
-  Overwrite mode writes the requested current outputs and then removes stale
-  current-contract owned siblings that were not produced by the successful run.
-  Removed legacy root diagnostic names are not workflow-owned. Unrelated files
-  in the output directory must be preserved. Sharded workflows may pass a
-  narrowed owned family when shards share an output directory; `build-r2-matrix`
-  concrete chromosome prefixes own only that chromosome's package, while `@`
-  chromosome-suite prefixes own the full R² matrix package.
-- Preflight deterministic output paths before expensive or multi-file writes.
-  This is especially important for `build-r2-matrix`, `munge-sumstats`,
-  `annotate`, and summary-table regression commands.
-- Treat workflow logs as diagnostic files. Do not include log paths in
-  `output_paths` mappings or thin metadata sidecars that downstream code
-  interprets as scientific data artifacts. The gene LD-score index
-  builder keeps its open workflow log in the index's hidden `.build/` directory and moves
-  only the closed successful log into the published diagnostics; nothing is written beside the index.
-- Keep regression file-driven: it should be able to rebuild state from written artifacts without recomputing LD scores.
-- Keep plotting metadata-driven and post-fit: plot builders consume declared canonical tables and never refit. Matplotlib is required at installation but lazily imported through `ldsc._plotting.builders`.
-- Prefer extending shared helpers or the workflow-owned writer over duplicating local parsing or writing logic.
+The rules a change must keep are the [architectural invariants](architecture.md#architectural-invariants).
 
 ## Test Map
 

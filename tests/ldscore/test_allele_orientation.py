@@ -5,7 +5,6 @@ hg38 positions; see ``tests/fixtures/minimal_external_resources/README.md``).
 Its ``.bim`` ``A1`` is the major allele for 10 SNPs, and no SNP has allele
 frequency exactly 0.5. Expected alleles come from the decoded BED dosages.
 """
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -13,11 +12,12 @@ import pytest
 
 from ldsc import cli
 from tests.refpanel.test_r2_matrix_ld_window_rules import _dosages
+from tests.ref_panel_helpers import HM3_CHR22_PLINK, read_bim
 
 pytest.importorskip("bitarray")
 
-PLINK = Path(__file__).resolve().parents[1] / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
-BIM = pd.read_csv(f"{PLINK}.bim", sep=r"\s+", header=None, names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+PLINK = HM3_CHR22_PLINK
+BIM = read_bim(PLINK)
 
 
 @pytest.fixture(scope="module")

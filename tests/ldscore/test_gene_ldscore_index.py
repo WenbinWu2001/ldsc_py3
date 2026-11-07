@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.ref_panel_helpers import compute_plink, plink_panel
+from tests.ref_panel_helpers import compute_plink, plink_panel, read_bim, TOY_PLINK
 from tests.runtime.test_path_resolution import _write_plink_trio
 
 from argparse import Namespace
@@ -327,7 +327,7 @@ def _build_fixture_index(tmp_path, monkeypatch):
 
 
 def test_selected_individual_identity_uses_fam_row_order():
-    prefix = Path(__file__).resolve().parents[1] / "fixtures" / "plink" / "plink"
+    prefix = TOY_PLINK
     fam = PlinkFAMFile(str(prefix.with_suffix(".fam")))
 
     assert _selected_individual_ids(fam, [1, 0]) == [
@@ -358,9 +358,8 @@ def test_embedded_catalog_keeps_mhc_exclusions_with_empty_gene_rows():
 
 
 def test_index_match_counts_come_from_the_reference_snp_funnel():
-    prefix = Path(__file__).resolve().parents[1] / "fixtures" / "plink" / "plink"
-    bim = pd.read_csv(prefix.with_suffix(".bim"), sep=r"\s+", header=None,
-                      names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+    prefix = TOY_PLINK
+    bim = read_bim(prefix)
     # The baseline lacks rs_0 (PLINK-only) and has one SNP the panel lacks (baseline-only).
     metadata = pd.concat([bim.loc[1:, ["CHR", "SNP", "CM", "POS"]],
                           pd.DataFrame({"CHR": [1], "SNP": ["baseline_only"], "CM": [0.0], "POS": [100]})],
@@ -420,13 +419,8 @@ def test_baseline_plink_gate_rejects_empty_match():
 
 
 def test_prepared_plink_chromosome_is_reused_by_direct_ldscore():
-    prefix = Path(__file__).resolve().parents[1] / "fixtures" / "plink" / "plink"
-    bim = pd.read_csv(
-        prefix.with_suffix(".bim"),
-        sep=r"\s+",
-        header=None,
-        names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
-    )
+    prefix = TOY_PLINK
+    bim = read_bim(prefix)
     metadata = bim[["CHR", "SNP", "CM", "POS"]].copy()
     annotations = pd.DataFrame({"base": metadata["POS"].astype(np.float64)})
     bundle = ChromosomeAnnotations(metadata, annotations, ["base"], [])
@@ -452,13 +446,8 @@ def test_prepared_plink_chromosome_is_reused_by_direct_ldscore():
 
 
 def test_direct_plink_projects_annotations_and_regression_weights_in_one_traversal(monkeypatch):
-    prefix = Path(__file__).resolve().parents[1] / "fixtures" / "plink" / "plink"
-    bim = pd.read_csv(
-        prefix.with_suffix(".bim"),
-        sep=r"\s+",
-        header=None,
-        names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
-    )
+    prefix = TOY_PLINK
+    bim = read_bim(prefix)
     metadata = bim[["CHR", "SNP", "CM", "POS"]].copy()
     annotations = pd.DataFrame(
         {
@@ -570,9 +559,8 @@ def test_direct_plink_output_writes_header_only_duplicate_audit_when_no_rows_dro
     from ldsc import config, run_ldscore
 
     monkeypatch.setattr(config, "_GLOBAL_CONFIG", GlobalConfig(snp_identifier="rsid"))
-    prefix = Path(__file__).resolve().parents[1] / "fixtures" / "plink" / "plink"
-    bim = pd.read_csv(prefix.with_suffix(".bim"), sep=r"\s+", header=None,
-                      names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+    prefix = TOY_PLINK
+    bim = read_bim(prefix)
     baseline = tmp_path / "baseline.annot"
     bim.assign(base=1).to_csv(baseline, sep="\t", index=False)
     regression = tmp_path / "regression.tsv"
@@ -589,14 +577,11 @@ def test_direct_plink_output_writes_header_only_duplicate_audit_when_no_rows_dro
 
 
 def test_direct_plink_duplicate_group_is_dropped_and_recorded(tmp_path):
-    fixture = Path(__file__).resolve().parents[1] / "fixtures" / "plink" / "plink"
+    fixture = TOY_PLINK
     prefix = tmp_path / "duplicate_panel"
     shutil.copyfile(fixture.with_suffix(".bed"), prefix.with_suffix(".bed"))
     shutil.copyfile(fixture.with_suffix(".fam"), prefix.with_suffix(".fam"))
-    bim = pd.read_csv(
-        fixture.with_suffix(".bim"), sep=r"\s+", header=None,
-        names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
-    )
+    bim = read_bim(fixture)
     duplicate_key = str(bim.loc[0, "SNP"])
     bim.loc[1, "SNP"] = duplicate_key
     bim.to_csv(prefix.with_suffix(".bim"), sep="\t", header=False, index=False)
@@ -620,16 +605,11 @@ def test_direct_plink_duplicate_group_is_dropped_and_recorded(tmp_path):
 @pytest.mark.parametrize("unit,value", [("snps", 2), ("kb", .002), ("cm", .15)])
 @pytest.mark.parametrize("build", ["hg19", "hg38"])
 def test_plink_atom_operator_matches_direct_union_in_atom_batches(tmp_path, snp_identifier, unit, value, build):
-    fixture = Path(__file__).resolve().parents[1] / "fixtures" / "plink" / "plink"
+    fixture = TOY_PLINK
     prefix = tmp_path / "panel"
     for suffix in (".bed", ".bim", ".fam"):
         shutil.copyfile(fixture.with_suffix(suffix), prefix.with_suffix(suffix))
-    bim = pd.read_csv(
-        prefix.with_suffix(".bim"),
-        sep=r"\s+",
-        header=None,
-        names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
-    )
+    bim = read_bim(prefix)
     bim = bim.assign(A1="A", A2="G", CM=bim.POS * .1)
     bim.to_csv(prefix.with_suffix(".bim"), sep="\t", index=False, header=False)
     metadata = bim[["CHR", "SNP", "CM", "POS"]].copy()
@@ -693,13 +673,8 @@ def test_plink_atom_operator_matches_direct_union_in_atom_batches(tmp_path, snp_
 
 
 def test_plink_index_fuses_baseline_and_regression_weights_but_keeps_atom_batches(monkeypatch):
-    prefix = Path(__file__).resolve().parents[1] / "fixtures" / "plink" / "plink"
-    bim = pd.read_csv(
-        prefix.with_suffix(".bim"),
-        sep=r"\s+",
-        header=None,
-        names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
-    )
+    prefix = TOY_PLINK
+    bim = read_bim(prefix)
     metadata = bim[["CHR", "SNP", "CM", "POS"]].copy()
     baseline_frame = pd.DataFrame(
         {
@@ -791,9 +766,8 @@ def test_plink_index_fuses_baseline_and_regression_weights_but_keeps_atom_batche
 @pytest.mark.parametrize("missing_rows", [slice(0, 1), slice(None)])
 def test_plink_index_chromosome_requires_maf_for_every_reference_snp(monkeypatch, missing_rows):
     # The index stores common-SNP counts, so a reference SNP without MAF would silently leave them.
-    prefix = Path(__file__).resolve().parents[1] / "fixtures" / "plink" / "plink"
-    bim = pd.read_csv(prefix.with_suffix(".bim"), sep=r"\s+", header=None,
-                      names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+    prefix = TOY_PLINK
+    bim = read_bim(prefix)
     metadata = bim[["CHR", "SNP", "CM", "POS"]].copy()
     bundle = ChromosomeAnnotations(metadata, pd.DataFrame({"base": np.ones(len(metadata), dtype=np.float32)}),
                                    ["base"], [])
@@ -1283,11 +1257,8 @@ def test_chromosome_failure_cleans_staged_shards_without_publication(tmp_path, m
 
 @pytest.mark.parametrize("snp_batch_size", [1, 3])
 def test_plink_operator_matches_independent_dense_adjusted_r2_reference(snp_batch_size):
-    prefix = Path(__file__).resolve().parents[1] / "fixtures" / "plink" / "plink"
-    bim = pd.read_csv(
-        prefix.with_suffix(".bim"), sep=r"\s+", header=None,
-        names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
-    )
+    prefix = TOY_PLINK
+    bim = read_bim(prefix)
     bundle = ChromosomeAnnotations(
         bim[["CHR", "SNP", "CM", "POS"]],
         pd.DataFrame({"base": np.ones(len(bim))}),

@@ -1,5 +1,4 @@
 """Reference policies and numerical projection share the production preparation seam."""
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -16,7 +15,7 @@ from ldsc._refpanel.r2_format import write_r2_parquet, write_runtime_metadata_si
 from ldsc._core.snp_identity import sidecar_identity_sha256
 from ldsc.errors import LDSCInputError, LDSCUsageError
 from tests.annotation_fixtures import make_annotation_bundle
-from tests.ref_panel_helpers import write_tiny_plink
+from tests.ref_panel_helpers import read_bim, TOY_PLINK, write_tiny_plink
 
 
 # write_panel stores R2=0.5 as round(0.5 * 32767); readers decode stored / 32767 in float32.
@@ -201,9 +200,8 @@ def test_r2_matrix_cm_windows_use_the_sidecar_cm(tmp_path):
 def test_plink_preparation_maps_sorted_annotations_to_physical_bed_columns(tmp_path):
     pytest.importorskip("bitarray")
     from tests.ref_panel_helpers import plink_panel
-    source = Path(__file__).parents[1] / "fixtures" / "plink" / "plink"
-    metadata = pd.read_csv(source.with_suffix(".bim"), sep=r"\s+", header=None,
-                           names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+    source = TOY_PLINK
+    metadata = read_bim(source)
     # Reverse the genomic positions while preserving physical BIM/BED column correspondence.
     metadata["POS"] = metadata["POS"].iloc[::-1].to_numpy()
     prefix = tmp_path / "panel"

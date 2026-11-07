@@ -13,8 +13,9 @@ from ldsc._runtime import workflow_logging
 from ldsc._runtime.workflow_logging import materializing_overwrite_guard, overwrite_failure_marker
 from ldsc._sumstats import munger as sumstats_munger
 from ldsc.errors import LDSCInputError, LDSCUsageError, LDSCUserError
+from tests.ref_panel_helpers import HM3_CHR22_PLINK
 
-PLINK_FIXTURE = Path(__file__).parents[1] / "fixtures/minimal_external_resources/plink/hm3_chr22_subset"
+PLINK_FIXTURE = HM3_CHR22_PLINK
 
 # One run per materializing command that passes argument parsing and then fails
 # inside the workflow, with the marker it leaves relative to "{root}".

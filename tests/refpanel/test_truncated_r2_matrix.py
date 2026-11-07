@@ -4,16 +4,16 @@ Fixture: the deterministic 32-SNP chromosome-22 1KG-30x subset (hg38; see
 ``tests/fixtures/minimal_external_resources/README.md``). A positive
 ``--r2-min`` omits low-R2 pairs, which LD-score sums would count as zero.
 """
-from pathlib import Path
 
 import pandas as pd
 import pytest
 
 from ldsc import cli
+from tests.ref_panel_helpers import HM3_CHR22_PLINK
 
 pytest.importorskip("bitarray")
 
-PLINK = Path(__file__).resolve().parents[1] / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
+PLINK = HM3_CHR22_PLINK
 
 
 @pytest.fixture(scope="module")

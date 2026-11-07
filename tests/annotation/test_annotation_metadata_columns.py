@@ -5,7 +5,6 @@ values, so a header that merely ends in a metadata name (``lowMAF``,
 ``eQTL_SNP``, ``EUR_MAF``) or in a short SNP alias (``Enhancers`` ends in
 ``rs``, ``Thyroid`` in ``id``) must stay an annotation column.
 """
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -18,9 +17,10 @@ from ldsc.config import AnnotationBuildConfig, GlobalConfig
 from ldsc._annotation.builder import AnnotationBuilder
 from ldsc.errors import LDSCInputError
 from tests.annotation_fixtures import build_annotation_fixture, fixture_values
+from tests.ref_panel_helpers import HM3_CHR22_PLINK, read_bim
 
-PLINK = Path(__file__).resolve().parents[1] / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
-BIM = pd.read_csv(f"{PLINK}.bim", sep=r"\s+", header=None, names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+PLINK = HM3_CHR22_PLINK
+BIM = read_bim(PLINK)
 
 # Annotation names that end in a metadata name or alias, with one value per row.
 LOOKALIKES = {"lowMAF": [0, 1, 1], "eQTL_SNP": [1, 0, 1], "Enhancers": [1, 1, 0], "Thyroid": [0, 0, 1],

@@ -7,7 +7,6 @@ exactly; these tests pin that contract on the PLINK and R2 matrix paths.
 
 import json
 from dataclasses import replace
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -22,8 +21,9 @@ from ldsc._ldscore.outputs import LDScoreOutputConfig
 from ldsc._refpanel.adapters import R2MatrixRefPanel
 from ldsc.errors import LDSCInputError, LDSCInternalError
 from tests.ldscore.test_ldscore_parallelism import _write_index_panel
+from tests.ref_panel_helpers import HM3_CHR22_PLINK, read_bim
 
-PLINK_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures/minimal_external_resources/plink/hm3_chr22_subset"
+PLINK_FIXTURE = HM3_CHR22_PLINK
 
 
 def _r2_case(tmp_path):
@@ -47,8 +47,7 @@ def _r2_case(tmp_path):
 
 
 def _plink_case(tmp_path):
-    bim = pd.read_csv(PLINK_FIXTURE.with_suffix(".bim"), sep=r"\s+", header=None,
-                      names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+    bim = read_bim(PLINK_FIXTURE)
     metadata = bim.loc[:, ["CHR", "SNP", "CM", "POS"]].assign(CHR=bim.CHR.astype(str))
     rng = np.random.default_rng(5)
     baseline = pd.DataFrame({"base": np.ones(len(metadata)), "third": (np.arange(len(metadata)) % 3 == 0) * 1.})

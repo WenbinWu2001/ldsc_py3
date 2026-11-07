@@ -6,17 +6,17 @@ Its SNPs are 30-900 kb apart, so ``--ld-wind-snps 3`` and ``--ld-wind-kb 200``
 cover only a few neighbours, while legacy LDSC chunk rounding at a batch of 128
 would have widened every window to the whole chromosome.
 """
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
 from ldsc import cli
+from tests.ref_panel_helpers import HM3_CHR22_PLINK
 
 pytest.importorskip("bitarray")
 
-PLINK = Path(__file__).resolve().parents[1] / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
+PLINK = HM3_CHR22_PLINK
 IDENTITY = ["--snp-identifier", "chr_pos"]
 WINDOWS = [["--ld-wind-snps", "3"], ["--ld-wind-kb", "200"]]
 SCORES = ["base", "regression_ld_scores"]

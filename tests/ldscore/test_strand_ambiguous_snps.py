@@ -7,7 +7,6 @@ score and SNP count, must equal the ``chr_pos`` result, which ignores alleles.
 """
 import json
 from pathlib import Path
-import shutil
 
 import numpy as np
 import pandas as pd
@@ -17,8 +16,9 @@ from ldsc import GlobalConfig, reset_global_config, set_global_config
 from ldsc._ldscore import workflow
 from ldsc._refpanel import builder
 from ldsc._refpanel.r2_format import R2_QUANT_SCALE
+from tests.ref_panel_helpers import copy_panel, HM3_CHR22_PLINK, read_bim
 
-FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
+FIXTURE = HM3_CHR22_PLINK
 RELABELLED = {3: ("A", "T"), 7: ("C", "G")}
 ALLELE_AWARE = ["chr_pos_allele_aware", "rsid_allele_aware"]
 ALL_MODES = ["rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"]
@@ -26,16 +26,10 @@ ALL_MODES = ["rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"]
 
 def write_relabelled_panel(directory: Path) -> Path:
     """Copy the fixture with two SNPs relabelled A/T and C/G; return the PLINK prefix."""
-    directory.mkdir(parents=True, exist_ok=True)
-    prefix = directory / "panel"
-    for suffix in (".bed", ".fam"):
-        shutil.copy(str(FIXTURE) + suffix, str(prefix) + suffix)
-    bim = pd.read_csv(str(FIXTURE) + ".bim", sep=r"\s+", header=None, names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+    bim = read_bim(FIXTURE)
     for row, alleles in RELABELLED.items():
         bim.loc[row, ["A1", "A2"]] = alleles
-    bim.to_csv(str(prefix) + ".bim", sep="\t", header=False, index=False)
-    bim.loc[:, ["SNP", "CHR", "POS", "A1", "A2"]].to_csv(directory / "regression_snps.tsv", sep="\t", index=False)
-    return prefix
+    return copy_panel(directory, bim, ["SNP", "CHR", "POS", "A1", "A2"])
 
 
 def plink_ldscores(tmp_path: Path, prefix: Path, mode: str) -> pd.DataFrame:

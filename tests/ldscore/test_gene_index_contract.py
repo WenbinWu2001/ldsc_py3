@@ -16,7 +16,7 @@ from ldsc._refpanel.adapters import PlinkRefPanel
 from ldsc._refpanel.prepared import ChromosomeAnnotations
 from ldsc.errors import LDSCConfigError, LDSCInputError
 from tests.gene_index_helpers import narrow_index_chromosomes
-from tests.ref_panel_helpers import ORIENTATION_PANEL, write_counted_plink
+from tests.ref_panel_helpers import ORIENTATION_PANEL, read_bim, TOY_PLINK, write_counted_plink
 
 
 def _arguments():
@@ -223,15 +223,14 @@ def test_cross_chromosome_rsid_join_indexes_before_inserting_and_needs_no_tempor
 @pytest.mark.parametrize('build,mode,unit,value', [('hg19', 'rsid_allele_aware', 'cm', .15),
                                                 ('hg38', 'chr_pos_allele_aware', 'snps', 2)])
 def test_complete_autosomal_index_build_and_reload(tmp_path, build, mode, unit, value):
-    fixture = Path(__file__).parents[1] / 'fixtures' / 'plink' / 'plink'
+    fixture = TOY_PLINK
     chromosomes = list(map(str, range(1, 23)))
     variants = []
     for chrom in chromosomes:
         prefix = tmp_path / f'panel.{chrom}'
         for suffix in ('.bed', '.fam'):
             shutil.copyfile(fixture.with_suffix(suffix), prefix.with_suffix(prefix.suffix + suffix))
-        bim = pd.read_csv(fixture.with_suffix('.bim'), sep=r'\s+', header=None,
-                          names=['CHR', 'SNP', 'CM', 'POS', 'A1', 'A2'])
+        bim = read_bim(fixture)
         bim = bim.assign(CHR=chrom, SNP=[f'rs{chrom}_{i}' for i in range(len(bim))],
                          CM=bim.POS * .1, A1='A', A2='G')
         bim.to_csv(str(prefix) + '.bim', sep='\t', header=False, index=False)
@@ -304,15 +303,14 @@ def test_index_records_the_reference_snp_funnel_and_indexed_scoring_reports_it(t
     from ldsc._refpanel.funnel import read_reference_snp_funnel
 
     # Every chromosome's panel has 8 SNPs; the baseline grid leaves out the first one.
-    fixture = Path(__file__).parents[1] / 'fixtures' / 'plink' / 'plink'
+    fixture = TOY_PLINK
     chromosomes = list(map(str, range(1, 23)))
     variants = []
     for chrom in chromosomes:
         prefix = tmp_path / f'panel.{chrom}'
         for suffix in ('.bed', '.fam'):
             shutil.copyfile(fixture.with_suffix(suffix), prefix.with_suffix(prefix.suffix + suffix))
-        bim = pd.read_csv(fixture.with_suffix('.bim'), sep=r'\s+', header=None,
-                          names=['CHR', 'SNP', 'CM', 'POS', 'A1', 'A2'])
+        bim = read_bim(fixture)
         bim = bim.assign(CHR=chrom, SNP=[f'rs{chrom}_{i}' for i in range(len(bim))], CM=bim.POS * .1)
         bim.to_csv(str(prefix) + '.bim', sep='\t', header=False, index=False)
         bim.iloc[1:][['CHR', 'SNP', 'POS']].assign(base=1).to_csv(

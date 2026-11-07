@@ -14,10 +14,11 @@ import pytest
 
 from ldsc import cli
 from ldsc.config import LDWindow
+from tests.ref_panel_helpers import HM3_CHR22_PLINK, read_bim
 
 pytest.importorskip("bitarray")
 
-PLINK = Path(__file__).resolve().parents[1] / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
+PLINK = HM3_CHR22_PLINK
 IDENTITY = ["--snp-identifier", "chr_pos"]
 
 
@@ -83,7 +84,7 @@ def test_snp_count_window_counts_panel_rows_when_the_run_keeps_fewer_snps(tmp_pa
     assert _ldscore(output, "--r2-matrix-dir", str(panels[panel]), "--ld-wind-snps", str(window), "--maf-min", "0.3") == 0
 
     sidecar = pd.read_csv(panels[panel] / "hg38" / "chr22_meta.tsv.gz", sep="\t", comment="#")
-    bim = pd.read_csv(f"{PLINK}.bim", sep=r"\s+", header=None, names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+    bim = read_bim(PLINK)
     dosage = _dosages(PLINK)[bim.reset_index().set_index("POS").loc[sidecar["POS"], "index"].to_numpy()]
     n = dosage.shape[1]
     r2 = np.corrcoef(dosage) ** 2
@@ -215,7 +216,7 @@ def test_cm_panel_stores_every_pair_inside_the_window_its_sidecar_records(tmp_pa
     it at full precision but reads as 30 to 31 at 9 digits, so it is inside the
     window the sidecar records.
     """
-    bim = pd.read_csv(f"{PLINK}.bim", sep=r"\s+", header=None, names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+    bim = read_bim(PLINK)
     cm = 5.0 + 0.7 * np.arange(len(bim))
     cm[10:20] = 20.0000004 + 0.7 * np.arange(10)
     cm[11] = 21.0000008

@@ -7,6 +7,7 @@ import pytest
 from ldsc import cli
 from ldsc.config import GeneLDScoreIndexBuildConfig
 from ldsc.errors import LDSCInputError
+from tests.ref_panel_helpers import read_bim
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "minimal_external_resources"
 TROUBLESHOOTING = Path(__file__).resolve().parents[2] / "docs" / "user-guide" / "troubleshooting.md"
@@ -23,8 +24,7 @@ def _duplicated_map(tmp_path):
 
 
 def test_ldscore_names_itself_for_a_bad_genetic_map(tmp_path, caplog):
-    bim = pd.read_csv(FIXTURES / "plink/hm3_chr22_subset.bim", sep=r"\s+", header=None,
-                      names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+    bim = read_bim(FIXTURES / "plink/hm3_chr22_subset")
     bim.loc[:, ["SNP", "CHR", "POS"]].to_csv(tmp_path / "regr.tsv", sep="\t", index=False)
     status = cli.run_cli(["ldscore", "--plink-prefix", str(FIXTURES / "plink/hm3_chr22_subset"),
                           "--genome-build", "hg38", "--snp-identifier", "chr_pos_allele_aware", "--ld-wind-cm", "1",

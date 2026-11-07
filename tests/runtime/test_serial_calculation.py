@@ -2,7 +2,6 @@
 
 from concurrent.futures.process import BrokenProcessPool
 import sys
-from pathlib import Path
 
 import pytest
 
@@ -14,8 +13,9 @@ from ldsc._runtime.serial_calculation import serial_calculation
 from ldsc.cli import run_cli
 from ldsc.errors import LDSCInputError
 from tests.cli_parsing import parse_command
+from tests.ref_panel_helpers import HM3_CHR22_PLINK
 
-PLINK_FIXTURE = Path(__file__).parents[1] / "fixtures/minimal_external_resources/plink/hm3_chr22_subset"
+PLINK_FIXTURE = HM3_CHR22_PLINK
 
 
 @serial_calculation

@@ -27,8 +27,9 @@ from ldsc.cli import run_cli
 from ldsc._core.plink_files import PlinkFAMFile
 from ldsc.errors import LDSCInputError
 from ldsc._refpanel.plink_source import keep_individual_indices, read_keep_individuals
+from tests.ref_panel_helpers import HM3_CHR22_PLINK, read_bim
 
-FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
+FIXTURE = HM3_CHR22_PLINK
 FAM_IIDS = [line.split()[1] for line in Path(f"{FIXTURE}.fam").read_text(encoding="utf-8").splitlines()]
 LISTED = FAM_IIDS[1:16] + FAM_IIDS[-10:]
 REPEATED = {
@@ -105,7 +106,7 @@ def test_gene_index_with_a_repeated_iid_matches_the_keep_file_listing_it_once(tm
     from tests.gene_index_helpers import narrow_index_chromosomes
 
     narrow_index_chromosomes(monkeypatch, ["22"])
-    bim = pd.read_csv(f"{FIXTURE}.bim", sep=r"\s+", header=None, names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+    bim = read_bim(FIXTURE)
     bim.loc[:, ["CHR", "SNP", "POS", "CM", "A1", "A2"]].assign(base=1.0).to_csv(
         tmp_path / "baseline.annot", sep="\t", index=False)
     bim.loc[:, ["SNP", "CHR", "POS"]].to_csv(tmp_path / "regression_snps.tsv", sep="\t", index=False)

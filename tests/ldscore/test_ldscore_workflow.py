@@ -2,7 +2,7 @@ from __future__ import annotations
 from ldsc._runtime.serial_calculation import serial_calculation
 from tests.annotation_fixtures import build_annotation_fixture, make_annotation_bundle, fixture_metadata, fixture_values, replace_fixture_queries
 
-from tests.ref_panel_helpers import compute_plink, open_r2_matrix_chromosome, plink_panel, write_r2_matrix_chromosome, write_tiny_plink
+from tests.ref_panel_helpers import compute_plink, HM3_CHR22_PLINK, open_r2_matrix_chromosome, plink_panel, read_bim, write_r2_matrix_chromosome, write_tiny_plink
 
 from contextlib import contextmanager
 from dataclasses import fields as dataclass_fields, replace as dataclass_replace
@@ -535,12 +535,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             )
 
     def _build_annotation_bundle(self, prefix: Path) -> AnnotationBundle:
-        bim = pd.read_csv(
-            prefix.with_suffix(".bim"),
-            sep=r"\s+",
-            header=None,
-            names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
-        )
+        bim = read_bim(prefix)
         metadata = bim.loc[:, ["CHR", "SNP", "CM", "POS"]].copy()
         metadata["CHR"] = metadata["CHR"].astype(str)
         metadata["SNP"] = metadata["SNP"].astype(str)
@@ -1765,13 +1760,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
     @unittest.skipUnless(_HAS_BITARRAY, "bitarray is not installed")
     def test_plink_compute_chromosome_enriches_allele_free_annotations_in_default_mode(self):
-        prefix = Path(__file__).resolve().parents[1] / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
-        bim = pd.read_csv(
-            prefix.with_suffix(".bim"),
-            sep=r"\s+",
-            header=None,
-            names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
-        )
+        prefix = HM3_CHR22_PLINK
+        bim = read_bim(prefix)
         metadata = bim.loc[:, ["CHR", "SNP", "CM", "POS"]].copy()
         metadata["CHR"] = metadata["CHR"].astype(str)
         baseline = pd.DataFrame({"base": np.ones(len(metadata), dtype=np.float32)})
@@ -1987,7 +1977,7 @@ def test_rsid_run_selects_region_presets_with_its_genome_build(tmp_path, snp_ide
     # rsID identity records no build, but --genome-build still selects the preset coordinates.
     from ldsc import cli
 
-    plink = Path(__file__).resolve().parents[1] / "fixtures/minimal_external_resources/plink/hm3_chr22_subset"
+    plink = HM3_CHR22_PLINK
     bim = pd.read_csv(plink.with_suffix(".bim"), sep="\t", header=None, names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
     regression = tmp_path / "regression.tsv"
     bim[["SNP"]].to_csv(regression, sep="\t", index=False)
@@ -2115,10 +2105,7 @@ def test_gene_list_mhc_query_keeps_reference_counts_but_not_regression_row(tmp_p
 @serial_calculation
 def test_public_plink_calculation_prepares_genotypes_once():
     pytest.importorskip("bitarray")
-    metadata = pd.read_csv(
-        PLINK_FIXTURES / "plink.bim", sep=r"\s+", header=None,
-        names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
-    )
+    metadata = read_bim(PLINK_FIXTURES / "plink")
     bundle = make_annotation_bundle(
         metadata=metadata,
         baseline_annotations=pd.DataFrame({"base": np.ones(len(metadata))}),
@@ -2223,8 +2210,7 @@ def test_cm_source_log_names_the_genetic_map_only_for_cm_windows(tmp_path, windo
     from ldsc import cli
 
     fixtures = Path(__file__).resolve().parents[1] / "fixtures" / "minimal_external_resources"
-    bim = pd.read_csv(fixtures / "plink/hm3_chr22_subset.bim", sep=r"\s+", header=None,
-                      names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+    bim = read_bim(fixtures / "plink/hm3_chr22_subset")
     bim.loc[:, ["SNP", "CHR", "POS"]].to_csv(tmp_path / "regr.tsv", sep="\t", index=False)
     out = tmp_path / "out"
     cli.main(["ldscore", "--plink-prefix", str(fixtures / "plink/hm3_chr22_subset"), "--genome-build", "hg38",

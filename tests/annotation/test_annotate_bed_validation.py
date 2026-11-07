@@ -1,7 +1,6 @@
 """Unusable BED queries stop annotate; skipped queries reach CLI stderr."""
 
 import gzip
-from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -11,9 +10,10 @@ from ldsc._annotation.builder import run_annotate
 from ldsc.config import GlobalConfig
 from ldsc.errors import LDSCInputError
 from tests.annotation.test_annotate_streaming import inputs
+from tests.ref_panel_helpers import HM3_CHR22_PLINK, read_bim
 
 RSID = GlobalConfig(snp_identifier='rsid')
-PLINK = Path(__file__).parents[1] / 'fixtures/minimal_external_resources/plink/hm3_chr22_subset'
+PLINK = HM3_CHR22_PLINK
 
 
 def test_annotate_reports_every_unusable_bed_before_reading_the_grid(tmp_path, monkeypatch):
@@ -101,7 +101,7 @@ def test_annotate_cli_reports_gene_list_omissions_and_support(tmp_path, capsys):
 
 
 def test_ldscore_cli_names_skipped_bed_queries(tmp_path, capsys):
-    bim = pd.read_csv(f'{PLINK}.bim', sep=r'\s+', header=None, names=['CHR', 'SNP', 'CM', 'POS', 'A1', 'A2'])
+    bim = read_bim(PLINK)
     baseline = tmp_path / 'baseline.22.annot'
     bim.assign(base=1)[['CHR', 'POS', 'SNP', 'CM', 'base']].to_csv(baseline, sep='\t', index=False)
     half = tmp_path / 'half.bed'

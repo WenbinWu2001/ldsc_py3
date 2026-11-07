@@ -15,6 +15,7 @@ from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from ldsc import load_ldscore_from_dir
 from tests.runtime.test_output import make_split_ldscore_result
 from tests.ldscore_helpers import edit_json
+from tests.ref_panel_helpers import HM3_CHR22_PLINK
 
 
 def prepared_case(tmp_path):
@@ -280,7 +281,7 @@ def test_exported_reference_metadata_is_published_with_the_directory(tmp_path):
 
     from ldsc import cli
 
-    plink = Path(__file__).resolve().parents[1] / "fixtures/minimal_external_resources/plink/hm3_chr22_subset"
+    plink = HM3_CHR22_PLINK
     output = tmp_path / "out"
 
     def ldscore(*extra):

@@ -9,14 +9,14 @@ express a missing build, because a registered coordinate-family
 ``GlobalConfig`` always carries one.
 """
 
-from pathlib import Path
 
 import pytest
 
 import ldsc
 from ldsc import GlobalConfig, cli, reset_global_config, set_global_config
+from tests.ref_panel_helpers import HM3_CHR22_PLINK
 
-PLINK = str(Path(__file__).parents[1] / "fixtures/minimal_external_resources/plink/hm3_chr22_subset")
+PLINK = str(HM3_CHR22_PLINK)
 OUT = "{tmp}/out"
 PLINK_RUN = ["--genome-build", "hg38", "--plink-prefix", PLINK, "--ld-wind-kb", "1000"]
 INDEX_RUN = ["--gene-ldscore-index-dir", "{tmp}/index", "--query-annot-gene-list-sources", "{tmp}/genes.txt"]

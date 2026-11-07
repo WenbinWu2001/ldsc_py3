@@ -19,8 +19,9 @@ from ldsc._runtime.paths import ensure_output_directory
 from ldsc._runtime.workflow_logging import overwrite_failure_marker
 from ldsc.errors import LDSCConfigError, LDSCInputError
 from tests.runtime.test_failure_markers import FAILING_CLI_RUNS
+from tests.ref_panel_helpers import HM3_CHR22_PLINK
 
-PLINK_FIXTURE = Path(__file__).parents[1] / "fixtures/minimal_external_resources/plink/hm3_chr22_subset"
+PLINK_FIXTURE = HM3_CHR22_PLINK
 
 
 @pytest.fixture

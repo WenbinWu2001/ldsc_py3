@@ -7,11 +7,12 @@ import pytest
 
 from ldsc._ldscore.workflow import build_parser, run_ldscore_from_args
 from ldsc._runtime.workflow_kwargs import parse_command_line
+from tests.ref_panel_helpers import read_bim, TOY_PLINK
 
 
 def plink_arguments(tmp_path):
     pytest.importorskip("bitarray")
-    prefix = Path(__file__).parents[1] / "fixtures" / "plink" / "plink"
+    prefix = TOY_PLINK
     bim = pd.read_csv(prefix.with_suffix(".bim"), sep=r"\s+", header=None)
     snps = tmp_path / "snps.tsv"
     pd.DataFrame({"SNP": bim[1]}).to_csv(snps, sep="\t", index=False)
@@ -45,8 +46,7 @@ def test_ldscore_overwrite_keeps_produced_reports_and_reconciles_optional_output
     prefix = tmp_path / "panel"
     for suffix in (".bed", ".fam"):
         prefix.with_suffix(suffix).write_bytes(source.with_suffix(suffix).read_bytes())
-    bim = pd.read_csv(source.with_suffix(".bim"), sep=r"\s+", header=None,
-                      names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+    bim = read_bim(source)
     # Duplicate two monomorphic source identities to produce a real drop report.
     bim.loc[0, "SNP"] = bim.loc[1, "SNP"]
     bim.to_csv(prefix.with_suffix(".bim"), sep="\t", index=False, header=False)

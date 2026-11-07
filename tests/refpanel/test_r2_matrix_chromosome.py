@@ -8,7 +8,6 @@ either command with the same reason, named after the command that read it.
 """
 import gzip
 import shutil
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -16,11 +15,11 @@ import pytest
 
 from ldsc import cli
 from ldsc._refpanel.r2_format import r2_matrix_file_paths
-from tests.ref_panel_helpers import write_r2_matrix_chromosome
+from tests.ref_panel_helpers import HM3_CHR22_PLINK, write_r2_matrix_chromosome
 
 pytest.importorskip("bitarray")
 
-PLINK = Path(__file__).resolve().parents[1] / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
+PLINK = HM3_CHR22_PLINK
 ANCHORS = {
     "ldscore": "docs/user-guide/troubleshooting.md#ldscore-r2-matrix-is-incompatible",
     "query-r2-matrix": "docs/user-guide/troubleshooting.md#query-r2-matrix-r2-matrix-is-incompatible",

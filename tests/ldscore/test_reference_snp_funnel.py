@@ -17,8 +17,9 @@ from ldsc._refpanel.funnel import annotation_snp_grid_emptied
 from ldsc._refpanel.prepared import ChromosomeAnnotations
 from ldsc.errors import EmptyReferenceSNPs
 from tests.refpanel.test_reference_preparation import write_panel
+from tests.ref_panel_helpers import HM3_CHR22_PLINK, read_bim
 
-PLINK_PREFIX = Path(__file__).resolve().parents[1] / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
+PLINK_PREFIX = HM3_CHR22_PLINK
 WINDOW = LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True)
 
 
@@ -92,8 +93,7 @@ def test_r2_empty_chromosome_carries_its_funnel_and_names_the_emptying_step(tmp_
 
 
 def plink_annotations(rows, *, alleles):
-    bim = pd.read_csv(PLINK_PREFIX.with_suffix(".bim"), sep=r"\s+", header=None,
-                      names=["CHR", "SNP", "CM", "POS", "A1", "A2"]).iloc[rows]
+    bim = read_bim(PLINK_PREFIX).iloc[rows]
     columns = ["CHR", "SNP", "POS", *(["A1", "A2"] if alleles else [])]
     metadata = bim.loc[:, columns].astype({"CHR": str}).reset_index(drop=True)
     return ChromosomeAnnotations(metadata, pd.DataFrame({"base": np.ones(len(metadata))}), ["base"], [])
@@ -152,8 +152,7 @@ def test_plink_restriction_that_keeps_no_panel_snp_empties_the_chromosome_before
 @pytest.mark.parametrize("mode", ["rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"])
 def test_plink_restriction_whose_rows_cleanup_removes_empties_a_skippable_chromosome(tmp_path, mode):
     pytest.importorskip("bitarray")
-    bim = pd.read_csv(PLINK_PREFIX.with_suffix(".bim"), sep=r"\s+", header=None,
-                      names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+    bim = read_bim(PLINK_PREFIX)
     # Row 4 takes row 3's rsID or position and allele pair, and the restriction lists only that SNP.
     key = "SNP" if mode.startswith("rsid") else "POS"
     bim.loc[4, [key, "A1", "A2"]] = bim.loc[3, [key, "A1", "A2"]].tolist()

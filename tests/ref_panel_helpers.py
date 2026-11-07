@@ -1,7 +1,9 @@
 """Reference-panel fixtures exercised through the production preparation interface."""
 from pathlib import Path
+import shutil
 
 import numpy as np
+import pandas as pd
 
 from ldsc import GlobalConfig, PlinkRefPanel, RefPanelConfig
 from ldsc.config import LDWindow
@@ -14,6 +16,32 @@ from ldsc._refpanel.r2_format import (
     write_r2_parquet,
     write_runtime_metadata_sidecar,
 )
+
+# The two checked-in PLINK reference panels: a tiny toy panel and the 32-SNP
+# chromosome 22 subset described in tests/fixtures/minimal_external_resources/README.md.
+TOY_PLINK = Path(__file__).resolve().parent / "fixtures" / "plink" / "plink"
+HM3_CHR22_PLINK = Path(__file__).resolve().parent / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
+BIM_COLUMNS = ["CHR", "SNP", "CM", "POS", "A1", "A2"]
+
+
+def read_bim(prefix) -> pd.DataFrame:
+    """Read the whitespace-separated ``.bim`` file of the PLINK ``prefix`` with named columns."""
+    return pd.read_csv(f"{prefix}.bim", sep=r"\s+", header=None, names=BIM_COLUMNS)
+
+
+def copy_panel(directory, bim, regression_columns=("SNP", "CHR", "POS")):
+    """Copy the HM3 chromosome 22 fixture genotypes with ``bim`` as their ``.bim``; return the PLINK prefix.
+
+    The panel is ``directory/panel``; ``directory/regression_snps.tsv`` lists
+    every ``bim`` row with ``regression_columns``.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    prefix = directory / "panel"
+    for suffix in (".bed", ".fam"):
+        shutil.copy(f"{HM3_CHR22_PLINK}{suffix}", f"{prefix}{suffix}")
+    bim.to_csv(f"{prefix}.bim", sep="\t", header=False, index=False)
+    bim.loc[:, list(regression_columns)].to_csv(directory / "regression_snps.tsv", sep="\t", index=False)
+    return prefix
 
 
 def write_r2_matrix_chromosome(build_dir, panel, pairs=(), *, snp_identifier="chr_pos", genome_build="hg19",

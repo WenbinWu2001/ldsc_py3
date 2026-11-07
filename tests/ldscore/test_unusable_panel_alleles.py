@@ -11,29 +11,23 @@ and relabels two SNPs' ``.bim`` alleles: one indel and one identical pair.
 """
 import gzip
 from pathlib import Path
-import shutil
 
 import pandas as pd
 import pytest
 
 from ldsc.cli import run_cli
+from tests.ref_panel_helpers import copy_panel, HM3_CHR22_PLINK, read_bim
 
-FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
+FIXTURE = HM3_CHR22_PLINK
 UNUSABLE = {10: ("AT", "G"), 12: ("G", "G")}
 
 
 def write_panel(directory: Path) -> Path:
     """Copy the fixture with two unusable allele pairs; return the PLINK prefix."""
-    directory.mkdir(parents=True, exist_ok=True)
-    prefix = directory / "panel"
-    for suffix in (".bed", ".fam"):
-        shutil.copy(str(FIXTURE) + suffix, str(prefix) + suffix)
-    bim = pd.read_csv(str(FIXTURE) + ".bim", sep=r"\s+", header=None, names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+    bim = read_bim(FIXTURE)
     for row, alleles in UNUSABLE.items():
         bim.loc[row, ["A1", "A2"]] = alleles
-    bim.to_csv(str(prefix) + ".bim", sep="\t", header=False, index=False)
-    bim.loc[:, ["SNP", "CHR", "POS"]].to_csv(directory / "regression_snps.tsv", sep="\t", index=False)
-    return prefix
+    return copy_panel(directory, bim)
 
 
 def read_drops(path: Path) -> pd.DataFrame:

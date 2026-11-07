@@ -2,7 +2,6 @@
 
 import json
 import math
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -14,18 +13,18 @@ from ldsc._ldscore.workflow import build_parser, run_ldscore_from_args
 from ldsc._runtime.workflow_kwargs import parse_command_line
 from ldsc.errors import LDSCInputError
 from tests.gene_index_helpers import narrow_index_chromosomes
+from tests.ref_panel_helpers import read_bim, TOY_PLINK
 
 
 @pytest.fixture
 def inputs(tmp_path, monkeypatch):
     """Write a chromosome 1 panel and narrow the index chromosome set to it."""
     narrow_index_chromosomes(monkeypatch, ("1",))
-    fixture = Path(__file__).parents[1] / "fixtures/plink/plink"
+    fixture = TOY_PLINK
     prefix = tmp_path / "panel"
     for suffix in (".bed", ".fam"):
         prefix.with_suffix(suffix).write_bytes(fixture.with_suffix(suffix).read_bytes())
-    bim = pd.read_csv(fixture.with_suffix(".bim"), sep=r"\s+", header=None,
-                      names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+    bim = read_bim(fixture)
     bim["CM"] = np.arange(len(bim)) * 0.2
     bim["A1"], bim["A2"] = "A", "C"
     bim.to_csv(prefix.with_suffix(".bim"), sep="\t", header=False, index=False)

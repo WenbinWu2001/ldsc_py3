@@ -133,79 +133,44 @@ A panel reads `--ref-panel-snps-file` and `--keep-indivs-file` once, on first us
 `_ldscore.compute` picks its kernel from the prepared reader: a `SortedR2BlockReader` streams R² pairs, and a PLINK genotype reader is rewound before its block sums.
 `build-r2-matrix` (`_refpanel.builder`) and `query-r2-matrix` (`_refpanel.query`) write and read R² matrices only through `_refpanel.r2_format`; their contracts are in [R² matrices](../reference/formats/r2-matrices.md) and [`query-r2-matrix`](../reference/query-r2-matrix.md).
 
-### `ldsc._ldscore.workflow`
+### LD-score calculation
 
-This module owns the `ldscore` command and the keyword-argument Python workflow `run_ldscore()`: the parser, `main()`, `run_ldscore_from_args()`, and the direct and indexed run bodies.
-It resolves annotation and reference-panel inputs, selects the gene-coordinate-catalog projection build, synthesizes the all-ones `base` annotation when an unpartitioned run omits baseline/query inputs, measures gene-list support, and hands the calculation to `LDScoreCalculator`.
-`run_ldscore_from_args()` is a thin adapter: `_configs_from_args()` checks the input-mode rules and builds the run's configuration before the output preflight (with `--overwrite`, an error there still leaves `RUN_FAILED.txt`), for the command line and `run_ldscore()` alike, and a typed body runs it.
-A direct run's `_DirectConfigs` holds the `GlobalConfig` with the requested genome build, `RefPanelConfig`, `LDScoreConfig`, `AnnotationBuildConfig` and `LDScoreOutputConfig`; an indexed run's `_IndexedConfigs` holds its gene lists and execution settings.
-An option counts as supplied when the record of explicitly supplied options (`_explicit_cli_options`) names it, never by comparison with a parser default, so the registered `GlobalConfig` that a keyword call carries is not a live override in indexed mode.
-The configurations' own range checks run once; `_OPTION_RANGE_ERRORS` words an error that a configuration raises by field name with the command-line option instead.
-`_run_direct_ldscore()` preflights the outputs, runs the input gates, resolves the genome build once against every coordinate input (`_resolve_build()`), and passes typed configurations to `_ldscore.preflight` and `_ldscore.direct_annotation`; `_run_explicit_indexed_ldscore()` runs an indexed request.
-A direct gene-list run measures each gene's support on the prepared reference SNPs before any LD score is computed (Gate B, `_apply_direct_gene_gate_b()`): it prepares the chromosomes one at a time in the parent and counts with `ChromosomeProjector.counts()`, the padding rule of annotation projection.
-The direct run then hands the calculation a private `_RunContext`: the resolved `GlobalConfig`, the reference panel built with it, and which steps have run (output preflight and workflow log, build resolution, R² matrix checks), so `LDScoreCalculator._run_prepared()` repeats none of them.
-`LDScoreCalculator.run()` passes a context that has settled nothing; the calculation then resolves the build against its prepared inputs, checks every R² matrix chromosome, and preflights and opens `diagnostics/ldscore.log` itself.
-The parent builds the reference-panel adapter with `_refpanel.adapters.resolved_ref_panel(config, spec, chromosome_prefixes=...)` and the resolved configuration, and the direct LD-score producer sends every task one adapter built the same way with the run's configuration and the resolved PLINK chromosome prefixes, so a run resolves its build once; `resolved_ref_panel()` checks no build declaration again, and opening an R² matrix chromosome still compares its declared build with the run's.
-`RefPanelLoader.load(spec)`, for direct Python callers, checks the panel and `ref_panel_snps_file` declarations in a coordinate-family mode (resolving an `auto` build) and then builds the adapter through `resolved_ref_panel()`.
-PLINK gene LD-score index construction builds its panel through the same `resolved_ref_panel()`.
-An indexed run's `run_indexed_ldscore()` relies on the `ldscore` workflow, its only caller, for the output preflight and the open log, and calls `_ldscore.diagnostics.ldscore_logs()` with `main_log_open=True`, so `ldscore_logs()` never has to recognize a caller's log handler.
+`ldsc._ldscore.workflow` resolves the inputs of the `ldscore` command and `run_ldscore()` and hands the calculation to `LDScoreCalculator` (`_ldscore.calculator`) with a private `_RunContext`: the resolved `GlobalConfig`, the reference panel built with it, and which steps have already run (output preflight and workflow log, build resolution, R² matrix checks), so `LDScoreCalculator._run_prepared()` repeats none of them.
+A direct Python call of `LDScoreCalculator.run()` passes a context that has settled nothing; the calculation then resolves the build against its prepared inputs, checks every R² matrix chromosome, and preflights and opens `diagnostics/ldscore.log` itself.
+The parent and every chromosome task build their reference-panel adapter with `_refpanel.adapters.resolved_ref_panel()` from the run's resolved configuration and PLINK chromosome prefixes, so a run resolves its build once; `resolved_ref_panel()` checks no build declaration again, and opening an R² matrix chromosome still compares its declared build with the run's.
+`RefPanelLoader.load()`, for direct Python callers, checks the build declarations first and then builds the adapter the same way, as PLINK gene LD-score index construction does.
+An option counts as supplied only when `_explicit_cli_options` names it, never by comparison with a parser default, so the registered `GlobalConfig` that a keyword call carries is not a live override in indexed mode.
+An indexed run's `run_indexed_ldscore()` relies on the `ldscore` workflow for the output preflight and the open log and says so to `_ldscore.diagnostics.ldscore_logs()` with `main_log_open=True`.
 
-### `ldsc._ldscore.calculator`
+### LD-score producers and query batches
 
-This module holds the public calculation service `LDScoreCalculator` and the `_RunContext` it receives; it orchestrates chromosome-wise LD-score computation over prepared inputs.
-`LDScoreCalculator._run_prepared()` resolves the build of prepared inputs (`_resolve_calculator_build()`), checks the reference files (`RefPanel.check_reference()`) and opens the workflow log only where the context says the caller has not.
-It then opens the chromosome logs and the chromosome pool, logs the reference-panel CM and MAF sources that `RefPanel.reference_metadata_sources()` reports, and runs the direct LD-score producer.
-The direct LD-score producer, `_DirectProducer` in `_ldscore/direct_batches.py`, mirrors `_IndexedProducer` in `_ldscore/gene_index/batches.py`: each task computes one chromosome from the reference panel.
-For BED and gene-list queries, `prepare_direct_annotations()` returns the bundle with the query columns and statuses declared but not projected, plus a `DeferredQueries` record (`_annotation/interval_queries.py`) that `LDScoreCalculator._run()` hands to the producer; each batch projects its own columns through `execution_query_bundle()`.
+Both LD-score modes run their query batches through `_ldscore.batch_execution.run_query_batches()`, one batch in flight: the direct LD-score producer (`_DirectProducer` in `_ldscore/direct_batches.py`) computes one chromosome from the reference panel per task, and the indexed producer (`_IndexedProducer` in `_ldscore/gene_index/batches.py`) reloads one stored chromosome operator per task.
+For direct BED and gene-list queries, `_ldscore.direct_annotation.prepare_direct_annotations()` returns the bundle with the query columns and statuses declared but not projected, plus a `DeferredQueries` record that the calculator hands to the producer; each batch projects its own columns through `_annotation.interval_queries.execution_query_bundle()`.
 The producer passes each chromosome's annotation identity-cleanup drops to its first-batch task explicitly, so the bundle carries no LD-score execution state.
-Every task, in the first and in later query batches, runs `compute_direct_chromosome()`, which prepares the chromosome, projects the batch's annotations with the kernel once, and builds one record from the kernel's `ChromComputationResult`.
-The no-output path receives a `ChromLDScoreResult`; a writing run's task stages its post-kernel float32 query scores in a private Parquet fragment and returns a `DirectChromosomeFragment` with baseline data (first batch only), scientific statistics, diagnostic descriptors, and exact variation summaries.
-A chromosome whose reference preparation leaves no SNP returns a `_SkippedChromosome` instead.
-`_ldscore.batch_execution` runs the query batches; the parent combines statistics and filters queries after every chromosome succeeds, then yields `StagedLDScoreBatch` to the shared writer without constructing a genome-wide query matrix.
-Prepared no-output calculations run their one batch through the same LD-score producer tasks and retain the materialized `LDScoreResult` path.
-Writing workflows retain `diagnostics/ldscore.log` and per-chromosome logs.
-Query-local BED/gene failures are status records; a run continues when at least one query is usable.
-Chromosome workers return only the typed `EmptyReferenceSNPs` outcome as a skip, carrying the error's reference-SNP funnel; other failures propagate independently of diagnostic wording.
-The parent fails the run, naming every such chromosome, when the `annotation_snp_grid` step emptied a chromosome (`annotation_snp_grid_emptied()` in `_refpanel/funnel.py`), and otherwise logs the skip as a WARNING; the batch-1 funnels become `diagnostics/reference_snp_funnel.tsv`.
-Runs without annotation files skip such a chromosome earlier: `_ldscore.direct_annotation.prepare_synthetic_base()` builds the synthetic `base` from `RefPanel.load_metadata()`, which raises `EmptyReferenceSNPs` with the funnel when the panel's filters leave no SNP; the chromosome gets no task, its skip is logged as a WARNING, and `_DirectProducer` adds its funnel to the batch-1 funnels.
-Architecture invariant: computation stays chromosome-wise, global filtering uses the complete chromosome summaries, and final publication follows complete success.
+A chromosome whose reference preparation leaves no SNP comes back as a skip that carries its reference-SNP funnel (`EmptyReferenceSNPs`); the parent fails the run when the `annotation_snp_grid` step emptied a chromosome (`_refpanel.funnel.annotation_snp_grid_emptied()`) and otherwise logs a WARNING ([empty chromosomes](../reference/ldscore-snp-universes.md#empty-chromosomes)).
+A run without annotation files meets such a chromosome earlier, when `prepare_synthetic_base()` reads the panel metadata; the chromosome gets no task, and `_DirectProducer` adds its funnel to the first batch's funnels.
 
-### `ldsc._ldscore.legacy_converter`
+Direct and indexed scoring share every gene-query decision: the coverage check (`with_coverage()` in `_annotation/gene_query_storage.py`), the final query statuses (`_annotation.query_outcomes.finalize_query_measurements()`), the pruning of skipped queries (`select_queries()` in `_ldscore/results.py`), and the stop sequences in `_ldscore/diagnostics.py` (`fail_gene_list_resolution()`, `fail_unusable_queries()`); see [the coverage contract](../reference/results/gene-list-diagnostics.md#chromosome-scope-and-pathway-coverage).
+A run that stops before publication describes its diagnostics with `_ldscore.outputs.QueryDiagnostics`, the only input of the writer's diagnostics methods; a gene coordinate catalog that `GeneCatalog.load()` rejects reaches `diagnostics/gene_catalog_issues.tsv` through `QueryDiagnostics.catalog_issues`, and `annotate` and `quantile-h2` write the same table through `AnnotationDirectoryWriter` and `QuantileH2DirectoryWriter`.
 
-This workflow module is the sole public reader of selected legacy LD-score fragments.
-It discovers one coherent autosomal reference family and one weight family, joins them by rsID, accepts either an unpartitioned single-score suite or a complete full baseline suite, validates the fixed legacy common-SNP-count semantics, and writes an ordinary LDSC3 LD-score directory through `LDScoreDirectoryWriter.write_batches()` as a one-item batch, so its files are staged and the published directory is reloaded as in an `ldscore` run.
-The two profiles share one per-chromosome reference/weight reader (`_read_reference_weight()`: required columns, scientific columns, finite unique rows, rsIDs not repeated across shards) and one publish tail (`_publish_conversion()`: concatenation, genome-wide identity and coordinate resolution, sorting, provenance and the write); each profile keeps its own count handling and the point where it joins reference and weight, which fixes the order of `diagnostics/conversion_issues.tsv.gz` rows.
-Baseline conversion reconstructs and validates marginal counts plus the full overlap matrix; it never accepts query or thin annotations.
-Inputs remain read-only and provenance includes selected prefixes/files, intersections, coordinate evidence, and count origins.
-Routine source hashes are not computed.
-Architecture invariant: regression and the computation modules never parse legacy LD-score fragments.
+### LD-score directory publication
 
-### `ldsc._ldscore.gene_index.build`, `ldsc._ldscore.gene_index.atoms`
+`LDScoreDirectoryWriter.write_batches()` is the only publication path for LD-score directories: direct `ldscore`, indexed scoring and `convert-legacy-ldscores` (as a one-item batch) all publish through it.
+It consumes materialized `LDScoreResult` values or private `StagedLDScoreBatch` descriptors behind one interface, and its publication record (`_LDScorePublication.from_first_batch`) keeps the baseline, counts, overlap, provenance and diagnostics but no query values.
+The writer performs no cross-batch scientific step: `LDScoreOverlap.concat_query_batches()` in `_ldscore/overlap_table.py` joins the batches' overlap blocks, and `run_query_batches()` applies the gene-list viability gate before the writer publishes, while the writer still writes the query diagnostics of a run the gate stops.
+The producer owns its fragments until the writer has consumed them or the workers have shut down; the writer closes the producer before it removes publication staging after a handled failure.
+The writer reuses the table and identity validation of `_ldscore.source` and requires each staged fragment's identity columns to equal the shared first-batch baseline rows (`_write_query_fragments()`).
+`load_ldscore_from_dir()` reopens the published directory as an `LDScoreSource` for regression, and `quantile-h2` reads only its manifest (`read_ldscore_manifest()`); model-specific validation stays in `_regression.alignment`.
+The directory layout is in [artifact metadata](../reference/formats/artifact-metadata.md#ldscore), and the memory design of fragments and batches in [memory and CPU](design/memory-and-cpu.md#direct-ld-score-computation).
 
-The workflow module owns the `build-gene-ldscore-index` command, explicit hg19/hg38 plus any SNP identifier mode, an explicitly selected cM/kb/SNP window, the baseline/PLINK consistency gate, canonical `index_id`, logging, locking and staging in the index's hidden `.build/` directory, incremental chromosome persistence in the staged index, publication with root `metadata.json` written last, and reload validation of the staged and published index.
-`run_build_gene_ldscore_index_from_args()` turns the parsed arguments into a `GeneLDScoreIndexBuildConfig`, and `build_gene_ldscore_index()` takes one; both call the private typed body `_build(config, genetic_map_sources=..., overwrite=..., log_level=...)`, because the genetic-map sources, `overwrite` and the log level are not config fields.
-`gene_index.artifact` owns the index format, writing and reading: strict mode/build/digest validation of a saved index is its `load_gene_ldscore_index()`, which the build also uses to reload-validate the staged and published index; explicit indexed `ldscore` assembly is `run_indexed_ldscore()` in `gene_index.scoring` with the chromosome workers in `gene_index.batches`.
-Each worker atomically installs its payload in a distinct staged chromosome directory and returns compact evidence; the coordinator writes all shared and identity metadata, validates the complete stage, and moves its components into the index directory, root `metadata.json` last.
-The open log stays under `<index-dir>/.build/`; after its handler closes, a successful log moves into the published `diagnostics/` and `.build/` is removed.
-Workers record their work in `.build/chromosome-logs/chrN.log` through `_ldscore.diagnostics.chromosome_log()`, the per-chromosome log of `ldscore` workers, and take their identity settings from `artifact.index_global_config()`; the coordinator logs each chromosome's completion and evidence-based warnings in the main log, and a successful build moves the chromosome logs to `diagnostics/chromosome-logs/`.
-A failure before publication keeps an earlier index loadable, and build-directory or log-placement cleanup after publication is warning-only.
-Shared allele-aware cleanup and duplicate-group removal retain audit diagnostics.
-Before chromosome workers start, `_validate_baseline_plink_inputs()` compares each chromosome's baseline rows with the PLINK rows `_refpanel.plink_source.select_plink_chromosome()` keeps: contradictory coordinates or usable alleles and empty matches fail with a repair table, cross-chromosome rsID checks use a temporary SQLite join, and the gate counts `chr_pos` label disagreements.
-Each worker passes its baseline shard, in canonical (`POS`, `SNP`) order, to `PlinkRefPanel.prepare_chromosome()` as the annotation SNP grid, as direct `ldscore` does, so the panel's selection, identity cleanup and grid match are the only ones; the chromosome's `baseline_plink_intersection` counts come from the reference-SNP funnel and the identity drops (`_baseline_plink_evidence()`), PLINK `CHR/POS/SNP/A1/A2` metadata is authoritative, and physical BIM/BED rows are preserved.
-The coordinator builds one `PlinkRefPanel` per run, reading the keep list once, and sends it to the workers.
-The private kernel owns disjoint half-open atoms, Boolean gene-to-atom CSR membership, bounded SNP-by-atom blocks, sufficient statistics, and float64 `Y @ z` assembly.
-Each index directory is one immutable artifact of the current index format (`format_version` 1) with no restart, resume, incremental update, component reuse, or legacy-index loader.
-The builder computes each chromosome's baseline LD scores, regression weights, counts, overlaps and `annotation_types` with direct `ldscore`'s `_ldscore.compute.compute_chromosome()`, then traverses the genotypes again for each atom batch of the operator; it builds its root `annotation_types` and `snp_universe_policy` with the helpers direct `ldscore` uses (`_annotation.semantics.combine_annotation_types()`, `_ldscore.outputs.snp_universe_policy_record()`), so indexed metadata matches a direct run.
-An index of another format version requires a complete rebuild.
-Indexed output is still a self-contained LD-score directory written by `LDScoreDirectoryWriter`; it inherits identity/build and rejects live overrides.
-Architecture invariant: online assembly uses only the explicitly named complete index and never discovers an index or falls back to live computation.
+### Gene LD-score indexes
 
-Gene-query eligibility and finalization are shared by direct and indexed computation: the staged gene-list batch's `with_coverage()` in `_annotation/gene_query_storage.py` checks coverage after explicit exclusions, and `_annotation/query_outcomes.py` owns resolution/support reason precedence, required-control/all-skipped viability, and the final query statuses from counts and score variation (`finalize_query_measurements()`); the LD-score result records' `select_queries()` in `_ldscore/results.py` then prune the skipped queries' columns and metadata. `_ldscore/preflight.py` validates direct input chromosome contents, exact baseline/reference set agreement, complete `@` declarations, and authoritative glob matches. Neither helper is a general workflow framework; reference preparation and indexed atom support remain backend-specific. See [the detailed coverage contract](../reference/results/gene-list-diagnostics.md#chromosome-scope-and-pathway-coverage).
-Both modes stop through the same sequences in `_ldscore/diagnostics.py`: `fail_gene_list_resolution()` for rejected gene-list identifiers or names, and `fail_unusable_queries()` for unusable queries or controls, which writes the query diagnostics, logs the written paths, gene-list rejections, SNP support and query statuses, and raises; `log_query_outcomes()` logs the same summaries after a successful run.
-Runs that stop before publication describe their diagnostics with `_ldscore.outputs.QueryDiagnostics`, the only input of the writer's diagnostics methods; the direct workflow converts its annotation bundle to one before `fail_unusable_queries()`, and `LDScoreDirectoryWriter.artifact_family()` selects outputs by type: `QueryDiagnostics` for diagnostics alone, the private publication record for a complete directory.
-After a failed input preflight, `LDScoreDirectoryWriter.write_input_preflight_diagnostics()` writes `input_issues.tsv` and `chromosome_scope.json` and leaves an earlier run's outputs in place, as for every input gate; the other diagnostics writers reconcile stale owned outputs.
-A gene coordinate catalog that `_annotation.gene_lists.GeneCatalog.load()` rejects with `GeneCatalogValidationError` is such an input failure: the direct workflow passes the rejected rows as `QueryDiagnostics.catalog_issues`, and the same method writes them to `diagnostics/gene_catalog_issues.tsv`; a run that goes on to resolve gene lists writes latent catalog defects to that table with its other gene-list diagnostics.
-`annotate` and `quantile-h2` write the same table through `AnnotationDirectoryWriter` and `QuantileH2DirectoryWriter`, while `build-gene-ldscore-index` writes `gene_coordinate_catalog_issues.tsv.gz` in the index's hidden `.build/` directory.
+`build-gene-ldscore-index` (`_ldscore.gene_index.build`) reuses the direct LD-score path wherever an index must agree with a direct run.
+It builds one `PlinkRefPanel` per run, reading the keep list once, and each chromosome worker passes its baseline shard, in canonical (`POS`, `SNP`) order, to `PlinkRefPanel.prepare_chromosome()` as the annotation SNP grid, so the panel's selection, identity cleanup and grid match are those of direct `ldscore`.
+Before the workers start, `_validate_baseline_plink_inputs()` compares each chromosome's baseline rows with the rows `select_plink_chromosome()` keeps.
+Workers compute baseline LD scores, regression weights, counts, overlaps and annotation types with `_ldscore.compute.compute_chromosome()` before the atom batches, write their chromosome logs through `_ldscore.diagnostics.chromosome_log()`, and take their identity settings from `gene_index.artifact.index_global_config()`.
+The coordinator builds root `annotation_types` and `snp_universe_policy` with the helpers direct `ldscore` uses (`_annotation.semantics.combine_annotation_types()`, `_ldscore.outputs.snp_universe_policy_record()`), so indexed metadata matches a direct run.
+The build reload-validates its staged and published index with `load_gene_ldscore_index()` (`gene_index.artifact`), the loader indexed scoring uses; `run_indexed_ldscore()` (`gene_index.scoring`) then writes an ordinary LD-score directory through `LDScoreDirectoryWriter` ([gene LD-score index](../reference/gene-ldscore-index.md)).
 
 ### `ldsc._sumstats.munger`
 
@@ -238,18 +203,6 @@ The run's input preflight (`_runtime.preflight.inspect_declared_inputs()`) check
 When that request selects HM3 quick liftover, it loads the packaged HM3 map once (`_genome.hm3._load_hm3_curated_map_from_path()`), derives the keep-list keys from it, and passes the same frame to `_sumstats.liftover.apply_sumstats_liftover()` through `ResolvedMungeInput.hm3_map`.
 `_sumstats.liftover.apply_sumstats_liftover()` executes the liftover request of the munging plan and makes no option checks of its own: a request without a method is a no-op, and a request whose shape the munging plan never builds is an internal error.
 It supplies `ResolvedMungeInput` to `_sumstats.munge_kernel.munge_sumstats()`, which returns `MungeResult` with data, exclusive stage counts, coordinate provenance and separate drop tables. The sole CLI parser is `_sumstats.munger.build_parser()`. Production and tests use the same preparation path; results never travel through added namespace attributes. `tests/sumstats/test_munge_results.py` covers count conservation, chunk independence, bounded build inference before QC, request reuse, and liftover/identity accounting; `tests/sumstats/test_munge_infer_diagnostics.py` and `tests/sumstats/test_munge_allele_policy.py` cover the shared header problems and the allele policy.
-
-### `ldsc._ldscore.source`
-
-`read_ldscore_manifest()` reads and checks `metadata.json` without LD-score values and returns an `LDScoreManifest`: identity, declared files named inside the directory (symbolic links allowed; `_runtime.artifacts.declared_member()`), baseline and query row groups and schemas from Parquet footers, counts, `count_config` and its agreement with `overlap_config`, the overlap totals in `overlap_config` when an overlap file is declared, complete index provenance, and a lazy `load_overlap()`; read and decoding failures, including those of the overlap read, become `LDSCInputError`.
-`load_ldscore_from_dir()` calls it and opens an `LDScoreSource`, retaining baseline values, identities, counts, and overlap while leaving query LD-score values on disk.
-This module owns manifest/schema checks, count/overlap consistency, and table/identity validation shared by materialized and staged output.
-It also declares the schema facts that the direct and indexed LD-score producers, the legacy converter and the readers share: the weight column `REGRESSION_LD_SCORE_COLUMN`, the count-record fields `ALL_COUNT_FIELD` and `COMMON_COUNT_FIELD` with the one record constructor `count_record()` (an unavailable all-SNP count is recorded as `null`, an unavailable common-SNP count is left out), the `count_config` fields `COMMON_MAF_MIN_FIELD` and `COMMON_MAF_OPERATOR_FIELD`, and the index provenance fields `INDEX_PROVENANCE_FIELDS`.
-The diagnostic paths that producers build outside the writer (`INPUT_ISSUES_FILE`, `LD_WINDOW_SNP_COUNTS_FILE`, `REFERENCE_SNP_FUNNEL_FILE`, `chromosome_log_file()`) are declared next to the other file names in `_ldscore/outputs.py`, and the writer takes the `query_diagnostics` paths of `metadata.json` from its own `artifact_family()`.
-`validate_ldscore_baseline_table()` validates the complete shared baseline; `validate_ldscore_query_table()` checks a materialized query table against its already-validated baseline rows, and `_ldscore.outputs._write_query_fragments()` requires each staged fragment's identity columns to equal the shared first-batch baseline rows exactly.
-`LDScoreSource.read_queries()` returns explicit, uncached selections in requested column order; callers own their memory and must keep the source directory available and unchanged.
-The batch output writer and regression workflows both call this loader, and `quantile-h2` reads only the manifest; `_ldscore/source.py` has no dependency on output writers or regression orchestration.
-Selected-value validation and alignment to a regression model remain in `ldsc._regression.alignment`.
 
 ### `ldsc._regression.runner`, `ldsc._regression.alignment`, `ldsc._regression.fitting`, `ldsc._regression.partitioned`, `ldsc._regression.rg`, `ldsc._regression.commands`
 
@@ -316,91 +269,11 @@ The parent assembles outcomes in query order before stable summary sorting.
 Tests in `test_regression_streaming.py`, `test_partitioned_query_failures.py`, `test_partitioned_query_workers.py`, and `test_worker_policy.py` cover numerical/artifact parity, CPU and memory ownership, strict/continue policies, and real process failures.
 See [query workers](../reference/regression-options.md#43-query-workers-and-memory).
 
-### Managed numerical execution
+### Workers
 
-Regression model preparation borrows aligned read-only columns through `_dataset_from_query_values()` in `_regression/alignment.py`.
-`_fit_h2_dataset()` applies the model's SNP filter before materializing its design, and the kernel reuses owned work buffers when dtype promotion permits.
-`tests/regression/test_regression_memory.py` covers shared-input immutability, repeated fits, and independent weighted least-squares agreement.
-
-`_runtime.parallelism` validates `workers` against the detected available CPU count from `joblib.cpu_count()`, then caps concurrency by chromosomes or complete query-plus-baseline models.
-Its `chromosome_pool()` creates the spawn pool for direct scoring, indexed scoring and index construction, and turns a crashed worker into `LDSCInternalError` in all three.
-There is no custom CPU detector, Slurm parsing, CPU binding, or automatic memory budget.
-The default of one still uses one worker; direct and indexed LD reuse their pools across query batches, and regression reuses mapped-input workers across model batches.
-Gene LD-score index construction now passes staged chromosome descriptors to spawned processes and collects compact persisted-component metadata.
-The [focused local transport probe](validation/performance.md#gene-ld-score-index-transport-probe) records the migration evidence and additional RSS cost.
-
-`_runtime.worker_runtime` configures and verifies 1 BLAS thread per worker for serial and parallel calculations, plus separate OpenMP and Arrow CPU/I/O limits of one.
-Unsupported numerical controls produce a clear unverified/unmet record and allow computation to continue.
-`_runtime.serial_calculation` puts standalone numerical entry points into a worker and reuses the executing worker for nested numerical calls, without creating nested task pools or changing the caller's global settings.
-`_ldscore.diagnostics` owns worker-local chromosome file handlers; regression retains its existing pipe-based record forwarding.
-All required chromosome work must succeed before aggregation and publication; logs survive failure while temporary scientific results are removed after executor shutdown.
-See [parallel execution](../reference/parallel-execution.md) for the complete contract.
-
-### Result writers
-
-Each domain writes its own result directories on the shared `ldsc._runtime.artifacts` base: `ldsc._annotation.outputs` for `annotate`, `ldsc._refpanel.outputs` for `build-r2-matrix` (metadata, dropped-SNP tables and the owned-file declaration; `r2_format` writes the R² Parquet files and sidecars) and `query-r2-matrix`, `ldsc._sumstats.outputs` for `munge-sumstats`, `ldsc._ldscore.outputs` for LD scores and `ldsc._regression.outputs` for regression results.
-`ldsc._ldscore.outputs` owns fixed files inside `output_dir`: `metadata.json`, `ldscore.baseline.parquet`, optional single or numbered query batch files, and an optional `ldscore.overlap.parquet` (the long-form annotation overlap matrix, written only
-for runs with two or more annotation columns). Each LD-score file spans the calculated chromosomes with one row group per chromosome; root `metadata.json.query_batches` records the ordered query files, query columns, and row groups. Direct/indexed writing workflows return `LDScoreSource` without retained query tables. Older LD-score directories without the current manifest require regeneration.
-`ldsc._regression.outputs` owns the regression results: for `h2`, root `h2.tsv` plus diagnostic metadata.
-For `partitioned-h2`, it owns root `partitioned_h2.tsv` plus diagnostic metadata; a query run adds the `diagnostics/query_annotations/` tree containing `manifest.tsv` and, per query, `partitioned_h2.tsv`, `partitioned_h2_full.tsv`, `coefficient_delete_values.parquet` and `metadata.json`, plus `diagnostics/query_status.tsv` with every attempted query, and a baseline-only run adds `diagnostics/coefficient_delete_values.parquet`.
-For `rg`, it owns `rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`, and the optional diagnostic `diagnostics/pairs/` detail tree; `rg` tables report nominal p-values only.
-For a legacy summary-statistics input, each of the three writers also writes `diagnostics/dropped_snps/legacy_sumstats.tsv.gz` before `metadata.json` and lists it in `files`.
-It
-reuses existing directories but refuses existing canonical files unless
-overwrite is supplied. Architecture invariant: public output customization
-chooses the directory name and explicit overwrite policy, not per-run filename
-prefixes.
-
-Each directory writer exposes `artifact_family()` as the single declaration of its named outputs, conditional siblings, and derived roots. Workflows use it for early collision checks; writers use the final declaration for writing, metadata `files`, and stale cleanup. `ArtifactFamily` (in `_runtime.artifacts`) describes paths and delegates collision checks to `_runtime.paths`; it does not introduce a publication transaction. LD-score preparation no longer predicts a cleanup list that survives computation. See [logs and outputs, Output-Family Preflight](../reference/logs-and-outputs.md#output-family-preflight) and `tests/runtime/test_artifact_declarations.py` for the lifecycle contract and overwrite/reload checks.
-
-### Query execution and result ownership
-
-`stage_partitioned_h2_fit()` marks private regression files as owned so `PartitionedH2DirectoryWriter` can move them into its sorted publication tree.
-Persistent `PartitionedH2FitArtifacts` default to copying.
-The writer stores run metadata once, and `_regression.quantile_h2.load_fitted_partitioned_model()` resolves the query's relative `global_metadata` reference before applying model-specific fields.
-`_regression/outputs.py` spells the fitted-model file names and the `global_metadata` reference once: `fitted_model_files()` locates one fitted model, its expected `artifact_type` and its manifest root for `quantile-h2` (the aggregate root only for a folder under `diagnostics/query_annotations`, so the root never leaves the directory given), and `published_query_artifacts()` names the published per-query files for `PartitionedH2BatchResult`.
-The `partitioned-h2` per-query tree and the `rg` pair tree are published by one helper, `_publish_staged_tree()`: the writer fills a hidden staging sibling of `diagnostics/query_annotations` or `diagnostics/pairs` and writes its root files, then swaps the staging directory into place; an overwrite moves the previous tree to a backup that is restored only when a failure leaves no final tree.
-Both writers also share the zero-padded ordinal folder names and the name slugs of their detail folders.
-`tests/regression/test_partitioned_publication.py` and `tests/regression/test_quantile_streaming.py` cover this writer-to-reader contract, relocation, and publication failure cleanup; `tests/runtime/test_output.py` covers the swap rollback of both trees.
-
-| Module and symbol | Responsibility |
-| --- | --- |
-| `_annotation.in_memory.bundle_from_frames` | Small prepared annotations and complete diagnostics in RAM, without filesystem staging |
-| `_annotation.interval_queries.execution_query_bundle`, `DeferredQueries` | Project and release the active direct BED/gene batch from the producer's `DeferredQueries` record while sharing baseline/control and global preflight state |
-| `_ldscore.batch_execution.run_query_batches`, `run_chromosome_batch`, `finalize_batch` | One active query batch at a time for either LD-score producer through the caller's persistent pool: per-batch statuses and scratch, bounded chromosome tasks, failure reporting, pool shutdown before scratch removal, query-status finalization, and, after the last batch, the gene-list viability gate on the final statuses and the computed baseline (unusable gene control, every query skipped) |
-| `LDScoreCalculator.run` | Own the direct run's persistent worker pool and logs; the writing path runs `_DirectProducer` batches through `run_query_batches`, and owned fragment workspace remains live through consumption or worker shutdown |
-| `_ldscore.direct_batches.compute_direct_chromosome`, `_DirectProducer` | One chromosome task of any direct query batch: compute once from the reference panel, stage post-kernel float32 query scores, and return baseline plus scientific/diagnostic summaries instead of query matrices; the producer combines them into one batch |
-| `_ldscore.gene_index.batches.indexed_results` | Own the indexed run's persistent pool; `_IndexedProducer` reloads and releases one chromosome operator per task and reduces compact float64 statistics in index order |
-| `_ldscore.query_variation.summarize_variation`, `combine_variation` | Exact global variation from first values and within-chromosome flags, preserving each LD-score producer's precision |
-| `_ldscore.results.StagedLDScoreBatch`, `_ldscore.outputs._write_query_fragments` | Private batch descriptor, and its ordered validation/publication from direct float32 or indexed float64 fragments by the writer; delete each consumed fragment without a genome-wide query array |
-| `_ldscore.outputs._LDScorePublication`, `LDScoreDirectoryWriter.write_batches` | Retain explicit shared publication state while releasing each materialized or staged batch; publish the LD-score directory after success and clean owned scratch on handled failure |
-| `LDScoreSource.read_queries` | Explicit selected-query reads across manifest files in requested order, without caching or a width cap |
-
-`LDScoreDirectoryWriter.write_batches()` consumes materialized `LDScoreResult` values or private `StagedLDScoreBatch` descriptors behind the same publication interface.
-It is the only publication path for LD-score directories: direct `ldscore`, indexed scoring and `convert-legacy-ldscores` all publish through it.
-Its publication record retains the baseline, counts, overlap, provenance, and diagnostics, without retaining the LD-score producer's query values or chromosome results.
-The writer performs no cross-batch scientific step: `LDScoreOverlap.concat_query_batches()` in `_ldscore/overlap_table.py` joins the batches' overlap blocks (baseline columns first, then each batch's queries in order), and `run_query_batches()` applies the gene-list viability gate before the writer publishes, while the writer still writes the query diagnostics of a run the gate stops.
-`_LDScorePublication.from_first_batch` builds that record from the first batch, materialized or staged alike: both batch records carry the same run-level provenance fields, so the writer has no per-type copy.
-The producer owns active fragments through consumption or worker shutdown; the writer closes the producer before removing publication staging on handled failure.
-Fragment validation consumes tables directly and checks row alignment once per fragment, without constructing partial result objects.
-
-`tests/ldscore/test_ldscore_query_batches.py` verifies numerical precision, zero writes for prepared single-batch calculation, batch lifetimes, publication, and overwrite cleanup.
-`tests/ldscore/test_gene_index_streaming.py` covers operator ownership, known union scores, and serial/parallel agreement.
-`tests/ldscore/test_batch_execution.py` covers, for any LD-score producer, the shared persistent pool, one batch in flight, per-batch status filtering and finalization, cancellation of pending tasks, and worker shutdown before scratch removal.
-`tests/ldscore/test_indexed_batch_staging.py` covers operator and parent-frame lifetimes, exact pre-narrowing variation, skipped batches, and cleanup after row-validation failure.
-`tests/ldscore/test_direct_batch_staging.py` covers real-kernel materialized/streamed parity, global filtering, parent-frame release, failure cleanup, and real PLINK gene audits, identity drops, chromosome scope, and reference exports.
-`_annotation.query_outcomes.finalize_query_measurements` shares count/variation decisions across materialized direct results and both LD-score producers.
-`tests/annotation/test_annotation_format.py` and `tests/annotation/test_annotation_storage.py` cover automatic exact binary classification, packed storage, bounded decoding, and logical column order.
-Public annotation reads and final Parquet LD values stay float32; LD accumulation, annotation sums, and overlap products use float64.
-Reference SNPs, regression SNPs, and fit-time validation are unchanged.
-See [annotation format policy](design/memory-and-cpu.md#annotation-format-policy).
-
-### Computation modules
-
-Each domain keeps its numerical methods and low-level readers with the rest of the domain, rather than in one shared kernel layer.
-Annotation table validation is in `_annotation.parsing` and BED parsing in `_core.regions`; PLINK and R²-matrix access in `_refpanel.plink` and `_refpanel.r2_format`; LD-score math in `_ldscore.compute`; legacy-compatible summary-statistics munging in `_sumstats.munge_kernel`; and the regression estimators in `_regression.estimators`.
-Live interval projection resides in `_annotation.interval_projection`, called by `_annotation.interval_queries`.
-Private boundary: these modules are not the supported import surface; numerical computation receives prepared inputs, while the `_refpanel.adapters` adapters resolve panel-specific sources before preparation.
+Direct scoring, indexed scoring and gene LD-score index construction share `_runtime.parallelism.chromosome_pool()`, which turns a crashed worker into `LDSCInternalError`.
+`partitioned-h2` query workers live in `_regression.partitioned_parallel` and share its worker-count validation, and standalone numerical entry points run in one controlled child through `_runtime.serial_calculation`.
+Worker budgets, the one-BLAS-thread policy and failure handling are in [parallel execution](../reference/parallel-execution.md), and the memory and lifetime designs in [memory and CPU](design/memory-and-cpu.md).
 
 ## Cross-Cutting Concerns
 
@@ -465,10 +338,12 @@ Private boundary: these modules are not the supported import surface; numerical 
 - Import from `ldsc`, not from the private `ldsc._*` packages, for supported public use.
 - Numerical projection must consume resolved, prepared inputs; user-token resolution belongs to workflows/shared helpers and the existing runtime adapters in `_refpanel.adapters`.
 - `_core/columns.py` owns alias families and internal artifact header strictness.
-- LD-score computation remains chromosome-wise; regression consumes only the aggregated artifacts.
+- LD-score computation remains chromosome-wise, global query filtering uses the complete chromosome summaries, and publication follows the success of every required chromosome; regression consumes only the aggregated artifacts.
 - Public LD-score output layout is fixed by `LDScoreDirectoryWriter`;
   `partitioned-h2` result tables use fixed compact/full schemas owned by
   `PartitionedH2DirectoryWriter`.
+- Emitted Parquet schemas are part of the public file contract, and public output customization chooses the directory name and an explicit overwrite policy, not per-run filename prefixes.
+- Public annotation reads and final LD-score Parquet values are float32; LD accumulation, annotation sums and overlap products use float64.
 - Package-built R² matrices are the only public R² Parquet format
   for `ldsc ldscore` and `ldsc query-r2-matrix`; external R² Parquet layouts are not
   supported as public inputs.
@@ -491,3 +366,4 @@ Private boundary: these modules are not the supported import surface; numerical 
   paths, including its log path, and call the shared output preflight before
   the first write.
 - Gene LD-score index construction and assembly preserve Boolean interval union, float64 unbiased-R² accumulation (including negative values), one diagonal contribution, and the split between the broad reference SNPs and the filtered regression SNPs.
+- Indexed scoring uses only the explicitly named complete gene LD-score index; it never discovers an index or falls back to live computation.

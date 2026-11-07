@@ -10,12 +10,27 @@ import ldsc
 from ldsc._runtime.workflow_kwargs import GLOBAL_CONFIG_RUNTIME_OPTIONS, namespace_from_kwargs, parse_command_line
 from ldsc.errors import LDSCUsageError
 
-# Plausible inputs; validation fails before any of them is read.
+# Required inputs of each keyword workflow; validation fails before any of them is read.
 _INPUTS = {
     "run_ldscore": {"plink_prefix": "panel", "ld_wind_cm": 1.0},
     "run_build_r2_matrix": {"plink_prefix": "panel.@", "ld_wind_kb": 1.0},
+    "run_h2": {"sumstats_file": "trait.parquet", "ldscore_dir": "ld"},
+    "run_partitioned_h2": {"sumstats_file": "trait.parquet", "ldscore_dir": "ld"},
+    "run_rg": {"sumstats_sources": ["a.parquet", "b.parquet"], "ldscore_dir": "ld"},
+    "run_quantile_h2": {
+        "partitioned_h2_result_dir": "fit", "target_annot_sources": ["target.tsv"], "target_annot_column": "target",
+        "baseline_annot_sources": ["baseline.tsv"], "ref_metadata_sources": ["ref.tsv"],
+    },
+}
+# The regression and post-fit workflows read identity and build from saved inputs.
+_SAVED_INPUT = ("run_h2", "run_partitioned_h2", "run_rg", "run_quantile_h2")
+_MISSING_REQUIRED = {
+    "run_ldscore": ["output_dir"],
+    "run_build_r2_matrix": ["output_dir", "plink_prefix"],
+    **{function: sorted([*_INPUTS[function], "output_dir"]) for function in _SAVED_INPUT},
 }
 _SHARED = "set_global_config(GlobalConfig("
+_REGRESSION_CHOICE = ({"count_kind": "Common"}, "count_kind='Common' is not one of 'common', 'all'")
 # Each case would otherwise run with a default or a truthy string in place of the intended value.
 _INVALID_KEYWORDS = [
     ("run_ldscore", {"ld_wind_cn": 1.0}, "unknown keyword argument(s) ld_wind_cn"),
@@ -35,6 +50,17 @@ _INVALID_KEYWORDS = [
     ("run_build_r2_matrix", {"snp_identifier": "rsid"}, _SHARED + "snp_identifier="),
     ("run_build_r2_matrix", {"log_level": "DEBUG"}, _SHARED + "log_level="),
     ("run_build_r2_matrix", {"genome_build": "hg19"}, "pass source_genome_build"),
+    *[(function, {"ld_score_dir": "ld"}, "unknown keyword argument(s) ld_score_dir") for function in _SAVED_INPUT],
+    *[(function, {name: "x"}, f"{name} is not a keyword argument")
+      for function in _SAVED_INPUT for name in ("log_level", "snp_identifier", "genome_build")],
+    *[(function, {"overwrite": "False"}, "overwrite='False' must be False or True") for function in _SAVED_INPUT],
+    ("run_h2", *_REGRESSION_CHOICE),
+    ("run_partitioned_h2", *_REGRESSION_CHOICE),
+    ("run_rg", *_REGRESSION_CHOICE),
+    ("run_partitioned_h2", {"continue_on_query_error": "no"}, "continue_on_query_error='no' must be False or True"),
+    ("run_quantile_h2", {"gene_exclude_regions": "MHC"}, "gene_exclude_regions='MHC' is not one of 'none', 'mhc'"),
+    ("run_quantile_h2", {"gene_list_resolution_policy": "resolved_only"},
+     "gene_list_resolution_policy='resolved_only' must be 'strict' or 'resolved-only'"),
 ]
 
 
@@ -46,15 +72,18 @@ def test_keyword_workflows_reject_invalid_keywords_before_writing(tmp_path, func
     assert not output_dir.exists()
 
 
-@pytest.mark.parametrize(("function", "required"), [
-    ("run_ldscore", ["output_dir"]),
-    ("run_build_r2_matrix", ["output_dir", "plink_prefix"]),
-])
+@pytest.mark.parametrize(("function", "required"), _MISSING_REQUIRED.items())
 def test_keyword_workflows_list_every_missing_required_keyword(function, required):
     with pytest.raises(LDSCUsageError, match=re.escape("missing required keyword argument(s)")) as raised:
         getattr(ldsc, function)()
     listed = str(raised.value).split("missing required keyword argument(s) ")[1].split(";")[0].rstrip(".").split(", ")
     assert sorted(listed) == required
+
+
+def test_keyword_workflows_are_exported_and_their_namespace_entry_points_are_not():
+    for function in _INPUTS:
+        assert function in ldsc.__all__
+    assert not {f"{function}_from_args" for function in _INPUTS} & set(ldsc.__all__)
 
 
 def _command_parser():

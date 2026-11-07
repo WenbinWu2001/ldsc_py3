@@ -2,7 +2,6 @@
 
 import json
 from pathlib import Path
-import re
 
 import pandas as pd
 import pytest
@@ -28,55 +27,6 @@ def _table(path):
 
 def _metadata(result_dir):
     return json.loads((result_dir / "diagnostics" / "metadata.json").read_text())
-
-
-# Required inputs of each workflow; validation fails before any of them is read.
-_REQUIRED = {
-    "run_h2": {"sumstats_file": "trait.parquet", "ldscore_dir": "ld"},
-    "run_partitioned_h2": {"sumstats_file": "trait.parquet", "ldscore_dir": "ld"},
-    "run_rg": {"sumstats_sources": ["a.parquet", "b.parquet"], "ldscore_dir": "ld"},
-    "run_quantile_h2": {
-        "partitioned_h2_result_dir": "fit", "target_annot_sources": ["target.tsv"], "target_annot_column": "target",
-        "baseline_annot_sources": ["baseline.tsv"], "ref_metadata_sources": ["ref.tsv"],
-    },
-}
-_REGRESSION_CHOICE = ({"count_kind": "Common"}, "count_kind='Common' is not one of 'common', 'all'")
-# Each case would otherwise run with a default or a truthy string in place of the intended value.
-_INVALID_KEYWORDS = [
-    *[(function, {"ld_score_dir": "ld"}, "unknown keyword argument(s) ld_score_dir") for function in _REQUIRED],
-    *[(function, {name: "x"}, f"{name} is not a keyword argument")
-      for function in _REQUIRED for name in ("log_level", "snp_identifier", "genome_build")],
-    *[(function, {"overwrite": "False"}, "overwrite='False' must be False or True") for function in _REQUIRED],
-    ("run_h2", *_REGRESSION_CHOICE),
-    ("run_partitioned_h2", *_REGRESSION_CHOICE),
-    ("run_rg", *_REGRESSION_CHOICE),
-    ("run_partitioned_h2", {"continue_on_query_error": "no"}, "continue_on_query_error='no' must be False or True"),
-    ("run_quantile_h2", {"gene_exclude_regions": "MHC"}, "gene_exclude_regions='MHC' is not one of 'none', 'mhc'"),
-    ("run_quantile_h2", {"gene_list_resolution_policy": "resolved_only"},
-     "gene_list_resolution_policy='resolved_only' must be 'strict' or 'resolved-only'"),
-]
-
-
-@pytest.mark.parametrize(("function", "extra", "message"), _INVALID_KEYWORDS)
-def test_python_workflows_reject_invalid_keywords_before_writing(tmp_path, function, extra, message):
-    output_dir = tmp_path / "out"
-    with pytest.raises(LDSCUsageError, match=re.escape(f"{function}() cannot run: ") + ".*" + re.escape(message)):
-        getattr(ldsc, function)(**_REQUIRED[function], output_dir=str(output_dir), **extra)
-    assert not output_dir.exists()
-
-
-@pytest.mark.parametrize("function", _REQUIRED)
-def test_python_workflows_list_every_missing_required_keyword(function):
-    with pytest.raises(LDSCUsageError, match=re.escape("missing required keyword argument(s)")) as raised:
-        getattr(ldsc, function)()
-    listed = str(raised.value).split("missing required keyword argument(s) ")[1].rstrip(".").split(", ")
-    assert sorted(listed) == sorted([*_REQUIRED[function], "output_dir"])
-
-
-def test_python_workflows_are_exported_and_their_namespace_entry_points_are_not():
-    for function in _REQUIRED:
-        assert function in ldsc.__all__
-    assert not {f"{function}_from_args" for function in _REQUIRED} & set(ldsc.__all__)
 
 
 def test_a_failed_python_overwrite_leaves_a_marker_naming_the_python_function(tmp_path):

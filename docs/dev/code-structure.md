@@ -22,7 +22,7 @@ ldsc_py3_restructured/
 │   ├── _runtime/             tier 2: paths, input preflight, run scratch, logging, progress, workers, keyword checks, result-file writers
 │   ├── _genome/              tier 4: genome-build inference and policy, build inspection, liftover, HM3 map
 │   ├── _annotation/          tier 5: annotation files, gene lists, interval projection, overlap, ldsc annotate
-│   ├── _refpanel/            tier 5: PLINK reader, R² matrix format, LD windows, runtime adapters, build-r2-matrix, query-r2-matrix
+│   ├── _refpanel/            tier 5: PLINK reader, R² matrix format, LD windows, prepared-chromosome contract, reference-SNP funnel, runtime adapters, build-r2-matrix, query-r2-matrix
 │   ├── _sumstats/            tier 5: munge-sumstats and the munged-table loader
 │   ├── _ldscore/             tier 6: LD-score math and workflow, LD-score directories, legacy conversion
 │   │   └── gene_index/       exact gene LD-score indexes
@@ -35,7 +35,7 @@ ldsc_py3_restructured/
 │   ├── core/  runtime/  genome/  annotation/  refpanel/  sumstats/  ldscore/  regression/  plotting/
 │   │                         one folder per domain package, named without the underscore
 │   └── package/              root shell: package layout, import tiers, CLI help, configuration
-└── tools/
+└── tools/                    data-curation and figure scripts outside the package
 ```
 
 Every package whose name starts with an underscore is private; the public Python surface is the `ldsc` namespace (`src/ldsc/__init__.py`), and the `ldsc` command is `src/ldsc/cli.py`.
@@ -277,15 +277,18 @@ Each test folder has an `__init__.py`, which makes those full module paths impor
 | Area | Main tests |
 | --- | --- |
 | output layer | `tests/runtime/test_output.py` |
-| annotation workflow | `tests/annotation/test_annotation.py` |
+| annotation workflow | `tests/annotation/test_annotation.py`, `tests/annotation/test_annotate_grid.py`, `tests/annotation/test_annotate_streaming.py` |
 | reference-panel builder | `tests/refpanel/test_r2_matrix_builder.py` |
+| runtime reference panels | `tests/refpanel/test_ref_panel.py` |
 | R² pair query | `tests/refpanel/test_r2_matrix_query.py` |
 | R² matrix chromosome reads and LD windows | `tests/refpanel/test_r2_format.py`, `tests/refpanel/test_windows.py`; also `tests/refpanel/test_plink_io.py` (row remap, pair iteration, `get_block_lefts`), `tests/refpanel/test_r2_parquet_contract.py` (file contract and the int16 scale) and `tests/refpanel/test_r2_matrix_chromosome.py` (sidecar damage through `ldscore` and `query-r2-matrix`) |
 | LD-score workflow | `tests/ldscore/test_ldscore_workflow.py` |
 | gene coordinate catalog and gene-list resolution | `tests/annotation/test_gene_list_resolver.py` |
 | summary-statistics munging | `tests/sumstats/test_sumstats_munger.py`, `tests/sumstats/test_sumstats_outputs.py`, `tests/sumstats/test_sumstats_liftover.py` |
 | regression workflow | `tests/regression/test_alignment.py`, `tests/regression/test_fitting.py`, `tests/regression/test_partitioned.py`, `tests/regression/test_rg.py`, `tests/regression/test_regression_commands.py` |
-| path and config contracts | `tests/runtime/test_path_resolution.py`, `tests/core/test_config_identifiers.py`, `tests/core/test_column_inference.py`, `tests/genome/test_genome_build_inference.py` |
+| regression estimators | `tests/regression/test_irwls.py`, `tests/regression/test_jackknife.py` |
+| path and config contracts | `tests/runtime/test_path_resolution.py`, `tests/core/test_config_identifiers.py`, `tests/package/test_global_config_registry.py`, `tests/core/test_column_inference.py`, `tests/core/test_chromosome_inference.py`, `tests/genome/test_genome_build_inference.py` |
+| workflow logs | `tests/runtime/test_logging_refactor.py` |
 | package layout and import tiers | `tests/package/test_layering.py`, `tests/package/test_package_layout.py` |
 | region exclusion | `tests/core/test_regions.py` |
 

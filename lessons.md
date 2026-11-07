@@ -426,3 +426,10 @@ Last updated on: 2026-11-06
   A security review of the fix commits found it, and both skeptics reproduced the deletion with synthetic data.
   `6adf7d3e` opens the directory with `O_NOFOLLOW` and removes entries with `dir_fd`, which also defeats a swap during the removal.
   When hand-written removal replaces `shutil.rmtree`, keep its guarantees: never follow a symlink at the top or inside, and remove relative to a descriptor of the directory that was checked.
+
+## Thread-probe tests must wait on the event they assert, not on a side effect
+
+- Summary/root cause/correction: The staged-shard gene-index test polled for the `chr2` stage directory and then asserted the rename observer's event and the coordinator's "Finished chromosome 2" log line.
+  The directory exists as soon as `os.replace` returns, before the observer sets its event and before the coordinator's `collect` callback logs, so under concurrent test runs plus CPU load it failed about 6% of the time (6 of 96); CPU load alone did not trigger it.
+  `5446b20c` (merged as `802193fd`) wraps `run_chromosome_tasks` so the test continues only after `collect("2", ...)` returns, keeps timeouts as hang guards only, and adds a check that nothing of the blocked chromosome is staged; the same reproduction then failed 0 of 160 times.
+  Reproduce a flaky thread probe with several concurrent test loops on top of CPU load, and synchronize on the step being asserted rather than on a file or flag it happens to produce first.

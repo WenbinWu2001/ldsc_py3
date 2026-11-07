@@ -49,36 +49,8 @@ Conflicting labels are never overwritten, and coordinates are never converted.
 The default regression SNPs, which are also the persisted output rows, are the bundled HapMap3 SNPs with MHC and centromere regions removed.
 Supply `--regr-snps-file custom.snplist` to replace the HapMap3 candidate set; `--regr-snps-exclude-regions` is still applied afterward.
 Its choices are `none`, `mhc`, `centromeres`, and `mhc-and-centromeres`.
-The former `--exclude-regions` alias is removed; use `--regr-snps-exclude-regions`.
 
-The custom regression SNP file must be a **headered text table containing SNP
-identities**. Its required columns depend on the builder's explicit
-`--snp-identifier`:
-
-| `--snp-identifier` | Required columns | Optional columns |
-|---|---|---|
-| `rsid` | `SNP` | anything else |
-| `chr_pos` | `CHR`, `POS` | anything else |
-| `rsid_allele_aware` | `SNP` | both `A1` and `A2`, or neither |
-| `chr_pos_allele_aware` | `CHR`, `POS` | both `A1` and `A2`, or neither |
-
-Restriction files without allele columns select by base identity in allele-aware modes, and the build log names each such file.
-With both allele columns, they use the shared allele-aware restriction rules; supplying only one is invalid.
-Duplicate restriction keys collapse, and columns outside the active identity schema are ignored.
-For coordinate restrictions, a matching build-specific position column takes precedence over generic `POS`.
-
-For example, `custom_regression_snps.tsv` for
-`--snp-identifier chr_pos --genome-build hg19` can contain:
-
-```tsv
-CHR	POS
-1	10583
-1	13302
-2	21537
-```
-
-Then pass it as `--regr-snps-file custom_regression_snps.tsv`. For an
-`rsid` build, use the same headered layout with one `SNP` column instead.
+The custom regression SNP file follows the shared [SNP restriction file format](formats/column-schema.md#snp-restriction-files) for the builder's explicit `--snp-identifier`; in allele-aware modes a file without allele columns selects by base identity, and the build log names it.
 
 The reference SNPs are the inner intersection of baseline and PLINK SNPs under the configured SNP identifier mode, computed exactly as in ordinary PLINK `ldscore`: each chromosome's baseline rows are the annotation SNP grid of PLINK panel preparation, which selects and cleans the PLINK rows with the stage `ldscore --plink-prefix` and `build-r2-matrix` use and then matches them to the grid.
 PLINK SNPs off the baseline's annotation SNP grid are excluded and counted in each chromosome's reference-SNP funnel, which the build stores in the index, records in `diagnostics/build-gene-ldscore-index.json` and reports with a WARNING ([reference SNPs on the annotation SNP grid](ldscore-snp-universes.md#reference-snps-on-the-annotation-snp-grid)).

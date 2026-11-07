@@ -363,8 +363,7 @@ partitioned-h2/
 ```
 
 The `diagnostics/query_annotations/` tree is present for every query-annotation
-run and absent for baseline-only runs. `--output-dir` is required; the retired
-`--write-per-query-results` flag is rejected.
+run and absent for baseline-only runs. `--output-dir` is required.
 
 The root `partitioned_h2.tsv` includes `query_result_dir`, a path relative to the result root that matches the folder in `diagnostics/query_annotations/manifest.tsv`. Baseline-only summaries use `NaN`. The navigation column is absent from per-query tables and in-memory Python summaries.
 

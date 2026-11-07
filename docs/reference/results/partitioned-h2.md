@@ -1,6 +1,6 @@
 # Partitioned-Heritability Result Columns
 
-Last updated on: 2026-11-01
+Last updated on: 2026-11-06
 
 TODO: add an example output file str.
 
@@ -128,7 +128,6 @@ The log records each failed query, stage, exception, and traceback, plus a final
 ## `partitioned_h2_full.tsv`
 
 In the cell-type regime, each query folder contains `partitioned_h2_full.tsv` by default.
-The retired `--write-per-query-results` flag is rejected.
 This table uses the scientific columns of `partitioned_h2.tsv` (without `query_result_dir`), with one row for every retained annotation in that query's fitted `baseline + query` model (all baseline annotations plus the query).
 Its baseline rows are the joint functional enrichments conditional on the added query.
 

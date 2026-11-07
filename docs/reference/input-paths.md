@@ -524,8 +524,7 @@ Output:
   `ldscore.overlap.parquet`. Baseline-only directories run the functional-annotation
   regime; directories with query columns run the cell-type-specific regime.
 - Query-annotation `ldsc partitioned-h2` runs always write a staged
-  `diagnostics/query_annotations/` tree under `output_dir`. The retired
-  `--write-per-query-results` flag is rejected. The tree contains
+  `diagnostics/query_annotations/` tree under `output_dir`. The tree contains
   `manifest.tsv` and one folder per query annotation, with per-query
   `partitioned_h2.tsv`, `partitioned_h2_full.tsv`, and `metadata.json`.
   The root summary appends `query_result_dir`, relative to `output_dir`, matching each row to its exact folder. Baseline-only runs write `NaN`; per-query tables omit this navigation column.

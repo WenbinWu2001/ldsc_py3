@@ -196,7 +196,6 @@ For a preliminary screen of hundreds of pathways, add `--allow-unresolved-genes`
 The run then uses only the resolved genes, records the resolved and total counts, and skips unusable query annotations without failing the usable ones.
 Because this changes the submitted gene lists, the console, the result metadata, the audit and the summary all record it, and the command prints a short notice when genes have no SNP support or query annotations were skipped.
 The option applies to direct and indexed runs; it does not relax malformed inputs, index integrity, chromosome coverage or the checks on a control gene list.
-The retired option `--gene-list-resolution-policy` is rejected: remove `--gene-list-resolution-policy strict`, and replace `--gene-list-resolution-policy resolved-only` with `--allow-unresolved-genes`.
 See [strict and exploratory resolution](../../reference/formats/gene-lists.md#strict-and-exploratory-resolution).
 
 ## Diagnose and curate

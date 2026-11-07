@@ -119,7 +119,7 @@ Supported values are `auto`, `plain`, `daner-old`, and `daner-new`.
 | `daner-old` | The file uses old DANER case/control counts encoded in frequency headers. | Header contains at least one `FRQ_A_*` column and at least one `FRQ_U_*` column. | Reads case/control sample sizes from the `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` header names. Select with `--input-format daner-old`. |
 | `daner-new` | The file carries per-SNP case/control count columns. | Header contains `Nca`/`Nco` aliases after header normalization: either `NCA` and `NCO`, or `NCAS` and `NCON`. | Computes per-row sample size from case/control counts. If an old-style `FRQ_U_*` column is also present, inference can use it as the frequency column. Select with `--input-format daner-new`. |
 
-Automatic and explicit profile selection share column aliases, optional-field handling, validation, and the raw reader. In particular, `daner-new` does not require a `FRQ_U_*` column or exact-case `Nca/Nco` headers. The old generic `--format` flag is removed; use `--input-format`. See the [legacy CLI flag map](legacy-flag-map.md).
+Automatic and explicit profile selection share column aliases, optional-field handling, validation, and the raw reader. In particular, `daner-new` does not require a `FRQ_U_*` column or exact-case `Nca/Nco` headers. The former `--format` flag and the `--daner-old` and `--daner-new` switches are removed; use `--input-format`.
 
 ## Sample-Size Column Selection
 
@@ -222,11 +222,11 @@ The filename stem preserves letter case, Unicode word characters, dots, and hyph
 
 Without `--overwrite`, any existing artifact in the selected filename family or the shared diagnostics blocks the run before output files are opened. With `--overwrite`, the workflow replaces current-run outputs and removes unselected sibling formats for that same resolved stem. Different labels that sanitize to the same stem therefore share collision checks. Files under other stems, including older fixed names, are preserved. Use separate output directories for separate runs because diagnostics are shared within a directory.
 
-Scripts that previously expected `sumstats.parquet` despite supplying a trait label must use the new trait filename or the Python run summary’s `output_paths`. Existing artifacts are not renamed. The fallback `sumstats.gz` is accepted by `load_sumstats()` through the same text compatibility pathway as `*.sumstats.gz`.
+The fallback `sumstats.gz` is accepted by `load_sumstats()` through the same text compatibility pathway as `*.sumstats.gz`.
 
 ## Frequency Preservation
 
-The munger automatically preserves the selected input frequency column as `FRQ` whenever present and omits `FRQ` when absent. Values are not converted to MAF, so an input frequency above 0.5 remains above 0.5. `--maf-min` still applies the unchanged filter to folded `min(FRQ, 1-FRQ)`. `--keep-maf` and `MungeConfig.keep_maf` are removed; no replacement toggle is needed. An explicitly ignored frequency column is not selected, and competing frequency columns follow the usual column-selection and ambiguity rules rather than being chosen silently.
+The munger automatically preserves the selected input frequency column as `FRQ` whenever present and omits `FRQ` when absent. Values are not converted to MAF, so an input frequency above 0.5 remains above 0.5. `--maf-min` still applies the unchanged filter to folded `min(FRQ, 1-FRQ)`. `MungeConfig.keep_maf` is removed; no replacement toggle is needed. An explicitly ignored frequency column is not selected, and competing frequency columns follow the usual column-selection and ambiguity rules rather than being chosen silently.
 
 This rule applies to the returned table, Parquet, and gzip TSV. TSV frequency values are written without three-decimal rounding; other floating columns keep the existing export rounding. Missing fields are serialized as `NA` to preserve column alignment in whitespace readers. See `parse_dat` and `filter_frq` in [`_sumstats/munge_kernel.py`](../../src/ldsc/_sumstats/munge_kernel.py), and `_write_sumstats_tsv_gz` in [`_sumstats/outputs.py`](../../src/ldsc/_sumstats/outputs.py).
 
@@ -390,9 +390,7 @@ See [SNP identifier modes](snp-identity-and-genome-build.md).
 
 HM3 quick liftover uses the package-bundled reference HM3 metadata, which contains coordinates in both builds. It is selected automatically only for packaged HM3 restriction when the resolved source and explicitly requested output builds differ. To opt out of quick liftover, supply `--liftover-chain-file FILE`; the chain replaces the packaged mapping while the HM3 restriction remains active. Neither method changes `SNP` labels.
 
-The former `--use-hm3-snps` and `--use-hm3-quick-liftover` flags, and their `MungeConfig` fields, are removed.
-Remove them from existing HM3 commands.
-Add `--no-snp-restriction` (Python: `no_snp_restriction=True`) to retain the previous unrestricted behavior.
+The former `--use-hm3-snps` and `--use-hm3-quick-liftover` flags and their `MungeConfig` fields are removed: HM3 restriction and quick liftover are the defaults, and `--no-snp-restriction` (Python: `no_snp_restriction=True`) disables the restriction.
 A custom list still requires a chain for cross-build liftover, even if it happens to contain only HM3 SNPs.
 
 ## Liftover Rules

@@ -1,6 +1,6 @@
 # Estimate SNP heritability
 
-Last updated on: 2026-10-30
+Last updated on: 2026-11-06
 
 `ldsc h2` estimates the SNP heritability of one trait with LD score regression (LDSC; Bulik-Sullivan et al. 2015): it regresses the trait's $\chi^2$ statistics on LD scores and turns the slope into SNP heritability.
 It writes the estimate with its block-jackknife standard error, the regression intercept, and the binned data behind a diagnostic plot.
@@ -82,7 +82,7 @@ It is written only when the LD-score directory has a single LD-score column; a f
 `diagnostics/metadata.json` records provenance such as the SNP identifier mode used, the count vector (`count_key_used_for_regression`), the $\chi^2$ cap applied and the number of block-jackknife blocks used; its fields are listed in [artifact metadata](../../reference/formats/artifact-metadata.md#h2).
 
 An existing result is not replaced unless you add `--overwrite`.
-A successful overwrite also removes the result's old `plots/` and `postprocessing/` folders, so no figure or conversion describes an earlier fit; see [output families](../../reference/input-paths.md#coherent-output-artifact-families) and [logs and outputs](../../reference/logs-and-outputs.md).
+A successful overwrite also removes the result's old `plots/` and `postprocessing/` folders, so no figure or conversion describes an earlier fit; see [derived result roots](../../reference/logs-and-outputs.md#derived-result-roots) and [logs and outputs](../../reference/logs-and-outputs.md).
 
 ## Liability scale for binary traits
 

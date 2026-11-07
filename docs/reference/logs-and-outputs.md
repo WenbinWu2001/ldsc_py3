@@ -101,7 +101,7 @@ After a successful `munge-sumstats` CLI run, stdout displays a `Munge-sumstats s
 ## Output-Family Preflight
 
 Public workflow layers treat their fixed current-contract outputs plus workflow log as one owned family.
-Without `--overwrite`, any existing owned artifact rejects the run before the log is opened.
+Without `--overwrite`, any existing owned artifact rejects the run before the log is opened, even one that the current options would not write.
 With `--overwrite`, stale owned siblings that the successful run did not produce are removed after the current outputs are written.
 Legacy root log names such as `sumstats.log`, `annotate.log`, `ldscore.log`, `build-r2-matrix*.log`, or regression logs at the output root are not part of the current owned family.
 For `build-r2-matrix`, concrete chromosome PLINK prefixes own only the matching chromosome-scoped log, while `@` chromosome-suite prefixes own the full `build-r2-matrix` log family.
@@ -124,6 +124,13 @@ Reference-panel builds keep their chromosome scope, and gene LD-score index publ
 Logs and workflow-only audit extensions do not enter scientific metadata through `ArtifactFamily`.
 Failure markers remain owned by the marker helper.
 Validation lives in `tests/runtime/test_artifact_declarations.py`, `tests/runtime/test_output.py`, `tests/runtime/test_derived_output_lifecycle.py`, `tests/runtime/test_failure_markers.py`, and the reference-panel/index workflow tests.
+
+### Derived result roots
+
+The default `plots/` root is an owned sibling of `h2`, `partitioned-h2`, `quantile-h2`, and `rg`; the default `postprocessing/` root is an owned sibling of `h2`.
+A core no-overwrite run rejects an orphaned owned root.
+A successful core overwrite removes these derived roots after publishing the new core artifacts, so no plot or conversion silently describes an older result.
+Python-only `output_dir=` overrides for plotting and conversion are unmanaged and therefore outside this cleanup boundary.
 
 ## Staged input validation
 

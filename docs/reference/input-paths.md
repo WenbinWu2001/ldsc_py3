@@ -37,6 +37,7 @@ Not supported:
   Example: `annotations/baseline.@` when the real files are `.annot.gz`
 - Directory-only discovery for input files
   Example: `annotations/baseline_chr/`
+  (`convert-legacy-ldscores` is the one exception: it takes legacy suite directories and finds their chromosome 1-22 files itself)
 
 Output paths are different:
 
@@ -54,6 +55,9 @@ Output paths are different:
   replace those fixed files; for coherent result-directory workflows, a
   successful overwrite also removes stale owned siblings that the current run
   did not produce
+
+Each workflow's fixed output files are listed in [artifact metadata](formats/artifact-metadata.md#public-output-layouts).
+Preflight, overwrite, stale-sibling cleanup and derived `plots/` and `postprocessing/` roots follow [output-family preflight](logs-and-outputs.md#output-family-preflight), and failed overwrites leave [failure markers](logs-and-outputs.md#failed-overwrite-markers).
 
 ### PLINK prefix resolution
 
@@ -121,78 +125,6 @@ Coverage errors and their workflow-log tracebacks include this repair guidance.
 BED padding extends the coordinates already present in the input file. Use `--padding-bp 0` if the BED intervals already include the intended gene-region padding, so the regions are not padded twice.
 
 Scope is logged and persisted in `diagnostics/chromosome_scope.json`; input failures use `diagnostics/input_issues.tsv`. See the [gene-list scope examples](formats/gene-lists.md#direct-query-chromosome-scope). Public indexes remain complete-autosomal. `_ldscore.preflight.inspect_direct_inputs()` enforces the direct-query contract before projection; other commands retain their own path contracts.
-
-### Coherent output artifact families
-
-Several workflows write a fixed family of files that share one run identity
-through `output_dir`. These families are treated as one coherent set, not as
-independent optional files:
-
-- `munge-sumstats`: `sumstats.parquet` (self-describing footer),
-  `sumstats.gz`, `diagnostics/dropped_snps/dropped.tsv.gz`, and
-  `diagnostics/sumstats.log`
-  for CLI/workflow runs
-- `ldscore`: `metadata.json`, `ldscore.baseline.parquet`, optional single or numbered query Parquet files, optional `ldscore.overlap.parquet`, `diagnostics/ld_window_snp_counts.tsv` for R² matrix `--ld-wind-snps` runs, `diagnostics/reference_snp_funnel.tsv`, and `diagnostics/ldscore.log` for CLI/workflow runs
-- `convert-legacy-ldscores`: canonical `metadata.json`,
-  `ldscore.baseline.parquet`, optional `ldscore.overlap.parquet`,
-  `diagnostics/conversion_issues.tsv.gz`, and
-  `diagnostics/convert-legacy-ldscores.log`. This command deliberately accepts
-  directory inputs and performs its own strict chromosomes 1-22 family
-  discovery; that exception does not enable directory discovery elsewhere.
-- `build-r2-matrix`: `{hg19,hg38}/chr*_r2.parquet`,
-  `{hg19,hg38}/chr*_meta.tsv.gz`,
-  `diagnostics/metadata.json`, `diagnostics/metadata.chr*.json`,
-  `diagnostics/dropped_snps/chr*_dropped.tsv.gz`,
-  and `diagnostics/build-r2-matrix*.log` for CLI/workflow runs
-- `partitioned-h2`: `partitioned_h2.tsv`,
-  `diagnostics/metadata.json`, optional `diagnostics/query_annotations/`, and
-  `diagnostics/partitioned-h2.log` for CLI/workflow runs
-- `h2`: `h2.tsv`, `diagnostics/ld_score_regression_bins.tsv` (single-column
-  LD-score directories only), `diagnostics/metadata.json`, and
-  `diagnostics/h2.log` for CLI/workflow runs;
-  the default `plots/` and `postprocessing/` roots are owned derived outputs
-- `annotate`: root-level `query.<chrom>.annot.gz` shards, plus diagnostic
-  metadata, dropped-SNP audit, and `annotate.log` under `diagnostics/`
-- `rg`: `rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`,
-  `diagnostics/metadata.json`, optional `diagnostics/pairs/`, and
-  `diagnostics/rg.log` for CLI/workflow runs; `rg` tables report nominal
-  p-values only and do not include package-computed corrected p-value columns
-- `plot`: one selected fixed PNG plus `diagnostics/metadata.json` and
-  `diagnostics/plot.log` below `<result-dir>/plots/`
-- `convert-h2-scale`: `h2_scale_conversion.tsv`, optional
-  `h2_prevalence_sensitivity.png`, `diagnostics/metadata.json`, and
-  `diagnostics/convert-h2-scale.log` below
-  `<h2-result-dir>/postprocessing/liability-scale/`
-
-Without overwrite, any existing current-contract owned sibling in the family
-rejects the run, even if that sibling is not selected by the current output
-mode. With overwrite enabled, the workflow writes the requested current outputs
-and then removes stale current-contract owned siblings not produced by the
-successful run. Removed legacy root diagnostic names are ignored by preflight
-and cleanup, and unrelated files in the directory are preserved. Workflows that
-can run independent shards into one directory may narrow the owned family to the
-current shard. For `build-r2-matrix`, a concrete chromosome prefix owns only
-that chromosome's package, while an `@` chromosome-suite invocation owns the
-full all-chromosome package. Directory artifacts such as
-`diagnostics/query_annotations/` and `diagnostics/pairs/` are owned as whole
-trees: no-overwrite blocks if the root exists, and overwrite swaps or removes
-the complete tree after the current run succeeds.
-
-Direct Python data writers enforce the data artifact family they own. Workflow
-wrappers add their workflow log to the preflight family.
-
-The default `plots/` root is an owned sibling of `h2`, `partitioned-h2`, `quantile-h2`, and `rg`; the default `postprocessing/` root is an owned sibling of `h2`.
-A core no-overwrite run rejects an orphaned owned root.
-A successful core overwrite removes these derived roots after publishing the new core artifacts, preventing a plot or conversion from silently describing an older result.
-Python-only `output_dir=` overrides for plotting and conversion are unmanaged and therefore outside this cleanup boundary.
-
-An authorized overwrite that fails writes `RUN_FAILED.txt` in the applicable
-output scope.
-A `build-r2-matrix` run whose `--plink-prefix` has no `@` and whose BIM files hold one chromosome uses `RUN_FAILED.chr<chrom>.txt`; as with chromosome assignment, the prefix's file name plays no part.
-Marker creation adds no rollback, quarantine, or
-action-order change. It does not enter scientific metadata or block a retry,
-and a successful retry removes the applicable marker.
-See [logs and outputs](logs-and-outputs.md#failed-overwrite-markers) for the full marker contract.
 
 ## General Resolution Rules
 

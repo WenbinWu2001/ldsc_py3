@@ -25,12 +25,9 @@ An audit came first; the user approved its items and the work ran in three phase
 - The wording of `regression-options.md` section 1.7 is confirmed; it now says that legacy LDSC applies the condition-number stop only to `rg` pairs and names every skip condition (`d22e702c`).
 - The 10 broken links in the legacy-issues audit pages point at the current files (`bb41ec55`).
 - Kept by decision: the 40 remaining `TemporaryDirectory` blocks in tests.
-
-### Open items
-
-- The collinearity check computes the condition number from the design matrix alone and uses the overlap matrix only to name the overlapping pair, yet it is skipped whenever the overlap is missing or lacks a needed block or column (`_raise_on_model_collinearity` in `_regression/fitting.py`).
-  `ldscore` and partitioned legacy conversions always store the overlap for two or more columns, so only Python LD-score objects built without one reach the skip today; whether the check should run without the overlap is the user's decision.
-- `MungeConfig.column_hints` ignores keys it does not know without notice, so a misspelled key leaves the column to inference; whether to reject unknown keys is the user's decision (the accepted keys are documented in `6a79ad9c`).
+- Decided on 2026-11-06 and fixed:
+  - The collinearity check now runs for every model with two or more LD-score columns, with or without a usable overlap matrix; without one, the error names the two most nearly proportional LD-score columns (`db53638d`, breaking; docs in `1c0f81ff`).
+  - `MungeConfig.column_hints` rejects unknown keys with `LDSCConfigError`, and the key table `COLUMN_HINT_TARGETS` now lives in `config.py` (`de78d196`, breaking).
 
 ## Completed: gene LD-score index format numbering reset (2026-11-06)
 

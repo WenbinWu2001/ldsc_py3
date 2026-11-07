@@ -226,7 +226,7 @@ Scripts that previously expected `sumstats.parquet` despite supplying a trait la
 
 ## Frequency Preservation
 
-The munger automatically preserves the selected input frequency column as `FRQ` whenever present and omits `FRQ` when absent. Values are not converted to MAF, so an input frequency above 0.5 remains above 0.5. `--maf-min` still applies the unchanged filter to folded `min(FRQ, 1-FRQ)`. `--keep-maf` and `MungeConfig.keep_maf` are removed; no replacement toggle is needed. An explicitly ignored frequency column is not selected.
+The munger automatically preserves the selected input frequency column as `FRQ` whenever present and omits `FRQ` when absent. Values are not converted to MAF, so an input frequency above 0.5 remains above 0.5. `--maf-min` still applies the unchanged filter to folded `min(FRQ, 1-FRQ)`. `--keep-maf` and `MungeConfig.keep_maf` are removed; no replacement toggle is needed. An explicitly ignored frequency column is not selected, and competing frequency columns follow the usual column-selection and ambiguity rules rather than being chosen silently.
 
 This rule applies to the returned table, Parquet, and gzip TSV. TSV frequency values are written without three-decimal rounding; other floating columns keep the existing export rounding. Missing fields are serialized as `NA` to preserve column alignment in whitespace readers. See `parse_dat` and `filter_frq` in [`_sumstats/munge_kernel.py`](../../src/ldsc/_sumstats/munge_kernel.py), and `_write_sumstats_tsv_gz` in [`_sumstats/outputs.py`](../../src/ldsc/_sumstats/outputs.py).
 

@@ -1,6 +1,6 @@
 # Partitioned heritability
 
-Last updated on: 2026-11-02
+Last updated on: 2026-11-06
 
 Partitioned heritability asks how SNP heritability is distributed across annotations, estimated with stratified LD score regression (S-LDSC; Finucane et al. 2015).
 LDSC3 runs it in two steps: `ldsc ldscore` computes LD scores for baseline annotations and any query annotations, and `ldsc partitioned-h2` fits the regression.
@@ -102,7 +102,7 @@ An LD-score directory converted from legacy LDSC with [`convert-legacy-ldscores`
 Defaults used by this command:
 
 - `--count-kind common` scales estimates by common-SNP counts and `--count-kind all` by all-SNP counts; the run stops before fitting if the LD-score directory lacks the requested counts for a baseline annotation, or for a query annotation unless `--continue-on-query-error` records that query as failed; the other kind is never substituted.
-- The intercept is estimated; add `--intercept-h2 1` to fix it at 1 (the replacement for legacy LDSC `--no-intercept`; see the [flag map](../../reference/legacy-flag-map.md#regression-intercept-consolidation)).
+- The intercept is estimated; add `--intercept-h2 1` to fix it at 1 (the replacement for legacy LDSC `--no-intercept`; see [requesting fixed intercepts](../../reference/regression-options.md#15-requesting-fixed-intercepts)).
 - `--num-blocks 200` sets the block jackknife.
 - Results are on the observed scale; for a binary trait, add `--samp-prev` and `--pop-prev` as described in [liability scale](liability-scale.md).
 - `--summary-sort-by auto` sorts query rows by ascending `coefficient_p` and baseline-only rows in annotation order.

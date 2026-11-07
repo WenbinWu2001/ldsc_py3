@@ -1,6 +1,6 @@
 # Regression Configuration Reference (Advanced)
 
-Last updated on: 2026-11-05
+Last updated on: 2026-11-06
 
 This document describes the tunable configuration of the regression module (`ldsc h2`, `ldsc rg`, `ldsc partitioned-h2`).
 **You do not need any of this for a standard run.**
@@ -131,8 +131,9 @@ The removed legacy LDSC `--no-intercept` shortcut is replaced by explicit values
 These disable intercept estimation by fixing heritability intercepts to 1 and covariance intercepts to 0.
 In `rg`, one heritability-intercept value is shared by both traits in every pair, and one covariance value is shared by every pair.
 Omitting the flags estimates the intercepts with the existing defaults.
+Other numeric fixed values are accepted through the same flags.
 Fixed values must reflect the intended analysis assumptions; they are not the default policy.
-See the [legacy LDSC flag map](legacy-flag-map.md#regression-intercept-consolidation).
+`quantile-h2` reads a saved fitted model and has no intercept-estimation flags.
 
 A single-annotation `rg --intercept-gencov 0` run with a free heritability intercept deliberately remains invalid: automatic two-step estimation selects cutoff 30, which conflicts with the fixed covariance intercept.
 There is no new option to turn this automatic step off.

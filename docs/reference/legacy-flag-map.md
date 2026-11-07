@@ -10,58 +10,20 @@ The [IO argument inventory](cli.md) lists the complete current surface, and [`mu
 
 ## Changes in the flag cleanup
 
-Some replaced spellings came from earlier LDSC3 revisions rather than legacy LDSC. They are distinguished here so that the mapping does not invent a legacy equivalent.
+| Legacy LDSC flag | Current command/flag | Current behavior |
+| --- | --- | --- |
+| `munge_sumstats.py --keep-maf` | Removed; no replacement toggle | The munger always preserves a selected input frequency column as `FRQ`, without converting it to MAF; see [frequency preservation](munge-sumstats.md#frequency-preservation). There is no `--keep-frequency` option. |
+| `munge_sumstats.py --daner` | `ldsc munge-sumstats --input-format daner-old` | Read constant case/control counts from `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers. Default `--input-format auto` can detect this profile. |
+| `munge_sumstats.py --daner-n` | `ldsc munge-sumstats --input-format daner-new` | Retain new-DANER selection, using the same shared preparation, aliases, optional fields, validation, and reader as automatically detected new-DANER input. `Nca/Nco`, `NCAS/NCON`, and case variants use the central alias registry. `FRQ_U_*` is optional. |
+| `ldsc.py --no-intercept` with `--h2` | `ldsc h2 --intercept-h2 1` | Removed shortcut; explicitly fix the heritability intercept to 1. Omit the replacement to estimate it using the existing defaults. |
+| `ldsc.py --no-intercept` in partitioned `--h2` or `--h2-cts` runs | `ldsc partitioned-h2 --intercept-h2 1` | Removed shortcut; explicitly fix the heritability intercept to 1 in each fitted model. Omit the replacement to estimate it using the existing defaults. |
+| `ldsc.py --no-intercept` with `--rg` | `ldsc rg --intercept-h2 1 --intercept-gencov 0` | Removed shortcut; fix both traits' heritability intercepts to 1 in every pair and each genetic-covariance intercept to 0. Omit both replacements to estimate the intercepts using the existing defaults. |
 
-| Legacy LDSC flag | Earlier LDSC3 spelling | Current command/flag | Current behavior |
-| --- | --- | --- | --- |
-| No equivalent legacy LDSC flag | `--gene-list-resolution-policy {strict,resolved-only}` | `annotate`, `ldscore`, and `quantile-h2`: `--allow-unresolved-genes` | Value-free opt-in flag. Omission retains strict resolution; supplying it selects the existing `resolved-only` policy and omission diagnostics. Remove the entire `--gene-list-resolution-policy strict` option/value pair from existing commands; replace `--gene-list-resolution-policy resolved-only` with the new flag. The old option is rejected without an alias. Python policy arguments and metadata values remain unchanged. |
-| `munge_sumstats.py --keep-maf` | `munge-sumstats --keep-maf` | Removed; no replacement toggle | Preserve a recognized/selected input frequency column as `FRQ` whenever present; omit `FRQ` when absent. Preserve its values without converting them to MAF, including frequencies above 0.5. `--maf-min` still filters on folded MAF. There is no `--keep-frequency` option. |
-| `munge_sumstats.py --daner` | `munge-sumstats --format daner-old` | `ldsc munge-sumstats --input-format daner-old` | Read constant case/control counts from `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers. Default `--input-format auto` can detect this profile. |
-| `munge_sumstats.py --daner-n` | `munge-sumstats --format daner-new` | `ldsc munge-sumstats --input-format daner-new` | Retain new-DANER selection, using the same shared preparation, aliases, optional fields, validation, and reader as automatically detected new-DANER input. `Nca/Nco`, `NCAS/NCON`, and case variants use the central alias registry. `FRQ_U_*` is optional. |
-| No generic legacy LDSC format selector | `munge-sumstats --format` | `ldsc munge-sumstats --input-format` | Values remain `auto`, `plain`, `daner-old`, and `daner-new`; default remains `auto`. This selects the input profile, independently of `--output-format`. Earlier LDSC3 booleans `--daner-old` and `--daner-new` are also unsupported. |
-| No equivalent legacy LDSC flag | `ldscore --exclude-regions` | `ldsc ldscore --regr-snps-exclude-regions` | The hidden alias is removed. Default remains `mhc-and-centromeres`; choices remain `none`, `mhc`, `centromeres`, and `mhc-and-centromeres`. This changes the regression SNPs and output rows, not the reference SNPs that contribute to LD scores and counts. |
-| No legacy LDSC gene LD-score index command | `build-gene-ldscore-index --exclude-regions` | `ldsc build-gene-ldscore-index --regr-snps-exclude-regions` | Same alias removal and unchanged default region policy. |
-| `ldsc.py --no-intercept` with `--h2` | `h2 --no-intercept` | `ldsc h2 --intercept-h2 1` | Removed shortcut; explicitly fix the heritability intercept to 1. Omit the replacement to estimate it using the existing defaults. |
-| `ldsc.py --no-intercept` in partitioned `--h2` or `--h2-cts` runs | `partitioned-h2 --no-intercept` | `ldsc partitioned-h2 --intercept-h2 1` | Removed shortcut; explicitly fix the heritability intercept to 1 in each fitted model. Omit the replacement to estimate it using the existing defaults. |
-| `ldsc.py --no-intercept` with `--rg` | `rg --no-intercept` | `ldsc rg --intercept-h2 1 --intercept-gencov 0` | Removed shortcut; fix both traits' heritability intercepts to 1 in every pair and each genetic-covariance intercept to 0. Omit both replacements to estimate the intercepts using the existing defaults. |
+Legacy LDSC `--no-intercept` disabled intercept estimation by choosing standard fixed values; it never meant a heritability intercept of zero.
+Fixed-intercept rules, including the `rg` two-step conflict and the Python `RegressionConfig.use_intercept=False` option, are in [requesting fixed intercepts](regression-options.md#15-requesting-fixed-intercepts).
+The Python input-profile field is `MungeConfig.sumstats_format`; its CLI spelling is `--input-format`.
 
-Direct/indexed `ldscore`, `build-gene-ldscore-index`, and batch regression now use `--workers`.
-The former `--threads` spelling is retired without an alias.
-The default is one worker; every worker uses 1 BLAS thread in serial and parallel execution.
-See [parallel execution](parallel-execution.md) for joblib CPU detection, validation, and task caps.
-
-Python counterparts also retain `LDScoreConfig.workers`, `run_ldscore(..., workers=...)`, and `GeneLDScoreIndexBuildConfig.workers`. `MungeConfig.keep_maf` is removed because preserving frequency is unconditional. The Python input-profile field remains `MungeConfig.sumstats_format`; its CLI spelling is now `--input-format`.
-
-Frequency preservation applies to the in-memory result and both output formats. Parquet retains numeric precision. Gzip TSV preserves the parsed frequency without the three-decimal rounding used for other floating columns; missing fields are written as `NA` so whitespace readers do not shift column positions. An explicitly ignored frequency column is not selected and therefore is absent from output. Multiple competing frequency columns still follow existing column-selection/ambiguity rules; this change does not choose among them silently.
-
-Sources: current [`_sumstats.munger.build_parser`](../../src/ldsc/_sumstats/munger.py), [`_sumstats.outputs._write_sumstats_tsv_gz`](../../src/ldsc/_sumstats/outputs.py), [`_sumstats.munge_input.resolve_raw_schema`, `prepare_munge_input`](../../src/ldsc/_sumstats/munge_input.py), [`_sumstats.munge_kernel.parse_dat` / `filter_frq`](../../src/ldsc/_sumstats/munge_kernel.py), [`_ldscore.workflow.build_parser`](../../src/ldsc/_ldscore/workflow.py), [`_runtime.parallelism.resolve_worker_count`](../../src/ldsc/_runtime/parallelism.py), and [`_ldscore.gene_index.build.build_parser`](../../src/ldsc/_ldscore/gene_index/build.py). Legacy LDSC declarations and behavior: [`munge_sumstats.py`, parser and `parse_dat`](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/munge_sumstats.py#L452); [`ldsc.py`, parser](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldsc.py#L423).
-
-## Regression intercept consolidation
-
-The legacy LDSC `--no-intercept` flag disabled intercept estimation by choosing standard fixed values.
-Its name did not mean a heritability intercept of zero.
-The current CLI rejects that flag, with no hidden alias.
-Use the following explicit replacements:
-
-| Current command | Flags replacing legacy LDSC `--no-intercept` |
-| --- | --- |
-| `h2` | `--intercept-h2 1` |
-| `partitioned-h2` | `--intercept-h2 1` |
-| `rg` | `--intercept-h2 1 --intercept-gencov 0` |
-
-These disable intercept estimation by fixing heritability intercepts to 1 and, for `rg`, covariance intercepts to 0.
-In `rg`, one scalar heritability-intercept value applies to both traits in every pair, and one scalar covariance value applies to every pair.
-Omitting these flags continues to estimate the intercepts with the existing defaults; fixed intercepts have not become automatic.
-Other numeric fixed values remain accepted through the same flags.
-`quantile-h2` reads a saved fitted model and has no intercept-estimation flags.
-
-Single-annotation `rg --intercept-gencov 0` with a free heritability intercept continues to fail: automatic two-step estimation selects cutoff 30, which conflicts with the fixed covariance intercept.
-Explicit `--two-step-cutoff` remains incompatible with fixed intercepts and multi-annotation fits.
-This consolidation adds no way to disable automatic two-step estimation.
-
-The public Python `RegressionConfig.use_intercept=False` option remains available and unchanged. The CLI now expresses its standard fixed-intercept behavior through `--intercept-h2` and `--intercept-gencov` only.
-
-Sources: legacy LDSC [`ldsc.py`, intercept flags](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldsc.py#L528) and [`ldscore/sumstats.py`, `estimate_h2` / `estimate_rg`](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldscore/sumstats.py#L321); current [`_regression.commands._add_regression_model_arguments` and `_configs_from_args`](../../src/ldsc/_regression/commands.py), [`_regression.fitting._fit_h2_dataset` and `_fit_rg_dataset`](../../src/ldsc/_regression/fitting.py), [`RegressionConfig`](../../src/ldsc/config.py), and [regression configuration, “Requesting fixed intercepts”](regression-options.md#15-requesting-fixed-intercepts).
+Sources: current [`_sumstats.munger.build_parser`](../../src/ldsc/_sumstats/munger.py), [`_sumstats.munge_input.resolve_raw_schema`, `prepare_munge_input`](../../src/ldsc/_sumstats/munge_input.py), [`_sumstats.munge_kernel.parse_dat` / `filter_frq`](../../src/ldsc/_sumstats/munge_kernel.py), and [`_regression.commands._add_regression_model_arguments` and `_configs_from_args`](../../src/ldsc/_regression/commands.py). Legacy LDSC declarations and behavior: [`munge_sumstats.py`, parser and `parse_dat`](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/munge_sumstats.py#L452); [`ldsc.py`, parser](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldsc.py#L423), [intercept flags](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldsc.py#L528) and [`ldscore/sumstats.py`, `estimate_h2` / `estimate_rg`](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldscore/sumstats.py#L321).
 
 ## Legacy behavior explicitly retained
 
@@ -162,9 +124,3 @@ Line references are to the legacy LDSC repository.
 | `ldsc.py --return-silly-things` (`ldsc.py:570`) | No flag; the default matches legacy LDSC's default behavior. |
 | `ldsc.py --pickle`, `--print-all-cts` (`ldsc.py:560`, `:546`) | No equivalent output options. |
 | `make_annot.py --nomerge` (`make_annot.py:43`) | Annotation projection is membership-only; there is no mode proportional to the number of overlapping intervals. |
-
-## Naming audit boundary
-
-Current README, documentation under `docs/`, troubleshooting guidance, tutorials, public configuration docstrings, code comments, and tests use the current names.
-The shared `--workers` spelling remains current for both LD-score computation and gene LD-score index building.
-References to the abandoned `--threads` spelling are limited to this decision record, rejection tests, and git history.

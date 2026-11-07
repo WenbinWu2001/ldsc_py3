@@ -555,7 +555,6 @@ class SumstatsMungerTest(unittest.TestCase):
                 trait_name="trait",
             )
 
-            self.assertTrue(hasattr(ldsc, "load_sumstats"))
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
                 table = ldsc.load_sumstats(str(tmpdir / "trait*.parquet"), trait_name="trait")

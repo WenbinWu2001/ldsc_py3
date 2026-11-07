@@ -500,14 +500,3 @@ class TestQueryR2MatrixWriter:
         )
         text = (out_dir / "query_r2_matrix.tsv").read_text(encoding="utf-8")
         assert "NaN" in text
-
-
-class TestPackageExports:
-    def test_public_symbols_importable_from_ldsc(self):
-        import ldsc
-
-        assert hasattr(ldsc, "R2Matrix")
-        assert hasattr(ldsc, "query_r2_matrix")
-        assert hasattr(ldsc, "unbiased_r2_to_pearson_r")
-        for name in ("R2Matrix", "query_r2_matrix", "unbiased_r2_to_pearson_r"):
-            assert name in ldsc.__all__

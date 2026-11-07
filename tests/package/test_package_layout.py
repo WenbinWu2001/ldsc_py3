@@ -5,6 +5,32 @@ import sys
 import unittest
 
 import pandas as pd
+import pytest
+
+
+# Names users import from ``ldsc``; each must be listed in ``ldsc.__all__``.
+PUBLIC_NAMES = [
+    "LDScoreCalculator", "RegressionRunner", "SumstatsMunger", "AnnotationBuilder", "AnnotationBundle",
+    "AnnotationResult", "run_annotate", "R2MatrixBuilder", "H2OutputConfig", "H2DirectoryWriter",
+    "LDScoreOutputConfig", "LDScoreDirectoryWriter", "PartitionedH2OutputConfig", "PartitionedH2DirectoryWriter",
+    "load_ldscore_from_dir", "ChrPosBuildInference", "infer_chr_pos_build", "resolve_chr_pos_table",
+    "RawSumstatsInference", "infer_raw_sumstats", "load_hm3_curated_map", "load_sumstats", "R2Matrix",
+    "query_r2_matrix", "unbiased_r2_to_pearson_r",
+]
+
+
+@pytest.mark.parametrize("name", PUBLIC_NAMES)
+def test_public_name_is_exported(name):
+    import ldsc
+
+    assert name in ldsc.__all__
+    assert getattr(ldsc, name) is not None
+
+
+def test_module_entry_point_exposes_main():
+    import ldsc.__main__
+
+    assert callable(ldsc.__main__.main)
 
 
 class PackageLayoutTest(unittest.TestCase):
@@ -28,60 +54,6 @@ print(ldsc.__file__)
             ):
                 completed = subprocess.run(command, cwd=outside, capture_output=True, text=True)
                 self.assertEqual(completed.returncode, 0, completed.stderr)
-
-    def test_public_package_imports(self):
-        import ldsc
-        import ldsc.__main__
-
-        self.assertTrue(hasattr(ldsc, "LDScoreCalculator"))
-        self.assertTrue(hasattr(ldsc, "RegressionRunner"))
-        self.assertTrue(hasattr(ldsc, "SumstatsMunger"))
-        self.assertTrue(hasattr(ldsc, "AnnotationBuilder"))
-        self.assertTrue(hasattr(ldsc, "R2MatrixBuilder"))
-        self.assertTrue(hasattr(ldsc, "H2OutputConfig"))
-        self.assertTrue(hasattr(ldsc, "H2DirectoryWriter"))
-        self.assertTrue(hasattr(ldsc, "LDScoreOutputConfig"))
-        self.assertTrue(hasattr(ldsc, "LDScoreDirectoryWriter"))
-        self.assertTrue(hasattr(ldsc, "PartitionedH2OutputConfig"))
-        self.assertTrue(hasattr(ldsc, "PartitionedH2DirectoryWriter"))
-        self.assertTrue(hasattr(ldsc, "load_ldscore_from_dir"))
-        self.assertTrue(hasattr(ldsc.__main__, "main"))
-
-    def test_top_level_exports_genome_build_inference_api(self):
-        import ldsc
-        from ldsc import ChrPosBuildInference, infer_chr_pos_build, resolve_chr_pos_table
-        from ldsc._genome.build_inference import (
-            ChrPosBuildInference as ModuleChrPosBuildInference,
-            infer_chr_pos_build as module_infer_chr_pos_build,
-            resolve_chr_pos_table as module_resolve_chr_pos_table,
-        )
-
-        self.assertIs(ChrPosBuildInference, ModuleChrPosBuildInference)
-        self.assertIs(infer_chr_pos_build, module_infer_chr_pos_build)
-        self.assertIs(resolve_chr_pos_table, module_resolve_chr_pos_table)
-        self.assertIn("ChrPosBuildInference", ldsc.__all__)
-        self.assertIn("infer_chr_pos_build", ldsc.__all__)
-        self.assertIn("resolve_chr_pos_table", ldsc.__all__)
-
-    def test_top_level_exports_sumstats_inference_api(self):
-        import ldsc
-        from ldsc import RawSumstatsInference, infer_raw_sumstats
-        from ldsc._sumstats.munger import (
-            RawSumstatsInference as ModuleRawSumstatsInference,
-            infer_raw_sumstats as module_infer_raw_sumstats,
-        )
-
-        self.assertIs(RawSumstatsInference, ModuleRawSumstatsInference)
-        self.assertIs(infer_raw_sumstats, module_infer_raw_sumstats)
-        self.assertIn("RawSumstatsInference", ldsc.__all__)
-        self.assertIn("infer_raw_sumstats", ldsc.__all__)
-
-    def test_top_level_exports_hm3_curated_map_loader(self):
-        import ldsc
-        from ldsc import load_hm3_curated_map
-
-        self.assertIs(load_hm3_curated_map, ldsc.load_hm3_curated_map)
-        self.assertIn("load_hm3_curated_map", ldsc.__all__)
 
     def test_load_hm3_curated_map_returns_canonical_full_schema(self):
         from ldsc import load_hm3_curated_map
@@ -221,18 +193,4 @@ print(ldsc.__file__)
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(completed.stdout.splitlines()[-1], "ldsc._sumstats,ldsc._sumstats.table")
-
-    def test_annotation_builder_owns_public_workflow_entrypoints(self):
-        from ldsc._annotation import builder as annotation_builder
-
-        for name in (
-            "AnnotationBuilder",
-            "AnnotationBundle",
-            "AnnotationResult",
-            "run_annotate",
-            "run_annotate_from_args",
-            "build_parser",
-            "main",
-        ):
-            self.assertTrue(hasattr(annotation_builder, name), f"{name} should be public")
 

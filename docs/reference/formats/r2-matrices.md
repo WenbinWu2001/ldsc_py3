@@ -16,10 +16,10 @@ A pairwise R² matrix stores, for every SNP pair within an LD window, the square
 correlation between allele dosages. The builder computes each pair as a pair of
 integer indices into the retained reference-SNP table; the read path ultimately
 needs those same indices to accumulate LD scores. The index format stores the
-indices directly instead of expanding them to positions, rsIDs, and alleles
-(which the old 10-column format did, only for the reader to collapse them back).
+indices directly instead of expanding them to positions, rsIDs, and alleles that
+the reader would only collapse back.
 
-Removing that expansion/collapse round-trip:
+Storing indices:
 
 - shrinks the identity overhead to two `int32` columns,
 - makes the per-pair read hot path a pure integer gather (mode-independent), and
@@ -387,42 +387,17 @@ covers exactly that:
 
 ## 5. Caveats and Constraints
 
-**Current names (2026-10-28).** Use `ldsc build-r2-matrix` and `ldsc query-r2-matrix`, which replaced `build-r2-panel` and `query-r2`, and the required `SIGN_R` Parquet column.
-R² matrices whose Parquet footer records `ldsc:artifact_type="ref_panel_r2"`, or that use the older `SIGN` schema, are unsupported and must be rebuilt.
-`query-r2-matrix` returns nullable `sign_r` (+1/-1 in query allele orientation), alongside `r2`, `r`, and `status`.
-There are no compatibility aliases.
-Workflow logs use `build-r2-matrix[.chrN].log`; the chromosome artifact filenames `chrN_r2.parquet` and `chrN_meta.tsv.gz` are unchanged.
+**Only the current format is read.** Readers require the four-column index schema with `SIGN_R` and the footer keys of §2.5.
+R² matrices whose footer records `ldsc:artifact_type="ref_panel_r2"`, that use a `SIGN` column or the former 10-column schema, or that lack `ldsc:sorted_by_build` are rejected; rebuild them with `ldsc build-r2-matrix`.
+There are no compatibility aliases and no raw external-input read path: external R² formats (e.g. TOP-LD pairwise tables, SBayesR binary LD matrices) are not read directly.
 
 **Sidecar mandatory.** The parquet is opaque without its exact sidecar; ship them
 together. There is no metadata-synthesis fallback.
 
-**Build specificity.** The parquet encodes one build's sort order. The 3-tier
-inference of the old format is gone — the index format always records
-`ldsc:sorted_by_build`, and its absence is a hard error. Maintain separate hg19
-and hg38 R² matrices.
+**Build specificity.** The parquet encodes one build's sort order, recorded in
+`ldsc:sorted_by_build`. Maintain separate hg19 and hg38 R² matrices.
 
 **One chromosome per file.** The reader is instantiated per chromosome and
 expects a single-chromosome parquet + sidecar.
 
-**Clean break — index only.** The former 10-column canonical schema, the raw
-external-input read path, and the synthesize-from-parquet metadata fallback are
-removed. External R² formats (e.g. TOP-LD pairwise tables, SBayesR binary LD
-matrices) are not read directly; a future converter would turn them into the
-canonical index format offline. Existing 10-column R² matrices must be regenerated.
-
----
-
-## 6. Affected Modules
-
-| Module | Role |
-|---|---|
-| `_refpanel/r2_format.py` | `write_r2_parquet`: 4-column index schema, sort assertion on `IDX_1`, binding metadata; `sidecar_identity_sha256` (re-exported from `snp_identity`). Pairs flow as columnar `PairColumns` `(i, j, r2, sign)` batches from `yield_pairwise_r2_rows` straight into the writer — no per-pair dict — and int16 quantization/encodings are applied at table build; the writer emits the current `SIGN_R` schema. |
-| `_core/snp_identity.py` | `sidecar_identity_sha256` binding hash |
-| `_refpanel/plink.py` | `PlinkBEDFile` genotype source for the build: selective reads retain the selected packed payload; unrestricted R² matrix builds opt into disk streaming. Both decode bounded standardized blocks |
-| `_refpanel/builder.py` | build loop: sidecar built first, hash + `n_snps` passed to the writer |
-| `_refpanel/r2_format.py` | file names (`r2_matrix_file_paths`, `r2_matrix_chromosomes`, `resolve_r2_build_dir`); `R2MatrixChromosome`: footer contract, strict sidecar reading and binding validation, LD-window and truncation checks; `SortedR2BlockReader`: `build_index_remap`, gather decode, `iter_all_pairs` streaming |
-| `_ldscore/compute.py` | `ld_score_streaming_from_r2_reader` pair accumulation |
-| `_ldscore/compute.py` | `ProjectionAccumulator`: selected-output float64 scores, rectangular sparse pair operators, bounded annotation operands, and shared weight projection |
-| `_refpanel/adapters.py` | `R2MatrixRefPanel.open_chromosome` identity check against the run configuration; reference filtering of the sidecar; shared `prepare_chromosome` alignment/window policy |
-| `_refpanel/query.py` | `R2Matrix`: opens every chromosome through `R2MatrixChromosome` for `query-r2-matrix` |
-| `tests/` | index writer/reader/binding/remap tests; cross-mode parity gate; build→read parity |
+The modules that write and read this format are listed in the [code structure module map](../../dev/code-structure.md).

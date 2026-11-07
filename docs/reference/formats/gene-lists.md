@@ -109,26 +109,8 @@ Metadata and diagnostic tables retain those policy strings.
 For `quantile-h2`, reproduce the resolution policy and inputs used to create the fitted annotations.
 Sources: `build_parser()` in [_ldscore/workflow.py](../../../src/ldsc/_ldscore/workflow.py) and [_annotation/builder.py](../../../src/ldsc/_annotation/builder.py), and `add_quantile_h2_arguments()` in [_regression/quantile_h2.py](../../../src/ldsc/_regression/quantile_h2.py).
 
-Strict Gate A scans all focal lists and the optional control together and then
-stops if any submitted row cannot supply one valid interval. It writes the
-complete audit/summary before doing substantial LD-score work.
-
-For a preliminary screen of many pathways, explicitly choose:
-
-```text
---allow-unresolved-genes
-```
-
-This uses the resolved subset and records the exact effect in diagnostics,
-metadata, logs, and a bounded console warning. It does not relax malformed or
-unreadable inputs, duplicate query names, structural catalog/build failures,
-corrupt indexes, or an unusable requested control. A focal query with no usable
-genes, no annotation SNPs, or zero-variance LD scores is skipped while usable
-siblings continue. A gene with zero retained-SNP support is nonfatal and
-audited separately from failed resolution. A successful CLI run also prints one
-bounded Gate B notice when zero-support genes or skipped/warning queries occur;
-the detailed rows remain in the diagnostic files. The Python API returns these
-statuses and diagnostic paths without writing directly to its caller's console.
+Strict Gate A audits all focal lists and the optional control together before substantial LD-score work.
+What `--allow-unresolved-genes` omits, what it never relaxes, and the outcome for each computation mode are in [strict versus resolved-only](../results/gene-list-diagnostics.md#strict-versus-resolved-only).
 
 ## Direct query chromosome scope
 

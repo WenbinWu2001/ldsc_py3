@@ -117,45 +117,29 @@ This is a common pitfall that one can easily encounter when trying to answer the
 This is a vague question, and we'd like to clarify it here to guide a rigorous practice of the package.
 This question is essentially two questions.
 
-
-
 Question 1: How much heritability do the SNPs included in my annotation carry?
 
 This is a marginal question
 
+[[1. introduce enrichment (marginal h2): Follow the definition in the partitioned LDSC paper and add the formula, possibly following our notations consistent as above, here.]]
 
+[[2. introduce the conditional coefficeint (conditional h2 beyond baseline): quick formula or explanation]]
 
 [[Add table color marking here.]]
-
-
-
-
-
-
 
 example figures from previous papers. interpretation. one-sided or two-sided interpretation.
 
 <u>S-LDSC paper (Finucane et al. 2015): figure 4</u>
 
-The model provides both `coefficient_p` and `enrichment_p`. Which should I use? 
+Question 2: The results provide both `coefficient_p` and `enrichment_p`. Which should I use? 
 
 one-sided test
-
-
 
 enrichment
 
 The S-LDSC paper introduces this notion "enrichment"
 
-
-
 different benchmark baseline
-
-
-
-
-
-
 
 
 

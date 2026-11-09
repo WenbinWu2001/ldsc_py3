@@ -10,3 +10,6 @@ __pycache__/
 # Sphinx documentation build
 docs/_build/
 docs/reference/generated/
+
+# Local Claude Code session files
+.claude/

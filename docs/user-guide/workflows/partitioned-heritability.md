@@ -1,6 +1,6 @@
 # Partitioned heritability
 
-Last updated on: 2026-11-06
+Last updated on: 2026-11-09
 
 Partitioned heritability asks how SNP heritability is distributed across annotations, estimated with stratified LD score regression (S-LDSC; Finucane et al. 2015).
 LDSC3 runs it in two steps: `ldsc ldscore` computes LD scores for baseline annotations and any query annotations, and `ldsc partitioned-h2` fits the regression.
@@ -213,6 +213,7 @@ See [query failures](../../reference/results/partitioned-h2.md#query-failures-an
 - Existing outputs, including a stale `diagnostics/query_annotations/` tree, stop the run before anything is written; add `--overwrite` only when you intend to replace them.
   See [logs and outputs](../../reference/logs-and-outputs.md).
 - Query runs always write the per-query tree; the retired `--write-per-query-results` flag is rejected.
+- The total SNP heritability that `partitioned-h2` reports comes from the partitioned model; it estimates the same quantity as [`h2`](heritability.md) but generally differs numerically, because the two fit different models ([SNP heritability from LDSC versus partitioned heritability](../concepts/ldsc-vs-partitioned-h2.md)).
 - `prop_h2`, `category_h2_obs` and `enrichment` are regression estimates and can be negative or exceed one when estimates are noisy or annotations overlap.
 
 ## Reference

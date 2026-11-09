@@ -1,6 +1,6 @@
 # Calculate LD scores
 
-Last updated on: 2026-11-06
+Last updated on: 2026-11-09
 
 `ldsc ldscore` computes LD scores from a reference panel and writes them to an LD-score directory.
 The regression commands `h2`, `rg` and `partitioned-h2` read that directory through `--ldscore-dir` and never recompute LD scores, so one LD-score directory serves every trait you analyze with the same reference panel and annotations.
@@ -203,6 +203,8 @@ The rules and examples are in [direct LD-score query scope](../../reference/inpu
 `--query-batch-size` (default 100) sets the largest number of query annotations computed together in one pass; with 1,000 query annotations, the default runs ten query batches.
 Each query batch is written to its own query file and released before the next starts, so a smaller value lowers memory, while direct computation repeats the reference-panel pass for every query batch.
 The final output still grows with the total number of query annotations.
+In a direct-mode benchmark on chromosome 22 with 1,000 gene lists, a query batch size of 100 used 82.2% less peak temporary disk space than a batch size of 1,000 and took 1.903 times as long, with essentially unchanged peak memory ([memory and CPU design](../../dev/design/memory-and-cpu.md#diagnostics-and-verification)).
+That benchmark did not measure indexed mode, and whole-genome figures derived from it are projections.
 
 `--workers` sets how many chromosomes are computed at once; the default is one worker, and each worker adds memory for its own chromosome data.
 Annotation inputs are prepared once, serially, before the workers start.
@@ -211,6 +213,7 @@ For indexed gene-list scoring, a measured starting point is given in [Calculate 
 
 A run has no checkpoint or resume: if any chromosome fails, the run fails.
 Intermediate files stay under the output directory and are removed after a handled success or failure, and `metadata.json` is written only after every query batch succeeds.
+Leave free disk space on the file system that holds the output directory for these intermediate files.
 Memory released during a run may not show as a drop in the process's resident memory right away.
 
 ## Follow progress and fix input errors

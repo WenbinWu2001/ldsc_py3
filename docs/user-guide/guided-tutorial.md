@@ -11,7 +11,7 @@ It follows the main path only; each section links to the workflow page that cove
 | --- | --- | --- |
 | Munge summary statistics for three traits | `ldsc munge-sumstats` | `sumstats_processed/<trait>/<trait>.parquet` |
 | Analysis 1: SNP heritability | `ldsc ldscore`, then `ldsc h2` | `h2/mdd2025/h2.tsv` |
-| Analysis 2: genetic correlation | `ldsc rg`, then `ldsc plot` | `rg/mdd2025_scz2022_adhd2019/rg.tsv` |
+| Analysis 2: genetic correlation | `ldsc rg` | `rg/mdd2025_scz2022_adhd2019/rg.tsv` |
 | Analysis 3: partitioned heritability (cell-type enrichment) | `ldsc ldscore` with query annotations, then `ldsc partitioned-h2` | `partitioned-h2/mdd2025/partitioned_h2.tsv` |
 
 Analyses 1 and 2 share the same unpartitioned LD scores.
@@ -167,8 +167,6 @@ See [estimate SNP heritability](workflows/heritability.md) for every column, the
 
 **Starting here?** Run [Before you begin](#before-you-begin), munge all three traits in [Munge summary statistics](#munge-summary-statistics), and compute the LD scores in [Analysis 1, Step 1](#step-1-compute-unpartitioned-ld-scores).
 
-### Step 1: estimate genetic correlation
-
 ```bash
 LDSCORE_DIR="${OUTPUT_ROOT}/unpartitioned_ldscore"
 RG_OUTPUT_DIR="${OUTPUT_ROOT}/rg/mdd2025_scz2022_adhd2019"
@@ -199,14 +197,7 @@ rg/mdd2025_scz2022_adhd2019/
 Read `rg`, the genetic correlation, with its block-jackknife standard error `rg_se` and its nominal two-sided `p`.
 `h2_per_trait.tsv` holds each trait's SNP heritability from the same run.
 
-### Step 2: plot the result
-
-```bash
-ldsc plot --result-dir "${RG_OUTPUT_DIR}"
-```
-
-This writes `plots/rg_heatmap.png` inside the `rg` result directory: genetic correlations below the diagonal, and each trait's observed-scale SNP heritability on the diagonal.
-Plotting reads the saved results and does not refit.
+To draw a heatmap of the genetic correlations, with each trait's observed-scale SNP heritability on the diagonal, run `ldsc plot --result-dir "${RG_OUTPUT_DIR}"`; it writes `plots/rg_heatmap.png` inside the `rg` result directory.
 See [estimate genetic correlation](workflows/genetic-correlation.md) for the anchor-trait design and failed pairs, and [plotting](workflows/plotting.md) for how to read the figure.
 
 ## Analysis 3: partitioned heritability (cell-type enrichment)

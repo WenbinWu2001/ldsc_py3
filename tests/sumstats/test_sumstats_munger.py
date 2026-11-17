@@ -1849,6 +1849,44 @@ class SumstatsMungerTest(unittest.TestCase):
 
         self.assertEqual(table.data["N"].tolist(), [100.0])
 
+    def test_old_daner_log_names_header_counts_used_without_per_snp_columns(self):
+        raw_path = self.tmp_path / "daner.tsv"
+        raw_path.write_text(
+            "SNP A1 A2 FRQ_A_40 FRQ_U_60 OR P\n"
+            "rs1 A G 0.2 0.3 1.02 0.05\n",
+            encoding="utf-8",
+        )
+
+        with self.assertLogs("LDSC.sumstats_munger", level="INFO") as logs:
+            SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=raw_path, no_snp_restriction=True, output_dir=self.tmp_path / "munged"),
+                global_config=GlobalConfig(snp_identifier="rsid"),
+            )
+
+        self.assertTrue(any(
+            "N_cas = 40.0, N_con = 60.0 from the FRQ_A_/FRQ_U_ column names and applied them to every SNP" in line
+            for line in logs.output))
+
+    def test_old_daner_log_says_header_counts_are_unused_beside_per_snp_columns(self):
+        raw_path = self.tmp_path / "daner.tsv"
+        raw_path.write_text(
+            "SNP A1 A2 FRQ_A_40 FRQ_U_60 OR P Nca Nco\n"
+            "rs1 A G 0.2 0.3 1.02 0.05 10 30\n",
+            encoding="utf-8",
+        )
+
+        with self.assertLogs("LDSC.sumstats_munger", level="INFO") as logs:
+            table = SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=raw_path, no_snp_restriction=True, output_dir=self.tmp_path / "munged"),
+                global_config=GlobalConfig(snp_identifier="rsid"),
+            )
+
+        self.assertEqual(table.data["N"].tolist(), [40.0])
+        message = next(line for line in logs.output if "FRQ_A_/FRQ_U_ column names" in line)
+        self.assertIn("did not use them", message)
+        self.assertIn("per-SNP columns Nca, Nco supply N", message)
+        self.assertIn("--ignore Nca,Nco", message)
+
     def test_run_reads_lowercase_old_daner_sample_size_headers(self):
         tmpdir = self.tmp_path
         raw_path = tmpdir / "daner.tsv"

@@ -1,6 +1,6 @@
 # `munge-sumstats`
 
-Last updated on: 2026-11-06
+Last updated on: 2026-11-17
 
 This document explains the public shape of `ldsc munge-sumstats`: what it does,
 what it writes, how genome builds are handled, and how to use `--infer-only`
@@ -116,7 +116,7 @@ Supported values are `auto`, `plain`, `daner-old`, and `daner-new`.
 | --- | --- | --- | --- |
 | `auto` | Let the workflow inspect the header and choose a profile. | Not applicable; this is the default dispatcher. | Checks old DANER first, then new DANER, then falls back to `plain`. |
 | `plain` | The file is an ordinary whitespace-delimited summary-statistics table. This includes VCF-style summary-statistics tables with leading `##` metadata and a `#CHROM` header. | Fallback when DANER-specific case/control headers are not detected. | Leading `##` metadata lines are skipped before reading the header. Common aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, `BP`, `ID`, and `PVAL` are accepted. Allele columns are mapped only by name, never from `REF`/`ALT`; see [Allele columns](#allele-columns). |
-| `daner-old` | The file uses old DANER case/control counts encoded in frequency headers. | Header contains at least one `FRQ_A_*` column and at least one `FRQ_U_*` column. | Reads case/control sample sizes from the `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` header names. Select with `--input-format daner-old`. |
+| `daner-old` | The file uses old DANER case/control counts encoded in frequency headers. | Header contains at least one `FRQ_A_*` column and at least one `FRQ_U_*` column. | Reads case/control sample sizes from the `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` header names as constant fallbacks. If the header also carries per-SNP `Nca`/`Nco` or `NCAS`/`NCON` columns, `auto` still selects `daner-old`, but those columns supply N because input sample-size columns take precedence over constants; the output equals the `daner-new` output. Exclude them with `--ignore` to apply the header counts. Select with `--input-format daner-old`. |
 | `daner-new` | The file carries per-SNP case/control count columns. | Header contains `Nca`/`Nco` aliases after header normalization: either `NCA` and `NCO`, or `NCAS` and `NCON`. | Computes per-row sample size from case/control counts. If an old-style `FRQ_U_*` column is also present, inference can use it as the frequency column. Select with `--input-format daner-new`. |
 
 Automatic and explicit profile selection share column aliases, optional-field handling, validation, and the raw reader. In particular, `daner-new` does not require a `FRQ_U_*` column or exact-case `Nca/Nco` headers. The former `--format` flag and the `--daner-old` and `--daner-new` switches are removed; use `--input-format`.

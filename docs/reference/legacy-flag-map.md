@@ -1,6 +1,6 @@
 # Legacy LDSC to Current CLI Flag Map
 
-Last updated on: 2026-11-06
+Last updated on: 2026-11-17
 
 This document maps changed legacy LDSC flags to the supported `ldsc` commands and records the flag-cleanup decisions.
 Legacy LDSC source links point to `bulik/ldsc` at commit `aa33296`.
@@ -13,7 +13,7 @@ The [IO argument inventory](cli.md) lists the complete current surface, and [`mu
 | Legacy LDSC flag | Current command/flag | Current behavior |
 | --- | --- | --- |
 | `munge_sumstats.py --keep-maf` | Removed; no replacement toggle | The munger always preserves a selected input frequency column as `FRQ`, without converting it to MAF; see [frequency preservation](munge-sumstats.md#frequency-preservation). There is no `--keep-frequency` option. |
-| `munge_sumstats.py --daner` | `ldsc munge-sumstats --input-format daner-old` | Read constant case/control counts from `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers. Default `--input-format auto` can detect this profile. |
+| `munge_sumstats.py --daner` | `ldsc munge-sumstats --input-format daner-old` | Read constant case/control counts from `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers. Default `--input-format auto` can detect this profile. Per-SNP `Nca`/`Nco` or `NCAS`/`NCON` columns, when also present, take precedence over these counts; add `--ignore Nca,Nco` to apply the header counts to every SNP. See [DANER files](../user-guide/workflows/munge-sumstats.md#daner-files). |
 | `munge_sumstats.py --daner-n` | `ldsc munge-sumstats --input-format daner-new` | Retain new-DANER selection, using the same shared preparation, aliases, optional fields, validation, and reader as automatically detected new-DANER input. `Nca/Nco`, `NCAS/NCON`, and case variants use the central alias registry. `FRQ_U_*` is optional. |
 | `ldsc.py --no-intercept` with `--h2` | `ldsc h2 --intercept-h2 1` | Removed shortcut; explicitly fix the heritability intercept to 1. Omit the replacement to estimate it using the existing defaults. |
 | `ldsc.py --no-intercept` in partitioned `--h2` or `--h2-cts` runs | `ldsc partitioned-h2 --intercept-h2 1` | Removed shortcut; explicitly fix the heritability intercept to 1 in each fitted model. Omit the replacement to estimate it using the existing defaults. |

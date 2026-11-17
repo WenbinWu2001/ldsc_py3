@@ -1001,9 +1001,17 @@ def prepare_munge_input(plan: MungePlan) -> ResolvedMungeInput:
     plan.raise_issues()
     schema = plan.schema
     if schema.detected_format == 'daner-old':
-        LOGGER.info(
-            f"Inferred that N_cas = {schema.qc.N_cas}, N_con = {schema.qc.N_con} from the FRQ_[A/U] columns."
-        )
+        counts = f"N_cas = {schema.qc.N_cas}, N_con = {schema.qc.N_con} from the FRQ_A_/FRQ_U_ column names"
+        # Per-SNP sample-size columns take precedence over the header constants.
+        n_columns = ([raw for raw, field in schema.column_map.items() if field == 'N']
+                     or [raw for raw, field in schema.column_map.items() if field in ('N_CAS', 'N_CON')])
+        if n_columns:
+            LOGGER.info(
+                f"Read {counts} but did not use them: the per-SNP columns {', '.join(n_columns)} supply N. "
+                f"Add --ignore {','.join(n_columns)} to apply the column-name counts to every SNP instead."
+            )
+        else:
+            LOGGER.info(f"Read {counts} and applied them to every SNP.")
     LOGGER.info('Interpreting column names as follows:')
     LOGGER.info('\n'.join([x + ':\t' + schema.field_descriptions[x]
                        for x in schema.field_descriptions]) + '\n')

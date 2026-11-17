@@ -1,6 +1,6 @@
 # Munge summary statistics
 
-Last updated on: 2026-11-06
+Last updated on: 2026-11-17
 
 `ldsc munge-sumstats` converts raw summary statistics into munged summary statistics for LDSC3.
 See the [`munge-sumstats` reference](../../reference/munge-sumstats.md) for the full workflow and output contract.
@@ -151,6 +151,28 @@ or:
 ```
 
 For `NEFF + NCAS + NCON`, use `--N-col NEFF` when effective N is the intended quantity. The inferred `NCAS`/`NCON` columns are then suppressed automatically; `--ignore` is unnecessary.
+
+## DANER files
+
+DANER files, the summary-statistics format written by the Ricopili pipeline and used for many PGC releases, need no extra flags: the default `--input-format auto` reads them.
+`auto` chooses a profile from the header alone and checks the old DANER profile first:
+
+| Header contains | Detected format | Sample size used |
+| --- | --- | --- |
+| `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>`, without per-SNP case/control columns | `daner-old` | One case count and one control count for every SNP, read from the two column names, for example 19099 cases from `FRQ_A_19099` |
+| `Nca`/`Nco` or `NCAS`/`NCON` per-SNP columns, without `FRQ_A_`/`FRQ_U_` columns | `daner-new` | Per-SNP case and control counts from those columns |
+| Both kinds of columns | `daner-old` | Per-SNP case and control counts from `Nca`/`Nco`; the counts in the `FRQ_A_`/`FRQ_U_` names are not used |
+
+Many recent DANER files keep the `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` columns beside per-SNP `Nca` and `Nco` columns.
+For such a file, `--infer-only` prints `Detected format: daner-old`.
+This is expected and does not mean every SNP receives the same sample size.
+The run log, `diagnostics/sumstats.log`, says which counts were used, for example `Read N_cas = 19099.0, N_con = 34194.0 from the FRQ_A_/FRQ_U_ column names but did not use them: the per-SNP columns Nca, Nco supply N`; a file without per-SNP columns instead logs that the counts were applied to every SNP.
+The counts read from the column names are only a fallback: per-SNP sample-size columns always take precedence over constant counts, so N still varies by SNP, and the munged summary statistics are identical to those written with `--input-format daner-new`.
+Add `--input-format daner-new` if you prefer the detected format to name the per-SNP columns; it corresponds to legacy LDSC `--daner-n`.
+
+To give every SNP the counts encoded in the `FRQ_A_`/`FRQ_U_` names instead, which corresponds to legacy LDSC `--daner`, exclude the per-SNP columns with `--ignore Nca,Nco`.
+Per-SNP counts are usually the better choice for meta-analysed DANER files, because SNPs genotyped in fewer cohorts have a smaller sample size.
+In every case, check the sample size in the `Munge-sumstats summary:` block or the munged file before regression.
 
 ## Minimal raw input fields
 

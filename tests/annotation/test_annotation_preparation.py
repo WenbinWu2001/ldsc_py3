@@ -117,12 +117,12 @@ def test_sharded_scan_budget_does_not_shrink_with_chromosome_count(tmp_path, mon
 
 
 def test_identity_preparation_uses_only_metadata_and_never_stages_numeric_values(tmp_path, monkeypatch):
-    from ldsc._annotation.identity_cleanup import DiskIdentityIndex
+    from ldsc._annotation.identity_cleanup import IdentityIndex
 
     path = tmp_path / "base.annot"
     path.write_text("CHR SNP POS base\n1 rs1 1 1\n2 rs2 2 -0.25\n")
     original_open = Path.open
-    original_select = DiskIdentityIndex.select
+    original_select = IdentityIndex.select
     indexing = True
 
     def select(self, frame):
@@ -145,7 +145,7 @@ def test_identity_preparation_uses_only_metadata_and_never_stages_numeric_values
             assert "base" not in frame.columns
         return frame
 
-    monkeypatch.setattr(DiskIdentityIndex, "select", select)
+    monkeypatch.setattr(IdentityIndex, "select", select)
     monkeypatch.setattr(Path, "open", open_path)
     monkeypatch.setattr(pickle, "load", load)
     with ScratchWorkspace(tmp_path / "out") as workspace:

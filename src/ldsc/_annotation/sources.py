@@ -20,7 +20,7 @@ import pyarrow.parquet as pq
 
 from .._runtime.progress import report_phase, advance, PhaseProgress
 
-from .identity_cleanup import DiskIdentityIndex, IdentityDropSpool
+from .identity_cleanup import IdentityIndex, IdentityDropSpool
 from .parsing import annotation_parse_error_message, normalize_annotation_chunk, validate_annotation_values
 from .._core.chromosomes import AUTOSOMES
 from .._runtime.input_issues import INPUT_ISSUE_COLUMNS, input_issue
@@ -243,14 +243,23 @@ def stage_retained_rows(workspace, groups, group_rows, *, mode, identity_mode=No
     drops = IdentityDropSpool(workspace.path / "identity-drops")
     input_counts = {}
     index_path = workspace.path / "identity.sqlite"
-    with DiskIdentityIndex(index_path, identity_mode or mode) as identity:
+
+    def metadata_chunks():
         for group, rows in zip(groups, group_rows):
             for metadata in _aligned_metadata(group, mode, rows):
-                advance(len(metadata), object=f'annotation group ({len(group)} files)')
-                identity.add(metadata)
+                yield metadata, f'annotation group ({len(group)} files)'
+
+    with IdentityIndex(index_path, identity_mode or mode) as identity:
+        for metadata, label in metadata_chunks():
+            advance(len(metadata), object=label)
+            identity.add(metadata)
+        if identity.has_repeated_keys():
+            for metadata, label in metadata_chunks():
+                advance(0, object=label)
+                identity.add_repeated(metadata)
         selections, counts = _select_rows(groups, group_rows, workspace, identity, drops, mode,
                                          input_counts=input_counts)
-    index_path.unlink()
+    index_path.unlink(missing_ok=True)
     return RetainedRows(selections, counts, drops, _snp_row_counts(input_counts, counts))
 
 

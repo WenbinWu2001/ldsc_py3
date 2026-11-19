@@ -1,6 +1,6 @@
 # Memory and CPU efficiency design
 
-Last updated on: 2026-11-07
+Last updated on: 2026-11-18
 
 <a id="annotation-and-workflow-memory-design"></a>
 
@@ -19,7 +19,7 @@ The older annotation benchmark scripts were removed from the active tree on Sept
 
 | Design | Main owner / section | Resource effect and accepted cost |
 | --- | --- | --- |
-| Two content passes and disk-backed global identity checks | [Source preparation](#bounded-source-preparation) | Avoid a dense whole-genome annotation matrix and numeric spool; repeat input parsing/decompression. |
+| Two content passes and hash-prefiltered global identity checks | [Source preparation](#bounded-source-preparation) | Avoid a dense whole-genome annotation matrix and numeric spool; repeat input parsing/decompression; hold eight bytes per row of key hashes during the first identity pass. |
 | Exact binary classification and bit-packing | [Annotation format](#annotation-format-policy) | About 32 times smaller binary payload than float32; decode only selected tiles. |
 | Shared baseline/control plus active query preparation | [BED and gene queries](#bed-and-gene-queries) | Retain one generated query batch; preserve complete source validation outside the batch loop. |
 | Selective BED reads and unrestricted build streaming | [Genotypes and R² matrix construction](#genotype-access-and-r-matrix-construction) | Avoid whole-source/sample-filter copies; streaming rereads genotype bytes. |
@@ -130,10 +130,13 @@ The target sizes numeric tiles; it is not a total process RSS limit and does not
 
 Aligned baseline/query column files are checked positionally before chromosome partitioning.
 Corresponding rows describe one logical SNP observation.
-Both identity passes read only metadata: [`DiskIdentityIndex`](../../../src/ldsc/_annotation/identity_cleanup.py) applies drop-all duplicate cleanup across the complete logical dataset, including cross-chromosome rsID collisions.
-Its SQLite table stores narrow identity/count state with an 8 MiB page cache.
-Parameterized lookups use at most 512 keys, reduced to the connection's variable limit when necessary; lookup dictionaries cover only the current bounded tile.
-Upserts commit after at most 262,144 valid rows, with the final partial transaction committed before selection.
+Both identity passes read only metadata: [`IdentityIndex`](../../../src/ldsc/_annotation/identity_cleanup.py) applies drop-all duplicate cleanup across the complete logical dataset, including cross-chromosome rsID collisions.
+A row can belong to a duplicate or multi-allelic group only when its base key occurs on another row too.
+The first pass therefore keeps one 64-bit hash of each valid base key in memory, eight bytes per row, and then finds the hashes that occur more than once; the other hashes are released before selection.
+Only when a hash repeats does a second metadata replay add the rows with a repeated hash to `ExactKeyCounts`, a SQLite table of exact per-key row counts and allele conflicts with an 8 MiB page cache.
+Selection looks up only those rows, so a hash collision costs one exact comparison and cannot change which rows are kept, and input in which no hash repeats creates no database.
+Parameterized lookups use at most 512 keys, reduced to the connection's variable limit when necessary; lookup dictionaries cover only the repeated keys of the current bounded tile.
+Upserts commit after at most 262,144 rows, with the final partial transaction committed before the first lookup.
 The journal stays in the workspace and any temporary IN key set is bounded by the lookup batch.
 Fewer statements and commits reduce execution overhead; SQL statement counts do not measure physical disk reads.
 Invalid allele rows are excluded from duplicate clusters under the existing rules.

@@ -56,7 +56,9 @@ def normalize_annotation_chunk(df, path, snp_identifier, *, log_ignored_metadata
     if snp_col is not None:
         columns["SNP"] = df[snp_col]
     metadata = pd.DataFrame(columns)
-    metadata["CHR"] = metadata["CHR"].map(lambda value: normalize_chromosome(value, context=context))
+    # Each distinct label is checked once; a missing label still reaches the check and stops the run.
+    metadata["CHR"] = metadata["CHR"].map({label: normalize_chromosome(label, context=context)
+                                           for label in pd.unique(metadata["CHR"])})
     metadata["POS"] = pd.to_numeric(metadata["POS"], errors="raise").astype(np.int64)
     if "SNP" in metadata.columns:
         metadata["SNP"] = metadata["SNP"].astype(str)

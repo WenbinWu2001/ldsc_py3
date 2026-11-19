@@ -43,7 +43,8 @@ def iter_bim_metadata(path, *, chunk_rows=65536):
             if not (np.isfinite(positions) & positions.gt(0) & positions.eq(np.floor(positions))).all():
                 raise LDSCInputError(f"BIM grid '{path}' requires positive integer, one-based BP positions.")
             metadata = frame.loc[:, ["CHR", "SNP", "POS", "A1", "A2"]].copy()
-            metadata["CHR"] = metadata["CHR"].map(lambda value: normalize_chromosome(value, context=str(path)))
+            metadata["CHR"] = metadata["CHR"].map({label: normalize_chromosome(label, context=str(path))
+                                                   for label in pd.unique(metadata["CHR"])})
             metadata["POS"] = positions.astype(np.int64)
             metadata["CM"] = np.nan
             yield metadata.reset_index(drop=True)

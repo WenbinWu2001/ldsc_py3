@@ -295,3 +295,38 @@ def test_baseline_query_grid_mismatch_explains_the_shared_snp_grid(tmp_path, que
     assert "must list the same SNP rows in the same order" in message
     assert "--ref-snp-bim-sources" in message and "--ref-snp-annot-sources" in message
     assert "troubleshooting.html#ldscore-annotation-snp-rows-do-not-match-across-files" in message
+
+
+@pytest.mark.parametrize("reader", ["annotation", "bim"])
+def test_chromosome_labels_are_normalized_once_per_distinct_label(tmp_path, monkeypatch, reader):
+    """A grid has few chromosome labels and millions of rows: the label check runs per label, not per row."""
+    from ldsc._annotation import bim_grid, parsing
+
+    module = parsing if reader == "annotation" else bim_grid
+    original = module.normalize_chromosome
+    calls = []
+
+    def counted(value, **kwargs):
+        calls.append(value)
+        return original(value, **kwargs)
+
+    monkeypatch.setattr(module, "normalize_chromosome", counted)
+    labels = ["chr1"] * 50 + ["2"] * 50
+    if reader == "annotation":
+        frame = pd.DataFrame({"CHR": labels, "POS": range(1, 101), "SNP": [f"rs{i}" for i in range(100)], "base": 1})
+        metadata, _ = parsing.normalize_annotation_chunk(frame, "x.annot", "rsid")
+    else:
+        path = tmp_path / "grid.bim"
+        path.write_text("".join(f"{label} rs{i} 0 {i + 1} A C\n" for i, label in enumerate(labels)))
+        metadata = pd.concat(bim_grid.iter_bim_metadata(path))
+    assert metadata["CHR"].tolist() == ["1"] * 50 + ["2"] * 50
+    assert len(calls) == 2
+
+
+def test_missing_chromosome_label_still_stops_annotation_parsing():
+    from ldsc._annotation.parsing import normalize_annotation_chunk
+    from ldsc.errors import LDSCInputError
+
+    frame = pd.DataFrame({"CHR": ["1", np.nan], "POS": [1, 2], "SNP": ["rs1", "rs2"], "base": [1, 1]})
+    with pytest.raises(LDSCInputError, match="Unsupported chromosome label 'nan'"):
+        normalize_annotation_chunk(frame, "x.annot", "rsid")

@@ -161,6 +161,22 @@ The user chose to keep preparation serial because the gains do not justify the m
 The parallelism follow-up is closed, including further writer-only experiments.
 Production preparation does not consume `--workers`; existing chromosome computation parallelism is unchanged.
 
+A November 18, 2026 measurement ran `ldsc annotate` in `rsid` mode on the 22 `baseline_v1.2` annotation files (9,997,231 rows, 53 annotation columns) with one gene list, on an Apple M1 Pro with a local SSD.
+It compared `d1e4c60b` with the change that added the hash prefilter, checked each distinct chromosome label once instead of once per row, and moved the `.annot.gz` export to the Arrow CSV writer at gzip level 6.
+Wall time fell from 574 s to 127 s (116 s in a second run); peak RSS was 454 MiB before and 425 MiB and 544 MiB in the two runs after.
+
+| Phase | Before | After |
+| --- | ---: | ---: |
+| First content pass (classification and metadata) | 39.0 s | 29.6 s |
+| Identity indexing | 62.1 s | 2.8 s |
+| Retained-row selection | 44.3 s | 6.5 s |
+| Retained values (second content pass) | 24.7 s | 27.0 s |
+| Baseline and query export | about 400 s | about 60 s |
+
+Read back from the exported files, every baseline and query value, the SNP metadata and the diagnostics tables were identical before and after.
+These files hold no repeated SNP identity, so the exact table was never created; the measurement does not cover input with many repeated identities.
+On Longleaf, with the output directory on a network file system, the same command at `d1e4c60b` took 2,475 s, of which 1,561 s was retained-row selection; the change has not been measured there.
+
 ## Annotation format policy
 
 Type follows processing logic and complete value evidence, independently of baseline/query membership.

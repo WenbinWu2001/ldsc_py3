@@ -12,9 +12,53 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.csv as pacsv
 
 from .._runtime.artifacts import ArtifactFamily, atomic_write_json, declare_artifacts
 from .._runtime.paths import remove_output_artifacts
+from ..errors import LDSCInputError
+
+# Level 6 compresses annotation text several times faster than level 9, the gzip.open default, for slightly larger files.
+_GZIP_LEVEL = 6
+_TEXT_OPTIONS = pacsv.WriteOptions(delimiter='\t', quoting_style='none', quoting_header='none')
+
+
+def _metadata_table(metadata):
+    """Return SNP metadata as an Arrow table in which a missing value is the text ``NA``."""
+    return pa.table({name: pa.array(column.astype('string').fillna('NA') if column.isna().any() else column)
+                     for name, column in metadata.items()})
+
+
+def _write_annotation_file(path, bundle, chrom, metadata, columns, dtype):
+    """Write one chromosome's ``columns`` as a tab-delimited ``.annot.gz`` file in bounded row tiles.
+
+    ``metadata`` is the chromosome's ``_metadata_table`` and ``dtype`` the type the
+    values are written in. Text is unquoted, so a double quote, tab or line break
+    in a SNP identifier, allele or annotation name stops the write.
+    """
+    row_batch = max(1, min(65536, 16 * 1024 * 1024 // (8 * max(1, len(columns) + metadata.num_columns))))
+    names = [*metadata.column_names, *columns]
+    try:
+        with gzip.open(path, 'wb', compresslevel=_GZIP_LEVEL) as stream:
+            writer = None
+            for start in range(0, metadata.num_rows, row_batch):
+                stop = min(start + row_batch, metadata.num_rows)
+                # Column-major values give Arrow each column without a copy.
+                values = np.asfortranarray(bundle.read(chrom, rows=slice(start, stop), columns=columns), dtype=dtype)
+                tile = pa.Table.from_arrays([*metadata.slice(start, stop - start).columns,
+                                             *(pa.array(values[:, index]) for index in range(len(columns)))], names=names)
+                if writer is None:
+                    writer = pacsv.CSVWriter(stream, tile.schema, write_options=_TEXT_OPTIONS)
+                writer.write_table(tile)
+            if writer is not None:
+                writer.close()
+    except pa.ArrowInvalid as exc:
+        raise LDSCInputError(
+            f"Cannot write annotation file '{path}': a SNP identifier, allele or annotation name contains a "
+            f"double quote, tab or line break, which an annotation file cannot hold ({exc}). "
+            "Rename the affected value in the input files and run again."
+        ) from exc
 
 
 class AnnotationDirectoryWriter:
@@ -67,8 +111,10 @@ class AnnotationDirectoryWriter:
         return paths
 
     def write(self, bundle, output_dir, *, overwrite=False, provenance=None, scope=None, catalog_issues=None, preflighted=False):
-        """Write supplied baselines as float32 and generated queries as 0/1 text.
+        """Write supplied baseline values and generated 0/1 queries as annotation text.
 
+        Baseline values are written as the shortest text that reads back as
+        the same float32 value, so an integer value has no decimal point.
         Both families share cleaned metadata, rows, and chromosome order. Numeric
         tile width is bounded by the family column count; source files are never
         modified. Query-only bundles emit no baseline family. Return the written
@@ -92,18 +138,10 @@ class AnnotationDirectoryWriter:
         for chrom in bundle.chromosomes:
             metadata = bundle.metadata_for_chromosome(chrom).rename(columns={'POS': 'BP'})
             preferred = [name for name in ('CHR', 'BP', 'SNP', 'CM') if name in metadata]
-            metadata = metadata.loc[:, [*preferred, *[name for name in metadata if name not in preferred]]]
+            metadata = _metadata_table(metadata.loc[:, [*preferred, *[name for name in metadata if name not in preferred]]])
             for role, columns in groups:
                 path = output_dir / f'{role}.{chrom}.annot.gz'
-                row_batch = max(1, min(65536, 16 * 1024 * 1024 // (8 * max(1, len(columns) + len(metadata.columns)))))
-                with gzip.open(path, 'wt') as stream:
-                    for start in range(0, len(metadata), row_batch):
-                        stop = min(start + row_batch, len(metadata))
-                        values = bundle.read(chrom, rows=slice(start, stop), columns=columns)
-                        annotations = pd.DataFrame(values.astype(np.uint8) if role == 'query' else values,
-                                                   columns=columns)
-                        frame = pd.concat([metadata.iloc[start:stop].reset_index(drop=True), annotations], axis=1)
-                        frame.to_csv(stream, sep='\t', index=False, header=start == 0, na_rep='NA')
+                _write_annotation_file(path, bundle, chrom, metadata, columns, np.uint8 if role == 'query' else np.float32)
                 written[f'{role}_annotations'].append(path)
             del metadata
         config = bundle.config_snapshot

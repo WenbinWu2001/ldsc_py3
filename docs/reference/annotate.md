@@ -1,6 +1,6 @@
 # `annotate`
 
-Last updated on: 2026-11-06
+Last updated on: 2026-11-18
 
 `ldsc annotate` projects BED intervals or gene lists onto an annotation SNP grid and writes reusable query annotation files.
 This page is the exact contract; the task guide is [Create reusable SNP annotations](../user-guide/workflows/annotations.md), and every option is listed by `ldsc annotate --help`.
@@ -98,7 +98,7 @@ Python callers receive the statuses and output paths instead; `run_annotate()` p
 | Path | Content |
 | --- | --- |
 | `query.<chrom>.annot.gz` | Query annotation columns, identical and in the same order in every chromosome file; skipped queries are omitted. |
-| `baseline.<chrom>.annot.gz` | Annotation grid only: the supplied baseline values on the cleaned grid rows, as float32, including continuous values; the original files are not changed. |
+| `baseline.<chrom>.annot.gz` | Annotation grid only: the supplied baseline values on the cleaned grid rows, including continuous values, written as text that reads back as the same float32 values; the original files are not changed. |
 | `diagnostics/metadata.json` | Provenance; fields are listed in [artifact metadata](formats/artifact-metadata.md#annotate). |
 | `diagnostics/annotate.log` | Workflow log. |
 | `diagnostics/dropped_snps/dropped.tsv.gz` | Grid rows dropped by SNP identity cleanup. |
@@ -107,5 +107,7 @@ Python callers receive the statuses and output paths instead; `run_annotate()` p
 | `diagnostics/gene_catalog_issues.tsv`, `diagnostics/input_issues.tsv`, `diagnostics/chromosome_scope.json` | Written when the corresponding issue or scope record exists. |
 
 Annotation files use the columns `CHR`, `BP`, `SNP` and `CM` with an explicit `CM=NA`, keep the allele columns, carry no `MAF`, and store query values as integers 0 and 1.
+Baseline values are written as the shortest text that reads back as the same float32 value, so an integer value such as 1 has no decimal point.
+The files are unquoted tab-delimited text compressed at gzip level 6: a SNP identifier, allele or annotation name that contains a double quote, tab or line break stops the run with an error that names the value.
 Pass the exported files to `ldscore` with `--baseline-annot-sources` and `--query-annot-sources`; columns from a BIM grid can also serve as baseline annotations when they define the intended baseline model.
 Diagnostics are written before scientific outputs, and output preflight, `--overwrite` and failure markers follow the [logging and output rules](logs-and-outputs.md#output-family-preflight).

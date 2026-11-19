@@ -1,6 +1,6 @@
 # Column Schema: Canonical Names, Data Types, and Ordering
 
-Last updated on: 2026-11-06
+Last updated on: 2026-11-18
 
 This document is the single source of truth for column conventions across all
 Python-written artifacts in this package. It governs `_core/columns.py`, all
@@ -191,7 +191,7 @@ truth for any computation or validation.
 Packed files store eight SNP rows per uint8 in column-major order, with explicit little bit order and logical row count in the descriptor.
 Public default reads preserve baseline-then-query input order through explicit column mapping, independently of the binary/continuous files.
 Numerical kernels accumulate LD scores, annotation sums, and overlap products in float64.
-The `.annot.gz` writer retains generated integer query text `0`/`1` and supplied baseline values at float32 precision; LD-score Parquet values retain float32.
+The `.annot.gz` writer retains generated integer query text `0`/`1` and supplied baseline values at float32 precision, as the shortest text that reads back as the same float32 value; LD-score Parquet values retain float32.
 See [annotation format policy](../../dev/design/memory-and-cpu.md#annotation-format-policy) for the two-pass preparation, encoding, selected reads, and size contracts.
 
 ### On-disk dtypes (parquet)

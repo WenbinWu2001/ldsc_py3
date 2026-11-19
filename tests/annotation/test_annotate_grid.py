@@ -1,5 +1,6 @@
 """Standalone grid/output contracts, with independently expected SNP rows."""
 
+import gzip
 import json
 from pathlib import Path
 
@@ -105,7 +106,6 @@ def test_bim_gene_and_bed_projection_share_identity_and_boundaries(tmp_path, mod
     from tests.annotation.test_annotate_streaming import inputs
     _, genes, bed, catalog = inputs(tmp_path)
     bim = tmp_path / 'grid.bim.gz'
-    import gzip
     with gzip.open(bim, 'wt') as stream:
         stream.write(''.join(f'1 rs{i} 0 {pos} A C\n' for i, pos in enumerate([100, 101, 110, 111])))
         stream.write('1 bad 0 105 A N\n')
@@ -222,3 +222,88 @@ def test_cli_grid_selection_requires_exactly_one_grid():
     for sources in [[], ['--ref-snp-bim-sources', 'grid.bim', '--ref-snp-annot-sources', 'grid.annot']]:
         with pytest.raises(SystemExit):
             build_parser().parse_args([*common, *sources])
+
+
+def _exported_lines(path):
+    with gzip.open(path, 'rt') as stream:
+        return stream.read().splitlines()
+
+
+def test_exported_annotation_text_keeps_columns_tokens_and_gzip_level(tmp_path):
+    baseline, bed, output = tmp_path / 'input.annot', tmp_path / 'focal.bed', tmp_path / 'out'
+    baseline.write_text('CHR SNP BP A1 A2 binary continuous\n'
+                        '1 rs1 100 A C 1 0.25\n'
+                        '1 rs2 110 NA NA 0 1e-30\n'
+                        '1 rs3 120 G T 1 3\n')
+    bed.write_text('1\t109\t110\n')
+    run_annotate(ref_snp_annot_sources=[baseline], query_annot_bed_sources=[bed],
+                 global_config=GlobalConfig(snp_identifier='rsid'), output_dir=output)
+    # Integer-valued baseline values are written without a decimal point; missing metadata is NA.
+    assert _exported_lines(output / 'baseline.1.annot.gz') == [
+        'CHR\tBP\tSNP\tCM\tA1\tA2\tbinary\tcontinuous',
+        '1\t100\trs1\tNA\tA\tC\t1\t0.25',
+        '1\t110\trs2\tNA\tNA\tNA\t0\t1e-30',
+        '1\t120\trs3\tNA\tG\tT\t1\t3',
+    ]
+    assert _exported_lines(output / 'query.1.annot.gz') == [
+        'CHR\tBP\tSNP\tCM\tA1\tA2\tfocal',
+        '1\t100\trs1\tNA\tA\tC\t0',
+        '1\t110\trs2\tNA\tNA\tNA\t1',
+        '1\t120\trs3\tNA\tG\tT\t0',
+    ]
+    # Byte 8 of a gzip header is 2 at the maximum level and 4 at the fastest; level 6 writes 0.
+    for name in ('baseline.1.annot.gz', 'query.1.annot.gz'):
+        assert (output / name).read_bytes()[8] == 0
+
+
+def test_exported_baseline_values_read_back_as_the_same_float32(tmp_path):
+    rng = np.random.default_rng(20261118)
+    random_bits = rng.integers(0, 2**32, size=4000, dtype=np.uint64).astype(np.uint32).view(np.float32)
+    special = np.array([1.1754944e-38, 1.4e-45, 3.4028235e38, -3.4028235e38, 1e-30, -2.5e-7, 0.1, 1 / 3,
+                        16777216, 123456.79, 5e-5, 0, 1], dtype=np.float32)
+    values = np.concatenate([special, random_bits[np.isfinite(random_bits)]])[:2000]
+    assert len(values) == 2000
+    baseline, bed, output = tmp_path / 'input.annot', tmp_path / 'focal.bed', tmp_path / 'out'
+    with baseline.open('w') as stream:
+        stream.write('CHR SNP BP continuous\n')
+        for row, value in enumerate(values):
+            stream.write(f'1 rs{row} {row + 1} {np.format_float_scientific(value, unique=True)}\n')
+    bed.write_text('1\t0\t10\n')
+    run_annotate(ref_snp_annot_sources=[baseline], query_annot_bed_sources=[bed],
+                 global_config=GlobalConfig(snp_identifier='rsid'), output_dir=output)
+    exported = pd.read_csv(output / 'baseline.1.annot.gz', sep=r'\s+')
+    np.testing.assert_array_equal(exported['continuous'].to_numpy(dtype=np.float32), values)
+    assert exported['SNP'].tolist() == [f'rs{row}' for row in range(len(values))]
+
+
+def test_wide_query_family_is_exported_across_several_row_tiles(tmp_path):
+    # 300 query columns give 6,898-row tiles, so 15,000 rows span three of them.
+    n_rows, n_queries = 15000, 300
+    baseline, output = tmp_path / 'input.annot', tmp_path / 'out'
+    positions = np.arange(1, n_rows + 1)
+    pd.DataFrame({'CHR': 1, 'SNP': [f'rs{p}' for p in positions], 'BP': positions, 'base': 1}).to_csv(
+        baseline, sep='\t', index=False)
+    beds = []
+    for query in range(n_queries):
+        beds.append(tmp_path / f'q{query:03d}.bed')
+        beds[-1].write_text(f'1\t{query * 50}\t{query * 50 + 25}\n')
+    result = run_annotate(ref_snp_annot_sources=[baseline], query_annot_bed_sources=beds,
+                          global_config=GlobalConfig(snp_identifier='rsid'), output_dir=output)
+    exported = pd.read_csv(output / 'query.1.annot.gz', sep=r'\s+')
+    names = [f'q{query:03d}' for query in range(n_queries)]
+    assert result.query_columns == names
+    assert list(exported.columns) == ['CHR', 'BP', 'SNP', 'CM', *names]
+    assert exported['BP'].tolist() == positions.tolist()
+    # BED [start, end) is zero-based half-open: it covers one-based positions start + 1 through end.
+    starts = np.arange(n_queries) * 50
+    expected = (positions[:, None] > starts) & (positions[:, None] <= starts + 25)
+    np.testing.assert_array_equal(exported[names].to_numpy(), expected.astype(np.int64))
+
+
+def test_identifier_that_unquoted_text_cannot_hold_stops_the_export(tmp_path):
+    baseline, bed = tmp_path / 'input.annot', tmp_path / 'focal.bed'
+    baseline.write_text('CHR SNP BP base\n1 rs"1 100 1\n1 rs2 110 1\n')
+    bed.write_text('1\t109\t110\n')
+    with pytest.raises(LDSCInputError, match='double quote, tab or line break'):
+        run_annotate(ref_snp_annot_sources=[baseline], query_annot_bed_sources=[bed],
+                     global_config=GlobalConfig(snp_identifier='rsid'), output_dir=tmp_path / 'out')
